@@ -1,0 +1,57 @@
+name: CMake on Linux (x86_64)
+
+on:
+  #push:
+ #  branches: [ $default-branch ]
+  pull_request:
+    branches: [ "main" , "54-add-a-runtime-compilation-version-of-the-library-for-nvidia-gpus" ]
+
+jobs:
+  build:
+    runs-on:   [self-hosted, linux, x64]
+
+    strategy:
+      # Set fail-fast to false to ensure that feedback is delivered for all matrix combinations. Consider changing this to true when your workflow is stable.
+      fail-fast: false
+
+      matrix:        
+        build_type: [Release]
+        cpp_compiler: [g++,clang++]   
+              
+ 
+           
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set reusable strings
+      # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
+      id: strings
+      run: |      
+          echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"        
+    
+    - name: Configure CMake      
+      run: >                 
+        cmake -G "Unix Makefiles" -B ${{steps.strings.outputs.build-output-dir}}
+        -DCMAKE_CXX_COMPILER=${{matrix.cpp_compiler}}        
+        -DCMAKE_BUILD_TYPE=${{matrix.build_type}}        
+        -S ${{github.workspace}};        
+ 
+    - name: Build
+      # Build your program with the given configuration. Note that --config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).      
+      run: >           
+        core_count=$(nproc)
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} 
+        --config ${{ matrix.build_type }} --parallel $core_count
+                     
+    - name: Test
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      # Execute tests defined by the CMake configuration. Note that --build-config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).
+      # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
+      run: ctest --build-config ${{ matrix.build_type }} --output-junit test_results.xml
+    - name: JUnit Report Action
+      uses: mikepenz/action-junit-report@v5
+      if: success() || failure() # always run even if the previous step fails
+      with:
+        report_paths: '**/build/test_results.xml'
+        include_passed: true
+        detailed_summary: true

@@ -1,0 +1,62 @@
+name: CMake on Windows (x64)
+
+on:
+  #push:
+ #  branches: [ $default-branch ]
+  pull_request:
+    branches: [ "main" , "54-add-a-runtime-compilation-version-of-the-library-for-nvidia-gpus" ]
+
+jobs:
+  build:
+    runs-on:   [self-hosted, windows, x64]
+
+    strategy:
+      # Set fail-fast to false to ensure that feedback is delivered for all matrix combinations. Consider changing this to true when your workflow is stable.
+      fail-fast: false 
+      matrix:
+        build_type: [Release]
+        toolset: ["v141,cuda=11.8","v143,cuda=12.9","ClangCl,cuda=12.9"]        
+        cpp_compiler: [cl]    #todo:test clang-cl? ???    
+   
+
+        #  - os: jetsonnanoorin
+         #   cpp_compiler: clang++
+                    
+    steps:
+    - uses: actions/checkout@v4
+
+  
+    - name: Set reusable strings  
+      # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
+      id: strings      
+      run: |      
+          echo "build-output-dir=${{github.workspace}}/build" >> "$env:GITHUB_OUTPUT"        
+             
+
+    - name: Configure CMake      
+      run: |         
+        $vsWhere = "${Env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"   
+        $vsInstallationPath = & $vsWhere -products * -latest -property installationPath
+        & "${vsInstallationPath}\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation                
+        cmake -G "Visual Studio 17 2022"  -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE=${{matrix.build_type}} -T ${{matrix.toolset}} -S ${{github.workspace}};        
+ 
+    - name: Build  
+      # Build your program with the given configuration. Note that --config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).      
+      run: |             
+        $vsWhere = "${Env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"   
+        $vsInstallationPath = & $vsWhere -products * -latest -property installationPath
+        & "${vsInstallationPath}\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation         
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }} --parallel $env:ProcessorCount               
+          
+    - name: Test
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      # Execute tests defined by the CMake configuration. Note that --build-config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).
+      # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
+      run: ctest --build-config ${{ matrix.build_type }} --output-junit test_results.xml
+    - name: JUnit Report Action
+      uses: mikepenz/action-junit-report@v5
+      if: success() || failure() # always run even if the previous step fails
+      with:
+        report_paths: '**/build/test_results.xml'
+        include_passed: true
+        detailed_summary: true
