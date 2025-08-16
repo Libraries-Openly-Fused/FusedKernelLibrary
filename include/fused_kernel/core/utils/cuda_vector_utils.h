@@ -332,16 +332,16 @@ inline constexpr typename std::enable_if_t<fk::validCUDAVec<T>, std::ostream&> o
 // The user is responsible for knowing the type conversion hazards, inherent to the C++ language.
 #define VEC_UNARY_UNIVERSAL(op) \
 template <typename T> \
-FK_HOST_DEVICE_CNST auto operator op(const T& a) -> std::enable_if_t<fk::validCUDAVec<T>, fk::VectorType_t<decltype( op ## std::declval<T>()), fk::cn<T>>> { \
-    using O = fk::VectorType_t<decltype( op ## std::declval<T>()), fk::cn<T>>; \
+FK_HOST_DEVICE_CNST auto operator op(const T& a) -> std::enable_if_t<fk::validCUDAVec<T>, fk::VectorType_t<decltype(op std::declval<fk::VBase<T>>()), fk::cn<T>>> { \
+    using O = fk::VectorType_t<decltype(op std::declval<fk::VBase<T>>()), fk::cn<T>>; \
     if constexpr (fk::cn<T> == 1) { \
-        return fk::make_<O>( op ## a.x); \
+        return fk::make_<O>(op a.x); \
     } else if constexpr (fk::cn<T> == 2) { \
-        return fk::make_<O>( op ## a.x, op ## a.y); \
+        return fk::make_<O>(op a.x, op a.y); \
     } else if constexpr (fk::cn<T> == 3) { \
-        return fk::make_<O>( op ## a.x, op ## a.y, op ## a.z); \
+        return fk::make_<O>(op a.x, op a.y, op a.z); \
     } else { \
-        return fk::make_<O>( op ## a.x, op ## a.y, op ## a.z, op ## a.w); \
+        return fk::make_<O>(op a.x, op a.y, op a.z, op a.w); \
     } \
 }
 
