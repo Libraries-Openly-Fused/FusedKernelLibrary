@@ -22,7 +22,11 @@ jobs:
            
     steps:
     - uses: actions/checkout@v4
-
+    - name: Add to PATH
+      shell: bash
+      run: |
+        echo "/usr/lib/llvm-19/bin" >> $GITHUB_PATH
+    
     - name: Set reusable strings
       # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
       id: strings
