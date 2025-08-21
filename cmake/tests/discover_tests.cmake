@@ -1,5 +1,5 @@
 include (${CMAKE_SOURCE_DIR}/cmake/tests/add_generated_test.cmake)
-function (discover_gen_libs DIR LIBS_SATURATE)
+function (discover_gen_libs DIR LIBS_FUNDAMENTAL_TYPE)
     file(
             GLOB_RECURSE
             TEST_SOURCES
@@ -20,8 +20,8 @@ function (discover_gen_libs DIR LIBS_SATURATE)
         get_filename_component(TARGET_NAME ${TEST_SOURCE_CPP} NAME_WE)                   
         cmake_path(GET TEST_SOURCE_CPP RELATIVE_PART DIR_RELATIVE_PATH)     
         string(REPLACE "${PROJECT_NAME}/" " " DIR_RELATIVE_PATH "${DIR_RELATIVE_PATH}") #remove the project name from the relative path
-        set(LIBS_SATURATE1 "" )
-     
+        set(LIBS_FUNDAMENTAL_TYPE1 "" )
+      
         set (FUNDAMENTAL_TYPES uchar char ushort short uint int ulong long ulonglong longlong float double) 
         foreach(FUNDAMENTAL_TYPE ${FUNDAMENTAL_TYPES})                
             set(TEST_GENERATED_SOURCE_H_N "${CMAKE_BINARY_DIR}/${TARGET_NAME}/${TARGET_NAME}_${FUNDAMENTAL_TYPE}.h") #use the same name as the target	)       
@@ -36,7 +36,7 @@ function (discover_gen_libs DIR LIBS_SATURATE)
             add_generated_lib("${TARGET_NAME}_${FUNDAMENTAL_TYPE}" "${TEST_GENERATED_SOURCE_CPP_N};${TEST_GENERATED_SOURCE_H_N};" "${EXTENSION}" "${DIR_RELATIVE_PATH}")                 
             add_generated_export_header_to_target("${TARGET_NAME}_${FUNDAMENTAL_TYPE}")
  
-            list(APPEND LIBS_SATURATE1 ${TARGET_NAME}_${FUNDAMENTAL_TYPE})
+            list(APPEND LIBS_FUNDAMENTAL_TYPE1 ${TARGET_NAME}_${FUNDAMENTAL_TYPE})
             if (CMAKE_CUDA_COMPILER AND ENABLE_CUDA) 
                 set(EXTENSION cu)       
                 add_cuda_to_test("${TARGET_NAME}_${FUNDAMENTAL_TYPE}")                   
@@ -47,9 +47,9 @@ function (discover_gen_libs DIR LIBS_SATURATE)
             endif()
         endforeach()
         
- 
-    set(LIBS_SATURATE ${LIBS_SATURATE1} PARENT_SCOPE)
-  
+
+    set(LIBS_FUNDAMENTAL_TYPE "${LIBS_FUNDAMENTAL_TYPE1}" PARENT_SCOPE)
+   #message(STATUS "Found libraries in ${DIR}: ${LIBS_FUNDAMENTAL_TYPE}")
       
 endfunction()
 

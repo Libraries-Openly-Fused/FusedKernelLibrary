@@ -13,6 +13,9 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
+#ifndef FK_UTEST_SATURATE_@FUNDAMENTAL_TYPE_UPPER@_H
+#define FK_UTEST_SATURATE_@FUNDAMENTAL_TYPE_UPPER@_H
+
 #include <fused_kernel/algorithms/image_processing/saturate.h>
 #include <fused_kernel/algorithms/basic_ops/cast.h>
 #include <fused_kernel/core/utils/cuda_vector_utils.h>
@@ -156,4 +159,5 @@ return correct ? 0 : -1;
 int UTEST_SATURATE_@FUNDAMENTAL_TYPE_UPPER@_EXPORT launch@FUNDAMENTAL_TYPE@();
 #else
 int  EXPORT_FN_@FUNDAMENTAL_TYPE_UPPER@  launch@FUNDAMENTAL_TYPE@();
+#endif
 #endif

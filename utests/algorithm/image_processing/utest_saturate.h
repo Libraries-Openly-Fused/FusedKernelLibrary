@@ -12,7 +12,8 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License. */
-
+#ifndef FK_UTEST_SATURATE_H
+#define FK_UTEST_SATURATE_H
 #include "utest_saturate_char.h"
 #include "utest_saturate_double.h"
 #include "utest_saturate_float.h"
@@ -42,3 +43,4 @@ int launch() {
     return 0;
 }
 
+#endif

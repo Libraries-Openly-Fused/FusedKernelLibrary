@@ -22,14 +22,23 @@ foreach(DIR ${LIST_DIRS})
 endforeach()
 
 set (LIBS_SATURATE "")
- 
- 
-set (ROOT_TEST_DIR "utests")
-discover_gen_libs("${CMAKE_SOURCE_DIR}/utests/algorithm/image_processing" "${LIBS_SATURATE}")
-if(${ENABLE_CPU})
+set (LIBS_VECTOR_UTILS "")
+  
+if(${ENABLE_CPU}) 
+    discover_gen_libs("${CMAKE_SOURCE_DIR}/utests/algorithm/image_processing" "${LIBS_SATURATE}")
     target_include_directories(utest_saturate_cpp PRIVATE ${CMAKE_BINARY_DIR}/utest_saturate/)
-    target_link_libraries(utest_saturate_cpp PRIVATE ${LIBS_SATURATE})
+    target_link_libraries(utest_saturate_cpp PRIVATE ${LIBS_FUNDAMENTAL_TYPE})     
+endif()
 
+if(${ENABLE_CUDA})
+    target_include_directories(utest_saturate_cu PRIVATE ${CMAKE_BINARY_DIR}/utest_saturate/)
+    target_link_libraries(utest_saturate_cu PRIVATE ${LIBS_FUNDAMENTAL_TYPE})
+endif()
+
+if(${ENABLE_CPU})
+    discover_gen_libs("${CMAKE_SOURCE_DIR}/utests/core/utils" "${LIBS_FUNDAMENTAL_TYPE}")
+    target_include_directories(utest_cuda_vector_utils_cpp PRIVATE ${CMAKE_BINARY_DIR}/utest_cuda_vector_utils/)
+    target_link_libraries(utest_cuda_vector_utils_cpp PRIVATE ${LIBS_FUNDAMENTAL_TYPE})
     if (MSVC)
     #   // MSVC
     #   // C4804: 'operation': unsafe use of type 'bool' in operation
@@ -53,12 +62,8 @@ if(${ENABLE_CPU})
         target_compile_options(utest_cuda_vector_utils_cpp PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-bool-operation>)
         target_compile_options(utest_cuda_vector_utils_cpp PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-switch-bool>)
     endif()
-
-endif()
-if(${ENABLE_CUDA})
-    target_include_directories(utest_saturate_cu PRIVATE ${CMAKE_BINARY_DIR}/utest_saturate/)
-    target_link_libraries(utest_saturate_cu PRIVATE ${LIBS_SATURATE})
 endif()
 
 
  
+
