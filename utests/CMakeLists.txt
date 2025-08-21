@@ -20,4 +20,20 @@ foreach(DIR ${LIST_DIRS})
     set (ROOT_TEST_DIR "utests")
     discover_tests(${DIR})    
 endforeach()
+
+set (LIBS_SATURATE "")
+ 
+ 
+set (ROOT_TEST_DIR "utests")
+discover_gen_libs("${CMAKE_SOURCE_DIR}/utests/algorithm/image_processing" "${LIBS_SATURATE}")
+if(${ENABLE_CPU})
+    target_include_directories(utest_saturate_cpp PRIVATE ${CMAKE_BINARY_DIR}/utest_saturate/)
+    target_link_libraries(utest_saturate_cpp PRIVATE ${LIBS_SATURATE})
+endif()
+if(${ENABLE_CUDA})
+    target_include_directories(utest_saturate_cu PRIVATE ${CMAKE_BINARY_DIR}/utest_saturate/)
+    target_link_libraries(utest_saturate_cu PRIVATE ${LIBS_SATURATE})
+endif()
+
+
  

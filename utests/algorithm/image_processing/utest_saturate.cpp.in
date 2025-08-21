@@ -1,0 +1,41 @@
+﻿/* Copyright 2025 Oscar Amoros Huguet
+   Copyright 2025 Grup Mediapro S.L.U
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License. */
+
+ 
+
+
+#include "utest_saturate_@FUNDAMENTAL_TYPE@.h"
+ 
+
+START_ADDING_TESTS@FUNDAMENTAL_TYPE@
+using Fundamental = fk::RemoveType_t<0, fk::StandardTypes>;
+addAllOutputTestsForInput@FUNDAMENTAL_TYPE@<Fundamental,@FUNDAMENTAL_TYPE@>(std::make_index_sequence<Fundamental::size>{});
+STOP_ADDING_TESTS@FUNDAMENTAL_TYPE@
+ 
+#ifdef WIN32
+int  UTEST_SATURATE_@FUNDAMENTAL_TYPE_UPPER@_EXPORT launch@FUNDAMENTAL_TYPE@() {
+   RUN_ALL_TESTS@FUNDAMENTAL_TYPE@
+   return 0;
+}
+
+#else
+ // You can add more tests for other type combinations as needed.
+int EXPORT_FN_@FUNDAMENTAL_TYPE_UPPER@ launch@FUNDAMENTAL_TYPE@() {
+   RUN_ALL_TESTS@FUNDAMENTAL_TYPE@
+   return 0;
+}
+#endif
+
+ 
