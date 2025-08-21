@@ -26,25 +26,6 @@
 #include <vector>
 #include <string>
 
-#if defined(_MSC_VER)
-   // MSVC
-   // C4804: 'operation': unsafe use of type 'bool' in operation
-   // C4805: 'operation': unsafe mix of type 'type' and type 'bool' in operation
-   // C4806: 'case': unsafe case statement that forces value to bool 'true' or 'false'
-#pragma warning(disable : 4804 4805 4806)
-
-#elif defined(__clang__)
-   // Clang
-#pragma clang diagnostic ignored "-Wbool-compare"    // Compares a bool with an integer other than 0 or 1
-#pragma clang diagnostic ignored "-Wbool-operation"  // e.g., using bitwise operations on bools
-#pragma clang diagnostic ignored "-Wswitch-bool"     // e.g., switch(myBool) { case 123: ... }
-
-#elif defined(__GNUC__)
-   // GCC
-#pragma GCC diagnostic ignored "-Wbool-compare"      // Compares a bool with an integer other than 0 or 1
-// Note: GCC does not have direct equivalents for C4804 and C4806.
-// The broader -Wconversion flag might catch some cases but is often too aggressive to disable globally.
-#endif
 
 namespace fk::test {
     // Track compilation results
