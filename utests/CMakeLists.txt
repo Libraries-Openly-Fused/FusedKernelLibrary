@@ -56,7 +56,7 @@ if(${ENABLE_CPU})
         target_compile_options(utest_cuda_vector_utils_cpp PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-bool-operation>)
         target_compile_options(utest_cuda_vector_utils_cpp PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-switch-bool>)
     endif()
-     if (CMAKE_CXX_COMPILER_ID STREQUAL "gcc")
+     if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     #     // Note: GCC does not have direct equivalents for C4804 and C4806.--->but gcc and clang implement the same flags??
         target_compile_options(utest_cuda_vector_utils_cpp PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-bool-compare>)
         target_compile_options(utest_cuda_vector_utils_cpp PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-bool-operation>)
