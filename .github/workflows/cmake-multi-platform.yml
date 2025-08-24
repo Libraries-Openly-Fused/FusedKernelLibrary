@@ -62,7 +62,8 @@ jobs:
       run: >
         cmake -G "Ninja" -B ${{ steps.strings.outputs.build-output-dir }}
         -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}        
-        -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} 
+        -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+        -DCUDA_ARCH="87;"
         -S ${{ github.workspace }}
 
     - name: Build
