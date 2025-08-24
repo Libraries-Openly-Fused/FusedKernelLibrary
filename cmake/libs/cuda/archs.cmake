@@ -39,7 +39,7 @@ if (${CUDA_VERSION_MAJOR} LESS 13)
     set (GPU_MINUM70 "")  
     #nvcc automatically builds all gpu arch with all, so we need to remove <7.0
     if ("${CUDA_ARCH}" STREQUAL "all" OR "${CUDA_ARCH}" STREQUAL "all-major")  
-        execute_process(COMMAND "${CUDA_TOOLKIT_ROOT_DIR}/bin/nvcc.exe" "--list-gpu-arch" 
+        execute_process(COMMAND "${CUDA_TOOLKIT_ROOT_DIR}/bin/nvcc" "--list-gpu-arch" 
         OUTPUT_VARIABLE GPU_ARCHS OUTPUT_STRIP_TRAILING_WHITESPACE)
         
         string(REPLACE "compute_" "" GPU_ARCHS ${GPU_ARCHS})
