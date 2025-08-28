@@ -1,0 +1,117 @@
+name: CMake on Windows (x64)
+'on':
+  pull_request:
+    branches:
+      - main      
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true  
+    
+jobs:
+  build:
+    runs-on:
+      - self-hosted
+      - windows
+      - x64
+    timeout-minutes: 10 # Increase this timeout value as needed
+    strategy:
+      fail-fast: true
+      matrix:
+        build_type:
+          - Release
+        toolset:
+          #- '14.16,11.8' #waiting for issue #119 to be fixed
+          - '14.44,12.9'
+          - 'llvm-19.1.7,12.9'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set reusable strings
+        id: strings
+        run: >
+          echo "build-output-dir=${{github.workspace}}/build" >>
+          "$env:GITHUB_OUTPUT"        
+             
+      - name: Configure CMake
+        run: >
+          $vsWhere = "${Env:ProgramFiles(x86)}\Microsoft Visual
+          Studio\Installer\vswhere.exe"   
+
+          $vsInstallationPath = & $vsWhere -products * -latest -property
+          installationPath
+
+          $y = "${{matrix.toolset}}".split(",")
+
+          Import-Module (Get-ChildItem $vsInstallationPath -Recurse -File
+          -Filter Microsoft.VisualStudio.DevShell.dll).FullName
+
+          if  ($y[0].contains("llvm"))
+
+          {
+              $y[0]="14.44"
+              $env:CC= "D:\clang+llvm-19.1.7-x86_64-pc-windows-msvc\bin\clang-cl.exe"
+              $env:CXX= "D:\clang+llvm-19.1.7-x86_64-pc-windows-msvc\bin\clang-cl.exe"
+          }   
+
+
+          $devargs= '-arch=x64 -vcvars_ver='+$y[0]
+
+          Enter-VsDevShell -VsInstallPath $vsInstallationPath
+          -SkipAutomaticLocation -DevCmdArguments $devargs
+
+          Write-Host "`nVisual Studio 2022 Command Prompt variables set."
+          -ForegroundColor Yellow              
+
+          $env:CUDACXX= "${env:ProgramFiles}\NVIDIA GPU Computing
+          Toolkit\CUDA\v$($y[1])\bin\nvcc.exe"
+                    
+          cmake -G "Ninja"  -B ${{steps.strings.outputs.build-output-dir}}
+          -DCMAKE_BUILD_TYPE=${{matrix.build_type}} -S
+          ${{github.workspace}};        
+
+          #worksaround for rules.ninja generating empty path
+
+          (Get-Content
+          ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja)
+          -replace "\\nvcc\\bin\\nvcc.exe", "C:\Program Files\NVIDIA GPU
+          Computing Toolkit\CUDA\v$($y[1])\bin\nvcc.exe" | Set-Content
+          ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja
+      - name: Build
+        run: >
+          $vsWhere = "${Env:ProgramFiles(x86)}\Microsoft Visual
+          Studio\Installer\vswhere.exe"   
+
+          $vsInstallationPath = & $vsWhere -products * -latest -property
+          installationPath
+
+          $y = "${{matrix.toolset}}".split(",")
+
+          Import-Module (Get-ChildItem $vsInstallationPath -Recurse -File
+          -Filter Microsoft.VisualStudio.DevShell.dll).FullName
+
+          if  ($y[0].contains("llvm"))
+
+          {
+              $y[0]="14.44"
+              $env:CC= "D:\clang+llvm-18.1.8-x86_64-pc-windows-msvc\bin\clang-cl.exe"
+              $env:CXX= "D:\clang+llvm-18.1.8-x86_64-pc-windows-msvc\bin\clang-cl.exe"
+          }   
+
+
+          $devargs= '-arch=x64 -vcvars_ver='+$y[0]
+
+          Enter-VsDevShell -VsInstallPath $vsInstallationPath
+          -SkipAutomaticLocation -DevCmdArguments $devargs
+
+          Write-Host "`nVisual Studio 2022 Command Prompt variables set."
+          -ForegroundColor Yellow              
+
+
+          cmake --build ${{ steps.strings.outputs.build-output-dir }} --config
+          ${{ matrix.build_type }} 
+      - name: Test
+        working-directory: '${{ steps.strings.outputs.build-output-dir }}'
+        run: >-
+          ctest --build-config ${{ matrix.build_type }} --output-junit
+          test_results.xml
+ 

@@ -1,0 +1,60 @@
+name: 'CMake on Windows (x64 host, ARM64 build)'
+'on':
+  pull_request:
+    branches:
+      - main     
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true  
+          
+jobs:
+  build:
+    runs-on:
+      - self-hosted
+      - windows
+      - x64
+    timeout-minutes: 10 # Increase this timeout value as needed
+    strategy:
+      fail-fast: true
+      matrix:
+        build_type:
+          - Release
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set reusable strings
+        id: strings
+        run: >
+          echo "build-output-dir=${{github.workspace}}/build" >>
+          "$env:GITHUB_OUTPUT"        
+             
+      - name: Configure CMake
+        run: >
+          $vsWhere = "${Env:ProgramFiles(x86)}\Microsoft Visual
+          Studio\Installer\vswhere.exe"   
+
+          $vsInstallationPath = & $vsWhere -products * -latest -property
+          installationPath
+
+          & "${vsInstallationPath}\Common7\Tools\Launch-VsDevShell.ps1" -Arch
+          arm64 -HostArch amd64 -SkipAutomaticLocation                
+
+          cmake  -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}}
+          -DCMAKE_BUILD_TYPE=${{matrix.build_type}}  -S
+          ${{github.workspace}};        
+      - name: Build
+        run: >
+          $vsWhere = "${Env:ProgramFiles(x86)}\Microsoft Visual
+          Studio\Installer\vswhere.exe"   
+
+          $vsInstallationPath = & $vsWhere -products * -latest -property
+          installationPath
+
+          & "${vsInstallationPath}\Common7\Tools\Launch-VsDevShell.ps1" -Arch
+          arm64 -HostArch amd64 -SkipAutomaticLocation         
+
+          cmake --build ${{ steps.strings.outputs.build-output-dir }} --config
+          ${{ matrix.build_type }} 
+            
+          #note, we cannot test as we don't hava a windows arm64 host yet
+        working-directory: '${{ steps.strings.outputs.build-output-dir }}'

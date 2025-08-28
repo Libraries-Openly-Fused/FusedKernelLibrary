@@ -1,0 +1,11 @@
+if(UNIX)
+    set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+    set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
+endif()
+
+macro(add_generated_export_header_to_target TARGET_NAME)
+    include(GenerateExportHeader)
+    generate_export_header(${TARGET_NAME} EXPORT_FILE_NAME "${CMAKE_BINARY_DIR}/exports/${TARGET_NAME}_export.h")
+    target_compile_definitions(${TARGET_NAME} PUBLIC "${TARGET_NAME}_EXPORT")
+    target_include_directories(${TARGET_NAME} PUBLIC "${CMAKE_BINARY_DIR}/exports/")
+endmacro()

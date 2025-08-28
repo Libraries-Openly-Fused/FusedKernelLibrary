@@ -1,3 +1,6 @@
+
+
+
 function (add_msvc_flags TARGET_NAME)
     # Add MSVC specific flags for the target
     #CMAKE_SYSTEM_PROCESSOR is broken and windows and return AMD64

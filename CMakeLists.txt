@@ -12,6 +12,7 @@ include (cmake/deploy/deploy_dependencies.cmake)
 
 include (cmake/archflags.cmake)
 include (cmake/generators/version_header.cmake)
+include (cmake/generators/export_header.cmake)
 project(FusedKernelLibrary VERSION ${PROJECT_VERSION} LANGUAGES CXX  
 DESCRIPTION "Implementation of a methodology that allows all sorts of user defined GPU kernel fusion, for non CUDA programmers." 
 HOMEPAGE_URL "https://github.com/morousg/FusedKernelLibrary" )
@@ -30,7 +31,16 @@ else()
 endif()
 
 
-
+if (${CMAKE_GENERATOR} MATCHES "Ninja")
+       string (FIND  ${CMAKE_CXX_COMPILER} arm64 POS_ARM64)
+       if (POS_ARM64 GREATER -1)
+            set (CMAKE_VS_PLATFORM_NAME "ARM64" CACHE STRING "Visual Studio platform name" FORCE)
+       else()
+            set (CMAKE_VS_PLATFORM_NAME "x64" CACHE STRING "Visual Studio platform name" FORCE)
+       endif()
+    endif()
+    
+    
 option (BUILD_UTEST "build standard unit tests" ON)
 option (ENABLE_BENCHMARK "build benchmarking unit tests" OFF)
 
