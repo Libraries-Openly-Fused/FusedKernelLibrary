@@ -16,7 +16,7 @@
 #define __ONLY_CPU__
 #include "utest_cuda_vector_utils_longlong.h"
   
-int launchlonglong() {
+int fk::testlonglong::launch() {
     using namespace fk::testlonglong;
     using VecAndStdTypes1 = fk::TypeList<longlong>;
      

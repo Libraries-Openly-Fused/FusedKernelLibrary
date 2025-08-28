@@ -16,7 +16,7 @@
 #define __ONLY_CPU__
 #include "utest_cuda_vector_utils_double.h"
   
-int launchdouble() {
+int fk::testdouble::launch() {
     using namespace fk::testdouble;
     using VecAndStdTypes1 = fk::TypeList<double>;
      

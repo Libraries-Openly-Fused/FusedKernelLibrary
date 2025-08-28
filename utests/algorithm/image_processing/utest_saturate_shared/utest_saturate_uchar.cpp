@@ -25,14 +25,14 @@ addAllOutputTestsForInput<Fundamental,uchar>(std::make_index_sequence<Fundamenta
 STOP_ADDING_TESTS
  
 #ifdef WIN32
-int  UTEST_SATURATE_UCHAR_EXPORT launchuchar() {
+int  UTEST_SATURATE_UCHAR_EXPORT fk::testuchar::launch() {
    RUN_ALL_TESTS
    return 0;
 }
 
 #else
- // You can add more tests for other type combinations as needed.
-int EXPORT_FN_UCHAR launchuchar() {
+ 
+int EXPORT_FN_UCHAR fk::testuchar::launch() {
    RUN_ALL_TESTS
    return 0;
 }

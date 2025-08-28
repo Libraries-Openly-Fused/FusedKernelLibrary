@@ -16,7 +16,7 @@
 #define __ONLY_CPU__
 #include "utest_cuda_vector_utils_uchar.h"
   
-int launchuchar() {
+int fk::testuchar::launch() {
     using namespace fk::testuchar;
     using VecAndStdTypes1 = fk::TypeList<uchar>;
      

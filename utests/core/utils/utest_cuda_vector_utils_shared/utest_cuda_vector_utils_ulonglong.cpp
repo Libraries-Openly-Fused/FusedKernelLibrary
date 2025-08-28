@@ -16,7 +16,7 @@
 #define __ONLY_CPU__
 #include "utest_cuda_vector_utils_ulonglong.h"
   
-int launchulonglong() {
+int fk::testulonglong::launch() {
     using namespace fk::testulonglong;
     using VecAndStdTypes1 = fk::TypeList<ulonglong>;
      

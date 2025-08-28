@@ -497,13 +497,14 @@ COMPOUND_OP_TEST(or_assign, |=)
         }
     };
 
-} // namespace fk::test
+
 
 #ifdef WIN32
-int UTEST_CUDA_VECTOR_UTILS_CHAR_EXPORT launchchar();
+int UTEST_CUDA_VECTOR_UTILS_CHAR_EXPORT launch();
 #else
-int  EXPORT_FN_CHAR launchchar();
+int  EXPORT_FN_CHAR launch();
 #endif
 
 
 #endif // FK_UTEST_CUDA_VECTOR_UTILS_CHAR_H
+} // namespace fk::test

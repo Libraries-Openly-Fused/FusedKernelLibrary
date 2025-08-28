@@ -155,12 +155,11 @@ for (const auto& [testName, testFunc] : testCases) { \
 } \
 testCases.clear(); \
 return correct ? 0 : -1; 
- //namespace fk::test
+
 #ifdef WIN32
 int UTEST_SATURATE_CHAR_EXPORT launch();
 #else
-int  EXPORT_FN_CHAR  launch();
+int  EXPORT_FN_CHAR launch();
 #endif
-
 #endif
-}
+} //namespace fk::test

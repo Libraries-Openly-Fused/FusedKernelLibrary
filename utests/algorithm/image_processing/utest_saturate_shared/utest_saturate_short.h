@@ -155,10 +155,11 @@ for (const auto& [testName, testFunc] : testCases) { \
 } \
 testCases.clear(); \
 return correct ? 0 : -1; 
-} //namespace fk::test
+
 #ifdef WIN32
-int UTEST_SATURATE_SHORT_EXPORT launchshort();
+int UTEST_SATURATE_SHORT_EXPORT launch();
 #else
-int  EXPORT_FN_SHORT  launchshort();
+int  EXPORT_FN_SHORT launch();
 #endif
 #endif
+} //namespace fk::test

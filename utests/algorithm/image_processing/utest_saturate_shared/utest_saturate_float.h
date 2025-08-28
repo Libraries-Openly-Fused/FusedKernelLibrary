@@ -159,7 +159,7 @@ return correct ? 0 : -1;
 #ifdef WIN32
 int UTEST_SATURATE_FLOAT_EXPORT launch();
 #else
-int  EXPORT_FN_FLOAT  launch();
+int  EXPORT_FN_FLOAT launch();
 #endif
 #endif
-} // namespace fk::test
+} //namespace fk::test

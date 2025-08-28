@@ -16,7 +16,7 @@
 #define __ONLY_CPU__
 #include "utest_cuda_vector_utils_float.h"
   
-int launchfloat() {
+int fk::testfloat::launch() {
     using namespace fk::testfloat;
     using VecAndStdTypes1 = fk::TypeList<float>;
      

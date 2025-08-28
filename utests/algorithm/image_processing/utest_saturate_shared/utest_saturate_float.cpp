@@ -25,14 +25,14 @@ addAllOutputTestsForInput<Fundamental,float>(std::make_index_sequence<Fundamenta
 STOP_ADDING_TESTS
  
 #ifdef WIN32
-int UTEST_SATURATE_FLOAT_EXPORT fk::testfloat::launch() {
+int  UTEST_SATURATE_FLOAT_EXPORT fk::testfloat::launch() {
    RUN_ALL_TESTS
    return 0;
 }
 
 #else
- // You can add more tests for other type combinations as needed.
-int EXPORT_FN_FLOAT launchfloat() {
+ 
+int EXPORT_FN_FLOAT fk::testfloat::launch() {
    RUN_ALL_TESTS
    return 0;
 }

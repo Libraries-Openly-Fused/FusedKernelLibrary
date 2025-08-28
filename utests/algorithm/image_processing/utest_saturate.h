@@ -40,7 +40,7 @@ int launch() {
     fk::testulong::launch();
     fk::testulonglong::launch();
     fk::testushort::launch();
-    fk::return 0;
+    return 0;
 }
 
 #endif

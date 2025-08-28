@@ -16,7 +16,7 @@
 #define __ONLY_CPU__
 #include "utest_cuda_vector_utils_int.h"
   
-int launchint() {
+int fk::testint::launch() {
     using namespace fk::testint;
     using VecAndStdTypes1 = fk::TypeList<int>;
      

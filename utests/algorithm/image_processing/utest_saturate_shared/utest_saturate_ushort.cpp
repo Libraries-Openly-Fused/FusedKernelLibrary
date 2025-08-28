@@ -25,14 +25,14 @@ addAllOutputTestsForInput<Fundamental,ushort>(std::make_index_sequence<Fundament
 STOP_ADDING_TESTS
  
 #ifdef WIN32
-int  UTEST_SATURATE_USHORT_EXPORT launchushort() {
+int  UTEST_SATURATE_USHORT_EXPORT fk::testushort::launch() {
    RUN_ALL_TESTS
    return 0;
 }
 
 #else
- // You can add more tests for other type combinations as needed.
-int EXPORT_FN_USHORT launchushort() {
+ 
+int EXPORT_FN_USHORT fk::testushort::launch() {
    RUN_ALL_TESTS
    return 0;
 }

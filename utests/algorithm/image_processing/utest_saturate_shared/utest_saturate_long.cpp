@@ -25,14 +25,14 @@ addAllOutputTestsForInput<Fundamental,long>(std::make_index_sequence<Fundamental
 STOP_ADDING_TESTS
  
 #ifdef WIN32
-int  UTEST_SATURATE_LONG_EXPORT launchlong() {
+int  UTEST_SATURATE_LONG_EXPORT fk::testlong::launch() {
    RUN_ALL_TESTS
    return 0;
 }
 
 #else
- // You can add more tests for other type combinations as needed.
-int EXPORT_FN_LONG launchlong() {
+ 
+int EXPORT_FN_LONG fk::testlong::launch() {
    RUN_ALL_TESTS
    return 0;
 }

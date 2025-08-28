@@ -31,6 +31,20 @@
 #include "utest_cuda_vector_utils_ulonglong.h"
 #include "utest_cuda_vector_utils_ushort.h"
 
-int launch() { return launchchar(); }
+int launch() {    
+    fk::testchar::launch();
+    fk::testdouble::launch();
+    fk::testfloat::launch();
+    fk::testint::launch();
+    fk::testlong::launch();
+    fk::testlonglong::launch();
+    fk::testshort::launch();
+    fk::testuchar::launch();
+    fk::testuint::launch();
+    fk::testulong::launch();
+    fk::testulonglong::launch();
+    fk::testushort::launch();
+    return 0;
+ }
 
 #endif // FK_UTEST_CUDA_VECTOR_UTILS_H

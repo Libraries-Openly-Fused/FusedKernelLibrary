@@ -159,7 +159,7 @@ return correct ? 0 : -1;
 #ifdef WIN32
 int UTEST_SATURATE_DOUBLE_EXPORT launch();
 #else
-int  EXPORT_FN_DOUBLE  launch();
+int  EXPORT_FN_DOUBLE launch();
 #endif
 #endif
-} // namespace fk::test
+} //namespace fk::test

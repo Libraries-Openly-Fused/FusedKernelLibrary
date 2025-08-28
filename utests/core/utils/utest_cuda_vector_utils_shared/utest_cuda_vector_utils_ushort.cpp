@@ -16,7 +16,7 @@
 #define __ONLY_CPU__
 #include "utest_cuda_vector_utils_ushort.h"
   
-int launchushort() {
+int fk::testushort::launch() {
     using namespace fk::testushort;
     using VecAndStdTypes1 = fk::TypeList<ushort>;
      

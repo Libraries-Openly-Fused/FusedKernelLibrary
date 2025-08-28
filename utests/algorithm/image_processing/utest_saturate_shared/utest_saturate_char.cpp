@@ -31,8 +31,8 @@ int  UTEST_SATURATE_CHAR_EXPORT fk::testchar::launch() {
 }
 
 #else
- // You can add more tests for other type combinations as needed.
-int EXPORT_FN_CHAR launchchar() {
+ 
+int EXPORT_FN_CHAR fk::testchar::launch() {
    RUN_ALL_TESTS
    return 0;
 }
