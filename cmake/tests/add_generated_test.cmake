@@ -46,12 +46,12 @@ function(configure_test_target_flags TARGET_NAME TEST_SOURCE DIR)
 endfunction()
 
 
-function (add_generated_lib TARGET_NAME TEST_SOURCE EXTENSION DIR)                       
+function (add_generated_lib TARGET_NAME TEST_SOURCES DIR)                       
         set (TARGET_NAME "${TARGET_NAME}")
-        add_library(${TARGET_NAME} SHARED "${TEST_GENERATED_SOURCE};${TEST_SOURCE}" )
+        add_library(${TARGET_NAME} SHARED "${TEST_SOURCES}" )
         set_target_properties(${TARGET_NAME}  PROPERTIES LINKER_LANGUAGE CXX)
       #  target_sources(${TARGET_NAME} PRIVATE ${LAUNCH_SOURCES})      
-        configure_test_target_flags("${TARGET_NAME}" "${TEST_SOURCE}" "${DIR}")  
+        configure_test_target_flags("${TARGET_NAME}" "${TEST_SOURCES}" "${DIR}")  
         set_property(TARGET "${TARGET_NAME}" PROPERTY FOLDER "${DIR}/")  
 
 endfunction()
