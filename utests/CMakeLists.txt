@@ -31,17 +31,7 @@ foreach(DIR ${LIST_DIRS})
 endforeach()
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/algorithm/image_processing/utest_saturate_shared)
-
-if(${ENABLE_CPU})  
-    target_link_libraries(utest_saturate_cpp PRIVATE ${LIBS_FUNDAMENTAL_TYPE})     
-endif()
-
-if(${ENABLE_CUDA})    
-    target_link_libraries(utest_saturate_cu PRIVATE ${LIBS_FUNDAMENTAL_TYPE})
-endif()
-
-
-#add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/core/utils/utest_cuda_vector_utils_shared) 
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/core/utils/utest_cuda_vector_utils_shared) 
   
 
 

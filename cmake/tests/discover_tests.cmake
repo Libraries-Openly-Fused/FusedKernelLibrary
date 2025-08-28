@@ -1,5 +1,25 @@
 include (${CMAKE_SOURCE_DIR}/cmake/tests/add_generated_test.cmake)
  
+function (add_shared_test_libs TARGET_BASE_NAME)
+    set (FUNDAMENTAL_TYPES uchar char ushort short uint int ulong long ulonglong longlong float double) 
+    foreach(FUNDAMENTAL_TYPE ${FUNDAMENTAL_TYPES})                  
+        set(TARGET_NAME "${TARGET_BASE_NAME}_${FUNDAMENTAL_TYPE}")    
+        add_generated_lib("${TARGET_NAME}" "${TARGET_NAME}.cpp;${TARGET_NAME}.h;exports/${TARGET_NAME}_export.h;" "/utests/shared/${TARGET_BASE_NAME}")                 
+        target_include_directories(${TARGET_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/exports")
+        target_include_directories(${TARGET_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/")
+  
+        target_link_libraries(${TARGET_BASE_NAME}_cpp PRIVATE ${TARGET_NAME})
+        if (CMAKE_CUDA_COMPILER AND ENABLE_CUDA)    
+        #some targets don't have cuda equivalent
+            if (TARGET ${TARGET_BASE_NAME}_cu)
+           
+            # Do something when target found
+                add_cuda_to_test("${TARGET_NAME}")      
+                target_link_libraries(${TARGET_BASE_NAME}_cu PRIVATE ${TARGET_NAME})
+            endif()                                
+        endif()
+    endforeach()  
+endfunction()
 
 function (discover_tests DIR)    
     file(

@@ -14,23 +14,23 @@
    limitations under the License. */
 
 #define __ONLY_CPU__
-
-#ifndef FK_UTEST_CUDA_VECTOR_UTILS_H
-#define FK_UTEST_CUDA_VECTOR_UTILS_H
-
-#include "utest_cuda_vector_utils_char.h"
-#include "utest_cuda_vector_utils_double.h"
-#include "utest_cuda_vector_utils_float.h"
-#include "utest_cuda_vector_utils_int.h"
 #include "utest_cuda_vector_utils_long.h"
-#include "utest_cuda_vector_utils_longlong.h"
-#include "utest_cuda_vector_utils_short.h"
-#include "utest_cuda_vector_utils_uchar.h"
-#include "utest_cuda_vector_utils_uint.h"
-#include "utest_cuda_vector_utils_ulong.h"
-#include "utest_cuda_vector_utils_ulonglong.h"
-#include "utest_cuda_vector_utils_ushort.h"
+  
+int launchlong() {
+    using namespace fk::testlong;
+    using VecAndStdTypes1 = fk::TypeList<long>;
+     
+    bool passed = UnaryTest<VecAndStdTypes1>::execute();
+    passed &= BinaryTests<VecAndStdTypes1, VecAndStdTypes>::execute();
+    passed &= CompoundTests<VecAndStdTypes1, VecAndStdTypes>::execute();
 
-int launch() { return launchchar(); }
+    if (!unexpected_failed_compilations.empty()) {
+        std::cout << "ERROR: Unexpected compilation failures that did occur:\n";
+        for (const auto& failure : unexpected_failed_compilations) {
+            std::cout << "- " << failure << std::endl;
+        }
+        return -1;
+    }
 
-#endif // FK_UTEST_CUDA_VECTOR_UTILS_H
+    return passed ? 0 : -1;
+}
