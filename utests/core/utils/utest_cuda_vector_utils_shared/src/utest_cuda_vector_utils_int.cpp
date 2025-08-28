@@ -14,11 +14,11 @@
    limitations under the License. */
 
 #define __ONLY_CPU__
-#include "utest_saturate_shared/include/utest_cuda_vector_utils_@FUNDAMENTAL_TYPE@.h"
+#include "utest_cuda_vector_utils_int.h"
   
-int launch@FUNDAMENTAL_TYPE@() {
-    using namespace fk::test@FUNDAMENTAL_TYPE@;
-    using VecAndStdTypes1 = fk::TypeList<@FUNDAMENTAL_TYPE@>;
+int launchint() {
+    using namespace fk::testint;
+    using VecAndStdTypes1 = fk::TypeList<int>;
      
     bool passed = UnaryTest<VecAndStdTypes1>::execute();
     passed &= BinaryTests<VecAndStdTypes1, VecAndStdTypes>::execute();

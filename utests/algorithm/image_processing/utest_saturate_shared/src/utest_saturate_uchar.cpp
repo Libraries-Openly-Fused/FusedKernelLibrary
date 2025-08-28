@@ -16,23 +16,23 @@
  
 
 
-#include "utest_saturate_shared/include/utest_saturate_@FUNDAMENTAL_TYPE@.h"
+#include "utest_saturate_uchar.h"
  
-using namespace fk::test@FUNDAMENTAL_TYPE@;
+using namespace fk::testuchar;
 START_ADDING_TESTS
 using Fundamental = fk::RemoveType_t<0, fk::StandardTypes>;
-addAllOutputTestsForInput<Fundamental,@FUNDAMENTAL_TYPE@>(std::make_index_sequence<Fundamental::size>{});
+addAllOutputTestsForInput<Fundamental,uchar>(std::make_index_sequence<Fundamental::size>{});
 STOP_ADDING_TESTS
  
 #ifdef WIN32
-int  UTEST_SATURATE_@FUNDAMENTAL_TYPE_UPPER@_EXPORT launch@FUNDAMENTAL_TYPE@() {
+int  UTEST_SATURATE_UCHAR_EXPORT launchuchar() {
    RUN_ALL_TESTS
    return 0;
 }
 
 #else
  // You can add more tests for other type combinations as needed.
-int EXPORT_FN_@FUNDAMENTAL_TYPE_UPPER@ launch@FUNDAMENTAL_TYPE@() {
+int EXPORT_FN_UCHAR launchuchar() {
    RUN_ALL_TESTS
    return 0;
 }

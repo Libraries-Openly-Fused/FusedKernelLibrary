@@ -15,8 +15,8 @@
 
 #define __ONLY_CPU__
 
-#ifndef FK_UTEST_CUDA_VECTOR_UTILS_@FUNDAMENTAL_TYPE_UPPER@_H
-#define FK_UTEST_CUDA_VECTOR_UTILS_@FUNDAMENTAL_TYPE_UPPER@_H
+#ifndef FK_UTEST_CUDA_VECTOR_UTILS_LONG_H
+#define FK_UTEST_CUDA_VECTOR_UTILS_LONG_H
 
 #include <fused_kernel/core/utils/cuda_vector_utils.h>
 #include <fused_kernel/core/utils/type_to_string.h>
@@ -27,16 +27,16 @@
 #include <string>
 
 #ifdef WIN32
-#include "utest_saturate_shared/include/utest_cuda_vector_utils_@FUNDAMENTAL_TYPE@_export.h"
+#include "utest_cuda_vector_utils_long_export.h"
 #endif
 
 #if defined(__GNUC__) && !defined(_WIN32)
-#define  EXPORT_FN_@FUNDAMENTAL_TYPE_UPPER@  __attribute__((visibility("default")))
+#define  EXPORT_FN_LONG  __attribute__((visibility("default")))
 #else
-#define  EXPORT_FN_@FUNDAMENTAL_TYPE_UPPER@ 
+#define  EXPORT_FN_LONG 
 #endif
 
-namespace fk::test@FUNDAMENTAL_TYPE@ {
+namespace fk::testlong {
     // Track compilation results
     std::vector<std::string> unexpected_failed_compilations;
 
@@ -500,10 +500,10 @@ COMPOUND_OP_TEST(or_assign, |=)
 } // namespace fk::test
 
 #ifdef WIN32
-int UTEST_CUDA_VECTOR_UTILS_@FUNDAMENTAL_TYPE_UPPER@_EXPORT launch@FUNDAMENTAL_TYPE@();
+int UTEST_CUDA_VECTOR_UTILS_LONG_EXPORT launchlong();
 #else
-int  EXPORT_FN_@FUNDAMENTAL_TYPE_UPPER@ launch@FUNDAMENTAL_TYPE@();
+int  EXPORT_FN_LONG launchlong();
 #endif
 
 
-#endif // FK_UTEST_CUDA_VECTOR_UTILS_@FUNDAMENTAL_TYPE_UPPER@_H
+#endif // FK_UTEST_CUDA_VECTOR_UTILS_LONG_H

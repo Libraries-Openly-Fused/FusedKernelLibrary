@@ -13,8 +13,8 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
-#ifndef FK_UTEST_SATURATE_@FUNDAMENTAL_TYPE_UPPER@_H
-#define FK_UTEST_SATURATE_@FUNDAMENTAL_TYPE_UPPER@_H
+#ifndef FK_UTEST_SATURATE_SHORT_H
+#define FK_UTEST_SATURATE_SHORT_H
 
 #include <fused_kernel/algorithms/image_processing/saturate.h>
 #include <fused_kernel/algorithms/basic_ops/cast.h>
@@ -24,15 +24,15 @@
 #include <fused_kernel/core/utils/vlimits.h>
 #include <tests/operation_test_utils.h>
 #ifdef WIN32
-#include "utest_saturate_@FUNDAMENTAL_TYPE@_export.h"
+#include "utest_saturate_short_export.h"
 #endif
 
 #if defined(__GNUC__) && !defined(_WIN32)
-#define  EXPORT_FN_@FUNDAMENTAL_TYPE_UPPER@  __attribute__((visibility("default")))
+#define  EXPORT_FN_SHORT  __attribute__((visibility("default")))
 #else
-#define  EXPORT_FN_@FUNDAMENTAL_TYPE_UPPER@ 
+#define  EXPORT_FN_SHORT 
 #endif
-namespace fk::test@FUNDAMENTAL_TYPE@ {
+namespace fk::testshort {
 inline std::string niceType(const std::string& input) {
     // Map "unsigned type" to specific type names
     static const std::unordered_map<std::string, std::string> unsignedTypeMap = {
@@ -157,8 +157,8 @@ testCases.clear(); \
 return correct ? 0 : -1; 
 } //namespace fk::test
 #ifdef WIN32
-int UTEST_SATURATE_@FUNDAMENTAL_TYPE_UPPER@_EXPORT launch@FUNDAMENTAL_TYPE@();
+int UTEST_SATURATE_SHORT_EXPORT launchshort();
 #else
-int  EXPORT_FN_@FUNDAMENTAL_TYPE_UPPER@  launch@FUNDAMENTAL_TYPE@();
+int  EXPORT_FN_SHORT  launchshort();
 #endif
 #endif

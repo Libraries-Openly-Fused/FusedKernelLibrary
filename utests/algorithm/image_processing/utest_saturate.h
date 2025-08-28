@@ -14,18 +14,18 @@
    limitations under the License. */
 #ifndef FK_UTEST_SATURATE_H
 #define FK_UTEST_SATURATE_H
-#include "utest_saturate_char.h"
-#include "utest_saturate_double.h"
-#include "utest_saturate_float.h"
-#include "utest_saturate_int.h"
-#include "utest_saturate_long.h"
-#include "utest_saturate_longlong.h"
-#include "utest_saturate_short.h"
-#include "utest_saturate_uchar.h"
-#include "utest_saturate_uint.h"
-#include "utest_saturate_ulong.h"
-#include "utest_saturate_ulonglong.h"
-#include "utest_saturate_ushort.h"
+#include "utest_saturate_shared/include/utest_saturate_char.h"
+#include "utest_saturate_shared/include/utest_saturate_double.h"
+#include "utest_saturate_shared/include/utest_saturate_float.h"
+#include "utest_saturate_shared/include/utest_saturate_int.h"
+#include "utest_saturate_shared/include/utest_saturate_long.h"
+#include "utest_saturate_shared/include/utest_saturate_longlong.h"
+#include "utest_saturate_shared/include/utest_saturate_short.h"
+#include "utest_saturate_shared/include/utest_saturate_uchar.h"
+#include "utest_saturate_shared/include/utest_saturate_uint.h"
+#include "utest_saturate_shared/include/utest_saturate_ulong.h"
+#include "utest_saturate_shared/include/utest_saturate_ulonglong.h"
+#include "utest_saturate_shared/include/utest_saturate_ushort.h"
 
 int launch() { 
      launchchar();    
