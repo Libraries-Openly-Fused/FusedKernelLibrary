@@ -27,20 +27,20 @@
 #include "utest_saturate_ulonglong.h"
 #include "utest_saturate_ushort.h"
 
-int launch() { 
-     launchchar();    
-     launchdouble();    
-     launchfloat();
-     launchint();
-     launchlong();
-     launchlonglong();
-     launchshort();
-     launchuchar();
-     launchuint();
-     launchulong();
-     launchulonglong();
-     launchushort();
-    return 0;
+int launch() {
+    fk::testchar::launch();
+    fk::testdouble::launch();
+    fk::testfloat::launch();
+    fk::testint::launch();
+    fk::testlong::launch();
+    fk::testlonglong::launch();
+    fk::testshort::launch();
+    fk::testuchar::launch();
+    fk::testuint::launch();
+    fk::testulong::launch();
+    fk::testulonglong::launch();
+    fk::testushort::launch();
+    fk::return 0;
 }
 
 #endif

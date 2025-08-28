@@ -25,7 +25,7 @@ addAllOutputTestsForInput<Fundamental,float>(std::make_index_sequence<Fundamenta
 STOP_ADDING_TESTS
  
 #ifdef WIN32
-int  UTEST_SATURATE_FLOAT_EXPORT launchfloat() {
+int UTEST_SATURATE_FLOAT_EXPORT fk::testfloat::launch() {
    RUN_ALL_TESTS
    return 0;
 }

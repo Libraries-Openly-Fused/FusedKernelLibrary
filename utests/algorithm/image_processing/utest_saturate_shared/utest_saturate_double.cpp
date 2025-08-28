@@ -25,7 +25,7 @@ addAllOutputTestsForInput<Fundamental,double>(std::make_index_sequence<Fundament
 STOP_ADDING_TESTS
  
 #ifdef WIN32
-int  UTEST_SATURATE_DOUBLE_EXPORT launchdouble() {
+int UTEST_SATURATE_DOUBLE_EXPORT fk::testdouble::launch() {
    RUN_ALL_TESTS
    return 0;
 }
