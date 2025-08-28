@@ -11,7 +11,7 @@ A poster was predented at NVIDIA GTC 2025: https://www.nvidia.com/gtc/posters/?s
 
 A preprint journal paper is available at arxiv, pending approval at an IEEE journal: https://arxiv.org/abs/2508.07071v1
 
-A continuation poster was presented and awarded by NVIDIA members at PUMPS + AI summer school, at Barcelona Supercomputing Center: [LinkedIn post](https://www.linkedin.com/posts/oscar-amoros-huguet_newgpuautomatickernelfusionspeciesposter-activity-7352086240935972867-znFD?utm_source=share&utm_medium=member_desktop&rcm=ACoAAAd9NREBlLso8JKbOumKpptnMzrUH9tmAgg)
+A continuation poster was presented and awarded by NVIDIA members at PUMPS + AI summer school 2025, at Barcelona Supercomputing Center: [LinkedIn post](https://www.linkedin.com/posts/oscar-amoros-huguet_newgpuautomatickernelfusionspeciesposter-activity-7352086240935972867-znFD?utm_source=share&utm_medium=member_desktop&rcm=ACoAAAd9NREBlLso8JKbOumKpptnMzrUH9tmAgg)
 
 ## Sample code
 Let's see an example where we crop 5 images from a source image, and then apply some changes to those images, before storing them in a Tensor.
