@@ -23,7 +23,7 @@ ENDMACRO()
 
 set (LIST_OF_DIRS "")
 SUBDIRLIST(LIST_DIRS ${CMAKE_CURRENT_SOURCE_DIR})
-message(STATUS "Found subdirectories in ${curdir}: ${LIST_DIRS}")
+ 
 
 foreach(DIR ${LIST_DIRS})
     set (ROOT_TEST_DIR "utests")

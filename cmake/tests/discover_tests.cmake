@@ -5,21 +5,25 @@ function (add_shared_target TARGET_BASE_NAME EXTENSION FUNDAMENTAL_TYPE SOURCES)
         add_generated_lib("${TARGET_NAME}_${EXTENSION}" "${SOURCES}"  "/utests/shared/${EXTENSION}")                 
         target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/exports")
         target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/")
+        
         target_link_libraries(${TARGET_BASE_NAME}_${EXTENSION} PRIVATE "${TARGET_NAME}_${EXTENSION}")
 endfunction()
 
 function (add_shared_test_libs TARGET_BASE_NAME)
     set (FUNDAMENTAL_TYPES uchar char ushort short uint int ulong long ulonglong longlong float double) 
-    foreach(FUNDAMENTAL_TYPE ${FUNDAMENTAL_TYPES})                  
+    foreach(FUNDAMENTAL_TYPE ${FUNDAMENTAL_TYPES})   
         set(TARGET_NAME "${TARGET_BASE_NAME}_${FUNDAMENTAL_TYPE}")    
-        set(EXTENSION cpp)
-        set(SOURCES "${TARGET_NAME}.h;exports/${TARGET_NAME}_export.h;")
-        add_shared_target("${TARGET_BASE_NAME}" "${EXTENSION}" "${FUNDAMENTAL_TYPE}" "${SOURCES};${TARGET_NAME}.cpp")
+        
+        if (${ENABLE_CPU})               
+            set(EXTENSION cpp)
+            set(SOURCES "${TARGET_NAME}.h;exports/${TARGET_NAME}_export.h;")
+            add_shared_target("${TARGET_BASE_NAME}" "${EXTENSION}" "${FUNDAMENTAL_TYPE}" "${SOURCES};${TARGET_NAME}.cpp")
+        endif()
         if (CMAKE_CUDA_COMPILER AND ENABLE_CUDA)    
             set(EXTENSION_CU cu)      
             #some targets don't have cuda equivalent                      
             if (TARGET ${TARGET_BASE_NAME}_${EXTENSION_CU})                                               
-                add_shared_target("${TARGET_BASE_NAME}" "${EXTENSION_CU}" "${FUNDAMENTAL_TYPE}" "${SOURCES};${LAUNCH_SOURCES}")  # Do something when target found
+                add_shared_target("${TARGET_BASE_NAME}" "${EXTENSION_CU}" "${FUNDAMENTAL_TYPE}" "${SOURCES};${TARGET_NAME}.cu;${CMAKE_SOURCE_DIR}/tests/main.cpp; ")  # Do something when target found
                 add_cuda_to_test("${TARGET_NAME}_${EXTENSION_CU}")                      
             endif()                                
         endif()

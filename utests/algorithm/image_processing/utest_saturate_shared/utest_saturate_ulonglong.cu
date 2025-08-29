@@ -25,14 +25,14 @@ addAllOutputTestsForInput<Fundamental,ulonglong>(std::make_index_sequence<Fundam
 STOP_ADDING_TESTS
  
 #ifdef WIN32
-int  UTEST_SATURATE_ULONGLONG_EXPORT fk::testulonglong::launch() {
+int fk::testulonglong::launch() {
    RUN_ALL_TESTS
    return 0;
 }
 
 #else
  
-int EXPORT_FN_ULONGLONG fk::testulonglong::launch() {
+int fk::testulonglong::launch() {
    RUN_ALL_TESTS
    return 0;
 }

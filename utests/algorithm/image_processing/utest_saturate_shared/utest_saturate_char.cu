@@ -25,14 +25,14 @@ addAllOutputTestsForInput<Fundamental,char>(std::make_index_sequence<Fundamental
 STOP_ADDING_TESTS
  
 #ifdef WIN32
-int  UTEST_SATURATE_CHAR_EXPORT fk::testchar::launch() {
+int  fk::testchar::launch() {
    RUN_ALL_TESTS
    return 0;
 }
 
 #else
  
-int EXPORT_FN_CHAR fk::testchar::launch() {
+int fk::testchar::launch() {
    RUN_ALL_TESTS
    return 0;
 }
