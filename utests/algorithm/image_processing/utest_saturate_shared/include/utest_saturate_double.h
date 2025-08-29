@@ -15,11 +15,11 @@
 
 #ifndef FK_UTEST_SATURATE_DOUBLE_H
 #define FK_UTEST_SATURATE_DOUBLE_H
- 
+#include "utest_saturate_common.h"
 #ifdef WIN32
 #include "utest_saturate_double_export.h"
 #endif
- 
+namespace fk::testdouble {
 #ifdef WIN32
 int UTEST_SATURATE_DOUBLE_EXPORT launch();
 #else

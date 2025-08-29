@@ -18,14 +18,14 @@
 
 #include "utest_saturate_char.h"
  
-using namespace fk::testchar;
+ 
 START_ADDING_TESTS
 using Fundamental = fk::RemoveType_t<0, fk::StandardTypes>;
 addAllOutputTestsForInput<Fundamental,char>(std::make_index_sequence<Fundamental::size>{});
 STOP_ADDING_TESTS
  
 #ifdef WIN32
-int  fk::testchar::launch() {
+int launch() {
    RUN_ALL_TESTS
    return 0;
 }

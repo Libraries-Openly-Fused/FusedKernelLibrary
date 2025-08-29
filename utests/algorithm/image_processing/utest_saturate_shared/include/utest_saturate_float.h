@@ -15,7 +15,9 @@
 
 #ifndef FK_UTEST_SATURATE_FLOAT_H
 #define FK_UTEST_SATURATE_FLOAT_H
+#include "utest_saturate_common.h"
 
+namespace fk::testfloat {
  
 #ifdef WIN32
 #include "utest_saturate_float_export.h"

@@ -16,15 +16,17 @@
 #ifndef FK_UTEST_SATURATE_CHAR_H
 #define FK_UTEST_SATURATE_CHAR_H
 
- 
+#include "utest_saturate_common.h"
+
 #ifdef WIN32
 #include "utest_saturate_char_export.h"
 #endif
-
+namespace fk::testchar {
 #ifdef WIN32
 int UTEST_SATURATE_CHAR_EXPORT launch();
 #else
-int  EXPORT_FN_CHAR launch();
+int EXPORT_FN_CHAR launch();
 #endif
 #endif
-} //namespace fk::test
+}
+ 

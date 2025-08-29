@@ -15,7 +15,10 @@
 
 #ifndef FK_UTEST_SATURATE_SHORT_H
 #define FK_UTEST_SATURATE_SHORT_H
- 
+
+#include "utest_saturate_common.h"
+
+namespace fk::testshort {
 #ifdef WIN32
 #include "utest_saturate_short_export.h"
 #endif
@@ -25,7 +28,7 @@
 #else
 #define  EXPORT_FN_SHORT 
 #endif
- return correct ? 0 : -1; 
+ 
 
 #ifdef WIN32
 int UTEST_SATURATE_SHORT_EXPORT launch();
