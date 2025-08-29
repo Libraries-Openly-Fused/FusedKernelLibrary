@@ -16,23 +16,23 @@
  
 
 
-#include "utest_saturate_long.h"
+#include "utest_saturate_ulong.h"
  
-using namespace fk::testlong;
+using namespace fk::testulong;
 START_ADDING_TESTS
 using Fundamental = fk::RemoveType_t<0, fk::StandardTypes>;
-addAllOutputTestsForInput<Fundamental,long>(std::make_index_sequence<Fundamental::size>{});
+addAllOutputTestsForInput<Fundamental,ulong>(std::make_index_sequence<Fundamental::size>{});
 STOP_ADDING_TESTS
  
 #ifdef WIN32
-int fk::testlong::launch() {
+int  UTEST_SATURATE_ULONG_EXPORT fk::testulong::launch() {
    RUN_ALL_TESTS
    return 0;
 }
 
 #else
  
-int fk::testlong::launch() {
+int EXPORT_FN_ULONG fk::testulong::launch() {
    RUN_ALL_TESTS
    return 0;
 }

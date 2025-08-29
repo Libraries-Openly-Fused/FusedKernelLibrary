@@ -25,14 +25,14 @@ addAllOutputTestsForInput<Fundamental,short>(std::make_index_sequence<Fundamenta
 STOP_ADDING_TESTS
  
 #ifdef WIN32
-int  UTEST_SATURATE_SHORT_EXPORT fk::testshort::launch() {
+int  fk::testshort::launch() {
    RUN_ALL_TESTS
    return 0;
 }
 
 #else
  
-int EXPORT_FN_SHORT fk::testshort::launch() {
+int fk::testshort::launch() {
    RUN_ALL_TESTS
    return 0;
 }

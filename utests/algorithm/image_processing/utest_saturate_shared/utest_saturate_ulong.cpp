@@ -25,7 +25,7 @@ addAllOutputTestsForInput<Fundamental,ulong>(std::make_index_sequence<Fundamenta
 STOP_ADDING_TESTS
  
 #ifdef WIN32
-int  UTEST_SATURATE_ULONG_EXPORT fk::testulong::launch() {
+int fk::testulong::launch() {
    RUN_ALL_TESTS
    return 0;
 }
