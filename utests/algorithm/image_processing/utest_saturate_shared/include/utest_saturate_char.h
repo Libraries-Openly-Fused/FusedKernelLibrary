@@ -16,7 +16,7 @@
 #ifndef FK_UTEST_SATURATE_CHAR_H
 #define FK_UTEST_SATURATE_CHAR_H
 
-#include "utest_saturate_common.h"
+#include "utest_common.h"
 
 #ifdef WIN32
 #include "utest_saturate_char_export.h"

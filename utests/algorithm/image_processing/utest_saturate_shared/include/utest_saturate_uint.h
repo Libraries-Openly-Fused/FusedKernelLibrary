@@ -16,7 +16,7 @@
 #ifndef FK_UTEST_SATURATE_UINT_H
 #define FK_UTEST_SATURATE_UINT_H
 
-#include "utest_saturate_common.h"
+#include "utest_common.h"
 
 namespace fk::testuint {
 #ifdef WIN32

@@ -16,7 +16,7 @@
 #ifndef FK_UTEST_SATURATE_UCHAR_H
 #define FK_UTEST_SATURATE_UCHAR_H
 
-#include "utest_saturate_common.h"
+#include "utest_common.h"
 
 namespace fk::testuchar {
 #ifdef WIN32

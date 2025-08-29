@@ -25,7 +25,7 @@ addAllOutputTestsForInput<Fundamental,char>(std::make_index_sequence<Fundamental
 STOP_ADDING_TESTS
  
 #ifdef WIN32
-int launch() {
+int fk::testchar::launch() {
    RUN_ALL_TESTS
    return 0;
 }

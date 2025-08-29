@@ -31,7 +31,7 @@ foreach(DIR ${LIST_DIRS})
 endforeach()
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/algorithm/image_processing/utest_saturate_shared)
-#add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/core/utils/utest_cuda_vector_utils_shared) 
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/core/utils/utest_cuda_vector_utils_shared) 
   
 
 

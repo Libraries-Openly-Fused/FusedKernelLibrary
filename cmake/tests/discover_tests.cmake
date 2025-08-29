@@ -5,6 +5,12 @@ function (add_shared_target TARGET_BASE_NAME EXTENSION FUNDAMENTAL_TYPE SOURCES)
         add_generated_lib("${TARGET_NAME}_${EXTENSION}" "${SOURCES}"  "/utests/shared/${EXTENSION}")                 
         target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/exports")
         target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include") 
+        target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_SOURCE_DIR}/utests") 
+        #note: we are sharing exports between targets, so we need to manually pass this definition
+        #f.i UTEST_SATURATE_EXPORT defined for UTEST_SATURATE_CPP and UTEST_SATURATE_CU
+        #otherwise the default definition is UTEST_SATURATE_CPP_EXPORTS
+        #and this would force us to duplicate the exports headers 
+        target_compile_definitions(${TARGET_NAME}_${EXTENSION} PRIVATE "${TARGET_NAME}_EXPORTS")
         target_link_libraries(${TARGET_BASE_NAME}_${EXTENSION} PRIVATE "${TARGET_NAME}_${EXTENSION}")
 endfunction()
 
@@ -12,7 +18,10 @@ function (add_shared_test_libs TARGET_BASE_NAME)
     set (FUNDAMENTAL_TYPES uchar char ushort short uint int ulong long ulonglong longlong float double) 
     foreach(FUNDAMENTAL_TYPE ${FUNDAMENTAL_TYPES})   
         set(TARGET_NAME "${TARGET_BASE_NAME}_${FUNDAMENTAL_TYPE}")    
-        set(SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/include/${TARGET_NAME}.h;${CMAKE_CURRENT_SOURCE_DIR}/include/utest_saturate_common.h;")
+        set(SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/include/${TARGET_NAME}.h"        
+        "${CMAKE_SOURCE_DIR}/utests/utest_common.h"        
+        
+        )
         if (${ENABLE_CPU})               
             set(EXTENSION cpp)            
             add_shared_target("${TARGET_BASE_NAME}" "${EXTENSION}" "${FUNDAMENTAL_TYPE}" 

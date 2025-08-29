@@ -1,4 +1,8 @@
-﻿
+﻿#ifndef  UTEST_COMMON_H
+#define UTEST_COMMON_H
+
+
+
 #include <fused_kernel/algorithms/image_processing/saturate.h>
 #include <fused_kernel/algorithms/basic_ops/cast.h>
 #include <fused_kernel/core/utils/cuda_vector_utils.h>
@@ -123,4 +127,4 @@ void addAllOutputTestsForInput(const std::index_sequence<Idx...>&) {
     (addOneTestAllChannels<InputType, fk::TypeAt_t<Idx, OutputTypeList>>(), ...);
 }
 
- 
+ #endif // ! UTEST_COMMON_H
