@@ -2,7 +2,7 @@ set (LAUNCH_SOURCES "${CMAKE_SOURCE_DIR}/tests/main.cpp;${CMAKE_SOURCE_DIR}/test
 if (WIN32)
     list(APPEND LAUNCH_SOURCES "${CMAKE_SOURCE_DIR}/utf8cp.manifest") #for utf8 codepage
 endif() 
-
+include (cmake/generators/export_header.cmake)
 function(add_cuda_to_test TARGET_NAME)
     add_cuda_to_target(${TARGET_NAME} "")
     set_target_cuda_arch_flags(${TARGET_NAME})
@@ -53,6 +53,7 @@ function (add_generated_lib TARGET_NAME TEST_SOURCES DIR)
       #  target_sources(${TARGET_NAME} PRIVATE ${LAUNCH_SOURCES})      
         configure_test_target_flags("${TARGET_NAME}" "${TEST_SOURCES}" "${DIR}")  
         set_property(TARGET "${TARGET_NAME}" PROPERTY FOLDER "${DIR}/")  
+     #   add_generated_export_header_to_target("${TARGET_NAME}")
 
 endfunction()
 
