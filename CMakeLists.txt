@@ -12,6 +12,7 @@ include (cmake/deploy/deploy_dependencies.cmake)
 
 include (cmake/archflags.cmake)
 include (cmake/generators/version_header.cmake)
+include (cmake/generators/export_header.cmake)
 project(FusedKernelLibrary VERSION ${PROJECT_VERSION} LANGUAGES CXX  
 DESCRIPTION "Implementation of a methodology that allows all sorts of user defined GPU kernel fusion, for non CUDA programmers." 
 HOMEPAGE_URL "https://github.com/morousg/FusedKernelLibrary" )

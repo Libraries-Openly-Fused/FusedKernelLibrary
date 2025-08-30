@@ -1,22 +1,6 @@
-/* Copyright 2025 Oscar Amoros Huguet
-   Copyright 2025 Albert Andaluz
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License. */
-
-#define __ONLY_CPU__
-
-#ifndef FK_UTEST_CUDA_VECTOR_UTILS_H
-#define FK_UTEST_CUDA_VECTOR_UTILS_H
+﻿ // Track compilation results
+#ifndef FK_UTEST_CUDA_VECTOR_UTILS_COMMON_H   
+#define FK_UTEST_CUDA_VECTOR_UTILS_COMMON_H   
 
 #include <fused_kernel/core/utils/cuda_vector_utils.h>
 #include <fused_kernel/core/utils/type_to_string.h>
@@ -25,30 +9,8 @@
 #include <iostream>
 #include <vector>
 #include <string>
-
-#if defined(_MSC_VER)
-   // MSVC
-   // C4804: 'operation': unsafe use of type 'bool' in operation
-   // C4805: 'operation': unsafe mix of type 'type' and type 'bool' in operation
-   // C4806: 'case': unsafe case statement that forces value to bool 'true' or 'false'
-#pragma warning(disable : 4804 4805 4806)
-
-#elif defined(__clang__)
-   // Clang
-#pragma clang diagnostic ignored "-Wbool-compare"    // Compares a bool with an integer other than 0 or 1
-#pragma clang diagnostic ignored "-Wbool-operation"  // e.g., using bitwise operations on bools
-#pragma clang diagnostic ignored "-Wswitch-bool"     // e.g., switch(myBool) { case 123: ... }
-
-#elif defined(__GNUC__)
-   // GCC
-#pragma GCC diagnostic ignored "-Wbool-compare"      // Compares a bool with an integer other than 0 or 1
-// Note: GCC does not have direct equivalents for C4804 and C4806.
-// The broader -Wconversion flag might catch some cases but is often too aggressive to disable globally.
-#endif
-
-namespace fk::test {
-    // Track compilation results
-    std::vector<std::string> unexpected_failed_compilations;
+using namespace fk;
+ std::vector<std::string> unexpected_failed_compilations;
 
     // SFINAE-based test helpers
     template<typename T, typename = void>
@@ -507,24 +469,4 @@ COMPOUND_OP_TEST(or_assign, |=)
         }
     };
 
-} // namespace fk::test
-
-int launch() {
-    using namespace fk::test;
-
-    bool passed = UnaryTest<VecAndStdTypes>::execute();
-    passed &= BinaryTests<VecAndStdTypes, VecAndStdTypes>::execute();
-    passed &= CompoundTests<VecAndStdTypes, VecAndStdTypes>::execute();
-
-    if (!unexpected_failed_compilations.empty()) {
-        std::cout << "ERROR: Unexpected compilation failures that did occur:\n";
-        for (const auto& failure : unexpected_failed_compilations) {
-            std::cout << "- " << failure << std::endl;
-        }
-        return -1;
-    }
-
-    return passed ? 0 : -1;
-}
-
-#endif // FK_UTEST_CUDA_VECTOR_UTILS_H
+#endif
