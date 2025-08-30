@@ -43,22 +43,65 @@ namespace fk {
 
     template <typename Child>
     struct BaseExecutor {
+    private:
+        template <typename First>
+        FK_HOST_FUSE auto fuseBack(const First& first) {
+            return first;
+        }
+
+        template <typename First, typename Second, typename... IOps>
+        FK_HOST_FUSE auto fuseBack(const First& first, const Second& second, const IOps&... iOps) {
+            if constexpr ((sizeof...(iOps) == 0 || noneReadBackType<IOps...>) && !isReadBackType<Second>) {
+                return first;
+            } else {
+                return fuseBack(first.then(second), iOps...);
+            }
+        }
+
+        template <typename First>
+        FK_HOST_FUSE size_t idxFirstNonBack() {
+            return 0;
+        }
+
+        template <typename First, typename Second, typename... IOps>
+        FK_HOST_FUSE size_t idxFirstNonBack() {
+            if constexpr ((sizeof...(IOps) == 0 || noneReadBackType<IOps...>) && !isReadBackType<Second>) {
+                return 0;
+            } else {
+                return 1 + idxFirstNonBack<Second, IOps...>();
+            }
+        }
+
+        template <size_t initialIdx, ParArch PA, size_t... Idx, typename... IOps>
+        FK_HOST_FUSE void executeOperationsBase_helper(const std::index_sequence<Idx...>&, Stream_<PA>& stream, const IOps&... iOps) {
+            if constexpr (initialIdx == 0) {
+                Child::executeOperations_helper(stream, iOps...);
+            } else {
+                const auto firstOp = fuseBack(iOps...);
+                Child::executeOperations_helper(stream, firstOp, get<Idx + initialIdx>(iOps...)...);
+            }
+        }
+
+    public:
+
         FK_STATIC_STRUCT(BaseExecutor, BaseExecutor)
         template <enum ParArch PA, typename... IOps>
         FK_HOST_FUSE void executeOperations(Stream_<PA>& stream, const IOps&... iOps) {
-            Child::executeOperations_helper(stream, iOps...);
+            constexpr size_t firstNonBackIdx = idxFirstNonBack<IOps...>();
+            constexpr size_t remainingOps = sizeof...(iOps) - firstNonBackIdx;
+            executeOperationsBase_helper<firstNonBackIdx>(std::make_index_sequence<remainingOps>{}, stream, iOps...);
         }
 
         template <enum ParArch PA, enum ND D, typename I, typename... IOps>
         FK_HOST_FUSE void executeOperations(const Ptr<D, I>& input, Stream_<PA>& stream,
                                             const IOps&... iOps) {
-            Child::executeOperations_helper(stream, PerThreadRead<ND::_2D, I>::build({ input }), iOps...);
+            executeOperations(stream, PerThreadRead<D, I>::build({ input }), iOps...);
         }
 
         template <enum ParArch PA, enum ND D, typename I, typename O, typename... IOps>
         FK_HOST_FUSE void executeOperations(const Ptr<D, I>& input, const Ptr<D, O>& output,
                                             Stream_<PA>& stream, const IOps&... iOps) {
-            Child::executeOperations_helper(stream,
+            executeOperations(stream,
             PerThreadRead<D, I>::build({ input }), iOps..., PerThreadWrite<D, O>::build({ output }));
         }
 
@@ -66,14 +109,14 @@ namespace fk {
         FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, BATCH>& input, const int& activeBatch, const I& defaultValue,
                                             Stream_<PA>& stream, const IOps&... iOps) {
             const auto batchReadIOp = PerThreadRead<ND::_2D, I>::build(activeBatch, defaultValue, input);
-            Child::executeOperations_helper(stream, batchReadIOp, iOps...);
+            executeOperations(stream, batchReadIOp, iOps...);
         }
 
         template <enum ParArch PA, typename I, size_t BATCH, typename... IOps>
         FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, BATCH>& input,
                                             Stream_<PA>& stream, const IOps&... iOps) {
             const auto batchReadIOp = PerThreadRead<ND::_2D, I>::build(input);
-            Child::executeOperations_helper(stream, batchReadIOp, iOps...);
+            executeOperations(stream, batchReadIOp, iOps...);
         }
 
         template <enum ParArch PA, typename I, typename O, size_t Batch, typename... IOps>
@@ -81,7 +124,7 @@ namespace fk {
                                             const Tensor<O>& output, Stream_<PA>& stream, const IOps&... iOps) {
             const auto batchReadIOp = PerThreadRead<ND::_2D, I>::build(activeBatch, defaultValue, input);
             const auto writeOp = PerThreadWrite<ND::_3D, O>::build(output);
-            Child::executeOperations_helper(stream, batchReadIOp, iOps..., writeOp);
+            executeOperations(stream, batchReadIOp, iOps..., writeOp);
         }
 
         template <enum ParArch PA, typename I, typename O, size_t Batch, typename... IOps>
@@ -89,7 +132,7 @@ namespace fk {
                                             Stream_<PA>& stream, const IOps&... iOps) {
             const auto batchReadIOp = PerThreadRead<ND::_2D, I>::build(input);
             const auto writeOp = PerThreadWrite<ND::_3D, O>::build(output);
-            Child::executeOperations_helper(stream, batchReadIOp, iOps..., writeOp);
+            executeOperations(stream, batchReadIOp, iOps..., writeOp);
         }
     };
 

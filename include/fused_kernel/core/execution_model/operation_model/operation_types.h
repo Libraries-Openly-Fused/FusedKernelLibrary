@@ -167,6 +167,15 @@ namespace fk {
     template <typename... OperationORInstantiableOperation>
     constexpr bool noneAnyWriteType = and_v<(!isAnyWriteType<OperationORInstantiableOperation>)...>;
 
+    template <typename... OperationORInstantiableOperation>
+    constexpr bool noneReadType = and_v<(!isReadType<OperationORInstantiableOperation>)...>;
+
+    template <typename... OperationORInstantiableOperation>
+    constexpr bool noneReadBackType = and_v<(!isReadBackType<OperationORInstantiableOperation>)...>;
+
+    template <typename... OperationORInstantiableOperation>
+    constexpr bool noneAnyReadType = and_v<(!isAnyReadType<OperationORInstantiableOperation>)...>;
+
     template <typename T, typename=void>
     struct IsCompleteOperation : std::false_type {};
 
