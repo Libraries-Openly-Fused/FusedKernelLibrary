@@ -16,16 +16,8 @@
 #ifndef FK_UTEST_SATURATE_LONG_H
 #define FK_UTEST_SATURATE_LONG_H
 #include "utest_common.h"
-namespace fk::testlong {
-#ifdef WIN32
 #include "utest_saturate_long_export.h"
-#endif
-
-
-#ifdef WIN32
+namespace fk::testlong {
 int UTEST_SATURATE_LONG_EXPORT launch();
-#else
-int  EXPORT_FN_LONG launch();
-#endif
-#endif
 } //namespace fk::test
+#endif

@@ -17,23 +17,9 @@
 #define FK_UTEST_SATURATE_SHORT_H
 
 #include "utest_common.h"
-
-namespace fk::testshort {
-#ifdef WIN32
 #include "utest_saturate_short_export.h"
-#endif
-
-#if defined(__GNUC__) && !defined(_WIN32)
-#define  EXPORT_FN_SHORT  __attribute__((visibility("default")))
-#else
-#define  EXPORT_FN_SHORT 
-#endif
- 
-
-#ifdef WIN32
+namespace fk::testshort {
 int UTEST_SATURATE_SHORT_EXPORT launch();
-#else
-int  EXPORT_FN_SHORT launch();
-#endif
-#endif
+ 
 } //namespace fk::test
+#endif

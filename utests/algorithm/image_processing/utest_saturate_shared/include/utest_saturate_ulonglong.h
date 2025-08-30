@@ -16,16 +16,8 @@
 #ifndef FK_UTEST_SATURATE_ULONGLONG_H
 #define FK_UTEST_SATURATE_ULONGLONG_H
 #include "utest_common.h"
-
-namespace fk::testulonglong {
-#ifdef WIN32
 #include "utest_saturate_ulonglong_export.h"
-#endif
- 
-#ifdef WIN32
+namespace fk::testulonglong {
 int UTEST_SATURATE_ULONGLONG_EXPORT launch();
-#else
-int  EXPORT_FN_ULONGLONG launch();
-#endif
-#endif
 } //namespace fk::test
+#endif

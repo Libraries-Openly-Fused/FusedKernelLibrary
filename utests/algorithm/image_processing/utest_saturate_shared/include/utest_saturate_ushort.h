@@ -16,16 +16,8 @@
 #ifndef FK_UTEST_SATURATE_USHORT_H
 #define FK_UTEST_SATURATE_USHORT_H
 #include "utest_common.h"
-
-namespace fk::testushort {
-#ifdef WIN32
 #include "utest_saturate_ushort_export.h"
-#endif
- 
-#ifdef WIN32
+namespace fk::testushort {
 int UTEST_SATURATE_USHORT_EXPORT launch();
-#else
-int  EXPORT_FN_USHORT launch();
-#endif
-#endif
 } //namespace fk::test
+#endif

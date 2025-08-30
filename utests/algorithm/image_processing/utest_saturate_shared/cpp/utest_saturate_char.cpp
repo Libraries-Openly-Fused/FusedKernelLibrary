@@ -12,30 +12,20 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License. */
-
  
-
-
 #include "utest_saturate_char.h"
- 
  
 START_ADDING_TESTS
 using Fundamental = fk::RemoveType_t<0, fk::StandardTypes>;
 addAllOutputTestsForInput<Fundamental,char>(std::make_index_sequence<Fundamental::size>{});
 STOP_ADDING_TESTS
  
-#ifdef WIN32
-int fk::testchar::launch() {
-   RUN_ALL_TESTS
-   return 0;
-}
-
-#else
  
 int fk::testchar::launch() {
    RUN_ALL_TESTS
    return 0;
 }
-#endif
+ 
+ 
 
  

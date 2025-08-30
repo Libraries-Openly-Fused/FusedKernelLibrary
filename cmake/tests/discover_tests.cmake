@@ -2,15 +2,9 @@ include (${CMAKE_SOURCE_DIR}/cmake/tests/add_generated_test.cmake)
  
 function (add_shared_target TARGET_BASE_NAME EXTENSION FUNDAMENTAL_TYPE SOURCES)
       set(TARGET_NAME "${TARGET_BASE_NAME}_${FUNDAMENTAL_TYPE}")         
-        add_generated_lib("${TARGET_NAME}_${EXTENSION}" "${SOURCES}"  "/utests/shared/${EXTENSION}")                 
-        target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/exports")
+        add_generated_lib("${TARGET_NAME}_${EXTENSION}" "${SOURCES}"  "/utests/shared/${EXTENSION}")                         
         target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include") 
-        target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_SOURCE_DIR}/utests") 
-        #note: we are sharing exports between targets, so we need to manually pass this definition
-        #f.i UTEST_SATURATE_EXPORT defined for UTEST_SATURATE_CPP and UTEST_SATURATE_CU
-        #otherwise the default definition is UTEST_SATURATE_CPP_EXPORTS
-        #and this would force us to duplicate the exports headers 
-        target_compile_definitions(${TARGET_NAME}_${EXTENSION} PRIVATE "${TARGET_NAME}_EXPORTS")
+        target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_SOURCE_DIR}/utests")         
         target_link_libraries(${TARGET_BASE_NAME}_${EXTENSION} PRIVATE "${TARGET_NAME}_${EXTENSION}")
 endfunction()
 
@@ -22,18 +16,23 @@ function (add_shared_test_libs TARGET_BASE_NAME)
         "${CMAKE_SOURCE_DIR}/utests/utest_common.h"        
         
         )
+        set(TARGET_NAME "${TARGET_BASE_NAME}_${FUNDAMENTAL_TYPE}")   
+
         if (${ENABLE_CPU})               
-            set(EXTENSION cpp)            
+            set(EXTENSION cpp)     
+                   
             add_shared_target("${TARGET_BASE_NAME}" "${EXTENSION}" "${FUNDAMENTAL_TYPE}" 
-            "${SOURCES};${CMAKE_CURRENT_SOURCE_DIR}/${EXTENSION}/${TARGET_NAME}.${EXTENSION};${CMAKE_CURRENT_SOURCE_DIR}/exports/${TARGET_NAME}_export.h;")
+            "${SOURCES};${CMAKE_CURRENT_SOURCE_DIR}/${EXTENSION}/${TARGET_NAME}.${EXTENSION};${CMAKE_BINARY_DIR}/exports/${TARGET_NAME}_export.h;")
+            add_generated_export_header_to_target("${TARGET_NAME}_${EXTENSION}" "${TARGET_BASE_NAME}_${FUNDAMENTAL_TYPE}")
         endif()
         if (CMAKE_CUDA_COMPILER AND ENABLE_CUDA)    
             set(EXTENSION_CU cu)      
             #some targets don't have cuda equivalent                      
             if (TARGET ${TARGET_BASE_NAME}_${EXTENSION_CU})                                               
                 add_shared_target("${TARGET_BASE_NAME}" "${EXTENSION_CU}" "${FUNDAMENTAL_TYPE}" 
-                "${SOURCES};${CMAKE_CURRENT_SOURCE_DIR}/${EXTENSION_CU}/${TARGET_NAME}.${EXTENSION_CU};${CMAKE_CURRENT_SOURCE_DIR}/exports/${TARGET_NAME}_export.h;")
-                add_cuda_to_test("${TARGET_NAME}_${EXTENSION_CU}")                      
+                "${SOURCES};${CMAKE_CURRENT_SOURCE_DIR}/${EXTENSION_CU}/${TARGET_NAME}.${EXTENSION_CU};${CMAKE_BINARY_DIR}/exports//${TARGET_NAME}_export.h;")
+                add_cuda_to_test("${TARGET_NAME}_${EXTENSION_CU}")   
+                add_generated_export_header_to_target("${TARGET_NAME}_${EXTENSION_CU}" "${TARGET_BASE_NAME}_${FUNDAMENTAL_TYPE}")
             endif()                                
         endif()
     endforeach()  

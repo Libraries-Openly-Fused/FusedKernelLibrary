@@ -17,21 +17,8 @@
 #define FK_UTEST_SATURATE_UCHAR_H
 
 #include "utest_common.h"
-
-namespace fk::testuchar {
-#ifdef WIN32
 #include "utest_saturate_uchar_export.h"
-#endif
-
-#if defined(__GNUC__) && !defined(_WIN32)
-#define  EXPORT_FN_UCHAR  __attribute__((visibility("default")))
-#else
-#define  EXPORT_FN_UCHAR 
-#endif 
-#ifdef WIN32
+namespace fk::testuchar {
 int UTEST_SATURATE_UCHAR_EXPORT launch();
-#else
-int  EXPORT_FN_UCHAR launch();
-#endif
-#endif
 } //namespace fk::test
+#endif

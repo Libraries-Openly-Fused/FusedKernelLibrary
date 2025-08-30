@@ -24,18 +24,7 @@ using Fundamental = fk::RemoveType_t<0, fk::StandardTypes>;
 addAllOutputTestsForInput<Fundamental,ushort>(std::make_index_sequence<Fundamental::size>{});
 STOP_ADDING_TESTS
  
-#ifdef WIN32
 int  fk::testushort::launch() {
    RUN_ALL_TESTS
    return 0;
 }
-
-#else
- 
-int fk::testushort::launch() {
-   RUN_ALL_TESTS
-   return 0;
-}
-#endif
-
- 

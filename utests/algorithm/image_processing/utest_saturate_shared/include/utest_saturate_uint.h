@@ -17,16 +17,8 @@
 #define FK_UTEST_SATURATE_UINT_H
 
 #include "utest_common.h"
-
-namespace fk::testuint {
-#ifdef WIN32
 #include "utest_saturate_uint_export.h"
-#endif
-
-#ifdef WIN32
+namespace fk::testuint {
 int UTEST_SATURATE_UINT_EXPORT launch();
-#else
-int  EXPORT_FN_UINT launch();
-#endif
-#endif
 } //namespace fk::test
+#endif

@@ -12,12 +12,6 @@
 #include <tests/operation_test_utils.h>
 
 
-#if defined(__GNUC__) && !defined(_WIN32)
-#define EXPORT_FN_CHAR __attribute__((visibility("default")))
-#else
-#define EXPORT_FN_CHAR
-#endif
-
 inline std::string niceType(const std::string& input) {
     // Map "unsigned type" to specific type names
     static const std::unordered_map<std::string, std::string> unsignedTypeMap = {
