@@ -30,7 +30,29 @@ namespace fk { // namespace fused kernel
      */
     template <typename... Types>
     struct TypeList {
-        enum { size=sizeof...(Types) };
+    private:
+        template <size_t n, typename... TypeList_t>
+        struct At;
+        template <typename Head>
+        struct At<0, TypeList<Head>> {
+            using type = Head;
+        };
+        template <typename Head, typename... Tail>
+        struct At<0, TypeList<Head, Tail...>> {
+            using type = Head;
+        };
+        template <size_t n, typename Head, typename... Tail>
+        struct At<n, TypeList<Head, Tail...>> {
+            static_assert(n < TypeList<Head, Tail...>::size, "Index out of range");
+            using type = typename At<n - 1, TypeList<Tail...>>::type;
+        };
+    public:
+        static constexpr size_t size{sizeof...(Types)};
+
+        template <int Idx>
+        using at = typename At<Idx, TypeList<Types...>>::type;
+        using first = at<0>;
+        using last = at<sizeof...(Types)-1>;
     };
 
     template <typename T>
@@ -150,32 +172,8 @@ namespace fk { // namespace fused kernel
     constexpr size_t TypeIndex_v = TypeIndex<T, TypeList_t>::value;
 
     // Obtain the type found in the index Idx, in TypeList
-    template <int n, typename... TypeList_t>
-    struct TypeAt;
-
-    template <typename Head, typename... Tail>
-    struct TypeAt<0, TypeList<Head, Tail...>> {
-        using type = Head;
-    };
-
-    template <typename Head, typename... Tail>
-    struct TypeAt<-1, TypeList<Head, Tail...>> {
-        using type = typename TypeAt<sizeof...(Tail)-1, TypeList<Tail...>>::type;
-    };
-
-    template <typename Head>
-    struct TypeAt<-1, TypeList<Head>> {
-        using type = Head;
-    };
-
-    template <int n, typename Head, typename... Tail>
-    struct TypeAt<n, TypeList<Head, Tail...>> {
-        static_assert(n < TypeList<Head, Tail...>::size, "Index out of range");
-        using type = typename TypeAt<n - 1, TypeList<Tail...>>::type;
-    };
-
     template <int n, typename TypeList_t>
-    using TypeAt_t = typename TypeAt<n, TypeList_t>::type;
+    using TypeAt_t = std::conditional_t<(n>=0), typename TypeList_t::template at<static_cast<size_t>(n)>, typename TypeList_t::last>;
 
     template <typename... Types>
     using FirstType_t = TypeAt_t<0, TypeList<Types...>>;
