@@ -49,7 +49,7 @@ namespace fk { // namespace fused kernel
     public:
         static constexpr size_t size{sizeof...(Types)};
 
-        template <int Idx>
+        template <size_t Idx>
         using at = typename At<Idx, TypeList<Types...>>::type;
         using first = at<0>;
         using last = at<sizeof...(Types)-1>;
