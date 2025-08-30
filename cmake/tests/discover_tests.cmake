@@ -1,38 +1,39 @@
 include (${CMAKE_SOURCE_DIR}/cmake/tests/add_generated_test.cmake)
  
-function (add_shared_target TARGET_BASE_NAME EXTENSION FUNDAMENTAL_TYPE SOURCES)
-      set(TARGET_NAME "${TARGET_BASE_NAME}_${FUNDAMENTAL_TYPE}")         
-        add_generated_lib("${TARGET_NAME}_${EXTENSION}" "${SOURCES}"  "/utests/shared/${EXTENSION}")                         
-        target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include") 
-        target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_SOURCE_DIR}/utests")         
-        target_link_libraries(${TARGET_BASE_NAME}_${EXTENSION} PRIVATE "${TARGET_NAME}_${EXTENSION}")
+function (add_shared_target TARGET_BASE_NAME EXTENSION FUNDAMENTAL_TYPE)     
+    string(TOUPPER ${FUNDAMENTAL_TYPE} FUNDAMENTAL_TYPE_UPPER)
+    string(TOUPPER ${EXTENSION} EXTENSION_UPPER)
+    set (GEN_DIR ${TARGET_BASE_NAME}_${FUNDAMENTAL_TYPE}_${EXTENSION})    
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/${TARGET_BASE_NAME}_ftype.h.in            
+    ${CMAKE_BINARY_DIR}/generated/${GEN_DIR}/${GEN_DIR}.h)
+    
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/${TARGET_BASE_NAME}_ftype.${EXTENSION}.in           
+    ${CMAKE_BINARY_DIR}/generated/${GEN_DIR}/${GEN_DIR}.${EXTENSION})
+ 
+    set(SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${TARGET_BASE_NAME}_common.h" 
+    ${CMAKE_BINARY_DIR}/generated/${GEN_DIR}/${GEN_DIR}.h
+    ${CMAKE_BINARY_DIR}/generated/${GEN_DIR}/${GEN_DIR}.${EXTENSION})    
+
+    add_generated_lib("${TARGET_NAME}_${EXTENSION}" "${SOURCES}"  "/utests/shared/${EXTENSION}")                                     
+    target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/")   #testcommon       
+    target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_BINARY_DIR}/generated/${GEN_DIR}/")   #testcommon       
+    target_link_libraries(${TARGET_BASE_NAME}_${EXTENSION} PRIVATE "${TARGET_NAME}_${EXTENSION}")
 endfunction()
 
 function (add_shared_test_libs TARGET_BASE_NAME)
     set (FUNDAMENTAL_TYPES uchar char ushort short uint int ulong long ulonglong longlong float double) 
-    foreach(FUNDAMENTAL_TYPE ${FUNDAMENTAL_TYPES})   
-        set(TARGET_NAME "${TARGET_BASE_NAME}_${FUNDAMENTAL_TYPE}")    
-        set(SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/include/${TARGET_NAME}.h"        
-        "${CMAKE_SOURCE_DIR}/utests/utest_common.h"        
-        
-        )
-        set(TARGET_NAME "${TARGET_BASE_NAME}_${FUNDAMENTAL_TYPE}")   
-
-        if (${ENABLE_CPU})               
-            set(EXTENSION cpp)     
-                   
-            add_shared_target("${TARGET_BASE_NAME}" "${EXTENSION}" "${FUNDAMENTAL_TYPE}" 
-            "${SOURCES};${CMAKE_CURRENT_SOURCE_DIR}/${EXTENSION}/${TARGET_NAME}.${EXTENSION};${CMAKE_BINARY_DIR}/exports/${TARGET_NAME}_export.h;")
-            add_generated_export_header_to_target("${TARGET_NAME}_${EXTENSION}" "${TARGET_BASE_NAME}_${FUNDAMENTAL_TYPE}")
+    foreach(FUNDAMENTAL_TYPE ${FUNDAMENTAL_TYPES})       
+        set(TARGET_NAME "${TARGET_BASE_NAME}_${FUNDAMENTAL_TYPE}")                    
+        if (${ENABLE_CPU})    
+            set(EXTENSION cpp)                         
+            add_shared_target("${TARGET_BASE_NAME}" "${EXTENSION}" "${FUNDAMENTAL_TYPE}")         
         endif()
         if (CMAKE_CUDA_COMPILER AND ENABLE_CUDA)    
-            set(EXTENSION_CU cu)      
+            set(EXTENSION cu)      
             #some targets don't have cuda equivalent                      
-            if (TARGET ${TARGET_BASE_NAME}_${EXTENSION_CU})                                               
-                add_shared_target("${TARGET_BASE_NAME}" "${EXTENSION_CU}" "${FUNDAMENTAL_TYPE}" 
-                "${SOURCES};${CMAKE_CURRENT_SOURCE_DIR}/${EXTENSION_CU}/${TARGET_NAME}.${EXTENSION_CU};${CMAKE_BINARY_DIR}/exports//${TARGET_NAME}_export.h;")
-                add_cuda_to_test("${TARGET_NAME}_${EXTENSION_CU}")   
-                add_generated_export_header_to_target("${TARGET_NAME}_${EXTENSION_CU}" "${TARGET_BASE_NAME}_${FUNDAMENTAL_TYPE}")
+            if (TARGET ${TARGET_BASE_NAME}_${EXTENSION})                                               
+                add_shared_target("${TARGET_BASE_NAME}" "${EXTENSION}" "${FUNDAMENTAL_TYPE}")
+                add_cuda_to_test("${TARGET_NAME}_${EXTENSION}")                   
             endif()                                
         endif()
     endforeach()  
@@ -45,8 +46,9 @@ function (discover_tests DIR)
         CONFIGURE_DEPENDS
         "${DIR}/*.h"        
     )
-     list(FILTER TEST_SOURCES EXCLUDE REGEX ".*_shared.*")  
-    foreach(TEST_SOURCE ${TEST_SOURCES})         
+    list(FILTER TEST_SOURCES EXCLUDE REGEX ".*_common.*") 
+    foreach(TEST_SOURCE ${TEST_SOURCES})     
+    
         get_filename_component(TARGET_NAME ${TEST_SOURCE} NAME_WE)           
         file (READ ${TEST_SOURCE} TEST_SOURCE_CONTENTS ) #read the contents of the test source file
        

@@ -1,5 +1,5 @@
 ﻿/* Copyright 2025 Oscar Amoros Huguet
-   Copyright 2025 Grup Mediapro S.L.U
+   Copyright 2025 Albert Andaluz
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -13,29 +13,18 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
+#define __ONLY_CPU__
+
+#ifndef FK_UTEST_CUDA_VECTOR_UTILS_@FUNDAMENTAL_TYPE_UPPER@_H
+#define FK_UTEST_CUDA_VECTOR_UTILS_@FUNDAMENTAL_TYPE_UPPER@_H
+
+#include "utest_cuda_vector_utils_@FUNDAMENTAL_TYPE@_@EXTENSION@_export.h"
  
 
-
-#include "utest_saturate_longlong.h"
+namespace fk::test@FUNDAMENTAL_TYPE@ {
+   
  
-using namespace fk::testlonglong;
-START_ADDING_TESTS
-using Fundamental = fk::RemoveType_t<0, fk::StandardTypes>;
-addAllOutputTestsForInput<Fundamental,longlong>(std::make_index_sequence<Fundamental::size>{});
-STOP_ADDING_TESTS
+int UTEST_CUDA_VECTOR_UTILS_@FUNDAMENTAL_TYPE_UPPER@_@EXTENSION_UPPER@_EXPORT launch();
  
-#ifdef WIN32
-int  fk::testlonglong::launch() {
-   RUN_ALL_TESTS
-   return 0;
-}
-
-#else
- 
-int fk::testlonglong::launch() {
-   RUN_ALL_TESTS
-   return 0;
-}
-#endif
-
- 
+#endif // FK_UTEST_CUDA_VECTOR_UTILS_CHAR_H
+} // namespace fk::test

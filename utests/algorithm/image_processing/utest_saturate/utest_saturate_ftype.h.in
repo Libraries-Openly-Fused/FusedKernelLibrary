@@ -13,19 +13,14 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
- 
+#ifndef FK_UTEST_SATURATE_@FUNDAMENTAL_TYPE_UPPER@_H
+#define FK_UTEST_SATURATE_@FUNDAMENTAL_TYPE_UPPER@_H
 
+#include "utest_saturate_common.h"
+#include "utest_saturate_@FUNDAMENTAL_TYPE@_@EXTENSION@_export.h"
 
-#include "utest_saturate_longlong.h"
- 
-using namespace fk::testlonglong;
-START_ADDING_TESTS
-using Fundamental = fk::RemoveType_t<0, fk::StandardTypes>;
-addAllOutputTestsForInput<Fundamental,longlong>(std::make_index_sequence<Fundamental::size>{});
-STOP_ADDING_TESTS
- 
-
-int  fk::testlonglong::launch() {
-   RUN_ALL_TESTS
-   return 0;
+namespace fk::test@FUNDAMENTAL_TYPE@ {
+int UTEST_SATURATE_@FUNDAMENTAL_TYPE_UPPER@_@EXTENSION_UPPER@_EXPORT launch();
+#endif
 }
+ 

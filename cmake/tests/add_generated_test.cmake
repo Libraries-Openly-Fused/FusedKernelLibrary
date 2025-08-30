@@ -40,30 +40,21 @@ function(configure_test_target_flags TARGET_NAME TEST_SOURCE DIR)
             
         endif()
 
-        add_optimization_flags(${TARGET_NAME})
-        
-       
+        add_optimization_flags(${TARGET_NAME})           
 endfunction()
-
 
 function (add_generated_lib TARGET_NAME TEST_SOURCES DIR)                        
         add_library(${TARGET_NAME} SHARED "${TEST_SOURCES}" )
-        set_target_properties(${TARGET_NAME}  PROPERTIES LINKER_LANGUAGE CXX)
-      #  target_sources(${TARGET_NAME} PRIVATE ${LAUNCH_SOURCES})      
+        set_target_properties(${TARGET_NAME}  PROPERTIES LINKER_LANGUAGE CXX)      
+        add_generated_export_header_to_target(${TARGET_NAME})
         configure_test_target_flags("${TARGET_NAME}" "${TEST_SOURCES}" "${DIR}")  
         set_property(TARGET "${TARGET_NAME}" PROPERTY FOLDER "${DIR}/")  
-
-
-
 endfunction()
 
-function (add_generated_test TARGET_NAME TEST_SOURCE EXTENSION DIR)                       
+function (add_generated_test_sub TARGET_NAME_EXT TEST_SOURCE DIR)
+    #message(STATUS "Adding test: ${TARGET_NAME_EXT} from ${TEST_GENERATED_SOURCE} and ${TEST_SOURCE}")
         set(TEST_GENERATED_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}_${EXTENSION}/launcher.${EXTENSION}") #use the same name as the target	)			
-        set (TARGET_NAME_EXT "${TARGET_NAME}_${EXTENSION}")
         configure_file(${CMAKE_SOURCE_DIR}/tests/launcher.in ${TEST_GENERATED_SOURCE} @ONLY) #replace variables in the test source file                 
-        set (TARGET_NAME_EXT "${TARGET_NAME}_${EXTENSION}")
-        
-        #message(STATUS "Adding test: ${TARGET_NAME_EXT} from ${TEST_GENERATED_SOURCE} and ${TEST_SOURCE}")
         add_executable(${TARGET_NAME_EXT} "${TEST_GENERATED_SOURCE};${TEST_SOURCE}" )
         configure_test_target_flags("${TARGET_NAME_EXT}" "${TEST_SOURCE}"  "${DIR}")
         target_sources(${TARGET_NAME_EXT} PRIVATE ${LAUNCH_SOURCES})      
@@ -79,6 +70,12 @@ function (add_generated_test TARGET_NAME TEST_SOURCE EXTENSION DIR)
             message(FATAL_ERROR "Unknown extension: ${EXTENSION}") 
         endif()
 
-        set_property(TARGET "${TARGET_NAME_EXT}" PROPERTY FOLDER "${DIR_PARENT_PATH}/${FKL_BACKEND}/")    
-        
+        set_property(TARGET "${TARGET_NAME_EXT}" PROPERTY FOLDER "${DIR_PARENT_PATH}/${FKL_BACKEND}/")  
+endfunction()
+function (add_generated_test TARGET_NAME TEST_SOURCE EXTENSION DIR)                       
+        set(TEST_GENERATED_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}_${EXTENSION}/launcher.${EXTENSION}") #use the same name as the target	)			
+        set (TARGET_NAME_EXT "${TARGET_NAME}_${EXTENSION}")       
+        set (TARGET_NAME_EXT "${TARGET_NAME}_${EXTENSION}")
+        add_generated_test_sub("${TARGET_NAME_EXT}" "${TEST_SOURCE}" "${DIR}")
+
 endfunction()

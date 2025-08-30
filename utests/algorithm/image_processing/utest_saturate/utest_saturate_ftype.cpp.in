@@ -12,30 +12,20 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License. */
-
  
-
-
-#include "utest_saturate_ulonglong.h"
+#include "utest_saturate_@FUNDAMENTAL_TYPE@_@EXTENSION@.h"
  
-using namespace fk::testulonglong;
 START_ADDING_TESTS
 using Fundamental = fk::RemoveType_t<0, fk::StandardTypes>;
-addAllOutputTestsForInput<Fundamental,ulonglong>(std::make_index_sequence<Fundamental::size>{});
+addAllOutputTestsForInput<Fundamental,@FUNDAMENTAL_TYPE@>(std::make_index_sequence<Fundamental::size>{});
 STOP_ADDING_TESTS
  
-#ifdef WIN32
-int  fk::testulonglong::launch() {
-   RUN_ALL_TESTS
-   return 0;
-}
-
-#else
  
-int fk::testulonglong::launch() {
+int fk::test@FUNDAMENTAL_TYPE@::launch() {
    RUN_ALL_TESTS
    return 0;
 }
-#endif
+ 
+ 
 
  

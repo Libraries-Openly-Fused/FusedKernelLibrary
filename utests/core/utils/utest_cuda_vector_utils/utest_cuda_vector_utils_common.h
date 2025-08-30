@@ -1,22 +1,6 @@
-﻿/* Copyright 2025 Oscar Amoros Huguet
-   Copyright 2025 Albert Andaluz
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License. */
-
-#define __ONLY_CPU__
-
-#ifndef FK_UTEST_CUDA_VECTOR_UTILS_FLOAT_H
-#define FK_UTEST_CUDA_VECTOR_UTILS_FLOAT_H
+﻿ // Track compilation results
+#ifndef FK_UTEST_CUDA_VECTOR_UTILS_COMMON_H   
+#define FK_UTEST_CUDA_VECTOR_UTILS_COMMON_H   
 
 #include <fused_kernel/core/utils/cuda_vector_utils.h>
 #include <fused_kernel/core/utils/type_to_string.h>
@@ -25,20 +9,8 @@
 #include <iostream>
 #include <vector>
 #include <string>
-
-#ifdef WIN32
-#include "utest_cuda_vector_utils_float_export.h"
-#endif
-
-#if defined(__GNUC__) && !defined(_WIN32)
-#define  EXPORT_FN_FLOAT  __attribute__((visibility("default")))
-#else
-#define  EXPORT_FN_FLOAT 
-#endif
-
-namespace fk::testfloat {
-    // Track compilation results
-    std::vector<std::string> unexpected_failed_compilations;
+using namespace fk;
+ std::vector<std::string> unexpected_failed_compilations;
 
     // SFINAE-based test helpers
     template<typename T, typename = void>
@@ -497,14 +469,4 @@ COMPOUND_OP_TEST(or_assign, |=)
         }
     };
 
-
-
-#ifdef WIN32
-int UTEST_CUDA_VECTOR_UTILS_FLOAT_EXPORT  launch();
-#else
-int  EXPORT_FN_FLOAT  launch();
 #endif
-
-
-#endif // FK_UTEST_CUDA_VECTOR_UTILS_FLOAT_H
-} // namespace fk::test
