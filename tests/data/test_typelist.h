@@ -16,6 +16,7 @@
 
 #include <fused_kernel/core/utils/type_lists.h>
 #include <fused_kernel/core/utils/template_operations.h>
+#include <fused_kernel/core/data/vector_types.h>
 
 template <typename T>
 struct DummyTemplateType {};
@@ -81,6 +82,18 @@ int launch() {
                                 sixthType,
                                 seventhType>, "Unexpected types in TypeList");
     }
+
+    using TL6 = fk::TypeList<int, char, float, double, uchar3>;
+    using TL6_0 = TL6::at<0>;
+    using TL6_1 = TL6::at<1>;
+    using TL6_2 = TL6::at<2>;
+    using TL6_3 = TL6::at<3>;
+    using TL6_4 = TL6::at<4>;
+    static_assert(std::is_same_v<int, TL6_0>, "Unexpected type");
+    static_assert(std::is_same_v<char, TL6_1>, "Unexpected type");
+    static_assert(std::is_same_v<float, TL6_2>, "Unexpected type");
+    static_assert(std::is_same_v<double, TL6_3>, "Unexpected type");
+    static_assert(std::is_same_v<uchar3, TL6_4>, "Unexpected type");
 
     return 0;
 }
