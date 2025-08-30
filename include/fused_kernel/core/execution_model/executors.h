@@ -44,34 +44,37 @@ namespace fk {
     template <typename Child>
     struct BaseExecutor {
     private:
-        template <typename First>
-        FK_HOST_FUSE auto fuseBack(const First& first) {
-            return first;
-        }
-
         template <typename First, typename Second, typename... IOps>
         FK_HOST_FUSE auto fuseBack(const First& first, const Second& second, const IOps&... iOps) {
-            if constexpr ((sizeof...(iOps) == 0 || noneReadBackType<IOps...>) && !isReadBackType<Second>) {
-                return first;
+            if constexpr (sizeof...(iOps) == 0 || noneReadBackType<IOps...>) {
+                if constexpr (isReadBackType<Second>) {
+                    return first.then(second);
+                } else {
+                    return first;
+                }
             } else {
                 return fuseBack(first.then(second), iOps...);
             }
         }
 
-        template <typename First>
+        template <typename First, typename... IOps>
         FK_HOST_FUSE size_t idxFirstNonBack() {
-            return 0;
-        }
-
-        template <typename First, typename Second, typename... IOps>
-        FK_HOST_FUSE size_t idxFirstNonBack() {
-            if constexpr ((sizeof...(IOps) == 0 || noneReadBackType<IOps...>) && !isReadBackType<Second>) {
-                return 0;
+            if constexpr (sizeof...(IOps) == 0) {
+                return 1;
             } else {
-                return 1 + idxFirstNonBack<Second, IOps...>();
+                if constexpr (!noneReadBackType<IOps...>) {
+                    return 1 + idxFirstNonBack<IOps...>();
+                } else {
+                    if constexpr (isReadBackType<First>) {
+                        return 1;
+                    } else {
+                        return 0;
+                    }
+                }
             }
         }
 
+    public:
         template <size_t initialIdx, ParArch PA, size_t... Idx, typename... IOps>
         FK_HOST_FUSE void executeOperationsBase_helper(const std::index_sequence<Idx...>&, Stream_<PA>& stream, const IOps&... iOps) {
             if constexpr (initialIdx == 0) {
@@ -82,9 +85,8 @@ namespace fk {
             }
         }
 
-    public:
-
         FK_STATIC_STRUCT(BaseExecutor, BaseExecutor)
+
         template <enum ParArch PA, typename... IOps>
         FK_HOST_FUSE void executeOperations(Stream_<PA>& stream, const IOps&... iOps) {
             constexpr size_t firstNonBackIdx = idxFirstNonBack<IOps...>();
@@ -169,6 +171,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                                     Stream_<PA>& stream, const IOps&... iOps) { \
     Parent::executeOperations(input, output, stream, iOps...); \
 }
+
 #ifdef NVRTC_ENABLED
     template <typename DataParallelPattern>
     struct Executor {
