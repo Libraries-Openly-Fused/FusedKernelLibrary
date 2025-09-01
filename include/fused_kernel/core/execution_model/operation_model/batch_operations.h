@@ -101,10 +101,10 @@ namespace fk {
         ActiveThreads activeThreads;
     };
 
-    template <size_t BATCH, typename BatchOp>
+    template <typename BatchOp>
     struct BatchReadBase {
     private:
-        using SelfType = BatchReadBase<BATCH, BatchOp>;
+        using SelfType = BatchReadBase<BatchOp>;
     public:
         FK_STATIC_STRUCT(BatchReadBase, SelfType)
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationData<BatchOp>& opData) {
@@ -134,7 +134,7 @@ namespace fk {
     /// with the remainder not reading and returning a default value
     template <size_t BATCH_, typename Operation_, typename OutputType_>
     struct BatchRead<BATCH_, PlanePolicy::PROCESS_ALL, Operation_, OutputType_> final
-        : public BatchReadBase<BATCH_, BatchRead<BATCH_, PlanePolicy::PROCESS_ALL, Operation_, OutputType_>> {
+        : public BatchReadBase<BatchRead<BATCH_, PlanePolicy::PROCESS_ALL, Operation_, OutputType_>> {
     private:
         using SelfType = BatchRead<BATCH_, PlanePolicy::PROCESS_ALL, Operation_, OutputType_>;
     public:
@@ -216,7 +216,7 @@ namespace fk {
 
     template <size_t BATCH_, typename Operation_, typename OutputType_>
     struct BatchRead<BATCH_, PlanePolicy::CONDITIONAL_WITH_DEFAULT, Operation_, OutputType_> final
-        : public BatchReadBase<BATCH_, BatchRead<BATCH_, PlanePolicy::CONDITIONAL_WITH_DEFAULT, Operation_, OutputType_>> {
+        : public BatchReadBase<BatchRead<BATCH_, PlanePolicy::CONDITIONAL_WITH_DEFAULT, Operation_, OutputType_>> {
     private:
         using SelfType = BatchRead<BATCH_, PlanePolicy::CONDITIONAL_WITH_DEFAULT, Operation_, OutputType_>;
     public:
