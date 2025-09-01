@@ -101,25 +101,25 @@ namespace fk {
         ActiveThreads activeThreads;
     };
 
-    template <size_t BATCH, typename BatchOperation>
+    template <size_t BATCH, typename BatchOp>
     struct BatchReadBase {
     private:
-        using SelfType = BatchReadBase<BATCH, BatchOperation>;
+        using SelfType = BatchReadBase<BATCH, BatchOp>;
     public:
         FK_STATIC_STRUCT(BatchReadBase, SelfType)
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationData<BatchOperation>& opData) {
-            return BatchOperation::Operation::num_elems_x(thread, opData.params.opData[thread.z]);
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationData<BatchOp>& opData) {
+            return BatchOp::Operation::num_elems_x(thread, opData.params.opData[thread.z]);
         }
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationData<BatchOperation>& opData) {
-            return BatchOperation::Operation::num_elems_y(thread, opData.params.opData[thread.z]);
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationData<BatchOp>& opData) {
+            return BatchOp::Operation::num_elems_y(thread, opData.params.opData[thread.z]);
         }
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationData<BatchOperation>& opData) {
-            return BatchOperation::BATCH;
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationData<BatchOp>& opData) {
+            return BatchOp::BATCH;
         }
-        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationData<BatchOperation>& opData) {
-            return BatchOperation::Operation::pitch(thread, opData.params.opData[thread.z]);
+        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationData<BatchOp>& opData) {
+            return BatchOp::Operation::pitch(thread, opData.params.opData[thread.z]);
         }
-        FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationData<BatchOperation>& opData) {
+        FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationData<BatchOp>& opData) {
             return opData.params.activeThreads;
         }
     };
