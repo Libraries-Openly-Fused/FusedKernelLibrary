@@ -246,11 +246,11 @@ namespace fk {
         DECLARE_READBACK_PARENT_INCOMPLETE
 
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
-            return 1;
+            return opData.params.dstSize.width;
         }
 
         FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
-            return 1;
+            return opData.params.dstSize.height;
         }
 
         FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
@@ -285,11 +285,11 @@ namespace fk {
         DECLARE_READBACK_PARENT_INCOMPLETE
 
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
-            return 1;
+            return opData.params.dstSize.width;
         }
 
         FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
-            return 1;
+            return opData.params.dstSize.height;
         }
 
         FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
@@ -336,14 +336,13 @@ namespace fk {
 
         template <typename T, enum AspectRatio AR_ = AR>
         FK_HOST_FUSE std::enable_if_t<AR_ != AspectRatio::IGNORE_AR, ReadBack<Resize<IType, AR_, TypeList<void, T>>>>
-        build(const Size& dstSize,
-              const T& backgroundValue) {
+        build(const Size& dstSize, const T& backgroundValue) {
             return Resize<IType, AR_, TypeList<void, T>>::build(dstSize, backgroundValue);
         }
 
         template <typename T>
         FK_HOST_FUSE auto build(const RawPtr<ND::_2D, T>& input, const Size& dSize, const double& fx, const double& fy) {
-            return Resize<IType, AR, ReadInstantiableOperation<PerThreadRead<ND::_2D, T>>>::build(input, dSize, fx, fy);
+            return Resize<IType, AR, Read<PerThreadRead<ND::_2D, T>>>::build(input, dSize, fx, fy);
         }
     };
 }; // namespace fk
