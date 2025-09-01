@@ -42,9 +42,9 @@ namespace fk {
     template <typename T>
     constexpr bool has_next_v = has_next<T>::value;
 
-    using BFList = TypeList<ReadBackType, TernaryType>;
+    using BIOpList = TypeList<ReadBackType, TernaryType>;
     template <typename OpOrDF>
-    constexpr bool hasNoBackIOp_v = !one_of_v<typename OpOrDF::InstanceType, BFList>;
+    constexpr bool hasNoBackIOp_v = !one_of_v<typename OpOrDF::InstanceType, BIOpList>;
 
     // hasBackIOp trait
     template <typename, typename = std::void_t<>>

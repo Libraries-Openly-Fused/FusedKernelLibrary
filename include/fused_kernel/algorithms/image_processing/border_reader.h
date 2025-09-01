@@ -67,21 +67,21 @@ namespace fk {
             return BorderReader<BT_, TypeList<void, T>>::build({});
         }
 
-        template <typename BF, enum BorderType BT_ = BT>
+        template <typename BIOp, enum BorderType BT_ = BT>
         FK_HOST_FUSE 
-        std::enable_if_t<BT_ != BorderType::CONSTANT && isAnyReadType<BF>,
-                         decltype(BorderReader<BT, BF>::build(std::declval<BF>()))>
-        build(const BF& backFunction) {
-            return BorderReader<BT_, BF>::build(backFunction);
+        std::enable_if_t<BT_ != BorderType::CONSTANT && isAnyReadType<BIOp>,
+                         decltype(BorderReader<BT, BIOp>::build(std::declval<BIOp>()))>
+        build(const BIOp& backFunction) {
+            return BorderReader<BT_, BIOp>::build(backFunction);
         }
 
-        template <typename BF, enum BorderType BT_ = BT>
+        template <typename BIOp, enum BorderType BT_ = BT>
         FK_HOST_FUSE 
-        std::enable_if_t<BT_ == BorderType::CONSTANT && isAnyReadType<BF>,
-                         decltype(BorderReader<BT, BF>::build(std::declval<BF>(), std::declval<typename BF::Operation::ReadDataType>()))>
-        build(const BF& backFunction,
-              const typename BF::Operation::ReadDataType& defaultValue) {
-            return BorderReader<BT, BF>::build(backFunction, defaultValue);
+        std::enable_if_t<BT_ == BorderType::CONSTANT && isAnyReadType<BIOp>,
+                         decltype(BorderReader<BT, BIOp>::build(std::declval<BIOp>(), std::declval<typename BIOp::Operation::ReadDataType>()))>
+        build(const BIOp& backFunction,
+              const typename BIOp::Operation::ReadDataType& defaultValue) {
+            return BorderReader<BT, BIOp>::build(backFunction, defaultValue);
         }
         DECLARE_READBACK_PARENT_BATCH_INCOMPLETE
     };

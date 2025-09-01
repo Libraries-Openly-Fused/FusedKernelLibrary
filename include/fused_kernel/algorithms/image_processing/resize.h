@@ -165,17 +165,17 @@ namespace fk {
             }
         }
 
-        template <typename BF = BackIOp_>
+        template <typename BIOp = BackIOp_>
         FK_HOST_FUSE
-        std::enable_if_t<std::is_same_v<BF, Read<PerThreadRead<ND::_2D, ReadDataType>>>, InstantiableType>
+        std::enable_if_t<std::is_same_v<BIOp, Read<PerThreadRead<ND::_2D, ReadDataType>>>, InstantiableType>
         build(const RawPtr<ND::_2D, ReadDataType>& input, const Size& dSize, const double& fx, const double& fy) {
             if (dSize.width != 0 && dSize.height != 0) {
-                return build(BF{ {input} }, dSize);
+                return build(BIOp{ {input} }, dSize);
             } else {
                 const Size computedDSize{ SaturateCast<double, int>::exec(input.dims.width * fx),
                                           SaturateCast<double, int>::exec(input.dims.height * fy) };
 
-                return build(BF{ {input} }, computedDSize);
+                return build(BIOp{ {input} }, computedDSize);
             }
         }
 
@@ -315,17 +315,17 @@ namespace fk {
         using Parent = ReadBackOperation<NullType, NullType, NullType, NullType,
                                          Resize<IType, AR, void>>;
         DECLARE_READBACK_PARENT_BATCH_INCOMPLETE
-        template <typename BF, enum AspectRatio AR_ = AR>
-        FK_HOST_FUSE std::enable_if_t<AR_ == AspectRatio::IGNORE_AR && isAnyReadType<BF>, ReadBack<Resize<IType, AR_, BF>>>
-        build(const BF& backIOp, const Size& dstSize) {
-            return Resize<IType, AR_, BF>::build(backIOp, dstSize);
+        template <typename BIOp, enum AspectRatio AR_ = AR>
+        FK_HOST_FUSE std::enable_if_t<AR_ == AspectRatio::IGNORE_AR && isAnyReadType<BIOp>, ReadBack<Resize<IType, AR_, BIOp>>>
+        build(const BIOp& backIOp, const Size& dstSize) {
+            return Resize<IType, AR_, BIOp>::build(backIOp, dstSize);
         }
 
-        template <typename BF, enum AspectRatio AR_ = AR>
-        FK_HOST_FUSE std::enable_if_t<AR_ != AspectRatio::IGNORE_AR && isAnyReadType<BF>, ReadBack<Resize<IType, AR_, BF>>>
-        build(const BF& backIOp, const Size& dstSize,
-              const typename Resize<IType, AR_, BF>::OutputType& backgroundValue) {
-            return Resize<IType, AR_, BF>::build(backIOp, dstSize, backgroundValue);
+        template <typename BIOp, enum AspectRatio AR_ = AR>
+        FK_HOST_FUSE std::enable_if_t<AR_ != AspectRatio::IGNORE_AR && isAnyReadType<BIOp>, ReadBack<Resize<IType, AR_, BIOp>>>
+        build(const BIOp& backIOp, const Size& dstSize,
+              const typename Resize<IType, AR_, BIOp>::OutputType& backgroundValue) {
+            return Resize<IType, AR_, BIOp>::build(backIOp, dstSize, backgroundValue);
         }
 
         template <enum AspectRatio AR_ = AR>

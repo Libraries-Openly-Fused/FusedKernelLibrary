@@ -93,16 +93,16 @@ namespace fk {
   FK_HOST_DEVICE_FUSE InstantiableType build(const OperationDataType &opData) { return Parent::build(opData); }        \
   FK_HOST_DEVICE_FUSE InstantiableType build(const ParamsType &params) { return Parent::build(params); }
 
-    template <typename I, typename P, typename BF, typename O, typename TOperationImpl, bool IS_FUSED = false>
+    template <typename I, typename P, typename BIOp, typename O, typename ChildImplementation, bool IS_FUSED = false>
     struct TernaryOperation {
     private:
-        using SelfType = TernaryOperation<I, P, BF, O, TOperationImpl, IS_FUSED>;
+        using SelfType = TernaryOperation<I, P, BIOp, O, ChildImplementation, IS_FUSED>;
     public:
         FK_STATIC_STRUCT(TernaryOperation, SelfType)
         using InputType = I;
         using OutputType = O;
         using ParamsType = P;
-        using BackIOp = BF;
+        using BackIOp = BIOp;
         using InstanceType = TernaryType;
         using OperationDataType = OperationData<TOperationImpl>;
         using InstantiableType = TernaryInstantiableOperation<TOperationImpl>;
@@ -259,10 +259,11 @@ DECLARE_READ_PARENT_DEVICE_BASIC
         static constexpr bool IS_FUSED_OP = IS_FUSED;
         static constexpr bool THREAD_FUSION = false;
 
-        template <typename BF = BackIOp>
-        FK_DEVICE_FUSE std::enable_if_t<!std::is_same_v<BF, NullType>, OutputType> exec(const Point& thread,
-            const OperationDataType& opData) {
-            return RBOperationImpl::exec(thread, opData.params, opData.backIOp);
+        template <typename BIOp = BackIOp>
+        FK_HOST_DEVICE_FUSE std::enable_if_t<!std::is_same_v<BIOp, NullType>, OutputType>
+        exec(const Point& thread, const OperationDataType& opData) {
+            return Child::exec(thread, opData.params, opData.backIOp);
+        }
         }
         FK_HOST_DEVICE_FUSE auto build(const OperationDataType& opData) { return InstantiableType{ opData }; }
         FK_HOST_DEVICE_FUSE auto build(const ParamsType& params, const BackIOp& backFunc) {
