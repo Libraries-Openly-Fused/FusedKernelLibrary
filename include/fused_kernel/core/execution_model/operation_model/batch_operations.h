@@ -305,7 +305,7 @@ namespace fk {
         FK_STATIC_STRUCT(BatchRead, SelfType)
         template <typename IOp, typename DefaultValueType>
         FK_HOST_FUSE auto build(const std::array<IOp, BATCH>& instantiableOperations, const int& usedPlanes,
-            const DefaultValueType& defaultValue) {
+                                const DefaultValueType& defaultValue) {
             if constexpr (std::is_same_v<typename IOp::Operation::OutputType, NullType>) {
                 return BatchRead<BATCH, PlanePolicy::CONDITIONAL_WITH_DEFAULT, typename IOp::Operation, DefaultValueType>::build(
                     instantiableOperations, usedPlanes, defaultValue);
@@ -381,8 +381,8 @@ namespace fk {
     struct ReadOperationBatchBuilders {
     private:
         using SelfType = ReadOperationBatchBuilders<ReadOperation>;
-        FK_STATIC_STRUCT(ReadOperationBatchBuilders, SelfType)
     public:
+        FK_STATIC_STRUCT(ReadOperationBatchBuilders, SelfType)
         template <size_t BATCH_N, typename FirstType, typename... ArrayTypes>
         FK_HOST_FUSE auto build(const std::array<FirstType, BATCH_N>& firstInstance, const ArrayTypes &...arrays) {
             using BuilderType = BatchRead<BATCH_N, PlanePolicy::PROCESS_ALL, ReadOperation>;
@@ -390,7 +390,7 @@ namespace fk {
         }
         template <size_t BATCH_N, typename DefaultValueType, typename FirstType, typename... ArrayTypes>
         FK_HOST_FUSE auto build(const int& usedPlanes, const DefaultValueType& defaultValue,
-                                const std::array<FirstType, BATCH_N>& firstInstance, const ArrayTypes &...arrays) {
+                                const std::array<FirstType, BATCH_N>& firstInstance, const ArrayTypes&... arrays) {
             using BuilderType = BatchRead<BATCH_N, PlanePolicy::CONDITIONAL_WITH_DEFAULT, ReadOperation>;
             if constexpr (sizeof...(ArrayTypes) > 0) {
                 return BuilderType::build(usedPlanes, defaultValue, firstInstance, arrays...);
@@ -398,26 +398,25 @@ namespace fk {
                 if constexpr (isAnyReadType<FirstType>) {
                     return BuilderType::build(firstInstance, usedPlanes, defaultValue);
                 } else {
-                    static_assert(!isAnyReadType<FirstType>, "FirstType is a Read or ReadBack type and should not be.");
                     return BuilderType::build(usedPlanes, defaultValue, firstInstance);
                 }
             }
         }
     };
 
-#define DECLARE_READ_PARENT_BATCH                                                                                      \
-  template <size_t BATCH_N, typename FirstType, typename... ArrayTypes>                                                \
-  FK_HOST_FUSE auto build_batch(const std::array<FirstType, BATCH_N> &firstInstance, const ArrayTypes &...arrays) {    \
-    return BatchOperation::build_batch<typename Parent::Child>(firstInstance, arrays...);                              \
-  }                                                                                                                    \
-  template <size_t BATCH_N, typename FirstType, typename... ArrayTypes>                                                \
-  FK_HOST_FUSE auto build(const std::array<FirstType, BATCH_N> &firstInstance, const ArrayTypes &...arrays) {          \
-    return ReadOperationBatchBuilders<typename Parent::Child>::build(firstInstance, arrays...);                                        \
-  }                                                                                                                    \
-  template <size_t BATCH_N, typename DefaultValueType, typename FirstType, typename... ArrayTypes>                     \
-  FK_HOST_FUSE auto build(const int &usedPlanes, const DefaultValueType &defaultValue,                                 \
-                          const std::array<FirstType, BATCH_N> &firstInstance, const ArrayTypes &...arrays) {          \
-    return ReadOperationBatchBuilders<typename Parent::Child>::build(usedPlanes, defaultValue, firstInstance, arrays...);              \
+#define DECLARE_READ_PARENT_BATCH                                                                                          \
+  template <size_t BATCH_N, typename FirstType, typename... ArrayTypes>                                                    \
+  FK_HOST_FUSE auto build_batch(const std::array<FirstType, BATCH_N> &firstInstance, const ArrayTypes &...arrays) {        \
+    return BatchOperation::build_batch<typename Parent::Child>(firstInstance, arrays...);                                  \
+  }                                                                                                                        \
+  template <size_t BATCH_N, typename FirstType, typename... ArrayTypes>                                                    \
+  FK_HOST_FUSE auto build(const std::array<FirstType, BATCH_N> &firstInstance, const ArrayTypes &...arrays) {              \
+    return ReadOperationBatchBuilders<typename Parent::Child>::build(firstInstance, arrays...);                            \
+  }                                                                                                                        \
+  template <size_t BATCH_N, typename DefaultValueType, typename FirstType, typename... ArrayTypes>                         \
+  FK_HOST_FUSE auto build(const int &usedPlanes, const DefaultValueType &defaultValue,                                     \
+                          const std::array<FirstType, BATCH_N> &firstInstance, const ArrayTypes &...arrays) {              \
+    return ReadOperationBatchBuilders<typename Parent::Child>::build(usedPlanes, defaultValue, firstInstance, arrays...);  \
   }
 
 #define DECLARE_READ_PARENT                                                                                            \
@@ -440,15 +439,14 @@ namespace fk {
     // DECLARE_READBACK_PARENT
 #define DECLARE_READBACK_PARENT                                                                                        \
   DECLARE_READBACK_PARENT_ALIAS                                                                                        \
-  FK_DEVICE_FUSE OutputType exec(const Point &thread, const OperationDataType &opData) {                               \
+  FK_HOST_DEVICE_FUSE OutputType exec(const Point &thread, const OperationDataType &opData) {                          \
     return Parent::exec(thread, opData);                                                                               \
   }                                                                                                                    \
-  FK_HOST_DEVICE_FUSE auto build(const OperationDataType &opData) { return Parent::build(opData); }                    \
-  FK_HOST_DEVICE_FUSE auto build(const ParamsType &params, const BackIOp &backIOp) {                        \
-    return Parent::build(params, backIOp);                                                                       \
+  FK_HOST_FUSE auto build(const OperationDataType &opData) { return Parent::build(opData); }                           \
+  FK_HOST_FUSE auto build(const ParamsType &params, const BackIOp &backIOp) {                                          \
+    return Parent::build(params, backIOp);                                                                             \
   }                                                                                                                    \
   DECLARE_READ_PARENT_BATCH
-
     template <typename ReadOperation>
     struct ReadBackIncompleteOperationBatchBuilders {
     private:
@@ -487,19 +485,19 @@ namespace fk {
   }                                                                                                                    \
   template <size_t BATCH_N, typename FirstType, typename... ArrayTypes>                                                \
   FK_HOST_FUSE auto build(const std::array<FirstType, BATCH_N> &firstInstance, const ArrayTypes &...arrays) {          \
-    return RBIncompleteOpBB<typename Parent::Child>::build(firstInstance, arrays...);                                                  \
+    return RBIncompleteOpBB<typename Parent::Child>::build(firstInstance, arrays...);                                  \
   }                                                                                                                    \
   template <size_t BATCH_N, typename DefaultValueType, typename FirstType, typename... ArrayTypes>                     \
   FK_HOST_FUSE auto build(const int &usedPlanes, const DefaultValueType &defaultValue,                                 \
                           const std::array<FirstType, BATCH_N> &firstInstance, const ArrayTypes &...arrays) {          \
-    return RBIncompleteOpBB<typename Parent::Child>::build(usedPlanes, defaultValue, firstInstance, arrays...);                        \
+    return RBIncompleteOpBB<typename Parent::Child>::build(usedPlanes, defaultValue, firstInstance, arrays...);        \
   }
 
 #define DECLARE_READBACK_PARENT_INCOMPLETE                                                                             \
   DECLARE_READBACK_PARENT_ALIAS                                                                                        \
-  FK_HOST_DEVICE_FUSE auto build(const OperationDataType &opData) { return Parent::build(opData); }                    \
-  FK_HOST_DEVICE_FUSE auto build(const ParamsType &params, const BackIOp &backIOp) {                        \
-    return Parent::build(params, backIOp);                                                                       \
+  FK_HOST_FUSE auto build(const OperationDataType &opData) { return Parent::build(opData); }                           \
+  FK_HOST_FUSE auto build(const ParamsType &params, const BackIOp &backIOp) {                                          \
+    return Parent::build(params, backIOp);                                                                             \
   }                                                                                                                    \
   DECLARE_READBACK_PARENT_BATCH_INCOMPLETE
   // END MEMORY OPERATIONS BATCH BUILDERS
