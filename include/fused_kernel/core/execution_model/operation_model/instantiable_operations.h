@@ -19,7 +19,6 @@
 #include <fused_kernel/core/execution_model/operation_model/operation_data.h>
 #include <fused_kernel/core/execution_model/thread_fusion.h>
 #include <fused_kernel/core/utils/parameter_pack_utils.h>
-//#include <fused_kernel/core/data/ptr_nd.h>
 #include <fused_kernel/core/data/size.h>
 #include <fused_kernel/core/data/array.h>
 #include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
@@ -40,25 +39,30 @@ namespace fk { // namespace FusedKernel
 
 #ifdef NVRTC_COMPILER
 #define INSTANTIABLE_OPERATION_THEN
+#define INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN
 #else
 #define INSTANTIABLE_OPERATION_THEN \
 template <typename ContinuationIOp, typename Fuser_t = Fuser> \
 FK_HOST_CNST auto then(const ContinuationIOp& cIOp) const { \
+    static_assert(!is<IncompleteReadBackType>, "An IncompleteReadBackType can not be fused with continuation IOps"); \
     return Fuser_t::fuse(*this, cIOp); \
 } \
 template <typename ContinuationIOp, typename... ContinuationIOps> \
 FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... cIOps) const { \
     return then(cIOp).then(cIOps...); \
 }
+
+#define INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(instance_type) \
+    INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT(instance_type) \
+    INSTANTIABLE_OPERATION_THEN
+
 #endif // NVRTC_COMPILER
 
     struct Fuser;
 
     template <typename Operation_t>
     struct ReadInstantiableOperation final : public OperationData<Operation_t> {
-        INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT(ReadType)
-
-        INSTANTIABLE_OPERATION_THEN
+        INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(ReadType)
 
         FK_HOST_DEVICE_CNST ActiveThreads getActiveThreads() const {
             return Operation::getActiveThreads(*this);
@@ -67,9 +71,16 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
 
     template <typename Operation_t>
     struct ReadBackInstantiableOperation final : public OperationData<Operation_t> {
-        INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT(ReadBackType)
+        INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(ReadBackType)
 
-        INSTANTIABLE_OPERATION_THEN
+        FK_HOST_DEVICE_CNST ActiveThreads getActiveThreads() const {
+            return Operation::getActiveThreads(*this);
+        }
+    };
+
+    template <typename Operation_t>
+    struct IncompleteReadBackInstantiableOperation final : public OperationData<Operation_t> {
+        INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(IncompleteReadBackType)
 
         FK_HOST_DEVICE_CNST ActiveThreads getActiveThreads() const {
             return Operation::getActiveThreads(*this);
@@ -88,9 +99,7 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     */
     template <typename Operation_t>
     struct BinaryInstantiableOperation final : public OperationData<Operation_t> {
-        INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT(BinaryType)
-
-        INSTANTIABLE_OPERATION_THEN
+        INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(BinaryType)
     };
 
     /**
@@ -105,9 +114,7 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     */
     template <typename Operation_t>
     struct TernaryInstantiableOperation final : public OperationData<Operation_t> {
-        INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT(TernaryType)
-
-        INSTANTIABLE_OPERATION_THEN
+        INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(TernaryType)
     };
 
     /**
@@ -120,9 +127,7 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     */
     template <typename Operation_t>
     struct UnaryInstantiableOperation {
-        INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT(UnaryType)
-
-        INSTANTIABLE_OPERATION_THEN
+        INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(UnaryType)
     };
 
     /**
@@ -152,17 +157,17 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
         INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT(WriteType)
     };
 
+#undef INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN
 #undef INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT
-#undef IS_ASSERT
 #undef INSTANTIABLE_OPERATION_DETAILS_IS
-#undef INSTANTIABLE_OPERATION_DETAILS
-#undef ASSERT
-#undef IS
+#undef INSTANTIABLE_OPERATION_THEN
 
     template <typename Operation>
     using Read = ReadInstantiableOperation<Operation>;
     template <typename Operation>
     using ReadBack = ReadBackInstantiableOperation<Operation>;
+    template <typename Operation>
+    using IncompleteReadBack = IncompleteReadBackInstantiableOperation<Operation>;
     template <typename Operation>
     using Unary = UnaryInstantiableOperation<Operation>;
     template <typename Operation>
@@ -186,6 +191,11 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     template <typename Operation>
     struct InstantiableOperationType<Operation, std::enable_if_t<isReadBackType<Operation>>> {
         using type = ReadBack<Operation>;
+    };
+
+    template <typename Operation>
+    struct InstantiableOperationType<Operation, std::enable_if_t<isIncompleteReadBackType<Operation>>> {
+        using type = IncompleteReadBack<Operation>;
     };
 
     template <typename Operation>

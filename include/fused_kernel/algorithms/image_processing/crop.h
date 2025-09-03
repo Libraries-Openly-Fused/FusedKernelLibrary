@@ -20,8 +20,9 @@
 #include <fused_kernel/core/data/point.h>
 
 namespace fk {
-    template <typename BackIOp_ = void>
+    template <typename BackIOp_ = NullType>
     struct Crop {
+        static_assert(isAnyCompleteReadType<BackIOp_>, "The BackIOp_ must be a complete Read type");
     private:
         using SelfType = Crop<BackIOp_>;
     public:
@@ -59,13 +60,13 @@ namespace fk {
     };
 
     template <>
-    struct Crop<void> {
+    struct Crop<NullType> {
     private:
-        using SelfType = Crop<void>;
+        using SelfType = Crop<NullType>;
     public:
         FK_STATIC_STRUCT(Crop, SelfType)
-        using Parent = ReadBackOperation<NullType, Rect, NullType, NullType, Crop<void>>;
-        DECLARE_READBACK_PARENT_INCOMPLETE
+        using Parent = IncompleteReadBackOperation<NullType, Rect, NullType, NullType, Crop<NullType>>;
+        DECLARE_INCOMPLETEREADBACK_PARENT
 
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
             return opData.params.width;
@@ -80,12 +81,12 @@ namespace fk {
         }
 
         FK_HOST_FUSE auto build(const Rect& rectCrop) {
-            return InstantiableType{ { rectCrop, {} } };
+            return InstantiableType{ { rectCrop, NullType{} } };
         }
 
-        template <typename RealBackIOp>
-        FK_HOST_FUSE auto build(const RealBackIOp& realBIOp, const InstantiableType& iOp) {
-            return Crop<RealBackIOp>::build(realBIOp, iOp.params);
+        template <typename BackIOp>
+        FK_HOST_FUSE auto build(const BackIOp& bIOp, const InstantiableType& iOp) {
+            return Crop<BackIOp>::build(iOp.params, bIOp);
         }
     };
 

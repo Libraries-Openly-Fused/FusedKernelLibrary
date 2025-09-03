@@ -52,7 +52,7 @@ constexpr inline bool test_read_then_batch() {
 
     // start then()
     constexpr auto backOpArray = make_set_std_array<2>(readIOp);
-    constexpr auto forwardOpArray = BatchOperation::toArray(batchResize);
+    constexpr auto forwardOpArray = BatchUtils::toArray(batchResize);
     using BackwardIOp = typename decltype(backOpArray)::value_type;
     using ForwardIOp = typename decltype(forwardOpArray)::value_type;
     using ResultingType = decltype(ForwardIOp::Operation::build(std::declval<BackwardIOp>(), std::declval<ForwardIOp>()));
@@ -147,8 +147,8 @@ constexpr inline bool test_batched() {
     constexpr auto batchResize = Resize<InterpolationType::INTER_LINEAR>::build(2, 3.f, resizes);
 
     // start then()
-    constexpr auto bkArray = BatchOperation::toArray(readBatchOp);
-    constexpr auto fwdArray = BatchOperation::toArray(batchResize);
+    constexpr auto bkArray = BatchUtils::toArray(readBatchOp);
+    constexpr auto fwdArray = BatchUtils::toArray(batchResize);
     using BackwardIOp = std::decay_t<decltype(bkArray[0])>;
     using ForwardIOp = std::decay_t<decltype(fwdArray[0])>;
 

@@ -46,8 +46,8 @@ namespace fk {
     private:
         template <typename First, typename Second, typename... IOps>
         FK_HOST_FUSE auto fuseBack(const First& first, const Second& second, const IOps&... iOps) {
-            if constexpr (sizeof...(iOps) == 0 || noneReadBackType<IOps...>) {
-                if constexpr (isReadBackType<Second>) {
+            if constexpr (sizeof...(iOps) == 0 || noneIncompleteReadBackType<IOps...>) {
+                if constexpr (isIncompleteReadBackType<Second>) {
                     return first.then(second);
                 } else {
                     return first;
@@ -62,10 +62,10 @@ namespace fk {
             if constexpr (sizeof...(IOps) == 0) {
                 return 1;
             } else {
-                if constexpr (!noneReadBackType<IOps...>) {
+                if constexpr (!noneIncompleteReadBackType<IOps...>) {
                     return 1 + idxFirstNonBack<IOps...>();
                 } else {
-                    if constexpr (isReadBackType<First>) {
+                    if constexpr (isReadBackType<First> || isIncompleteReadBackType<First>) {
                         return 1;
                     } else {
                         return 0;

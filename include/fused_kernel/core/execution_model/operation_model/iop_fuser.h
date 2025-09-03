@@ -47,10 +47,10 @@ namespace fk {
             if constexpr (isBatchOperation<Operation> && isBatchOperation<typename ContinuationIOp::Operation>) {
                 static_assert(Operation::BATCH == ContinuationIOp::Operation::BATCH,
                     "Fusing two batch operations of different BATCH size is not allowed.");
-                static_assert(isReadBackType<typename ContinuationIOp::Operation::Operation>,
-                    "ReadOperation as continuation is not allowed. It has to be a ReadBackOperation.");
-                const auto backOpArray = BatchOperation::toArray(selfIOp);
-                const auto forwardOpArray = BatchOperation::toArray(cIOp);
+                static_assert(isIncompleteReadBackType<typename ContinuationIOp::Operation::Operation>,
+                    "Read or ReadBack Operation as continuation is not allowed. It has to be an IncompleteReadBackOperation.");
+                const auto backOpArray = BatchUtils::toArray(selfIOp);
+                const auto forwardOpArray = BatchUtils::toArray(cIOp);
                 using BuilderType = typename ContinuationIOp::Operation::Operation;
                 if constexpr (Operation::PP == PlanePolicy::PROCESS_ALL && ContinuationIOp::Operation::PP == PlanePolicy::PROCESS_ALL) {
                     return BuilderType::build(backOpArray, forwardOpArray);
@@ -75,11 +75,11 @@ namespace fk {
                     }
                 }
             } else if constexpr (!isBatchOperation<Operation> && isBatchOperation<typename ContinuationIOp::Operation>) {
-                static_assert(isReadBackType<typename ContinuationIOp::Operation::Operation>,
+                static_assert(isIncompleteReadBackType<typename ContinuationIOp::Operation::Operation>,
                     "ReadOperation as continuation is not allowed. It has to be a ReadBackOperation.");
                 constexpr size_t BATCH = static_cast<size_t>(ContinuationIOp::Operation::BATCH);
                 const auto backOpArray = make_set_std_array<BATCH>(selfIOp);
-                const auto forwardOpArray = BatchOperation::toArray(cIOp);
+                const auto forwardOpArray = BatchUtils::toArray(cIOp);
                 using BuilderType = typename ContinuationIOp::Operation::Operation;
                 if constexpr (ContinuationIOp::Operation::PP == PlanePolicy::CONDITIONAL_WITH_DEFAULT) {
                     return BuilderType::build(cIOp.params.usedPlanes, cIOp.params.default_value, backOpArray, forwardOpArray);
@@ -87,11 +87,11 @@ namespace fk {
                     return BuilderType::build(backOpArray, forwardOpArray);
                 }
             } else if constexpr (isBatchOperation<Operation> && !isBatchOperation<typename ContinuationIOp::Operation>) {
-                static_assert(!isAnyReadType<ContinuationIOp> || isReadBackType<ContinuationIOp>,
+                static_assert(!isAnyReadType<ContinuationIOp> || isIncompleteReadBackType<ContinuationIOp>,
                     "ReadOperation as continuation is not allowed. It has to be a ReadBackOperation.");
                 constexpr size_t BATCH = static_cast<size_t>(Operation::BATCH);
-                if constexpr (isReadBackType<ContinuationIOp>) {
-                    const auto backOpArray = BatchOperation::toArray(selfIOp);
+                if constexpr (isIncompleteReadBackType<ContinuationIOp>) {
+                    const auto backOpArray = BatchUtils::toArray(selfIOp);
                     const auto forwardOpArray = make_set_std_array<BATCH>(cIOp);
                     using BuilderType = typename ContinuationIOp::Operation;
                     if constexpr (Operation::PP == PlanePolicy::CONDITIONAL_WITH_DEFAULT) {
@@ -110,16 +110,16 @@ namespace fk {
                         return BuilderType::build(backOpArray, forwardOpArray);
                     }
                 } else {
-                    const auto backOpArray = BatchOperation::toArray(selfIOp);
+                    const auto backOpArray = BatchUtils::toArray(selfIOp);
                     const auto forwardOpArray = make_set_std_array<BATCH>(cIOp);
                     const auto iOpsArray = make_fusedArray(std::make_index_sequence<BATCH>{}, backOpArray, forwardOpArray);
                     using BuilderType = typename decltype(iOpsArray)::value_type::Operation;
                     return BuilderType::build(iOpsArray);
                 }
             } else if constexpr (!isBatchOperation<Operation> && !isBatchOperation<typename ContinuationIOp::Operation>) {
-                static_assert(!isAnyReadType<ContinuationIOp> || isReadBackType<ContinuationIOp>,
-                    "ReadOperation as continuation is not allowed. It has to be a ReadBackOperation.");
-                if constexpr (isReadBackType<ContinuationIOp>) {
+                static_assert(!isAnyCompleteReadType<ContinuationIOp>,
+                    "Complete Read Operations as continuations are not allowed. It has to be an IncompleteReadBackOperation.");
+                if constexpr (isIncompleteReadBackType<ContinuationIOp>) {
                     using BuilderType = typename ContinuationIOp::Operation;
                     return BuilderType::build(selfIOp, cIOp);
                 } else {

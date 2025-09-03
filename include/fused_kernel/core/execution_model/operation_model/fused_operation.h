@@ -133,13 +133,7 @@ namespace fk {
     using FOOT = typename FusedOperationOutputType<void, Operations...>::type;
 
     template <typename Enabler, typename... Operations>
-    struct FusedOperation_ {
-    private:
-        using SelfType = FusedOperation_<Enabler, Operations...>;
-    public:
-        FK_STATIC_STRUCT(FusedOperation_, SelfType)
-        static constexpr bool IS_FUSED_OP{ true };
-    };
+    struct FusedOperation_;
 
     template <typename FirstOp, typename... RemOps>
     struct FusedOperation_<std::enable_if_t<allUnaryTypes<FirstOp, RemOps...> && (sizeof...(RemOps) + 1 > 1)>, FirstOp, RemOps...> {
@@ -273,7 +267,7 @@ namespace fk {
         template <size_t BATCH_N, typename FirstType, typename... ArrayTypes>
         FK_HOST_FUSE auto build_batch(const std::array<FirstType, BATCH_N>& firstInstance,
             const ArrayTypes&... arrays) {
-            return BatchOperation::build_batch<SelfType>(firstInstance, arrays...);
+            return BatchUtils::build_batch<SelfType>(firstInstance, arrays...);
         }
         template <size_t BATCH_N, typename FirstType, typename... ArrayTypes>
         FK_HOST_FUSE auto build(const std::array<FirstType, BATCH_N>& firstInstance,
@@ -316,7 +310,7 @@ namespace fk {
         template <size_t BATCH_N, typename FirstType, typename... ArrayTypes>
         FK_HOST_FUSE auto build_batch(const std::array<FirstType, BATCH_N>& firstInstance,
                                       const ArrayTypes&... arrays) {
-            return BatchOperation::build_batch<SelfType>(firstInstance, arrays...);
+            return BatchUtils::build_batch<SelfType>(firstInstance, arrays...);
         }
         template <size_t BATCH_N, typename FirstType, typename... ArrayTypes>
         FK_HOST_FUSE auto build(const std::array<FirstType, BATCH_N>& firstInstance,

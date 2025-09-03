@@ -16,6 +16,7 @@
 #define FK_CUDA_VECTOR_UTILS
 
 #include <cassert>
+#include <utility>
 
 #include <fused_kernel/core/utils/type_lists.h>
 #include <fused_kernel/core/utils/template_operations.h>
@@ -158,7 +159,7 @@ namespace fk {
     using VBase = typename VectorTraits<T>::base;
     
     template <int idx, typename T>
-    FK_HOST_DEVICE_CNST auto VectorAt(const T& vector) {
+    FK_HOST_DEVICE_CNST auto vectorAt(const T& vector) {
         if constexpr (idx == 0) {
             if constexpr (validCUDAVec<T>) {
                 return vector.x;
@@ -166,22 +167,22 @@ namespace fk {
                 return vector;
             }
         } else if constexpr (idx == 1) {
-            static_assert(validCUDAVec<T>, "Non valid CUDA vetor type: VectorAt<invalid_type>()");
+            static_assert(validCUDAVec<T>, "Non valid CUDA vetor type: vectorAt<invalid_type>()");
             static_assert(cn<T> >= 2, "Vector type smaller than 2 elements has no member y");
             return vector.y;
         } else if constexpr (idx == 2) {
-            static_assert(validCUDAVec<T>, "Non valid CUDA vetor type: VectorAt<invalid_type>()");
+            static_assert(validCUDAVec<T>, "Non valid CUDA vetor type: vectorAt<invalid_type>()");
             static_assert(cn<T> >= 3, "Vector type smaller than 3 elements has no member z");
             return vector.z;
         } else if constexpr (idx == 3) {
-            static_assert(validCUDAVec<T>, "Non valid CUDA vetor type: VectorAt<invalid_type>()");
+            static_assert(validCUDAVec<T>, "Non valid CUDA vetor type: vectorAt<invalid_type>()");
             static_assert(cn<T> == 4, "Vector type smaller than 4 elements has no member w");
             return vector.w;
         }
     }
 
     template <typename T>
-    FK_HOST_DEVICE_CNST std::enable_if_t<(cn<T> == 1), VBase<T>> VectorAt(const int& idx, const T& vector) {
+    FK_HOST_DEVICE_CNST std::enable_if_t<(cn<T> == 1), VBase<T>> vectorAt(const int& idx, const T& vector) {
         assert((idx == 0 && idx >= 0) && "Index out of range. Either the Vector type has 1 channel or the type is not a CUDA Vector type");
         if constexpr (validCUDAVec<T>) {
             return vector.x;
@@ -191,9 +192,9 @@ namespace fk {
     }
 
     template <typename T>
-    FK_HOST_DEVICE_CNST std::enable_if_t<(cn<T> == 2), VBase<T>> VectorAt(const int& idx, const T& vector) {
+    FK_HOST_DEVICE_CNST std::enable_if_t<(cn<T> == 2), VBase<T>> vectorAt(const int& idx, const T& vector) {
         assert((idx < 2 && idx >= 0) && "Index out of range. Vector type has only 2 channels.");
-        assert(validCUDAVec<T> && "Non valid CUDA vetor type: VectorAt<invalid_type>()");
+        assert(validCUDAVec<T> && "Non valid CUDA vetor type: vectorAt<invalid_type>()");
         if (idx == 0) {
             return vector.x;
         } else {
@@ -202,9 +203,9 @@ namespace fk {
     }
 
     template <typename T>
-    FK_HOST_DEVICE_CNST std::enable_if_t<(cn<T> == 3), VBase<T>> VectorAt(const int& idx, const T& vector) {
+    FK_HOST_DEVICE_CNST std::enable_if_t<(cn<T> == 3), VBase<T>> vectorAt(const int& idx, const T& vector) {
         assert((idx < 3 && idx >= 0) && "Index out of range. Vector type has only 2 channels.");
-        assert(validCUDAVec<T> && "Non valid CUDA vetor type: VectorAt<invalid_type>()");
+        assert(validCUDAVec<T> && "Non valid CUDA vetor type: vectorAt<invalid_type>()");
         if (idx == 0) {
             return vector.x;
         } else if (idx == 1) {
@@ -215,9 +216,9 @@ namespace fk {
     }
 
     template <typename T>
-    FK_HOST_DEVICE_CNST std::enable_if_t<(cn<T> == 4), VBase<T>> VectorAt(const int& idx, const T& vector) {
+    FK_HOST_DEVICE_CNST std::enable_if_t<(cn<T> == 4), VBase<T>> vectorAt(const int& idx, const T& vector) {
         assert((idx < 4 && idx >= 0) && "Index out of range. Vector type has only 2 channels.");
-        assert(validCUDAVec<T> && "Non valid CUDA vetor type: VectorAt<invalid_type>()");
+        assert(validCUDAVec<T> && "Non valid CUDA vetor type: vectorAt<invalid_type>()");
         if (idx == 0) {
             return vector.x;
         } else if (idx == 1) {
@@ -598,6 +599,32 @@ FK_HOST_DEVICE_CNST auto operator op(const I1& a, const I2& b) \
 VEC_BINARY_BITWISE(&)
 VEC_BINARY_BITWISE(|)
 VEC_BINARY_BITWISE(^)
+
+namespace fk::internal {
+    template <typename TargetT, typename SourceT, size_t... Idx>
+    FK_HOST_DEVICE_CNST TargetT v_static_cast_helper(const SourceT& source, const std::index_sequence<Idx...>&) {
+        return make_<TargetT>(static_cast<VBase<TargetT>>(vectorAt<Idx>(source))...);
+    }
+} // namespace fk::internal
+
+template <typename TargetT, typename SourceT>
+FK_HOST_DEVICE_CNST TargetT v_static_cast(const SourceT& source) {
+    using namespace fk;
+    if constexpr (std::is_same_v<TargetT, SourceT>) {
+        return source;
+    } else if constexpr (validCUDAVec<SourceT>) {
+        static_assert(cn<TargetT> == cn<SourceT>, "Can not cast to a type with different number of channels");
+        return internal::v_static_cast_helper<TargetT>(source, std::make_index_sequence<cn<SourceT>>{});
+    } else {
+        static_assert(!validCUDAVec<TargetT> || (cn<TargetT> == 1),
+            "Can not convert a fundamental type to a vetor type with more than one channel");
+        if constexpr (validCUDAVec<TargetT>) {
+            return make_<TargetT>(static_cast<VBase<TargetT>>(source));
+        } else {
+            return static_cast<TargetT>(source);
+        }
+    }
+}
 
 #undef VEC_BINARY_BITWISE
 #endif
