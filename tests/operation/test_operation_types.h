@@ -24,7 +24,7 @@
 // Read
 using RPerThrFloat = fk::PerThreadRead<fk::ND::_2D, float>;
 // ReadBack
-using RBResize = fk::Resize<fk::InterpolationType::INTER_LINEAR, fk::AspectRatio::IGNORE_AR, fk::Instantiable<RPerThrFloat>>;
+using RBResize = fk::Resize<fk::InterpolationType::INTER_LINEAR, fk::AspectRatio::IGNORE_AR, NullType, fk::Instantiable<RPerThrFloat>>;
 // Unary
 using UIntFloat = fk::Cast<int, float>;
 using UFloatInt = fk::Cast<float, int>;
@@ -110,13 +110,13 @@ constexpr bool test_allUnaryTypes() {
     constexpr bool mustFalse5 = Test_allUnaryTypes<NoBinary>::value;
     using ComplexType =
     fk::Read<fk::FusedOperation_<void,
-                                 fk::Resize<fk::InterpolationType::INTER_LINEAR, fk::AspectRatio::PRESERVE_AR,
+                                 fk::Resize<fk::InterpolationType::INTER_LINEAR, fk::AspectRatio::PRESERVE_AR, NullType,
                                             fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>,
                                  fk::Mul<float3, float3, float3>>>;
     constexpr bool mustFalse6 = fk::allUnaryTypes<ComplexType>;
 
     using ComplexType2 = fk::Read<fk::FusedOperation_<void,
-                                                          fk::Resize<fk::InterpolationType::INTER_LINEAR, fk::AspectRatio::PRESERVE_AR,
+                                                          fk::Resize<fk::InterpolationType::INTER_LINEAR, fk::AspectRatio::PRESERVE_AR, NullType,
                                                                      fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>,
                                                           fk::Mul<float3, float3, float3>>>;
     constexpr bool mustFalse7 = Test_allUnaryTypes<fk::TypeList<ComplexType2>>::value;
@@ -142,13 +142,13 @@ constexpr bool test_notAllUnaryTypes() {
 
     using ComplexType =
         fk::Read<fk::FusedOperation_<void,
-        fk::Resize<fk::InterpolationType::INTER_LINEAR, fk::AspectRatio::PRESERVE_AR,
-        fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>,
+        fk::Resize<fk::InterpolationType::INTER_LINEAR, fk::AspectRatio::PRESERVE_AR, NullType,
+                    fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>,
         fk::Mul<float3, float3, float3>>>;
     constexpr bool mustTrue6 = fk::notAllUnaryTypes<ComplexType>;
 
     using ComplexType2 = fk::Read<fk::FusedOperation_<void,
-        fk::Resize<fk::InterpolationType::INTER_LINEAR, fk::AspectRatio::PRESERVE_AR,
+        fk::Resize<fk::InterpolationType::INTER_LINEAR, fk::AspectRatio::PRESERVE_AR, NullType,
         fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>,
         fk::Mul<float3, float3, float3>>>;
     constexpr bool mustTrue7 = Test_notAllUnaryTypes<fk::TypeList<ComplexType2>>::value;

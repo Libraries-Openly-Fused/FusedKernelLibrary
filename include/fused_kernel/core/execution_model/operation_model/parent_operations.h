@@ -227,10 +227,10 @@ DECLARE_READ_PARENT_DEVICE_BASIC
   FK_HOST_FUSE auto build(const OperationDataType &opData) { return Parent::build(opData); }                           \
   FK_HOST_FUSE auto build(const ParamsType &params) { return Parent::build(params); }
 
-    template <typename RT, typename P, typename B, typename O, typename ChildImplementation, bool IS_FUSED = false>
+    template <typename RT, typename P, typename B, typename O, typename ChildImplementation>
     struct ReadBackOperation {
     private:
-        using SelfType = ReadBackOperation<RT, P, B, O, ChildImplementation, IS_FUSED>;
+        using SelfType = ReadBackOperation<RT, P, B, O, ChildImplementation>;
     public:
         FK_STATIC_STRUCT(ReadBackOperation, SelfType)
         using Child = ChildImplementation;
@@ -241,7 +241,7 @@ DECLARE_READ_PARENT_DEVICE_BASIC
         using InstanceType = ReadBackType;
         using OperationDataType = OperationData<Child>;
         using InstantiableType = ReadBack<Child>;
-        static constexpr bool IS_FUSED_OP = IS_FUSED;
+        static constexpr bool IS_FUSED_OP = false;
         static constexpr bool THREAD_FUSION = false;
 
         template <typename BIOp = BackIOp>
@@ -255,7 +255,7 @@ DECLARE_READ_PARENT_DEVICE_BASIC
         }
     };
 
-#define DECLARE_READBACK_PARENT_ALIAS                                                                                  \
+#define DECLARE_READBACK_PARENT_BASIC                                                                                  \
   using ReadDataType = typename Parent::ReadDataType;                                                                  \
   using OutputType = typename Parent::OutputType;                                                                      \
   using ParamsType = typename Parent::ParamsType;                                                                      \
@@ -264,8 +264,52 @@ DECLARE_READ_PARENT_DEVICE_BASIC
   using OperationDataType = typename Parent::OperationDataType;                                                        \
   using InstantiableType = typename Parent::InstantiableType;                                                          \
   static constexpr bool IS_FUSED_OP = Parent::IS_FUSED_OP;                                                             \
-  static constexpr bool THREAD_FUSION = Parent::THREAD_FUSION;
-    // END PARENT OPERATIONS
+  static constexpr bool THREAD_FUSION = Parent::THREAD_FUSION;                                                         \
+  FK_HOST_DEVICE_FUSE OutputType exec(const Point &thread, const OperationDataType &opData) {                          \
+    return Parent::exec(thread, opData);                                                                               \
+  }                                                                                                                    \
+  FK_HOST_FUSE auto build(const OperationDataType &opData) { return Parent::build(opData); }                           \
+  FK_HOST_FUSE auto build(const ParamsType &params, const BackIOp &backIOp) {                                          \
+    return Parent::build(params, backIOp);                                                                             \
+  }
+
+    template <typename RT, typename P, typename B, typename O, typename ChildImplementation>
+    struct IncompleteReadBackOperation {
+    private:
+        using SelfType = IncompleteReadBackOperation<RT, P, B, O, ChildImplementation>;
+    public:
+        FK_STATIC_STRUCT(IncompleteReadBackOperation, SelfType)
+        using Child = ChildImplementation;
+        using ReadDataType = RT;
+        using OutputType = O;
+        using ParamsType = P;
+        using BackIOp = B;
+        using InstanceType = IncompleteReadBackType;
+        using OperationDataType = OperationData<Child>;
+        using InstantiableType = IncompleteReadBack<Child>;
+        static constexpr bool IS_FUSED_OP = false;
+        static constexpr bool THREAD_FUSION = false;
+
+        FK_HOST_FUSE auto build(const OperationDataType& opData) { return InstantiableType{ opData }; }
+        FK_HOST_FUSE auto build(const ParamsType& params, const BackIOp& backFunc) {
+            return InstantiableType{ {params, backFunc} };
+        }
+    };
+#define DECLARE_INCOMPLETEREADBACK_PARENT_BASIC \
+  using ReadDataType = typename Parent::ReadDataType;                                                                  \
+  using OutputType = typename Parent::OutputType;                                                                      \
+  using ParamsType = typename Parent::ParamsType;                                                                      \
+  using BackIOp = typename Parent::BackIOp;                                                                            \
+  using InstanceType = typename Parent::InstanceType;                                                                  \
+  using OperationDataType = typename Parent::OperationDataType;                                                        \
+  using InstantiableType = typename Parent::InstantiableType;                                                          \
+  static constexpr bool IS_FUSED_OP = Parent::IS_FUSED_OP;                                                             \
+  static constexpr bool THREAD_FUSION = Parent::THREAD_FUSION;                                                         \
+  FK_HOST_FUSE auto build(const OperationDataType &opData) { return Parent::build(opData); }                           \
+  FK_HOST_FUSE auto build(const ParamsType &params, const BackIOp &backFunc) {                                         \
+    return Parent::build(params, backFunc);                                                                            \
+  }
+// END PARENT OPERATIONS
 } // namespace fk
 
 #endif

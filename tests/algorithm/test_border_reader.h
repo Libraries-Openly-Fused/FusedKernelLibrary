@@ -25,7 +25,7 @@ int launch() {
     constexpr auto borderIOp = fk::BorderReader<fk::BorderType::CONSTANT>::build(readIOp, fk::make_set<uchar3>(0));
 
     static_assert(std::is_same_v<std::decay_t<decltype(borderIOp)>,
-        fk::ReadBack<fk::BorderReader<fk::BorderType::CONSTANT, fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>,
+        fk::ReadBack<fk::BorderReader<fk::BorderType::CONSTANT, fk::BorderReaderParameters<fk::BorderType::CONSTANT, uchar3>, fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>,
         "Unexpected type for borderIOp");
 
     return 0;

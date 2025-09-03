@@ -44,6 +44,7 @@ namespace fk { // namespace FusedKernel
 #define INSTANTIABLE_OPERATION_THEN \
 template <typename ContinuationIOp, typename Fuser_t = Fuser> \
 FK_HOST_CNST auto then(const ContinuationIOp& cIOp) const { \
+    static_assert(!is<IncompleteReadBackType>, "An IncompleteReadBackType can not be fused with continuation IOps"); \
     return Fuser_t::fuse(*this, cIOp); \
 } \
 template <typename ContinuationIOp, typename... ContinuationIOps> \
@@ -71,6 +72,15 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     template <typename Operation_t>
     struct ReadBackInstantiableOperation final : public OperationData<Operation_t> {
         INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(ReadBackType)
+
+        FK_HOST_DEVICE_CNST ActiveThreads getActiveThreads() const {
+            return Operation::getActiveThreads(*this);
+        }
+    };
+
+    template <typename Operation_t>
+    struct IncompleteReadBackInstantiableOperation final : public OperationData<Operation_t> {
+        INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(IncompleteReadBackType)
 
         FK_HOST_DEVICE_CNST ActiveThreads getActiveThreads() const {
             return Operation::getActiveThreads(*this);
@@ -157,6 +167,8 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     template <typename Operation>
     using ReadBack = ReadBackInstantiableOperation<Operation>;
     template <typename Operation>
+    using IncompleteReadBack = IncompleteReadBackInstantiableOperation<Operation>;
+    template <typename Operation>
     using Unary = UnaryInstantiableOperation<Operation>;
     template <typename Operation>
     using Binary = BinaryInstantiableOperation<Operation>;
@@ -179,6 +191,11 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     template <typename Operation>
     struct InstantiableOperationType<Operation, std::enable_if_t<isReadBackType<Operation>>> {
         using type = ReadBack<Operation>;
+    };
+
+    template <typename Operation>
+    struct InstantiableOperationType<Operation, std::enable_if_t<isIncompleteReadBackType<Operation>>> {
+        using type = IncompleteReadBack<Operation>;
     };
 
     template <typename Operation>

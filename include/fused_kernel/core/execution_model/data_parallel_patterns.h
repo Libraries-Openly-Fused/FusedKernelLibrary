@@ -74,6 +74,7 @@ namespace fk { // namespace FusedKernel
 
         template <typename T, typename IOp, typename... IOpTypes>
         FK_HOST_DEVICE_FUSE auto operate(const Point& thread, const T& i_data, const IOp& iOp, const IOpTypes&... iOpInstances) {
+            static_assert(!isIncompleteReadBackType<IOp>, "Trying to execute an incomplete IOp");
             if constexpr (IOp::template is<WriteType>) {
                 return i_data;
                 // MidWriteOperation with continuations, based on FusedOperation
