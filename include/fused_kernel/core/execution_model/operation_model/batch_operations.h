@@ -510,36 +510,26 @@ namespace fk {
 
 // BATCH BUILDERS FOR READ AND READBACK OPERATIONS
 #define DECLARE_PARENT_BATCH_BUILDER                                                                                   \
-   template <size_t BATCH, typename... ArrayTypes>                                                                     \
-    FK_HOST_FUSE auto build_batch(const std::array<ArrayTypes, BATCH>&... arrays) {                                    \
+   template <size_t B, typename... ArrayTypes>                                                                         \
+    FK_HOST_FUSE auto build_batch(const std::array<ArrayTypes, B>&... arrays) {                                        \
         return BatchUtils::template build_batch<typename Parent::Child>(arrays...);                                    \
     }
 
-#define DECLARE_SELF_BATCH_BUILDER                                                                                     \
-   template <size_t BATCH, typename... ArrayTypes>                                                                     \
-    FK_HOST_FUSE auto build_batch(const std::array<ArrayTypes, BATCH>&... arrays) {                                    \
-        return BatchUtils::template build_batch<SelfType>(arrays...);                                                  \
-    }
-
 #define BATCHREAD_BUILDERS \
-    template <size_t BATCH, typename... ArrayTypes>                                                                    \
-    FK_HOST_FUSE auto build(const std::array<ArrayTypes, BATCH>&... arrays) {                                          \
+    template <size_t B, typename... ArrayTypes>                                                                        \
+    FK_HOST_FUSE auto build(const std::array<ArrayTypes, B>&... arrays) {                                              \
         const auto iOpArray = build_batch(arrays...);                                                                  \
         return BatchRead<PlanePolicy::PROCESS_ALL>::build(iOpArray);                                                   \
     }                                                                                                                  \
-    template <size_t BATCH, typename DefaultValueType, typename... ArrayTypes>                                         \
+    template <size_t B, typename DefaultValueType, typename... ArrayTypes>                                             \
     FK_HOST_FUSE auto build(const int& usedPlanes, const DefaultValueType& defaultValue,                               \
-                            const std::array<ArrayTypes, BATCH>&...arrays) {                                           \
+                            const std::array<ArrayTypes, B>&...arrays) {                                               \
         const auto iOpArray = build_batch(arrays...);                                                                  \
         return BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT>::build(iOpArray, usedPlanes, defaultValue);            \
     }
 
 #define DECLARE_PARENT_READBATCH_BUILDERS                                                                              \
     DECLARE_PARENT_BATCH_BUILDER                                                                                       \
-    BATCHREAD_BUILDERS
-
-#define DECLARE_SELF_READBATCH_BUILDERS                                                                                \
-    DECLARE_SELF_BATCH_BUILDER                                                                                         \
     BATCHREAD_BUILDERS
 
 // DECLARE PARENT FOR READ OPERATIONS
