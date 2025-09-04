@@ -4,15 +4,14 @@ The Fused Kernel Library is a C++17  implementation of a methodology that allows
 
 It automatically implements Vertical and Horizontal fusion, and also implements two new Fusion techniques, Backwards Vertical Fusion (akin to OpenCV Filters, but with an standard generic API), and Divergent Horizontal Fusion.
 
-## Reference paper
-This repository provides the official implementation of the Fused Kernel Library. A preprint is available from arxiv:
+## Reference paper and other publications
+This repository provides the official implementation of a kernel fusion methodology for GPU libraries, providing the mechanisms to perform automatic Vertical Fusion, Horizontal Fusion, Backwards Vertical Fusion and Divergent Horizontal Fusion.
 
-*The Fused Kernel Library: A C++ API to Develop Highly-Efficient GPU Libraries*
+A poster was predented at NVIDIA GTC 2025: https://www.nvidia.com/gtc/posters/?search=P73324#/session/1728599648492001N7Sn
 
-Oscar Amoros ([ORCID](https://orcid.org/0009-0008-1442-5348)), Albert Andaluz ([ORCID](https://orcid.org/0009-0004-2185-781X)), Johnny Nuñez ([ORCID](https://orcid.org/0009-0000-3865-6468)) and Antonio J. Peña ([ORCID](https://orcid.org/0000-0002-3575-4617))
+A preprint journal paper is available at arxiv, pending approval at an IEEE journal: https://arxiv.org/abs/2508.07071v1
 
-Paper: https://arxiv.org/abs/2508.07071v1
-
+A continuation poster was presented and awarded by NVIDIA members at PUMPS + AI summer school 2025, at Barcelona Supercomputing Center: [LinkedIn post](https://www.linkedin.com/posts/oscar-amoros-huguet_newgpuautomatickernelfusionspeciesposter-activity-7352086240935972867-znFD?utm_source=share&utm_medium=member_desktop&rcm=ACoAAAd9NREBlLso8JKbOumKpptnMzrUH9tmAgg)
 
 ## Sample code
 Let's see an example where we crop 5 images from a source image, and then apply some changes to those images, before storing them in a Tensor.

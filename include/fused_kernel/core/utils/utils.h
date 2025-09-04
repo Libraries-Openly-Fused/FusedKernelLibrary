@@ -151,4 +151,9 @@ namespace fk {
 // from a backwards operation that is till not defined.
 struct NullType {};
 
+namespace fk {
+    template <typename... Types>
+    struct PrintTypes;
+}
+
 #endif // FK_UTILS

@@ -37,17 +37,18 @@ namespace fk {
 
     enum class DeinterlaceLinear : bool { USE_EVEN = true, USE_ODD = false };
 
-    template <enum DeinterlaceType DType, typename BackFunction_ = void>
+    template <enum DeinterlaceType DType, typename BackIOp_ = NullType>
     struct Deinterlace {
+        static_assert(isAnyCompleteReadType<BackIOp_>, "BackIOp must be a complete type for this specialization");
     private:
-        using SelfType = Deinterlace<DType, BackFunction_>;
+        using SelfType = Deinterlace<DType, BackIOp_>;
     public:
         FK_STATIC_STRUCT(Deinterlace, SelfType)
-        using Parent = ReadBackOperation<typename BackFunction_::Operation::OutputType,
+        using Parent = ReadBackOperation<typename BackIOp_::Operation::OutputType,
                                          DeinterlaceParameters<DType>,
-                                         BackFunction_,
-                                         VectorType_t<float, cn<typename BackFunction_::Operation::OutputType>>,
-                                         Deinterlace<DType, BackFunction_>>;
+                                         BackIOp_,
+                                         VectorType_t<float, cn<typename BackIOp_::Operation::OutputType>>,
+                                         Deinterlace<DType, BackIOp_>>;
         DECLARE_READBACK_PARENT
 
         FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
@@ -73,19 +74,6 @@ namespace fk {
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
             return { num_elems_x(Point(), opData), num_elems_y(Point(), opData), num_elems_z(Point(), opData) };
         }
-
-        template <DeinterlaceType D = DType>
-        FK_HOST_FUSE std::enable_if_t<D == DeinterlaceType::BLEND, InstantiableType> build(const BackIOp& backIOp) {
-            const ParamsType deinterlaceParams{};
-            return { {deinterlaceParams, backIOp} };
-        }
-
-        template <DeinterlaceType D = DType>
-        FK_HOST_FUSE std::enable_if_t<D == DeinterlaceType::INTER_LINEAR, InstantiableType> build(const DeinterlaceLinear& lin, const BackIOp& backIOp) {
-            const ParamsType deinterlaceParams{ static_cast<bool>(lin) };
-            return { {deinterlaceParams, backIOp} };
-        }
-        
     private:
         FK_HOST_DEVICE_FUSE OutputType execBlend(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
             // For blend deinterlacing, we average the current line with adjacent lines
@@ -130,14 +118,16 @@ namespace fk {
     };
 
     template <enum DeinterlaceType DType>
-    struct Deinterlace<DType, void> {
+    struct Deinterlace<DType, NullType> {
     private:
-        using SelfType = Deinterlace<DType, void>;
+        using SelfType = Deinterlace<DType, NullType>;
     public:
         FK_STATIC_STRUCT(Deinterlace, SelfType)
-        using Parent = ReadBackOperation<NullType, DeinterlaceParameters<DType>,
-                                         NullType, NullType, Deinterlace<DType, void>>;
-        DECLARE_READBACK_PARENT_INCOMPLETE
+        using Parent = IncompleteReadBackOperation<NullType, DeinterlaceParameters<DType>,
+                                                   NullType, NullType, Deinterlace<DType, NullType>>;
+        DECLARE_INCOMPLETEREADBACK_PARENT
+        template <typename BackIOp_>
+        using NewInstantiableType = ReadBack<Deinterlace<DType, BackIOp_>>;
 
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
             return 1;
@@ -151,30 +141,39 @@ namespace fk {
             return 1;
         }
 
-        FK_HOST_FUSE auto build(const ParamsType& params) {
-            return ReadBack<Deinterlace<DType, void>>{{params, {}}};
+        FK_HOST_FUSE InstantiableType build(const ParamsType& params) {
+            return {{params, {}}};
         }
-        template <DeinterlaceType D = DType>
-        FK_HOST_FUSE std::enable_if_t<D == DeinterlaceType::BLEND, InstantiableType> build() {
-            const ParamsType deinterlaceParams{};
+
+        template <DeinterlaceType DT = DType>
+        FK_HOST_FUSE auto build(const DeinterlaceType& type)
+            -> std::enable_if_t<DT == DeinterlaceType::INTER_LINEAR, InstantiableType> {
+            const ParamsType deinterlaceParams{ static_cast<bool>(type) };
             return { {deinterlaceParams, {}} };
         }
-        template <typename BackIOp>
-        FK_HOST_FUSE auto build(const BackIOp& backIOp, const InstantiableType& iOp) {
-            return ReadBack<Deinterlace<DType, BackIOp>>{ {iOp.params, backIOp} };
+
+        template <DeinterlaceType DT = DType>
+        FK_HOST_FUSE auto build() 
+            -> std::enable_if_t<DT == DeinterlaceType::BLEND, InstantiableType> {
+            const ParamsType deinterlaceParams{};
+            return InstantiableType{ {deinterlaceParams, {}} };
+        }
+        template <typename BackIOp_>
+        FK_HOST_FUSE auto build(const BackIOp_& backIOp, const InstantiableType& iOp) {
+            return NewInstantiableType<BackIOp_>{ {iOp.params, backIOp} };
         }
 
         template <typename BIOp, DeinterlaceType DT = DType>
         FK_HOST_FUSE auto build(const BIOp& backIOp)
-            -> std::enable_if_t<DT == DeinterlaceType::BLEND, ReadBack<Deinterlace<DeinterlaceType::BLEND, BIOp>>> {
-            return Deinterlace<DeinterlaceType::BLEND, BIOp>::build(backIOp);
+            -> std::enable_if_t<DT == DeinterlaceType::BLEND, NewInstantiableType<BIOp>> {
+            return NewInstantiableType<BIOp>{ {ParamsType{}, backIOp} };
         }
 
         template <typename BIOp, DeinterlaceType DT = DType>
         FK_HOST_FUSE auto build(const DeinterlaceLinear& lin, const BIOp& backIOp)
-            -> std::enable_if_t<DT == DeinterlaceType::INTER_LINEAR, ReadBack<Deinterlace<DeinterlaceType::INTER_LINEAR, BIOp>>> {
+            -> std::enable_if_t<DT == DeinterlaceType::INTER_LINEAR, NewInstantiableType<BIOp>> {
             const DeinterlaceParameters<DeinterlaceType::INTER_LINEAR> deinterlaceParams{ static_cast<bool>(lin) };
-            return { {deinterlaceParams, backIOp} };
+            return NewInstantiableType<BIOp>{ {deinterlaceParams, backIOp} };
         }
 
     };

@@ -56,7 +56,7 @@ constexpr T halfPositiveRange() {
 
 template <typename OutputType, typename InputType>
 constexpr OutputType expectedPositiveValue(const InputType& input) {
-    if (cxp::cmp_greater(fk::VectorAt<0>(input), fk::maxValue<fk::VBase<OutputType>>)) {
+    if (cxp::cmp_greater(fk::vectorAt<0>(input), fk::maxValue<fk::VBase<OutputType>>)) {
         return fk::maxValue<OutputType>;
     } else {
         return fk::Cast<InputType, OutputType>::exec(input);

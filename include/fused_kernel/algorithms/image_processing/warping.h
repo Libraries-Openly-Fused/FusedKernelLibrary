@@ -39,7 +39,7 @@ namespace fk {
         Size dstSize;
     };
 
-    template <enum WarpType WT>
+    template <WarpType WT>
     struct WarpingCoords {
     private:
         using SelfType = WarpingCoords<WT>;
@@ -67,8 +67,9 @@ namespace fk {
         }
     };
 
-    template<enum WarpType WT, typename BackIOp_ = void>
+    template<WarpType WT, typename BackIOp_ = NullType>
     struct Warping {
+        static_assert(isAnyCompleteReadType<BackIOp_>, "BackIOp must be a complete type for this specialization");
     private:
         using SelfType = Warping<WT, BackIOp_>;
     public:
@@ -108,20 +109,24 @@ namespace fk {
     };
 
     template<enum WarpType WT>
-    struct Warping<WT, void> {
+    struct Warping<WT, NullType> {
     private:
-        using SelfType = Warping<WT, void>;
+        using SelfType = Warping<WT, NullType>;
     public:
         FK_STATIC_STRUCT(Warping, SelfType)
-        using Parent = ReadBackOperation<NullType, WarpingParameters<WT>,
-                                         NullType, NullType, Warping<WT, void>>;
-        DECLARE_READBACK_PARENT_INCOMPLETE
+
+        using Parent = IncompleteReadBackOperation<NullType,
+                                                   WarpingParameters<WT>,
+                                                   NullType, NullType,
+                                                   Warping<WT, NullType>>;
+        DECLARE_INCOMPLETEREADBACK_PARENT
+
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
-            return 1;
+            return opData.params.dstSize.width;
         }
 
         FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
-            return 1;
+            return opData.params.dstSize.height;
         }
 
         FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
@@ -129,7 +134,7 @@ namespace fk {
         }
 
         FK_HOST_FUSE auto build(const ParamsType& params) {
-            return ReadBack<Warping<WT, void>>{{params, {}}};
+            return InstantiableType{{params, {}}};
         }
 
         template <typename BackIOp>

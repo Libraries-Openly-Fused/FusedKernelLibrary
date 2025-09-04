@@ -20,13 +20,14 @@
 #include <fused_kernel/core/utils/type_lists.h>
 
 namespace fk {
-    struct ReadType {};
-    struct ReadBackType {};
-    struct UnaryType {};
-    struct BinaryType {};
-    struct TernaryType {};
-    struct MidWriteType {};
-    struct WriteType {};
+    struct ReadType;
+    struct ReadBackType;
+    struct IncompleteReadBackType;
+    struct UnaryType;
+    struct BinaryType;
+    struct TernaryType;
+    struct MidWriteType;
+    struct WriteType;
 
     template <typename T, typename = void>
     struct HasInstanceType : std::false_type {};
@@ -46,6 +47,13 @@ namespace fk {
     struct IsReadBackType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, ReadBackType>, void>> : std::false_type {};
     template <typename T>
     struct IsReadBackType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, ReadBackType>, void>> : std::true_type {};
+
+    template <typename T, typename = void>
+    struct IsIncompleteReadBackType : std::false_type {};
+    template <typename T>
+    struct IsIncompleteReadBackType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, IncompleteReadBackType>, void>> : std::false_type {};
+    template <typename T>
+    struct IsIncompleteReadBackType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, IncompleteReadBackType>, void>> : std::true_type {};
 
     template <typename T, typename = void>
     struct IsUnaryType : std::false_type {};
@@ -92,7 +100,13 @@ namespace fk {
     constexpr bool isReadBackType = IsReadBackType<OpORIOp>::value;
 
     template <typename OpORIOp>
-    constexpr bool isAnyReadType = isReadType<OpORIOp> || isReadBackType<OpORIOp>;
+    constexpr bool isIncompleteReadBackType = IsIncompleteReadBackType<OpORIOp>::value;
+
+    template <typename OpORIOp>
+    constexpr bool isAnyReadType = isReadType<OpORIOp> || isReadBackType<OpORIOp> || isIncompleteReadBackType<OpORIOp>;
+
+    template <typename OpORIOp>
+    constexpr bool isAnyCompleteReadType = isReadType<OpORIOp> || isReadBackType<OpORIOp>;
 
     template <typename OpORIOp>
     constexpr bool isUnaryType = IsUnaryType<OpORIOp>::value;
@@ -167,11 +181,23 @@ namespace fk {
     template <typename... OperationORInstantiableOperation>
     constexpr bool noneAnyWriteType = and_v<(!isAnyWriteType<OperationORInstantiableOperation>)...>;
 
+    template <typename... OperationORInstantiableOperation>
+    constexpr bool noneReadType = and_v<(!isReadType<OperationORInstantiableOperation>)...>;
+
+    template <typename... OperationORInstantiableOperation>
+    constexpr bool noneReadBackType = and_v<(!isReadBackType<OperationORInstantiableOperation>)...>;
+
+    template <typename... OperationORInstantiableOperation>
+    constexpr bool noneIncompleteReadBackType = and_v<(!isIncompleteReadBackType<OperationORInstantiableOperation>)...>;
+
+    template <typename... OperationORInstantiableOperation>
+    constexpr bool noneAnyReadType = and_v<(!isAnyReadType<OperationORInstantiableOperation>)...>;
+
     template <typename T, typename=void>
     struct IsCompleteOperation : std::false_type {};
 
     template <typename T>
-    struct IsCompleteOperation<T, std::void_t<decltype(&T::exec)>> : std::true_type {};
+    struct IsCompleteOperation<T, std::enable_if_t<isOperation<T> && !isIncompleteReadBackType<T>>> : std::true_type {};
 
     template <typename T>
     constexpr bool isCompleteOperation = IsCompleteOperation<T>::value;
