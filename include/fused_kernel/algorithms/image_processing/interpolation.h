@@ -36,27 +36,38 @@ namespace fk {
     };
 
     template <enum InterpolationType INTER_T>
-    struct InterpolationParameters {};
+    struct InterpolationParameters;
 
     template <>
-    struct InterpolationParameters<InterpolationType::INTER_LINEAR> {
-        Size src_size;
-    };
+    struct InterpolationParameters<InterpolationType::INTER_LINEAR> {};
 
-    template <enum InterpolationType INTER_T, typename BackIOp_ = void>
-    struct Interpolate;
+    template <enum InterpolationType IType, typename BackIOp_>
+    struct InterpolateComplete;
 
     template <typename BackIOp_>
-    struct Interpolate<InterpolationType::INTER_LINEAR, BackIOp_> {
+    struct InterpolateComplete<InterpolationType::INTER_LINEAR, BackIOp_> {
+        static_assert(isCompleteOperation<BackIOp_>, "NewBackIOp must be a complete operation.");
     private:
-        using SelfType = Interpolate<InterpolationType::INTER_LINEAR, BackIOp_>;
-        using ReadOutputType = typename BackIOp_::Operation::OutputType;
+        using SelfType = InterpolateComplete<InterpolationType::INTER_LINEAR, BackIOp_>;
+        using BackIOpOutputType = typename BackIOp_::Operation::OutputType;
     public:
-        FK_STATIC_STRUCT(Interpolate, SelfType)
+        FK_STATIC_STRUCT(InterpolateComplete, SelfType)
         using Parent = TernaryOperation<float2, InterpolationParameters<InterpolationType::INTER_LINEAR>,
-                                        BackIOp_, VectorType_t<float, cn<ReadOutputType>>,
-                                        Interpolate<InterpolationType::INTER_LINEAR, BackIOp_>>;
+                                        BackIOp_, VectorType_t<float, cn<BackIOpOutputType>>,
+                                        SelfType>;
         DECLARE_TERNARY_PARENT
+
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+            return BackIOp::Operation::num_elems_x(thread, opData.backIOp);
+        }
+
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+            return BackIOp::Operation::num_elems_y(thread, opData.backIOp);
+        }
+
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+            return 1;
+        }
 
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params, const BackIOp& backIOp) {
             const float src_x = input.x;
@@ -72,7 +83,7 @@ namespace fk {
             const int x2 = x1 + 1;
             const int y2 = y1 + 1;
 
-            const Size srcSize = params.src_size;
+            const Size srcSize = NumElems::size(Point(), backIOp);
             const int x2_read = Min<int>::exec(x2, { srcSize.width - 1 });
             const int y2_read = Min<int>::exec(y2, { srcSize.height - 1 });
 
@@ -81,14 +92,13 @@ namespace fk {
                                               Point(x1, y2_read),
                                               Point(x2_read, y2_read) };
 
-            const BackIOp readIOp = backIOp;
-            using ReadOperation = typename BackIOp::Operation;
+            // Read the 4 pixels from backIOp Read or ReadBack Operation
+            const auto src_reg0x0 = BackIOp::Operation::exec(readPoints._0x0, backIOp);
+            const auto src_reg1x0 = BackIOp::Operation::exec(readPoints._1x0, backIOp);
+            const auto src_reg0x1 = BackIOp::Operation::exec(readPoints._0x1, backIOp);
+            const auto src_reg1x1 = BackIOp::Operation::exec(readPoints._1x1, backIOp);
 
-            const ReadOutputType src_reg0x0 = ReadOperation::exec(readPoints._0x0, readIOp);
-            const ReadOutputType src_reg1x0 = ReadOperation::exec(readPoints._1x0, readIOp);
-            const ReadOutputType src_reg0x1 = ReadOperation::exec(readPoints._0x1, readIOp);
-            const ReadOutputType src_reg1x1 = ReadOperation::exec(readPoints._1x1, readIOp);
-
+            // Compute the interpolated pixel and return it
             return (src_reg0x0 * ((x2 - src_x) * (y2 - src_y))) +
                    (src_reg1x0 * ((src_x - x1) * (y2 - src_y))) +
                    (src_reg0x1 * ((x2 - src_x) * (src_y - y1))) +
@@ -96,16 +106,38 @@ namespace fk {
         }
     };
 
-    template <InterpolationType INTER_T>
-    struct Interpolate<INTER_T, void> {
+    template <InterpolationType IT>
+    struct Interpolate;
+
+    template <>
+    struct Interpolate<InterpolationType::INTER_LINEAR> {
     private:
-        using SelfType = Interpolate<INTER_T, void>;
+        using SelfType = Interpolate<InterpolationType::INTER_LINEAR>;
     public:
         FK_STATIC_STRUCT(Interpolate, SelfType)
-        template <typename RealBackFunction>
-        FK_HOST_DEVICE_FUSE
-            auto build(const OperationData<Interpolate<InterpolationType::INTER_LINEAR, RealBackFunction>>& opData) {
-            return Interpolate<INTER_T, RealBackFunction>::build(opData);
+        using InputType = float2;
+        using OutputType = NullType;
+        using ParamsType = InterpolationParameters<InterpolationType::INTER_LINEAR>;
+        using BackIOp = NullType;
+        using InstanceType = TernaryType;
+        using OperationDataType = OperationData<Interpolate<InterpolationType::INTER_LINEAR>>;
+        using InstantiableType = Ternary<SelfType>;
+        static constexpr bool IS_FUSED_OP = false;
+
+        FK_HOST_FUSE auto build(const OperationDataType& opData) {
+            return InstantiableType{ opData };
+        }
+        FK_HOST_FUSE auto build(const ParamsType& params, const BackIOp& backIOp) {
+            return InstantiableType{ OperationDataType{params, backIOp} };
+        }
+
+        FK_HOST_FUSE auto build() {
+            return InstantiableType{};
+        }
+
+        template <typename NewBackIOp>
+        FK_HOST_FUSE auto build(const NewBackIOp& newBackIOp) {
+            return InterpolateComplete<InterpolationType::INTER_LINEAR, NewBackIOp>::build(ParamsType{}, newBackIOp);
         }
     };
 } // namespace fk

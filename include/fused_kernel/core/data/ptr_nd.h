@@ -271,13 +271,6 @@ namespace fk {
 
         inline constexpr Ptr() {}
 
-        inline constexpr Ptr(RefPtr* ref_, const RawPtr<D, T>& ptr_a_, const RawPtr<D, T>& ptr_pinned_, const MemType& type_, const int& devID) :
-            ref(ref_), ptr_a(ptr_a_), ptr_pinned(ptr_pinned_), type(type_), deviceID(devID) {
-            if (ref) {
-                ref->cnt.fetch_add(1);  // Increment reference count
-            }
-        }
-
         // Copy constructor
         inline Ptr(const Ptr<D, T>& other) {
             ptr_a = other.ptr_a;
@@ -303,10 +296,11 @@ namespace fk {
         // Check if the compiler is specifically MSVC for VS 2017
 #if defined(_MSC_VER) && _MSC_VER >= 1910 && _MSC_VER < 1920
         template <typename... Args>
-        explicit constexpr Ptr(Args&&... args) {
+        constexpr Ptr(Args&&... args) {
             init(std::integral_constant<ND, D>{}, std::forward<Args>(args)...);
         }
-        private:
+
+    private:
         inline constexpr void init(const std::integral_constant<ND, ND::_1D>&,
                                    const uint& num_elems, const uint& size_in_bytes = 0,
                                    const MemType& type_ = defaultMemType, const int& deviceID_ = 0) {
@@ -323,8 +317,67 @@ namespace fk {
                              const MemType& type_ = defaultMemType, const int& deviceID_ = 0) {
             allocPtr(PtrDims<ND::_3D>(width_, height_, planes_, color_planes_, pitch_), type_, deviceID_);
         }
-        public:
+        template <ND D_ = D>
+        inline constexpr void init(const std::integral_constant<ND, D_>&,
+                                   const PtrDims<D_>& dims,
+                                   const MemType& type_ = defaultMemType, const int& deviceID_ = 0) {
+            allocPtr(dims, type_, deviceID_);
+        }
+
+        template <ND D_ = D>
+        inline constexpr void init(const std::integral_constant<ND, D_>&,
+                                   T* data_, const PtrDims<D_>& dims, const MemType& type_, const int& deviceID_) {
+            if (type_ == MemType::DeviceAndPinned) {
+                throw std::runtime_error("DeviceAndPinned type requires an additional argument for the pinned pointer.");
+            }
+            ptr_a.data = data_;
+            ptr_a.dims = dims;
+            ptr_pinned = ptr_a;
+            type = type_;
+            deviceID = deviceID_;
+        }
+
+        template <ND D_ = D>
+        inline constexpr void init(const std::integral_constant<ND, D_>&, const RawPtr<D_, T>& data_, const MemType& type_, const int& deviceID_) {
+            if (type_ == MemType::DeviceAndPinned) {
+                throw std::runtime_error("DeviceAndPinned type requires an additional argument for the pinned pointer.");
+            }
+            ptr_a = data_;
+            ptr_pinned = ptr_a;
+            type = type_;
+            deviceID = deviceID_;
+        }
+
+        template <ND D_ = D>
+        inline constexpr void init(const std::integral_constant<ND, D_>&, T* data_, T* pinned_data, const PtrDims<D_>& dims, const MemType& type_, const int& deviceID_) {
+            ptr_a.data = data_;
+            ptr_a.dims = dims;
+            ptr_pinned.data = pinned_data;
+            ptr_pinned.dims = dims;
+            type = type_;
+            deviceID = deviceID_;
+        }
+
+        template <ND D_ = D>
+        inline constexpr void init(const std::integral_constant<ND, D_>&, RefPtr* ref_, const RawPtr<D, T>& ptr_a_, const RawPtr<D, T>& ptr_pinned_, const MemType& type_, const int& devID) {
+            ref = ref_;
+            ptr_a = ptr_a_;
+            ptr_pinned = ptr_pinned_;
+            type = type_;
+            deviceID = devID;
+            if (ref) {
+                ref->cnt.fetch_add(1);  // Increment reference count
+            }
+        }
+
+    public:
 #else
+        inline constexpr Ptr(RefPtr* ref_, const RawPtr<D, T>& ptr_a_, const RawPtr<D, T>& ptr_pinned_, const MemType& type_, const int& devID) :
+            ref(ref_), ptr_a(ptr_a_), ptr_pinned(ptr_pinned_), type(type_), deviceID(devID) {
+            if (ref) {
+                ref->cnt.fetch_add(1);  // Increment reference count
+            }
+        }
         // Modern, more idiomatic version for all other compliant compilers (VS 2019+, GCC, Clang)
         template <fk::ND DN = D, std::enable_if_t<DN == ND::_1D, int> = 0>
         inline constexpr Ptr(const uint& num_elems, const uint& size_in_bytes = 0,
@@ -344,7 +397,7 @@ namespace fk {
                              const MemType& type_ = defaultMemType, const int& deviceID_ = 0) {
             allocPtr(PtrDims<ND::_3D>(width_, height_, planes_, color_planes_, pitch_), type_, deviceID_);
         }
-#endif
+
         inline constexpr Ptr(const PtrDims<D>& dims, const MemType& type_ = defaultMemType, const int& deviceID_ = 0) {
             allocPtr(dims, type_, deviceID_);
         }
@@ -378,7 +431,7 @@ namespace fk {
             type = type_;
             deviceID = deviceID_;
         }
-
+#endif
         inline constexpr void allocPtr(const PtrDims<D>& dims_, const MemType& type_ = defaultMemType, const int& deviceID_ = 0) {
             if (ref) {
                 throw std::runtime_error("Reference pointer already exists. Use a different constructor.");

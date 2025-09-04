@@ -15,7 +15,7 @@
 #ifndef FK_INSTANTIABLE_DATA_PARALLEL_PATTERNS
 #define FK_INSTANTIABLE_DATA_PARALLEL_PATTERNS
 
-#if defined(__NVCC__) || defined(__HIP__) || defined(__NVRTC__) || defined(NVRTC_COMPILER)
+#if (defined(__NVCC__) || defined(__HIP__) || defined(__NVRTC__) || defined(NVRTC_COMPILER)) && !(defined(_MSC_VER) && _MSC_VER >= 1910 && _MSC_VER < 1920)
 #include <cooperative_groups.h>
 namespace cooperative_groups {};
 namespace cg = cooperative_groups;
@@ -254,11 +254,17 @@ namespace fk { // namespace FusedKernel
 
         template <typename... IOps>
         FK_DEVICE_FUSE void exec(const Details& details, const IOps&... iOps) {
+#if defined(_MSC_VER) && _MSC_VER >= 1910 && _MSC_VER < 1920
+            const int x = (blockDim.x * blockIdx.x) + threadIdx.x;
+            const int y = (blockDim.y * blockIdx.y) + threadIdx.y;
+            const int z = blockIdx.z; // So far we only consider the option of using the z dimension to specify n (x*y) thread planes
+#else
             const cg::thread_block g = cg::this_thread_block();
 
             const int x = (g.dim_threads().x * g.group_index().x) + g.thread_index().x;
             const int y = (g.dim_threads().y * g.group_index().y) + g.thread_index().y;
             const int z = g.group_index().z; // So far we only consider the option of using the z dimension to specify n (x*y) thread planes
+#endif
             const Point thread{ x, y, z };
 
             const ActiveThreads activeThreads = getActiveThreads(details, get<0>(iOps...));
@@ -333,8 +339,12 @@ namespace fk { // namespace FusedKernel
         static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
         template <typename... IOpSequenceTypes>
         FK_DEVICE_FUSE void exec(const IOpSequenceTypes&... iOpSequences) {
+#if defined(_MSC_VER) && _MSC_VER >= 1910 && _MSC_VER < 1920
+            const uint z = blockIdx.z;
+#else
             const cg::thread_block g = cg::this_thread_block();
             const uint z = g.group_index().z;
+#endif
             Parent::template divergent_operate<1>(z, iOpSequences...);
         }
     };

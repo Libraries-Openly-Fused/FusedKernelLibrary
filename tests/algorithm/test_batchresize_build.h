@@ -39,7 +39,7 @@ int launch() {
     constexpr auto resizeDFArray = Resize<InterpolationType::INTER_LINEAR>::build(readDFArray, resParams);
     static_assert(decltype(resizeDFArray)::Operation::BATCH == BATCH, "resizeDFArray does not have the correct BATCH size");
     const auto resizeDFArray2 = Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>::build(readDFArray, resParams, defaultArray);
-    /*static_assert(decltype(resizeDFArray2)::Operation::BATCH == BATCH, "resizeDFArray2 does not have the correct BATCH size");*/
+    static_assert(decltype(resizeDFArray2)::Operation::BATCH == BATCH, "resizeDFArray2 does not have the correct BATCH size");
 
     return 0;
 }
