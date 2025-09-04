@@ -327,11 +327,11 @@ namespace fk {
                 dstSize,
                 { static_cast<float>(1.0 / cfx), static_cast<float>(1.0 / cfy) },
                 { srcSize },
-                /*x1*/ x1,
-                /*y1*/ y1,
-                /*x2*/ x1 + targetSize.width - 1,
-                /*y2*/ y1 + targetSize.height - 1,
-                /*defaultValue*/ backgroundValue};
+                x1,
+                y1,
+                x1 + targetSize.width - 1,
+                y1 + targetSize.height - 1,
+                backgroundValue};
 
                 return NewInstantiableType<NewBackIOp>::build(resizeParams, backIOp);
             } else {
@@ -342,11 +342,11 @@ namespace fk {
                 dstSize,
                 { static_cast<float>(1.0 / cfx), static_cast<float>(1.0 / cfy) },
                 { srcSize },
-                /*x1*/ x1,
-                /*y1*/ y1,
-                /*x2*/ x1 + targetSize.width - 1,
-                /*y2*/ y1 + targetSize.height - 1,
-                /*defaultValue*/ backgroundValue};
+                x1,
+                y1,
+                x1 + targetSize.width - 1,
+                y1 + targetSize.height - 1,
+                backgroundValue};
 
                 return NewInstantiableType<NewBackIOp>::build(resizeParams, backIOp);
             }
