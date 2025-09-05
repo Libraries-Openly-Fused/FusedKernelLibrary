@@ -48,38 +48,7 @@ namespace fk {
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.width;
         }
-#if defined(_MSC_VER) && _MSC_VER >= 1910 && _MSC_VER < 1920
-        template <ND DVal>
-        struct NDHelper;
 
-        template <>
-        struct NDHelper<ND::_1D> {
-            using type = int1;
-        };
-
-        template <>
-        struct NDHelper<ND::_2D> {
-            using type = int2;
-        };
-
-        using DType = typename NDHelper<D>::type;
-
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
-            if constexpr (std::is_same_v<DType, int1>) {
-                return 1;
-            } else {
-                return opData.params.dims.height;
-            }
-        }
-
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
-            if  (std::is_same_v<DType, int1> || std::is_same_v<DType, int2>) {
-                return 1;
-            } else {
-                return opData.params.dims.planes;
-            }
-        }
-#else
         FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
             if constexpr (D == ND::_1D) {
                 return 1;
@@ -95,7 +64,7 @@ namespace fk {
                 return opData.params.dims.planes;
             }
         }
-#endif
+
         FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.pitch;
         }
