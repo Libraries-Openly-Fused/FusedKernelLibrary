@@ -425,7 +425,7 @@ inline constexpr typename std::enable_if_t<fk::validCUDAVec<T>, std::ostream&> o
 // ####################### VECTOR OPERATORS ##########################
 // Implemented in a way that the return types follow the c++ standard, for each vector component
 // The user is responsible for knowing the type conversion hazards, inherent to the C++ language.
-#if defined(_MSC_VER) && _MSC_VER >= 1910 && _MSC_VER < 1920
+#if VS2017_COMPILER
 #define VEC_UNARY_OP(op, input_type) \
 FK_HOST_DEVICE_CNST auto operator op(const input_type ## 1 & a) \
 { \
@@ -973,7 +973,7 @@ VEC_BINARY_BITWISE(&)
 VEC_BINARY_BITWISE(|)
 VEC_BINARY_BITWISE(^)
 #undef VEC_BINARY_BITWISE
-#endif // defined(_MSC_VER) && _MSC_VER >= 1910 && _MSC_VER < 1920
+#endif // VS2017_COMPILER
 namespace fk::internal {
     template <typename TargetT, typename SourceT, size_t... Idx>
     FK_HOST_DEVICE_CNST TargetT v_static_cast_helper(const SourceT& source, const std::index_sequence<Idx...>&) {

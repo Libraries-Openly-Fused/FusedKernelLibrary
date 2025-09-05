@@ -294,7 +294,7 @@ namespace fk {
         }
 
         // Check if the compiler is specifically MSVC for VS 2017
-#if defined(_MSC_VER) && _MSC_VER >= 1910 && _MSC_VER < 1920
+#if VS2017_COMPILER
         template <typename... Args>
         constexpr Ptr(Args&&... args) {
             init(std::integral_constant<ND, D>{}, std::forward<Args>(args)...);

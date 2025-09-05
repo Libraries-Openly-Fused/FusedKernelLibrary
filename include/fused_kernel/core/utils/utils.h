@@ -156,4 +156,6 @@ namespace fk {
     struct PrintTypes;
 }
 
+#define VS2017_COMPILER (defined(_MSC_VER) && _MSC_VER >= 1910 && _MSC_VER < 1920)
+#define NO_VS2017_COMPILER !VS2017_COMPILER
 #endif // FK_UTILS
