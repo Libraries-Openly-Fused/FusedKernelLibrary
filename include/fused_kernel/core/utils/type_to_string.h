@@ -65,6 +65,7 @@ namespace fk {
 #include <vector>
 #include <map>
 #include <typeinfo> // Required for typeid
+#include <algorithm>
 #include <cctype>
 
 // For GCC and Clang, include cxxabi.h for __cxa_demangle
