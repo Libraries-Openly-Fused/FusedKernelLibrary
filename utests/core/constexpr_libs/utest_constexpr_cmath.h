@@ -20,6 +20,7 @@
 #include <limits>
 #include <cmath>
 #include <iostream>
+#include <algorithm>
 
 // Test isnan function compile-time
 template <typename T>
