@@ -37,7 +37,7 @@ using UFloatInt = Cast<float, int>;
 using BAddInt = Add<int>;
 using BAddFloat = Add<float>;
 // Ternary
-using TInterpFloat = Interpolate<InterpolationType::INTER_LINEAR, Instantiable<RPerThrFloat>>;
+using TInterpFloat = InterpolateComplete<InterpolationType::INTER_LINEAR, Instantiable<RPerThrFloat>>;
 // Write
 using WPerThrFloat = PerThreadWrite<ND::_2D, float>;
 // MidWrite
@@ -71,7 +71,7 @@ constexpr inline bool test_read_then_batch() {
     static_assert(fusedBatchIOp.params.default_value == 3.f);
     static_assert(isReadType<ResultingType2>);
     static_assert(isReadBackType<typename ResultingType2::Operation::Operation>);
-    static_assert(isReadType<typename ResultingType2::Operation::Operation::BackIOp>);
+    static_assert(isTernaryType<typename ResultingType2::Operation::Operation::BackIOp>);
 
     return true;
 }
@@ -216,10 +216,10 @@ int launch() {
     constexpr auto someReadOp =
         PerThreadRead<ND::_2D, uchar3>::build(input).then(Cast<uchar3, float3>::build()).then(Resize<InterpolationType::INTER_LINEAR>::build(dstSize));
     static_assert(isReadBackType<decltype(someReadOp)>, "Unexpected Operation Type for someReadOp");
-    static_assert(std::is_same_v<decltype(someReadOp.backIOp.params), OperationTuple<PerThreadRead<ND::_2D, uchar3>, Cast<uchar3, float3>>>, "Unexpected type for params");
+    static_assert(std::is_same_v<decltype(someReadOp.backIOp.backIOp.params), OperationTuple<PerThreadRead<ND::_2D, uchar3>, Cast<uchar3, float3>>>, "Unexpected type for params");
 
     constexpr bool correct =
-        std::is_same_v<OperationTuple<PerThreadRead<ND::_2D, uchar3>, Cast<uchar3, float3>>, decltype(someReadOp.backIOp.params)>;
+        std::is_same_v<OperationTuple<PerThreadRead<ND::_2D, uchar3>, Cast<uchar3, float3>>, decltype(someReadOp.backIOp.backIOp.params)>;
     static_assert(correct, "Unexpected resulting type");
 
     constexpr auto finalOp = someReadOp.then(Mul<float3>::build(make_<float3>(3.f, 1.f, 32.f)));
