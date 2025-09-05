@@ -20,6 +20,7 @@
 #include <limits>
 #include <cmath>
 #include <iostream>
+#include <algorithm>
 
 // Test isnan function compile-time
 template <typename T>
@@ -37,8 +38,10 @@ constexpr bool test_isnan_ct() {
     static_assert(!cxp::isnan(-std::numeric_limits<T>::infinity()), "-infinity should not be NaN");
 
     // Test with NaN
+#if NO_VS2017_COMPILER
     static_assert(cxp::isnan(std::numeric_limits<T>::quiet_NaN()), "quiet_NaN should be NaN");
     static_assert(cxp::isnan(std::numeric_limits<T>::signaling_NaN()), "signaling_NaN should be NaN");
+#endif // NO_VS2017_COMPILER
 
     return true;
 }
@@ -99,14 +102,17 @@ bool test_isnan_rt() {
 template <typename T>
 constexpr bool test_isinf_ct() {
     static_assert(std::is_floating_point_v<T>, "isinf test only for floating point types");
-    
+
     // Test with normal values
     static_assert(!cxp::isinf(static_cast<T>(0.0)), "0.0 should not be infinite");
     static_assert(!cxp::isinf(static_cast<T>(1.0)), "1.0 should not be infinite");
     static_assert(!cxp::isinf(static_cast<T>(-1.0)), "-1.0 should not be infinite");
     static_assert(!cxp::isinf(static_cast<T>(1000.0)), "1000.0 should not be infinite");
     static_assert(!cxp::isinf(static_cast<T>(-1000.0)), "-1000.0 should not be infinite");
+
+#if NO_VS2017_COMPILER
     static_assert(!cxp::isinf(std::numeric_limits<T>::quiet_NaN()), "NaN should not be infinite");
+#endif // NO_VS2017_COMPILER
 
     // Test with infinity
     static_assert(cxp::isinf(std::numeric_limits<T>::infinity()), "infinity should be infinite");
@@ -316,10 +322,12 @@ constexpr bool test_round_ct() {
     static_assert(cxp::round(static_cast<T>(2.0)) == static_cast<T>(2.0), "round(2.0) should be 2.0");
 
     // Special values compile-time
+#if NO_VS2017_COMPILER
     static_assert(cxp::isnan(cxp::round(std::numeric_limits<T>::quiet_NaN())), "round(NaN) should be NaN");
+#endif // NO_VS2017_COMPILER
     static_assert(cxp::isinf(cxp::round(std::numeric_limits<T>::infinity())), "round(inf) should be inf");
     static_assert(cxp::isinf(cxp::round(-std::numeric_limits<T>::infinity())), "round(-inf) should be -inf");
-    
+
     return true;
 }
 

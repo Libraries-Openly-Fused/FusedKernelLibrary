@@ -310,6 +310,29 @@ DECLARE_READ_PARENT_DEVICE_BASIC
     return Parent::build(params, backFunc);                                                                            \
   }
 // END PARENT OPERATIONS
+
+    struct NumElems {
+        template <typename IOp>
+        FK_HOST_DEVICE_FUSE uint x(const Point& thread, const IOp& iOp) {
+            static_assert(isAnyReadType<IOp> || isTernaryType<IOp>, "Only Read, ReadBack, IncompleteReadBack and Ternary Types work with NumElems::x");
+            return IOp::Operation::num_elems_x(thread, iOp);
+        }
+        template <typename IOp>
+        FK_HOST_DEVICE_FUSE uint y(const Point& thread, const IOp& iOp) {
+            static_assert(isAnyReadType<IOp> || isTernaryType<IOp>, "Only Read, ReadBack, IncompleteReadBack and Ternary Types work with NumElems::y");
+            return IOp::Operation::num_elems_y(thread, iOp);
+        }
+        template <typename IOp>
+        FK_HOST_DEVICE_FUSE Size size(const Point& thread, const IOp& iOp) {
+            static_assert(isAnyReadType<IOp> || isTernaryType<IOp>, "Only Read, ReadBack, IncompleteReadBack and Ternary Types work with NumElems::size");
+            return Size(x(thread, iOp), y(thread, iOp));
+        }
+        template <typename IOp>
+        FK_HOST_DEVICE_FUSE uint z(const Point& thread, const IOp& iOp) {
+            static_assert(isAnyReadType<IOp> || isTernaryType<IOp>, "Only Read, ReadBack, IncompleteReadBack and Ternary Types work with NumElems::z");
+            return IOp::Operation::num_elems_z(thread, iOp);
+        }
+    };
 } // namespace fk
 
 #endif

@@ -31,44 +31,7 @@ namespace std {
 #endif
 
 namespace fk {
-
-    template <typename InstantiableOp, typename Enabler = void>
-    struct Num_elems;
-
-    template <typename InstantiableOp>
-    struct Num_elems<InstantiableOp, std::enable_if_t<InstantiableOp::template is<ReadType>, void>> {
-        FK_HOST_DEVICE_FUSE uint x(const Point& thread, const InstantiableOp& iOp) {
-            return InstantiableOp::Operation::num_elems_x(thread, iOp);
-        }
-        FK_HOST_DEVICE_FUSE uint y(const Point& thread, const InstantiableOp& iOp) {
-            return InstantiableOp::Operation::num_elems_y(thread, iOp);
-        }
-        FK_HOST_DEVICE_FUSE Size size(const Point& thread, const InstantiableOp& iOp) {
-            return Size(x(thread, iOp), y(thread, iOp));
-        }
-        FK_HOST_DEVICE_FUSE uint z(const Point& thread, const InstantiableOp& iOp) {
-            return InstantiableOp::Operation::num_elems_z(thread, iOp);
-        }
-    };
-
-    template <typename InstantiableOp>
-    struct Num_elems<InstantiableOp, std::enable_if_t<InstantiableOp::template is<ReadBackType>, void>> {
-        FK_HOST_DEVICE_FUSE uint x(const Point& thread, const InstantiableOp& iOp) {
-            return InstantiableOp::Operation::num_elems_x(thread, iOp);
-        }
-
-        FK_HOST_DEVICE_FUSE uint y(const Point& thread, const InstantiableOp& iOp) {
-            return InstantiableOp::Operation::num_elems_y(thread, iOp);
-        }
-        FK_HOST_DEVICE_FUSE Size size(const Point& thread, const InstantiableOp& iOp) {
-            return Size(x(thread, iOp), y(thread, iOp));
-        }
-        FK_HOST_DEVICE_FUSE uint z(const Point& thread, const InstantiableOp& iOp) {
-            return InstantiableOp::Operation::num_elems_z(thread, iOp);
-        }
-    };
-
-    template <enum ND D, typename T>
+    template <ND D, typename T>
     struct PerThreadRead {
     private:
         using Parent = ReadOperation<T, RawPtr<D, T>, T, TF::ENABLED, PerThreadRead<D, T>>;
@@ -591,4 +554,4 @@ namespace fk {
 
 } //namespace fk
 
-#endif
+#endif // FK_MEMORY_OPERATIONS

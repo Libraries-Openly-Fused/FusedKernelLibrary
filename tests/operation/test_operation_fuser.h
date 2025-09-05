@@ -39,7 +39,7 @@ using BAddInt = Add<int>;
 using BAddFloat = Add<float>;
 using Binaries = TypeList<BAddInt, BAddFloat>;
 // Ternary
-using TInterpFloat = Interpolate<InterpolationType::INTER_LINEAR, Instantiable<RPerThrFloat>>;
+using TInterpFloat = InterpolateComplete<InterpolationType::INTER_LINEAR, Instantiable<RPerThrFloat>>;
 // Write
 using WPerThrFloat = PerThreadWrite<ND::_2D, float>;
 // MidWrite

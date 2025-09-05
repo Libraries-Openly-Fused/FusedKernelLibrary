@@ -425,6 +425,379 @@ inline constexpr typename std::enable_if_t<fk::validCUDAVec<T>, std::ostream&> o
 // ####################### VECTOR OPERATORS ##########################
 // Implemented in a way that the return types follow the c++ standard, for each vector component
 // The user is responsible for knowing the type conversion hazards, inherent to the C++ language.
+#if VS2017_COMPILER
+#define VEC_UNARY_OP(op, input_type) \
+FK_HOST_DEVICE_CNST auto operator op(const input_type ## 1 & a) \
+{ \
+    using OutputType = typename fk::VectorType<decltype(op std::declval<input_type>()), 1>::type_v; \
+    return OutputType{op (a.x)}; \
+} \
+FK_HOST_DEVICE_CNST auto operator op(const input_type ## 2 & a) \
+{ \
+    using OutputType = fk::VectorType_t<decltype(op std::declval<input_type>()), 2>; \
+    return OutputType{op (a.x), op (a.y)}; \
+} \
+FK_HOST_DEVICE_CNST auto operator op(const input_type ## 3 & a) \
+{ \
+    using OutputType = fk::VectorType_t<decltype(op std::declval<input_type>()), 3>; \
+    return OutputType{op (a.x), op (a.y), op (a.z)}; \
+} \
+FK_HOST_DEVICE_CNST auto operator op(const input_type ## 4 & a) \
+{ \
+    using OutputType = fk::VectorType_t<decltype(op std::declval<input_type>()), 4>; \
+    return OutputType{op (a.x), op (a.y), op (a.z), op (a.w)}; \
+}
+
+VEC_UNARY_OP(-, char)
+VEC_UNARY_OP(-, short)
+VEC_UNARY_OP(-, int)
+VEC_UNARY_OP(-, float)
+VEC_UNARY_OP(-, double)
+
+VEC_UNARY_OP(!, uchar)
+VEC_UNARY_OP(!, char)
+VEC_UNARY_OP(!, ushort)
+VEC_UNARY_OP(!, short)
+VEC_UNARY_OP(!, int)
+VEC_UNARY_OP(!, uint)
+VEC_UNARY_OP(!, float)
+VEC_UNARY_OP(!, double)
+
+VEC_UNARY_OP(~, uchar)
+VEC_UNARY_OP(~, char)
+VEC_UNARY_OP(~, ushort)
+VEC_UNARY_OP(~, short)
+VEC_UNARY_OP(~, int)
+VEC_UNARY_OP(~, uint)
+
+#undef VEC_UNARY_OP
+
+#define VEC_COMPOUND_OP(op, modificable_type, input_type) \
+FK_HOST_DEVICE_CNST modificable_type ## 1& operator op(modificable_type ## 1 & a, const input_type ## 1 & b) { \
+    a.x op b.x; \
+    return a; \
+} \
+FK_HOST_DEVICE_CNST modificable_type ## 2& operator op(modificable_type ## 2 & a, const input_type ## 2 & b) { \
+    a.x op b.x; \
+    a.y op b.y; \
+    return a; \
+} \
+FK_HOST_DEVICE_CNST modificable_type ## 3& operator op(modificable_type ## 3 & a, const input_type ## 3 & b) { \
+    a.x op b.x; \
+    a.y op b.y; \
+    a.z op b.z; \
+    return a; \
+} \
+FK_HOST_DEVICE_CNST modificable_type ## 4& operator op(modificable_type ## 4 & a, const input_type ## 4 & b) { \
+    a.x op b.x; \
+    a.y op b.y; \
+    a.z op b.z; \
+    a.w op b.w; \
+    return a; \
+} \
+FK_HOST_DEVICE_CNST modificable_type ## 1& operator op(modificable_type ## 1 & a, const input_type& s) { \
+    a.x op s; \
+    return a; \
+} \
+FK_HOST_DEVICE_CNST modificable_type ## 2& operator op(modificable_type ## 2 & a, const input_type& s) { \
+    a.x op s; \
+    a.y op s; \
+    return a; \
+} \
+FK_HOST_DEVICE_CNST modificable_type ## 3& operator op(modificable_type ## 3 & a, const input_type& s) { \
+    a.x op s; \
+    a.y op s; \
+    a.z op s; \
+    return a; \
+} \
+FK_HOST_DEVICE_CNST modificable_type ## 4& operator op(modificable_type ## 4 & a, const input_type& s) { \
+    a.x op s; \
+    a.y op s; \
+    a.z op s; \
+    a.w op s; \
+    return a; \
+}
+
+VEC_COMPOUND_OP(-=, char, char)
+VEC_COMPOUND_OP(-=, short, short)
+VEC_COMPOUND_OP(-=, int, int)
+VEC_COMPOUND_OP(-=, float, float)
+VEC_COMPOUND_OP(-=, double, double)
+VEC_COMPOUND_OP(-=, uchar, uchar)
+VEC_COMPOUND_OP(-=, char, uchar)
+VEC_COMPOUND_OP(-=, ushort, uchar)
+VEC_COMPOUND_OP(-=, short, uchar)
+VEC_COMPOUND_OP(-=, int, uchar)
+VEC_COMPOUND_OP(-=, uint, uchar)
+VEC_COMPOUND_OP(-=, float, uchar)
+VEC_COMPOUND_OP(-=, double, uchar)
+VEC_COMPOUND_OP(-=, uint, uint)
+
+VEC_COMPOUND_OP(+=, char, char)
+VEC_COMPOUND_OP(+=, short, short)
+VEC_COMPOUND_OP(+=, int, int)
+VEC_COMPOUND_OP(+=, float, float)
+VEC_COMPOUND_OP(+=, double, double)
+VEC_COMPOUND_OP(+=, uchar, uchar)
+VEC_COMPOUND_OP(+=, char, uchar)
+VEC_COMPOUND_OP(+=, ushort, uchar)
+VEC_COMPOUND_OP(+=, short, uchar)
+VEC_COMPOUND_OP(+=, int, uchar)
+VEC_COMPOUND_OP(+=, uint, uchar)
+VEC_COMPOUND_OP(+=, float, uchar)
+VEC_COMPOUND_OP(+=, double, uchar)
+VEC_COMPOUND_OP(+=, uint, uint)
+
+VEC_COMPOUND_OP(*=, char, char)
+VEC_COMPOUND_OP(*=, short, short)
+VEC_COMPOUND_OP(*=, int, int)
+VEC_COMPOUND_OP(*=, float, float)
+VEC_COMPOUND_OP(*=, double, double)
+VEC_COMPOUND_OP(*=, uchar, uchar)
+VEC_COMPOUND_OP(*=, char, uchar)
+VEC_COMPOUND_OP(*=, ushort, uchar)
+VEC_COMPOUND_OP(*=, short, uchar)
+VEC_COMPOUND_OP(*=, int, uchar)
+VEC_COMPOUND_OP(*=, uint, uchar)
+VEC_COMPOUND_OP(*=, float, uchar)
+VEC_COMPOUND_OP(*=, double, uchar)
+VEC_COMPOUND_OP(*=, uint, uint)
+
+VEC_COMPOUND_OP(/=, char, char)
+VEC_COMPOUND_OP(/=, short, short)
+VEC_COMPOUND_OP(/=, int, int)
+VEC_COMPOUND_OP(/=, float, float)
+VEC_COMPOUND_OP(/=, double, double)
+VEC_COMPOUND_OP(/=, uchar, uchar)
+VEC_COMPOUND_OP(/=, char, uchar)
+VEC_COMPOUND_OP(/=, ushort, uchar)
+VEC_COMPOUND_OP(/=, short, uchar)
+VEC_COMPOUND_OP(/=, int, uchar)
+VEC_COMPOUND_OP(/=, uint, uchar)
+VEC_COMPOUND_OP(/=, float, uchar)
+VEC_COMPOUND_OP(/=, double, uchar)
+VEC_COMPOUND_OP(/=, uint, uint)
+
+#undef VEC_COMPOUND_OP
+
+// binary operators (vec & vec)
+#define VEC_BINARY_OP_DIFF_TYPES(op, input_type1, input_type2) \
+FK_HOST_DEVICE_CNST auto operator op(const input_type1 ## 1 & a, const input_type2 ## 1 & b) \
+{ \
+    using OutputType = typename fk::VectorType<decltype(std::declval<input_type1>() op std::declval<input_type2>()), 1>::type_v; \
+    return OutputType{a.x op b.x}; \
+} \
+FK_HOST_DEVICE_CNST auto operator op(const input_type1 ## 2 & a, const input_type2 ## 2 & b) \
+{ \
+    using OutputType = fk::VectorType_t<decltype(std::declval<input_type1>() op std::declval<input_type2>()), 2>; \
+    return OutputType{a.x op b.x, a.y op b.y}; \
+} \
+FK_HOST_DEVICE_CNST auto operator op(const input_type1 ## 3 & a, const input_type2 ## 3 & b) \
+{ \
+    using OutputType = fk::VectorType_t<decltype(std::declval<input_type1>() op std::declval<input_type2>()), 3>; \
+    return OutputType{a.x op b.x, a.y op b.y, a.z op b.z}; \
+} \
+FK_HOST_DEVICE_CNST auto operator op(const input_type1 ## 4 & a, const input_type2 ## 4 & b) \
+{ \
+    using OutputType = fk::VectorType_t<decltype(std::declval<input_type1>() op std::declval<input_type2>()), 4>; \
+    return OutputType{a.x op b.x, a.y op b.y, a.z op b.z, a.w op b.w}; \
+}
+
+#define VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_FLOATING(op, input_type1) \
+VEC_BINARY_OP_DIFF_TYPES(op, input_type1, float) \
+VEC_BINARY_OP_DIFF_TYPES(op, input_type1, double)
+
+#define VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_INTEGERS(op, input_type1) \
+VEC_BINARY_OP_DIFF_TYPES(op, input_type1, char) \
+VEC_BINARY_OP_DIFF_TYPES(op, input_type1, uchar) \
+VEC_BINARY_OP_DIFF_TYPES(op, input_type1, short) \
+VEC_BINARY_OP_DIFF_TYPES(op, input_type1, ushort) \
+VEC_BINARY_OP_DIFF_TYPES(op, input_type1, int) \
+VEC_BINARY_OP_DIFF_TYPES(op, input_type1, uint) \
+VEC_BINARY_OP_DIFF_TYPES(op, input_type1, long) \
+VEC_BINARY_OP_DIFF_TYPES(op, input_type1, ulong) \
+VEC_BINARY_OP_DIFF_TYPES(op, input_type1, longlong) \
+VEC_BINARY_OP_DIFF_TYPES(op, input_type1, ulonglong)
+
+#define VEC_BINARY_OP_DIFF_TYPES_OP_FLOATING_ALL(op) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_INTEGERS(op, float) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_FLOATING(op, float) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_INTEGERS(op, double) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_FLOATING(op, double)
+
+#define VEC_BINARY_OP_DIFF_TYPES_OP_INTEGERS_INTEGERS(op) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_INTEGERS(op, char) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_INTEGERS(op, uchar) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_INTEGERS(op, short) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_INTEGERS(op, ushort) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_INTEGERS(op, int) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_INTEGERS(op, uint) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_INTEGERS(op, long) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_INTEGERS(op, ulong) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_INTEGERS(op, longlong) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_INTEGERS(op, ulonglong)
+
+#define VEC_BINARY_OP_DIFF_TYPES_OP_INTEGERS_FLOATING(op) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_FLOATING(op, char) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_FLOATING(op, uchar) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_FLOATING(op, short) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_FLOATING(op, ushort) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_FLOATING(op, int) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_FLOATING(op, uint) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_FLOATING(op, long) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_FLOATING(op, ulong) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_FLOATING(op, longlong) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_FLOATING(op, ulonglong)
+
+#define VEC_BINARY_OP_DIFF_TYPES_OP(op) \
+VEC_BINARY_OP_DIFF_TYPES_OP_INTEGERS_INTEGERS(op) \
+VEC_BINARY_OP_DIFF_TYPES_OP_INTEGERS_FLOATING(op) \
+VEC_BINARY_OP_DIFF_TYPES_OP_FLOATING_ALL(op)
+
+VEC_BINARY_OP_DIFF_TYPES_OP(+)
+VEC_BINARY_OP_DIFF_TYPES_OP(-)
+VEC_BINARY_OP_DIFF_TYPES_OP(*)
+VEC_BINARY_OP_DIFF_TYPES_OP(/)
+VEC_BINARY_OP_DIFF_TYPES_OP(==)
+VEC_BINARY_OP_DIFF_TYPES_OP(!=)
+VEC_BINARY_OP_DIFF_TYPES_OP(>)
+VEC_BINARY_OP_DIFF_TYPES_OP(<)
+VEC_BINARY_OP_DIFF_TYPES_OP(>=)
+VEC_BINARY_OP_DIFF_TYPES_OP(<=)
+VEC_BINARY_OP_DIFF_TYPES_OP(&&)
+VEC_BINARY_OP_DIFF_TYPES_OP(||)
+
+VEC_BINARY_OP_DIFF_TYPES_OP_INTEGERS_INTEGERS(&)
+VEC_BINARY_OP_DIFF_TYPES_OP_INTEGERS_INTEGERS(|)
+VEC_BINARY_OP_DIFF_TYPES_OP_INTEGERS_INTEGERS(^)
+
+#undef VEC_BINARY_OP_DIFF_TYPES_OP
+#undef VEC_BINARY_OP_DIFF_TYPES_OP_INTEGERS_FLOATING
+#undef VEC_BINARY_OP_DIFF_TYPES_OP_INTEGERS_INTEGERS
+#undef VEC_BINARY_OP_DIFF_TYPES_OP_FLOATING_ALL
+#undef VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_INTEGERS
+#undef VEC_BINARY_OP_DIFF_TYPES_OP_FIRST_FLOATING
+#undef VEC_BINARY_OP_DIFF_TYPES
+
+// binary operators (vec & scalar)
+#define SCALAR_BINARY_OP(op, input_type, scalar_type) \
+FK_HOST_DEVICE_CNST auto operator op(const input_type ## 1 & a, const scalar_type& s) \
+{ \
+    using OutputType = typename fk::VectorType<decltype(std::declval<input_type>() op std::declval<scalar_type>()), 1>::type_v; \
+    return OutputType{a.x op s}; \
+} \
+FK_HOST_DEVICE_CNST auto operator op(const scalar_type& s, const input_type ## 1 & b) \
+{ \
+    using OutputType = typename fk::VectorType<decltype(std::declval<scalar_type>() op std::declval<input_type>()), 1>::type_v; \
+    return OutputType{s op b.x}; \
+} \
+FK_HOST_DEVICE_CNST auto operator op(const input_type ## 2 & a, const scalar_type& s) \
+{ \
+    using OutputType = typename fk::VectorType_t<decltype(std::declval<input_type>() op std::declval<scalar_type>()), 2>; \
+    return OutputType{a.x op s, a.y op s}; \
+} \
+FK_HOST_DEVICE_CNST auto operator op(const scalar_type& s, const input_type ## 2 & b) \
+{ \
+    using OutputType = typename fk::VectorType_t<decltype(std::declval<scalar_type>() op std::declval<input_type>()), 2>; \
+    return OutputType{s op b.x, s op b.y}; \
+} \
+FK_HOST_DEVICE_CNST auto operator op(const input_type ## 3 & a, const scalar_type& s) \
+{ \
+    using OutputType = typename fk::VectorType_t<decltype(std::declval<input_type>() op std::declval<scalar_type>()), 3>; \
+    return OutputType{a.x op s, a.y op s, a.z op s}; \
+} \
+FK_HOST_DEVICE_CNST auto operator op(const scalar_type& s, const input_type ## 3 & b) \
+{ \
+    using OutputType = typename fk::VectorType_t<decltype(std::declval<scalar_type>() op std::declval<input_type>()), 3>; \
+    return OutputType{s op b.x, s op b.y, s op b.z}; \
+} \
+FK_HOST_DEVICE_CNST auto operator op(const input_type ## 4 & a, const scalar_type& s) \
+{ \
+    using OutputType = typename fk::VectorType_t<decltype(std::declval<input_type>() op std::declval<scalar_type>()), 4>; \
+    return OutputType{a.x op s, a.y op s, a.z op s, a.w op s}; \
+} \
+FK_HOST_DEVICE_CNST auto operator op(const scalar_type& s, const input_type ## 4 & b) \
+{ \
+    using OutputType = typename fk::VectorType_t<decltype(std::declval<scalar_type>() op std::declval<input_type>()), 4>; \
+    return OutputType{s op b.x, s op b.y, s op b.z, s op b.w}; \
+}
+
+#define SCALAR_BINARY_OP_FIRST_FLOATING(op, input_type1) \
+SCALAR_BINARY_OP(op, input_type1, float) \
+SCALAR_BINARY_OP(op, input_type1, double)
+
+#define SCALAR_BINARY_OP_FIRST_INTEGERS(op, input_type1) \
+SCALAR_BINARY_OP(op, input_type1, char) \
+SCALAR_BINARY_OP(op, input_type1, uchar) \
+SCALAR_BINARY_OP(op, input_type1, short) \
+SCALAR_BINARY_OP(op, input_type1, ushort) \
+SCALAR_BINARY_OP(op, input_type1, int) \
+SCALAR_BINARY_OP(op, input_type1, uint) \
+SCALAR_BINARY_OP(op, input_type1, long) \
+SCALAR_BINARY_OP(op, input_type1, ulong) \
+SCALAR_BINARY_OP(op, input_type1, longlong) \
+SCALAR_BINARY_OP(op, input_type1, ulonglong)
+
+#define SCALAR_BINARY_OP_FLOATING_ALL(op) \
+SCALAR_BINARY_OP_FIRST_FLOATING(op, float) \
+SCALAR_BINARY_OP_FIRST_FLOATING(op, double) \
+SCALAR_BINARY_OP_FIRST_INTEGERS(op, float) \
+SCALAR_BINARY_OP_FIRST_INTEGERS(op, double)
+
+#define SCALAR_BINARY_OP_INTEGERS_INTEGERS(op) \
+SCALAR_BINARY_OP_FIRST_INTEGERS(op, char) \
+SCALAR_BINARY_OP_FIRST_INTEGERS(op, uchar) \
+SCALAR_BINARY_OP_FIRST_INTEGERS(op, short) \
+SCALAR_BINARY_OP_FIRST_INTEGERS(op, ushort) \
+SCALAR_BINARY_OP_FIRST_INTEGERS(op, int) \
+SCALAR_BINARY_OP_FIRST_INTEGERS(op, uint) \
+SCALAR_BINARY_OP_FIRST_INTEGERS(op, long) \
+SCALAR_BINARY_OP_FIRST_INTEGERS(op, ulong) \
+SCALAR_BINARY_OP_FIRST_INTEGERS(op, longlong) \
+SCALAR_BINARY_OP_FIRST_INTEGERS(op, ulonglong)
+
+#define SCALAR_BINARY_OP_INTEGERS_FLOATING(op) \
+SCALAR_BINARY_OP_FIRST_FLOATING(op, char) \
+SCALAR_BINARY_OP_FIRST_FLOATING(op, uchar) \
+SCALAR_BINARY_OP_FIRST_FLOATING(op, short) \
+SCALAR_BINARY_OP_FIRST_FLOATING(op, ushort) \
+SCALAR_BINARY_OP_FIRST_FLOATING(op, int) \
+SCALAR_BINARY_OP_FIRST_FLOATING(op, uint) \
+SCALAR_BINARY_OP_FIRST_FLOATING(op, long) \
+SCALAR_BINARY_OP_FIRST_FLOATING(op, ulong) \
+SCALAR_BINARY_OP_FIRST_FLOATING(op, longlong) \
+SCALAR_BINARY_OP_FIRST_FLOATING(op, ulonglong)
+
+#define SCALAR_BINARY_OP_ALL(op) \
+SCALAR_BINARY_OP_FLOATING_ALL(op) \
+SCALAR_BINARY_OP_INTEGERS_INTEGERS(op) \
+SCALAR_BINARY_OP_INTEGERS_FLOATING(op)
+
+SCALAR_BINARY_OP_ALL(+)
+SCALAR_BINARY_OP_ALL(-)
+SCALAR_BINARY_OP_ALL(*)
+SCALAR_BINARY_OP_ALL(/)
+SCALAR_BINARY_OP_ALL(==)
+SCALAR_BINARY_OP_ALL(!=)
+SCALAR_BINARY_OP_ALL(<=)
+SCALAR_BINARY_OP_ALL(>=)
+SCALAR_BINARY_OP_ALL(<)
+SCALAR_BINARY_OP_ALL(>)
+SCALAR_BINARY_OP_ALL(&&)
+SCALAR_BINARY_OP_ALL(||)
+
+SCALAR_BINARY_OP_INTEGERS_INTEGERS(&)
+SCALAR_BINARY_OP_INTEGERS_INTEGERS(|)
+SCALAR_BINARY_OP_INTEGERS_INTEGERS(^)
+
+#undef SCALAR_BINARY_OP_ALL
+#undef SCALAR_BINARY_OP_INTEGERS_FLOATING
+#undef SCALAR_BINARY_OP_INTEGERS_INTEGERS
+#undef SCALAR_BINARY_OP_FLOATING_ALL
+#undef SCALAR_BINARY_OP_FIRST_INTEGERS
+#undef SCALAR_BINARY_OP_FIRST_FLOATING
+#undef SCALAR_BINARY_OP
+#else
 #define VEC_UNARY_UNIVERSAL(op) \
 template <typename T> \
 FK_HOST_DEVICE_CNST auto operator op(const T& a) -> \
@@ -599,7 +972,8 @@ FK_HOST_DEVICE_CNST auto operator op(const I1& a, const I2& b) \
 VEC_BINARY_BITWISE(&)
 VEC_BINARY_BITWISE(|)
 VEC_BINARY_BITWISE(^)
-
+#undef VEC_BINARY_BITWISE
+#endif // VS2017_COMPILER
 namespace fk::internal {
     template <typename TargetT, typename SourceT, size_t... Idx>
     FK_HOST_DEVICE_CNST TargetT v_static_cast_helper(const SourceT& source, const std::index_sequence<Idx...>&) {
@@ -626,5 +1000,4 @@ FK_HOST_DEVICE_CNST TargetT v_static_cast(const SourceT& source) {
     }
 }
 
-#undef VEC_BINARY_BITWISE
 #endif

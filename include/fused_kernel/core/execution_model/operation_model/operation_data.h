@@ -79,18 +79,32 @@ namespace fk {
     template <typename Operation, typename Enabler = void>
     struct OperationData;
 
+#if !defined(COPYABLE_IOPS)
+    using ParamsTypes = TypeList<BinaryType, ReadType, WriteType, MidWriteType>;
+    using ParamsAndBackIOpTypes = TypeList<ReadBackType, IncompleteReadBackType, TernaryType>;
+
+    template <typename Operation>
+    struct OperationData<Operation, std::enable_if_t<one_of_v<typename Operation::InstanceType, ParamsTypes>>> {
+        typename Operation::ParamsType params;
+    };
+
+    template <typename Operation>
+    struct OperationData<Operation, std::enable_if_t<one_of_v<typename Operation::InstanceType, ParamsAndBackIOpTypes>>> {
+        typename Operation::ParamsType params;
+        typename Operation::BackIOp backIOp;
+    };
+#else
     template <typename Operation>
     struct OperationData<Operation, std::enable_if_t<hasParamsNoArray<Operation>&& hasNoBackIOp_v<Operation>, void>> {
-#ifdef COPYABLE_IOPS
+
         FK_HOST_DEVICE_CNST OperationData() {};
         FK_HOST_DEVICE_CNST OperationData(const typename Operation::ParamsType& params_) : params(params_) {}
-#endif
+
         typename Operation::ParamsType params;
     };
 
     template <typename Operation>
     struct OperationData<Operation, std::enable_if_t<hasParamsArray<Operation>&& hasNoBackIOp_v<Operation>, void>> {
-#ifdef COPYABLE_IOPS
         FK_HOST_DEVICE_CNST OperationData() {};
         __host__ __forceinline__ OperationData(const typename Operation::ParamsType& params_) {
             std::copy(std::begin(params_), std::end(params_), std::begin(params));
@@ -101,7 +115,6 @@ namespace fk {
             }
             return *this;
         }
-#endif
         typename Operation::ParamsType params;
     };
 
@@ -109,12 +122,10 @@ namespace fk {
     struct OperationData<Operation, std::enable_if_t<hasParamsAndBackIOp_v<Operation> &&
         !std::is_array_v<typename Operation::ParamsType> &&
         !std::is_array_v<typename Operation::BackIOp>, void>> {
-#ifdef COPYABLE_IOPS
         FK_HOST_DEVICE_CNST OperationData() {};
         FK_HOST_DEVICE_CNST OperationData(const typename Operation::ParamsType& params_,
             const typename Operation::BackIOp& backIOp_) :
             params(params_), backIOp(backIOp_) {}
-#endif
         typename Operation::ParamsType params;
         typename Operation::BackIOp backIOp;
     };
@@ -123,7 +134,6 @@ namespace fk {
     struct OperationData<Operation, std::enable_if_t<hasParamsAndBackIOp_v<Operation> &&
         (std::is_array_v<typename Operation::ParamsType> ||
             std::is_array_v<typename Operation::BackIOp>), void>> {
-#ifdef COPYABLE_IOPS
         __host__ __forceinline__ OperationData() {};
         __host__ __forceinline__ OperationData(const typename Operation::ParamsType& params_,
             const typename Operation::BackIOp& backIOp_) {
@@ -153,10 +163,10 @@ namespace fk {
             }
             return *this;
         }
-#endif
         typename Operation::ParamsType params;
         typename Operation::BackIOp backIOp;
     };
+#endif
 } // namespace fk
 
 #endif
