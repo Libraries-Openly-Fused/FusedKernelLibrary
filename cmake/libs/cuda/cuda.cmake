@@ -1,4 +1,4 @@
-include(cmake/libs/cuda/archs.cmake)
+
 include(cmake/libs/cuda/debug.cmake)
 include(cmake/libs/cuda/target_generation.cmake)
 include(cmake/libs/cuda/deploy.cmake)
@@ -20,7 +20,7 @@ if (CUDAToolkit_FOUND)
 	# file(TO_CMAKE_PATH $ENV{APIS_PATH_VS2017} APIS_PATH)
 	string(REPLACE "\\" "/" CUDA_TOOLKIT_ROOT_DIR_ORIG ${CUDA_TOOLKIT_ROOT_DIR_ORIG})
 	set(CUDA_TOOLKIT_ROOT_DIR ${CUDA_TOOLKIT_ROOT_DIR_ORIG})
-	 
+	message(STATUS )
 
 	option(ENABLE_LINE_INFO "Enable line info for kernels compilation" ON)
 
@@ -34,9 +34,14 @@ if (CUDAToolkit_FOUND)
 	string(REGEX REPLACE "[0-9]+.([0-9]+).[0-9]+" "\\1" CUDA_VERSION_MINOR ${CUDA_VERSION_FROM_VERSION_FILE})
 	string(REGEX REPLACE "[0-9]+.[0-9]+.([0-9]+)" "\\1" CUDA_VERSION_REVISION ${CUDA_VERSION_FROM_VERSION_FILE})
 	message(STATUS "CUDA Toolkit found. Version ${CUDA_VERSION_FROM_VERSION_FILE}")
+
+   
+
 else()
 	message(WARNING "CUDA Toolkit not found.")
 endif() 
+
+
 
 function(add_cuda_to_target TARGET_NAME COMPONENTS)
     set_default_cuda_target_properties(${TARGET_NAME})
