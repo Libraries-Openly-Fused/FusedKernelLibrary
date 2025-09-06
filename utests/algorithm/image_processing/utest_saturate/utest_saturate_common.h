@@ -1,36 +1,20 @@
-﻿/* Copyright 2025 Oscar Amoros Huguet
-   Copyright 2025 Grup Mediapro S.L.U
+﻿#ifndef UTEST_COMMON_H
+#define UTEST_COMMON_H
 
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License. */
-
-#include <fused_kernel/algorithms/image_processing/saturate.h>
 #include <fused_kernel/algorithms/basic_ops/cast.h>
+#include <fused_kernel/algorithms/image_processing/saturate.h>
 #include <fused_kernel/core/utils/cuda_vector_utils.h>
+#include <fused_kernel/core/utils/type_lists.h>
 #include <fused_kernel/core/utils/type_to_string.h>
 #include <fused_kernel/core/utils/vlimits.h>
 #include <tests/operation_test_utils.h>
 
-inline std::string niceType(const std::string& input) {
+inline std::string niceType(const std::string &input) {
     // Map "unsigned type" to specific type names
     static const std::unordered_map<std::string, std::string> unsignedTypeMap = {
-        {"unsigned char", "uchar"},
-        {"unsigned short", "ushort"},
-        {"unsigned int", "uint"},
-        {"unsigned long", "ulong"},
-        {"unsigned longlong", "ulonglong"},
-        {"__int64", "longlong"},
-        {"unsigned __int64", "ulonglong"}
-    };
+        {"unsigned char", "uchar"},       {"unsigned short", "ushort"},       {"unsigned int", "uint"},
+        {"unsigned long", "ulong"},       {"unsigned longlong", "ulonglong"}, {"__int64", "longlong"},
+        {"unsigned __int64", "ulonglong"}};
 
     // Check if the input matches any key in the map
     auto it = unsignedTypeMap.find(input);
@@ -40,8 +24,7 @@ inline std::string niceType(const std::string& input) {
     return input;
 }
 
-template <typename InputType, typename OutputType>
-constexpr OutputType expectedMinValue() {
+template <typename InputType, typename OutputType> constexpr OutputType expectedMinValue() {
     if constexpr (cxp::cmp_less_equal(fk::minValue<fk::VBase<InputType>>, fk::minValue<fk::VBase<OutputType>>)) {
         return fk::minValue<OutputType>;
     } else {
@@ -49,13 +32,9 @@ constexpr OutputType expectedMinValue() {
     }
 }
 
-template <typename T>
-constexpr T halfPositiveRange() {
-    return fk::make_set<T>(fk::maxValue<fk::VBase<T>> / 2);
-}
+template <typename T> constexpr T halfPositiveRange() { return fk::make_set<T>(fk::maxValue<fk::VBase<T>> / 2); }
 
-template <typename OutputType, typename InputType>
-constexpr OutputType expectedPositiveValue(const InputType& input) {
+template <typename OutputType, typename InputType> constexpr OutputType expectedPositiveValue(const InputType &input) {
     if (cxp::cmp_greater(fk::vectorAt<0>(input), fk::maxValue<fk::VBase<OutputType>>)) {
         return fk::maxValue<OutputType>;
     } else {
@@ -63,8 +42,7 @@ constexpr OutputType expectedPositiveValue(const InputType& input) {
     }
 }
 
-template <typename InputType, typename OutputType>
-void addOneTest() {
+template <typename InputType, typename OutputType> void addOneTest() {
     // minValue<Input> <= minValue<Output> -> output{ fk::minValue<Output>, ... }
     // minValue<Input> > minValue<Output> -> output{ fk::Cast<Input, Output>::exec(fk::minValue<Input>), ... }
     constexpr OutputType expectedMinVal = expectedMinValue<InputType, OutputType>();
@@ -73,18 +51,19 @@ void addOneTest() {
     // maxValue<Input> >= maxValue<Output> -> output{ ... , fk::maxValue<Output> }
     constexpr OutputType expectedMaxVal = expectedPositiveValue<OutputType>(fk::maxValue<InputType>);
 
-    // halfPositiveRange<InputType>() < maxValue<Output> -> output{ ... , fk::Cast<Input, Output>::exec(fk::maxValue<Input>) }
-    // halfPositiveRange<InputType>() >= maxValue<Output> -> output{ ... , fk::maxValue<Output> }
+    // halfPositiveRange<InputType>() < maxValue<Output> -> output{ ... , fk::Cast<Input,
+    // Output>::exec(fk::maxValue<Input>) } halfPositiveRange<InputType>() >= maxValue<Output> -> output{ ... ,
+    // fk::maxValue<Output> }
     constexpr OutputType expectedHalfMaxValue = expectedPositiveValue<OutputType>(halfPositiveRange<InputType>());
 
-    constexpr std::array<InputType, 3> inputVals{ fk::minValue<InputType>, halfPositiveRange<InputType>(), fk::maxValue<InputType> };
-    constexpr std::array<OutputType, 3> outputVals{ expectedMinVal, expectedHalfMaxValue, expectedMaxVal};
-    
+    constexpr std::array<InputType, 3> inputVals{fk::minValue<InputType>, halfPositiveRange<InputType>(),
+                                                 fk::maxValue<InputType>};
+    constexpr std::array<OutputType, 3> outputVals{expectedMinVal, expectedHalfMaxValue, expectedMaxVal};
+
     TestCaseBuilder<fk::SaturateCast<InputType, OutputType>>::addTest(testCases, inputVals, outputVals);
 }
 
-template <typename BaseInput, typename BaseOutput>
-void addOneTestAllChannels() {
+template <typename BaseInput, typename BaseOutput> void addOneTestAllChannels() {
     // Base Type
     addOneTest<BaseInput, BaseOutput>();
 
@@ -110,25 +89,23 @@ void addOneTestAllChannels() {
 }
 
 template <typename TypeList_, typename Type, size_t... Idx>
-void addAllTestsFor_helper(const std::index_sequence<Idx...>&) {
-    static_assert(fk::validCUDAVec<Type> || std::is_fundamental_v<Type>, "Type must be either a cuda vector or a fundamental type.");
+void addAllTestsFor_helper(const std::index_sequence<Idx...> &) {
+    static_assert(fk::validCUDAVec<Type> || std::is_fundamental_v<Type>,
+                  "Type must be either a cuda vector or a fundamental type.");
     static_assert(fk::isTypeList<TypeList_>, "TypeList_ must be a valid TypeList.");
     // For each type in TypeList_, add tests with Type
     (addOneTestAllChannels<fk::TypeAt_t<Idx, TypeList_>, Type>(), ...);
 }
 
-template <typename TypeList_, size_t... Idx>
-void addAllTestsFor(const std::index_sequence<Idx...>&) {
+template <typename TypeList_, size_t... Idx> void addAllTestsFor(const std::index_sequence<Idx...> &) {
     // For each type in TypeList_, add tests with each type in TypeList_
     (addAllTestsFor_helper<TypeList_, fk::TypeAt_t<Idx, TypeList_>>(std::make_index_sequence<TypeList_::size>{}), ...);
 }
 
-START_ADDING_TESTS
-using Fundamental = fk::RemoveType_t<0, fk::StandardTypes>;
-addAllTestsFor<Fundamental>(std::make_index_sequence<Fundamental::size>());
-STOP_ADDING_TESTS
+template <typename OutputTypeList, typename InputType, size_t... Idx>
+void addAllOutputTestsForInput(const std::index_sequence<Idx...> &) {
+    // For each OutputType in OutputTypeList, add tests with fixed InputType
+    (addOneTestAllChannels<InputType, fk::TypeAt_t<Idx, OutputTypeList>>(), ...);
+}
 
-// You can add more tests for other type combinations as needed.
-int launch() {
-    RUN_ALL_TESTS
-};
+#endif // ! UTEST_COMMON_H
