@@ -67,7 +67,7 @@ if (${CUDA_VERSION_MAJOR} LESS 13)
     list(LENGTH CUDA_ARCH length)
 
     if(${length} GREATER 0)
-        #check that we are not manually specifung an old gpu arch to build
+        #check that we are not manually specifying an old gpu arch to build
         remove_pre70gpus("${CUDA_ARCH}" "${GPU_MINUM70}")
         list(LENGTH GPU_MINUM70 length1)
         if(${length1} EQUAL 0)
