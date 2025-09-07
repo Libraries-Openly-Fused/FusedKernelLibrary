@@ -43,18 +43,23 @@ jobs:
             $env:CXX="cl.exe"
             $devargs='-arch=x64 -vcvars_ver='+$y[1]     
         }
-        if  ($y[2].contains("llvm"))  {
-            $env:CUDACXX="D:\clang+llvm-"+$y[1]+"-x86_64-pc-windows-msvc\bin\clang++.exe"
+        
+        if  ($y[2].contains("llvm")) {
+            #we only support clang with gnu frontend for cuda
+            $env:CC="D:\clang+llvm-"+$y[1]+"-x86_64-pc-windows-msvc\bin\clang++.exe"
+            $env:CXX=$env:CC
+            $env:CUDACXX=$env:CC
         }  else {
             $env:CUDACXX="${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v$($y[3])\bin\nvcc.exe"
         }
         Import-Module (Get-ChildItem $vsInstallationPath -Recurse -File -Filter Microsoft.VisualStudio.DevShell.dll).FullName           
         Enter-VsDevShell -VsInstallPath $vsInstallationPath -SkipAutomaticLocation -DevCmdArguments $devargs      
         
-        cmake -G "Ninja"  -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE=Release -S ${{github.workspace}};        
+        cmake -G "Ninja"  -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_CUDA_COMPILER="$env:CUDACXX" -DCMAKE_BUILD_TYPE=Release -S ${{github.workspace}};        
         #worksaround for rules.ninja generating empty path
-        (Get-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja) -replace "\\nvcc\\bin\\nvcc.exe", "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v$($y[2])\bin\nvcc.exe" | Set-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja
-    
+        if  ($y[2].contains("nvcc"))  {
+        (Get-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja) -replace "\\nvcc\\bin\\nvcc.exe", "$env:CUDACXX" | Set-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja
+        }
     - name: Build  
       # Build your program with the given configuration. Note that --config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).      
       run: |             
