@@ -26,7 +26,7 @@ jobs:
           echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"        
     
     - name: Configure CMake      
-      run: >          
+      run: |          
         IFS="," read -r -a cpp_compiler <<< "${{matrix.cpp_compiler}}"   \
         export PATH=/usr/local/cuda-${cpp_compiler[2]}/bin:/usr/lib/llvm-21/bin/;$PATH  \
         cmake -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}}
