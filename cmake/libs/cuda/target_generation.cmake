@@ -15,7 +15,7 @@ function(set_default_cuda_target_properties TARGET_NAME)
         target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--threads 0>)
         #disable relocatable device code   
         #see https://forums.developer.nvidia.com/t/the-cost-of-relocatable-device-code-rdc-true/47665
-            target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-rdc=false>)
+        target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-rdc=false>)
         
         #cuda 12 can compile in parallel, so let's use this 
         if (${CUDA_VERSION_MAJOR} GREATER_EQUAL 12)
