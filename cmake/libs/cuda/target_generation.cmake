@@ -11,7 +11,8 @@ function(set_default_cuda_target_properties TARGET_NAME)
     # use less precise but faster cuda math methods
     #target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>)
     # parallel compilation of cuda kernels
-    if (CMAKE_CUDA_COMPILER_ID STREQUAL "nvcc")
+    
+    if (CMAKE_CUDA_COMPILER_ID STREQUAL "NVIDIA")
         target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--threads 0>)
         #disable relocatable device code   
         #see https://forums.developer.nvidia.com/t/the-cost-of-relocatable-device-code-rdc-true/47665
