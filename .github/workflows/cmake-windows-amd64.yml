@@ -43,7 +43,7 @@ jobs:
             $env:CXX="cl.exe"
             $devargs='-arch=x64 -vcvars_ver='+$y[1]     
         }
-        if  ($y[3].contains("llvm"))  {
+        if  ($y[2].contains("llvm"))  {
             $env:CUDACXX="D:\clang+llvm-"+$y[1]+"-x86_64-pc-windows-msvc\bin\clang++.exe"
         }  else {
             $env:CUDACXX="${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v$($y[3])\bin\nvcc.exe"
