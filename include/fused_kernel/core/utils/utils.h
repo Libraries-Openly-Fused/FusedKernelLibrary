@@ -90,7 +90,7 @@ using ulonglong = unsigned long long;
 using ushort = unsigned short;
 using ulong = unsigned long;
 
-#if (defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED)) && !defined(NVRTC_COMPILER)
+#if (defined(__NVCC__) ||defined(__CUDA__) ||defined(__HIP__) || defined(NVRTC_ENABLED)) && !defined(NVRTC_COMPILER)
 namespace fk {
     inline void gpuAssert(cudaError_t code,
                           const char *file,

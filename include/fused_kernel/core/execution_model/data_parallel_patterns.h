@@ -15,7 +15,7 @@
 #ifndef FK_INSTANTIABLE_DATA_PARALLEL_PATTERNS
 #define FK_INSTANTIABLE_DATA_PARALLEL_PATTERNS
 
-#if (defined(__NVCC__) || defined(__HIP__) || defined(__NVRTC__) || defined(NVRTC_COMPILER)) && NO_VS2017_COMPILER
+#if (defined(__NVCC__) || defined(__CUDA__) || defined(__HIP__) || defined(__NVRTC__) || defined(NVRTC_COMPILER)) && NO_VS2017_COMPILER
 #include <cooperative_groups.h>
 namespace cooperative_groups {};
 namespace cg = cooperative_groups;
