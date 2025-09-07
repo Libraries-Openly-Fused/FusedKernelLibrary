@@ -23,7 +23,7 @@ namespace fk {
     template <enum ParArch PA, enum ND D, typename T>
     inline void setTo(const T& value, Ptr<D, T>& outputPtr, Stream_<PA>& stream) {
         RawPtr<D, T> output = outputPtr.ptr();
-#if defined(__NVCC__) || defined(__HIP__)
+#if defined(__NVCC__) || defined(__CUDA__) || defined(__HIP__)
         if constexpr (PA == ParArch::GPU_NVIDIA) {
             if (outputPtr.getMemType() == MemType::Device || outputPtr.getMemType() == MemType::DeviceAndPinned) {
                 Executor<TransformDPP<ParArch::GPU_NVIDIA>>::executeOperations(stream, ReadSet<T>::build(value, outputPtr.dims()), PerThreadWrite<D, T>::build(output));

@@ -19,7 +19,7 @@
 #include <string>
 #include <stdexcept>
 
-#if defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED)
+#if defined(__NVCC__) || defined(__CUDA__) || defined(__HIP__) || defined(NVRTC_ENABLED)
 #include <cuda_runtime.h>
 #endif
 
@@ -29,7 +29,7 @@
 #endif
 #endif // NVRTC_COMPILER
 
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(__CUDA__) || defined(__HIPCC__)
 #define FK_DEVICE_FUSE __device__ __forceinline__ static constexpr
 #define FK_DEVICE_CNST __device__ __forceinline__ constexpr
 #define FK_HOST_DEVICE_FUSE __host__ FK_DEVICE_FUSE

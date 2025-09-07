@@ -258,7 +258,7 @@ namespace fk {
     };
 } // namespace fk
 
-#if defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED) || defined(__NVRTC__)
+#if defined(__NVCC__) || defined(__CUDA__) || defined(__HIP__) || defined(NVRTC_ENABLED) || defined(__NVRTC__)
 #include <vector_types.h>
 #elif defined(NVRTC_COMPILER)
 // Nothing to include here

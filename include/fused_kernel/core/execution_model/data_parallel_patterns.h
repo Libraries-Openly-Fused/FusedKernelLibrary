@@ -238,7 +238,7 @@ namespace fk { // namespace FusedKernel
 // Note: there are no ParArch::GPU_NVIDIA_JIT DPP implementaitons, because
 // the DPP's are going to be compiled by NVRTC, which uses ParArch::GPU_NVIDIA
 // That is why we include defined(__NVRTC__) in the ifdef below.
-#if defined(__NVCC__) || defined(__HIP__) || defined(__NVRTC__) || defined(NVRTC_COMPILER)
+#if defined(__NVCC__) || defined(__CUDA__) || defined(__HIP__) || defined(__NVRTC__) || defined(NVRTC_COMPILER)
     template <typename DPPDetails, enum TF TFEN, bool THREAD_DIVISIBLE>
     struct TransformDPP<ParArch::GPU_NVIDIA, TFEN, DPPDetails, THREAD_DIVISIBLE, std::enable_if_t<!std::is_same_v<DPPDetails, void>, void>> {
     private:
@@ -330,7 +330,7 @@ namespace fk { // namespace FusedKernel
         }
     };
 
-#if defined(__NVCC__) || defined(__HIP__) || defined(__NVRTC__)
+#if defined(__NVCC__) || defined(__CUDA__) || defined(__HIP__) || defined(__NVRTC__)
     template <typename SequenceSelector>
     struct DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelector> {
     private:

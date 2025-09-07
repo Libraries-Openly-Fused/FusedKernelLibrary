@@ -15,7 +15,7 @@
 #ifndef FK_EXECUTOR_KERNELS_H
 #define FK_EXECUTOR_KERNELS_H
 
-#if defined(__NVCC__) || defined(__HIP__) || defined(__NVRTC__) || defined(NVRTC_COMPILER)
+#if defined(__NVCC__) || defined(__CUDA__) || defined(__HIP__) || defined(__NVRTC__) || defined(NVRTC_COMPILER)
 namespace fk {
 template <enum ParArch PA, typename SequenceSelector, typename... IOpSequences>
 __global__ void launchDivergentBatchTransformDPP_Kernel(const __grid_constant__ IOpSequences... iOpSequences) {
