@@ -258,6 +258,11 @@ namespace fk { // namespace FusedKernel
             const int x = (blockDim.x * blockIdx.x) + threadIdx.x;
             const int y = (blockDim.y * blockIdx.y) + threadIdx.y;
             const int z = blockIdx.z; // So far we only consider the option of using the z dimension to specify n (x*y) thread planes
+#elif defined(__CUDA__)  //clang with cuda
+            const int x = (blockDim.x * blockIdx.x) + threadIdx.x;
+            const int y = (blockDim.y * blockIdx.y) + threadIdx.y;
+            const int z = blockIdx.z; // So far we only consider the option of using the z dimension to specify n (x*y) thread planes
+
 #else
             const cg::thread_block g = cg::this_thread_block();
 
@@ -339,7 +344,9 @@ namespace fk { // namespace FusedKernel
         static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
         template <typename... IOpSequenceTypes>
         FK_DEVICE_FUSE void exec(const IOpSequenceTypes&... iOpSequences) {
-#if VS2017_COMPILER
+#if VS2017_COMPILER 
+            const uint z = blockIdx.z;
+#elif defined(__CUDA__)  //clang with cuda
             const uint z = blockIdx.z;
 #else
             const cg::thread_block g = cg::this_thread_block();
