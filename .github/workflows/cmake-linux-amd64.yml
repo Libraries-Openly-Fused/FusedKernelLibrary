@@ -32,6 +32,7 @@ jobs:
         cmake -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}} \
         -DCMAKE_CXX_COMPILER=${cpp_compiler[0]}         \
         -DCMAKE_CUDA_COMPILER=${cpp_compiler[1]}         \
+        -DCUDAToolkit_ROOT="/usr/local/cuda-${cpp_compiler[2]}"         \
         -DCMAKE_BUILD_TYPE=Release         \
         -S ${{github.workspace}};        
  
