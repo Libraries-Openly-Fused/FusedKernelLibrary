@@ -17,8 +17,11 @@ jobs:
       matrix:        
         cpp_compiler: ["g++,nvcc,12.9","clang++,nvcc,12.9","clang++,clang++,12.1"]  
   
+  
+  
 
     steps:
+    - uses: actions/checkout@v4
     - name: Set reusable strings
       # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
       id: strings
