@@ -15,6 +15,9 @@ jobs:
     runs-on:  [self-hosted,linux,arm64]
     timeout-minutes: 10 # Increase this timeout value as needed
     strategy:
+      matrix:         
+        build_type: [Release]
+        cpp_compiler: [g++,clang++] 
       # Set fail-fast to false to ensure that feedback is delivered for all matrix combinations. Consider changing this to true when your workflow is stable.
       fail-fast: true
 
@@ -23,7 +26,7 @@ jobs:
     - name: Add to PATH
       shell: bash
       run: |
-        echo "/usr/lib/llvm-19/bin" >> $GITHUB_PATH
+        echo "/usr/lib/llvm-21/bin" >> $GITHUB_PATH
     
     - name: Set reusable strings
       # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
@@ -41,8 +44,7 @@ jobs:
  
     - name: Build
       # Build your program with the given configuration. Note that --config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).      
-      run: >           
-        core_count=$(nproc)
+      run: >            
         cmake --build ${{ steps.strings.outputs.build-output-dir }}   
         --config Release
                      
