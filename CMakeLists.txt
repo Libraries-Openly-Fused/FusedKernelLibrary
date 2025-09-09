@@ -39,7 +39,7 @@ endif()
 
 
 option (BUILD_UTEST "build standard unit tests" ON)
-option (ENABLE_BENCHMARK "build benchmarking unit tests" OFF)
+option (ENABLE_BENCHMARK "build benchmarking unit tests" ON)
 
 
 	
