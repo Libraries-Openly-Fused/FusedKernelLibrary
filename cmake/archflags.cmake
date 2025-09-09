@@ -5,7 +5,9 @@ function (add_msvc_flags TARGET_NAME)
     #https://gitlab.kitware.com/cmake/cmake/-/issues/15170
          
     #message(STATUS "ENV{PROCESSOR_ARCHITECTURE}:" "$ENV{PROCESSOR_ARCHITECTURE}")
-    
+    if (${CMAKE_GENERATOR} MATCHES "Ninja")
+       set (CMAKE_VS_PLATFORM_NAME "x64" CACHE STRING "Visual Studio platform name" FORCE)
+    endif()
     if ( ${CMAKE_VS_PLATFORM_NAME} STREQUAL "x64")
         SET(ARCH_FLAGS "AVX2" CACHE STRING "instruction set to use")
         SET_PROPERTY(CACHE ARCH_FLAGS PROPERTY STRINGS AVX AVX2 AVX512 AVX10.1 disabled)  

@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.22 FATAL_ERROR)
 
 set (PROJECT_VERSION_MAJOR 0)
 set (PROJECT_VERSION_MINOR 1)
-set (PROJECT_VERSION_REV 10)
+set (PROJECT_VERSION_REV 11)
 set (PROJECT_VERSION ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_REV})
 include (cmake/cmake_init.cmake)
 include (cmake/doxygen.cmake)
@@ -18,6 +18,7 @@ HOMEPAGE_URL "https://github.com/morousg/FusedKernelLibrary" )
 
 #cuda is optional, but if it is found, it will be used
 option(ENABLE_CPU "Enable CPU support" ON)
+
 #we don't need the CPU backend with Visual Studio 2017 
 if (MSVC_VERSION LESS 1920) 
     set(ENABLE_CPU OFF  CACHE BOOL "Disable CPU support with MSVC < 2019" FORCE)
