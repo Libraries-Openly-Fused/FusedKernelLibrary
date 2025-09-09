@@ -12,15 +12,13 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
-#ifndef FK_ALGEBRAIC
-#define FK_ALGEBRAIC
+#ifndef FK_ALGEBRAIC_EXEC_H
+#define FK_ALGEBRAIC_EXEC_H
 
-#include <fused_kernel/core/execution_model/operation_model/operation_model.h>
-#include <fused_kernel/algorithms/basic_ops/arithmetic.h>
-#include <fused_kernel/algorithms/basic_ops/cuda_vector.h>
+#include <fused_kernel/core/data/vector_types.h>
+#include <fused_kernel/core/execution_model/operation_model/operation_types.h>
 
 namespace fk {
-
     struct M3x3Float {
         const float3 x;
         const float3 y;
@@ -36,7 +34,7 @@ namespace fk {
         using SelfType = MxVFloat3<BinaryType>;
     public:
         FK_STATIC_STRUCT(MxVFloat3, SelfType)
-        using Parent = BinaryOperation<float3, M3x3Float, float3, MxVFloat3<BinaryType>>;
+            using Parent = BinaryOperation<float3, M3x3Float, float3, MxVFloat3<BinaryType>>;
         DECLARE_BINARY_PARENT
 
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
@@ -53,7 +51,7 @@ namespace fk {
         using SelfType = MxVFloat3<UnaryType>;
     public:
         FK_STATIC_STRUCT(MxVFloat3, SelfType)
-        using Parent = UnaryOperation<Tuple<float3, M3x3Float>, float3, MxVFloat3<UnaryType>>;
+            using Parent = UnaryOperation<Tuple<float3, M3x3Float>, float3, MxVFloat3<UnaryType>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
             const float3 xOut = get<0>(input) * get<1>(input).x;
@@ -63,6 +61,6 @@ namespace fk {
             return { Reduce::exec(xOut), Reduce::exec(yOut), Reduce::exec(zOut) };
         }
     };
-} //namespace fk
+} // namespace fk
 
-#endif
+#endif // FK_ALGEBRAIC_EXEC_H
