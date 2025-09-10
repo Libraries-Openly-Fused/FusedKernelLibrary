@@ -273,7 +273,7 @@ namespace fk {
     struct alignas(32) Ulonglong4_32a {
         ulonglong x, y, z, w;
     };
-#else   
+#else
     struct alignas(16) Ulonglong4 {
         ulonglong x, y, z, w;
     };
