@@ -1,4 +1,4 @@
-/* Copyright 2025 Grup Mediapro S.L.U (Oscar Amoros Huguet)
+﻿/* Copyright 2025 Grup Mediapro S.L.U (Oscar Amoros Huguet)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -184,15 +184,30 @@ namespace fk {
     struct Ulong3 {
         ulong x, y, z;
     };
-
+#ifdef CUDA_ENABLE_ALIGNED_VECTOR4_TYPES
+    struct alignas(16) Ulong4_16a {
+        ulong x, y, z, w;
+    };
+    struct alignas(32) Ulong4_32a {
+        ulong x, y, z, w;
+    };
+#else
     struct alignas(16) Long4 {
         long int x, y, z, w;
     };
-
+#endif
+#ifdef CUDA_ENABLE_ALIGNED_VECTOR4_TYPES
+    struct alignas(16) Long4_16a {
+        long int x, y, z, w;
+    };
+    struct alignas(32) Long4_32a {
+        long int x, y, z, w;
+    };
+#else
     struct alignas(16) Ulong4 {
         ulong x, y, z, w;
     };
-
+#endif
     struct Float1 {
         float x;
     };
@@ -204,11 +219,18 @@ namespace fk {
     struct Float3 {
         float x, y, z;
     };
-
+#ifdef CUDA_ENABLE_ALIGNED_VECTOR4_TYPES
+    struct alignas(16) Float4_16a {
+        float x, y, z, w;
+    };
+    struct alignas(32) Float4_32a {
+        float x, y, z, w;
+    };
+#else
     struct alignas(16) Float4 {
         float x, y, z, w;
     };
-
+#endif
     struct Longlong1 {
         long long int x;
     };
@@ -232,15 +254,30 @@ namespace fk {
     struct Ulonglong3 {
         ulonglong x, y, z;
     };
-
+#ifdef CUDA_ENABLE_ALIGNED_VECTOR4_TYPES
+    struct alignas(16) Longlong4_16a {
+        long long int x, y, z, w;
+    };
+    struct alignas(32) Longlong4_32a {
+        long long int x, y, z, w;
+    };
+#else
     struct alignas(16) Longlong4 {
         long long int x, y, z, w;
     };
-
+#endif
+#ifdef CUDA_ENABLE_ALIGNED_VECTOR4_TYPES
+    struct alignas(16) Ulonglong4_16a {
+        ulonglong x, y, z, w;
+    };
+    struct alignas(32) Ulonglong4_32a {
+        ulonglong x, y, z, w;
+    };
+#else   
     struct alignas(16) Ulonglong4 {
         ulonglong x, y, z, w;
     };
-
+#endif
     struct Double1 {
         double x;
     };
@@ -252,10 +289,18 @@ namespace fk {
     struct alignas(16) Double3 {
         double x, y, z;
     };
-
+#ifdef CUDA_ENABLE_ALIGNED_VECTOR4_TYPES
+    struct alignas(16) Double4_16a {
+        double x, y, z, w;
+    };
+    struct alignas(32) Double4_32a {
+        double x, y, z, w;
+    };
+#else
     struct alignas(16) Double4 {
         double x, y, z, w;
     };
+#endif
 } // namespace fk
 
 #if defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED) || defined(__NVRTC__)
@@ -293,24 +338,56 @@ using long2 = fk::Long2;
 using ulong2 = fk::Ulong2;
 using long3 = fk::Long3;
 using ulong3 = fk::Ulong3;
+#ifdef CUDA_ENABLE_ALIGNED_VECTOR4_TYPES
+using long4_16a = fk::Long4_16a;
+using long4_32a = fk::Long4_32a;
+#else
 using long4 = fk::Long4;
+#endif
+#ifdef CUDA_ENABLE_ALIGNED_VECTOR4_TYPES
+using ulong4_16a = fk::Ulong4_16a;
+using ulong4_32a = fk::Ulong4_32a;
+#else
 using ulong4 = fk::Ulong4;
+#endif
+
 using float1 = fk::Float1;
 using float2 = fk::Float2;
 using float3 = fk::Float3;
+#ifdef CUDA_ENABLE_ALIGNED_VECTOR4_TYPES
+using float4_16a = fk::Float4_16a;
+using float4_32a = fk::Float4_32a;
+#else
 using float4 = fk::Float4;
+#endif
 using longlong1 = fk::Longlong1;
 using ulonglong1 = fk::Ulonglong1;
 using longlong2 = fk::Longlong2;
 using ulonglong2 = fk::Ulonglong2;
 using longlong3 = fk::Longlong3;
 using ulonglong3 = fk::Ulonglong3;
+#ifdef CUDA_ENABLE_ALIGNED_VECTOR4_TYPES
+using longlong4_16a = fk::Longlong4_16a;
+using longlong4_32a = fk::Longlong4_32a;
+#else
 using longlong4 = fk::Longlong4;
+#endif
+#ifdef CUDA_ENABLE_ALIGNED_VECTOR4_TYPES
+using ulonglong4_16a = fk::Ulonglong4_16a;
+using ulonglong4_32a = fk::Ulonglong4_32a;
+#else
 using ulonglong4 = fk::Ulonglong4;
+#endif
+
 using double1 = fk::Double1;
 using double2 = fk::Double2;
 using double3 = fk::Double3;
+#ifdef CUDA_ENABLE_ALIGNED_VECTOR4_TYPES
+using double4_16a = fk::Double4_16a;
+using double4_32a = fk::Double4_32a
+#else
 using double4 = fk::Double4;
+#endif
 #endif /* __NVCC__ || __HIPCC__ */
 
 #endif /* FK_VECTOR_TYPES */

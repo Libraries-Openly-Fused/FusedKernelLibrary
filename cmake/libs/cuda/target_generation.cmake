@@ -3,8 +3,8 @@ function(set_default_cuda_target_properties TARGET_NAME)
         list(APPEND COMPILER_CUDA_FLAGS -Xcompiler=/bigobj)
     endif()
     target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${COMPILER_CUDA_FLAGS}>)
-	if(CUDA_VERSION_MAJOR EQUAL 13)	
-    set_target_properties(${TARGET_NAME} PROPERTIES CUDA_STANDARD_REQUIRED ON CUDA_STANDARD 17 CUDA_RUNTIME_LIBRARY
+	if(${CUDA_VERSION_MAJOR} GREATER_EQUAL 13)	
+        set_target_properties(${TARGET_NAME} PROPERTIES CUDA_STANDARD_REQUIRED ON CUDA_STANDARD 17 CUDA_RUNTIME_LIBRARY
                                                                                                Hybrid)
     else()
     set_target_properties(${TARGET_NAME} PROPERTIES CUDA_STANDARD_REQUIRED ON CUDA_STANDARD 17 CUDA_RUNTIME_LIBRARY
