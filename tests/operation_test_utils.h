@@ -25,52 +25,6 @@
 #include <fused_kernel/core/utils/type_to_string.h>
 #include <fused_kernel/core/execution_model/executors.h>
 
-// This helper simply forces one more round of macro expansion.
-// Standard concatenation and stringification
-#define CONCAT_INNER(a, b) a##b
-#define CONCAT(a, b) CONCAT_INNER(a, b)
-#define STRINGIFY_INNER(x) #x
-#define STRINGIFY(x) STRINGIFY_INNER(x)
-
-// Removes a single set of parentheses: DEPAREN((a,b)) -> a,b
-#define DEPAREN_IMPL(...) __VA_ARGS__
-#define DEPAREN(x) DEPAREN_IMPL x
-
-// =========================================================================
-// 2. Variadic Argument Concatenation (the magic part)
-//
-// This takes multiple arguments (e.g., a, b, c) and creates a single
-// token with underscores (a_b_c). It supports 1 to 8 identifiers.
-// =========================================================================
-
-// Macros to concatenate a specific number of arguments with underscores
-#define CAT_WITH_UNDERSCORE_1(a) a
-#define CAT_WITH_UNDERSCORE_2(a, b) a##_##b
-#define CAT_WITH_UNDERSCORE_3(a, b, c) a##_##b##_##c
-#define CAT_WITH_UNDERSCORE_4(a, b, c, d) a##_##b##_##c##_##d
-#define CAT_WITH_UNDERSCORE_5(a, b, c, d, e) a##_##b##_##c##_##d##_##e
-#define CAT_WITH_UNDERSCORE_6(a, b, c, d, e, f) a##_##b##_##c##_##d##_##e##_##f
-#define CAT_WITH_UNDERSCORE_7(a, b, c, d, e, f, g) a##_##b##_##c##_##d##_##e##_##f##_##g
-#define CAT_WITH_UNDERSCORE_8(a, b, c, d, e, f, g, h) a##_##b##_##c##_##d##_##e##_##f##_##g##_##h
-
-// This helper simply forces one more round of macro expansion.
-#define EXPAND(x) x
-
-// The helper that selects the 9th argument from a list.
-#define GET_9TH_ARG(_1, _2, _3, _4, _5, _6, _7, _8, N, ...) N
-
-// The reverse sequence of numbers, now including 0 for the zero-argument case.
-#define REVERSE_SEQ_8() 8, 7, 6, 5, 4, 3, 2, 1, 0
-
-// The robust implementation of COUNT_VARARGS
-// The extra _IMPL layer ensures __VA_ARGS__ is expanded correctly before counting.
-#define COUNT_VARARGS_IMPL(...) EXPAND(GET_9TH_ARG(__VA_ARGS__))
-#define COUNT_VARARGS(...) EXPAND(COUNT_VARARGS_IMPL(__VA_ARGS__, REVERSE_SEQ_8()))
-
-// Dispatches to the correct CAT_WITH_UNDERSCORE_N macro based on the arg count
-#define VA_CONCAT_DISPATCHER(count, ...) EXPAND(CONCAT(CAT_WITH_UNDERSCORE_, count)(__VA_ARGS__))
-#define VA_CONCAT(...) VA_CONCAT_DISPATCHER(COUNT_VARARGS(__VA_ARGS__), __VA_ARGS__)
-
 std::map<std::string, std::function<bool()>> testCases;
 
 #define START_ADDING_TESTS void addTests() {
