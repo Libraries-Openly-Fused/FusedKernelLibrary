@@ -15,8 +15,9 @@
 #ifndef FK_ALGEBRAIC_EXEC_H
 #define FK_ALGEBRAIC_EXEC_H
 
-#include <fused_kernel/core/data/vector_types.h>
-#include <fused_kernel/core/execution_model/operation_model/operation_types.h>
+#include <fused_kernel/core/utils/cuda_vector_utils.h>
+#include <fused_kernel/core/execution_model/operation_model/parent_operations_exec.h>
+#include <fused_kernel/core/data/tuple.h>
 
 namespace fk {
     struct M3x3Float {
@@ -29,36 +30,26 @@ namespace fk {
     struct MxVFloat3;
 
     template <>
-    struct MxVFloat3<BinaryType> {
-    private:
-        using SelfType = MxVFloat3<BinaryType>;
-    public:
-        FK_STATIC_STRUCT(MxVFloat3, SelfType)
-            using Parent = BinaryOperation<float3, M3x3Float, float3, MxVFloat3<BinaryType>>;
-        DECLARE_BINARY_PARENT
-
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
-            const float3 xOut = input * params.x;
-            const float3 yOut = input * params.y;
-            const float3 zOut = input * params.z;
+    struct MxVFloat3<UnaryType> {
+        TEMPLATE_UNARY_OPERATION_EXEC(MxVFloat3, (UnaryType),
+                                 (Tuple<float3, M3x3Float>), (float3), (false))
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+            const float3 xOut = get<0>(input) * get<1>(input).x;
+            const float3 yOut = get<0>(input) * get<1>(input).y;
+            const float3 zOut = get<0>(input) * get<1>(input).z;
             return { v_sum(xOut), v_sum(yOut), v_sum(zOut) };
         }
     };
 
     template <>
-    struct MxVFloat3<UnaryType> {
-    private:
-        using SelfType = MxVFloat3<UnaryType>;
-    public:
-        FK_STATIC_STRUCT(MxVFloat3, SelfType)
-            using Parent = UnaryOperation<Tuple<float3, M3x3Float>, float3, MxVFloat3<UnaryType>>;
-        DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            const float3 xOut = get<0>(input) * get<1>(input).x;
-            const float3 yOut = get<0>(input) * get<1>(input).y;
-            const float3 zOut = get<0>(input) * get<1>(input).z;
-            using Reduce = VectorReduce<float3, Add<float>>;
-            return { Reduce::exec(xOut), Reduce::exec(yOut), Reduce::exec(zOut) };
+    struct MxVFloat3<BinaryType> {
+        TEMPLATE_BINARY_OPERATION_EXEC(MxVFloat3, (BinaryType),
+                                       (float3), (M3x3Float), (float3), (false))
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
+            const float3 xOut = input * params.x;
+            const float3 yOut = input * params.y;
+            const float3 zOut = input * params.z;
+            return { v_sum(xOut), v_sum(yOut), v_sum(zOut) };
         }
     };
 } // namespace fk

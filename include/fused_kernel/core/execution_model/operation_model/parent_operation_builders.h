@@ -16,80 +16,70 @@
 #define FK_PARENT_OPERATIONS_BUILDERS_H
 
 #include <fused_kernel/core/execution_model/operation_model/parent_operations_exec.h>
+#include <fused_kernel/core/execution_model/operation_model/iop_fuser.h>
 
 namespace fk {
     // PARENT OPERATIONS
     // PARENT COMPUTE OPERATIONS
-    template <typename I, typename O, typename ChildImplementation, bool IS_FUSED = false>
-    struct UnaryOperationBuild {
-    private:
-        using SelfType = UnaryOperationBuild<I, O, ChildImplementation, IS_FUSED>;
-    public:
-        FK_STATIC_STRUCT(UnaryOperationBuild, SelfType)
-        using Parent = UnaryOperationExec<I, O, ChildImplementation, IS_FUSED>;
-        DECLARE_UNARY_PARENT_EXEC
-        FK_HOST_FUSE auto build() { return typename Child::InstantiableType{}; }
-    };
 
-#define DECLARE_UNARY_PARENT_BUILD                                          \
-  DECLARE_UNARY_PARENT_EXEC                                                 \
-  FK_HOST_FUSE InstantiableType build() { return Parent::build(); }
+#define UNARY_BUILD(NAME, InputT, OutputT, IS_FOP)                      \
+  UNARY_ALIAS(InputT, OutputT, IS_FOP)                                  \
+  using InstantiableType = Unary<NAME>;                                 \
+  FK_HOST_FUSE InstantiableType build() { return InstantiableType{}; }
 
-    template <typename I, typename P, typename O, typename ChildImplementation, bool IS_FUSED = false>
-    struct BinaryOperationBuild {
-    private:
-        using SelfType = BinaryOperationBuild<I, P, O, ChildImplementation, IS_FUSED>;
-    public:
-        FK_STATIC_STRUCT(BinaryOperationBuild, SelfType)
-        using Parent = BinaryOperationExec<I, P, O, ChildImplementation, IS_FUSED>;
-        DECLARE_BINARY_PARENT_EXEC
-        FK_HOST_FUSE InstantiableType build(const OperationDataType& opData) { return InstantiableType{ opData }; }
-        FK_HOST_FUSE InstantiableType build(const ParamsType& params) { return InstantiableType{ {params} }; }
-    };
+#define TEMPLATE_UNARY_BUILD(NAME, TEMPLATE_PARAMS, InputT, OutputT, IS_FOP)  \
+    UNARY_ALIAS(InputT, OutputT, IS_FOP)                                      \
+    using InstantiableType = Unary<NAME<DEPAREN(TEMPLATE_PARAMS)>>;           \
+    FK_HOST_FUSE InstantiableType build() { return InstantiableType{}; }
 
-#define DECLARE_BINARY_PARENT_BUILD                                                                                    \
-  DECLARE_BINARY_PARENT_EXEC                                                                                           \
-  FK_HOST_FUSE InstantiableType build(const OperationDataType &opData) { return Parent::build(opData); }               \
-  FK_HOST_FUSE InstantiableType build(const ParamsType &params) { return Parent::build(params); }
+#define DECLARE_ODATA_BUILD \
+FK_HOST_FUSE InstantiableType build(const OperationDataType &opData) { return InstantiableType{opData}; }
+#define DECLARE_PARAMS_BUILD DECLARE_ODATA_BUILD \
+FK_HOST_FUSE InstantiableType build(const ParamsType &params) { return InstantiableType{{params}}; }
+#define DECLARE_PARAMS_BACKIOP_BUILD DECLARE_ODATA_BUILD \
+FK_HOST_FUSE InstantiableType build(const ParamsType &params, const BackIOp &backIOp) { \
+  return InstantiableType{{params, backIOp}}; \
+}
 
-    template <typename I, typename P, typename BIOp, typename O, typename ChildImplementation, bool IS_FUSED = false>
-    struct TernaryOperationExec {
-    private:
-        using SelfType = TernaryOperationExec<I, P, BIOp, O, ChildImplementation, IS_FUSED>;
-    public:
-        FK_STATIC_STRUCT(TernaryOperationExec, SelfType)
-        using Parent = TernaryOperationExec<I, P, BIOp, O, ChildImplementation, IS_FUSED>;
-        DECLARE_TERNARY_PARENT_EXEC
+#define BINARY_BUILD(NAME, InputT, ParamsT, OutputT, IS_FOP)                \
+  BINARY_OPERATION(NAME, InputT, ParamsT, OutputT, IS_FOP)                  \
+  using InstantiableType = Binary<NAME>;                                    \
+  DECLARE_PARAMS_BUILD
 
-        FK_HOST_FUSE InstantiableType build(const OperationDataType& opData) { return InstantiableType{ opData }; }
-        FK_HOST_FUSE InstantiableType build(const ParamsType& params, const BackIOp& backFunc) {
-            return InstantiableType{ {params, backFunc} };
-        }
-    };
+#define TEMPLATE_BINARY_BUILD(NAME, TEMPLATE_PARAMS, InputT, ParamsT, OutputT, IS_FOP) \
+  TEMPLATE_BINARY_OPERATION(NAME, TEMPLATE_PARAMS, InputT, ParamsT, OutputT, IS_FOP)   \
+  using InstantiableType = Binary<NAME<DEPAREN(TEMPLATE_PARAMS)>>;                     \
+  DECLARE_PARAMS_BUILD
 
-#define DECLARE_TERNARY_PARENT_BUILD                                                                                   \
-  DECLARE_TERNARY_PARENT_EXEC                                                                                          \
-  FK_HOST_FUSE InstantiableType build(const OperationDataType &opData) { return Parent::build(opData); }               \
-  FK_HOST_FUSE InstantiableType build(const ParamsType &params, const BackIOp &backFunc) {                             \
-      return Parent::build(params, backFunc);                                                                          \
-  }
+#define TERNARY_BUILD(NAME, InputT, ParamsT, BackIOpT, OutputT)  \
+  TERNARY_ALIAS(InputT, ParamsT, BackIOpT, OutputT)              \
+  using InstantiableType = Ternary<NAME>;                        \
+  DECLARE_PARAMS_BACKIOP_BUILD
 
-    template <typename RT, typename P, typename O, enum TF TFE, typename ChildImplementation, bool IS_FUSED = false>
-    struct ReadOperationBuild {
-    private:
-        using SelfType = ReadOperationBuild<RT, P, O, TFE, ChildImplementation, IS_FUSED>;
-    public:
-        FK_STATIC_STRUCT(ReadOperationBuild, SelfType)
-        DECLARE_READ_PARENT_EXEC
-        FK_HOST_FUSE auto build(const OperationDataType& opData) { return InstantiableType{ opData }; }
-        FK_HOST_FUSE auto build(const ParamsType& params) { return InstantiableType{ {params} }; }
-    };
+#define TEMPLATE_TERNARY_BUILD(NAME, TEMPLATE_PARAMS, InputT, ParamsT, BackIOpT, OutputT) \
+    TERNARY_ALIAS(InputT, ParamsT, BackIOpT, OutputT)                                     \
+    using InstantiableType = Ternary<NAME<DEPAREN(TEMPLATE_PARAMS)>>;                     \
+    DECLARE_PARAMS_BACKIOP_BUILD
 
-#define DECLARE_READ_PARENT_BUILD                                                             \
-  DECLARE_READ_PARENT_EXEC                                                                    \
-  FK_HOST_FUSE auto build(const OperationDataType &opData) { return Parent::build(opData); }  \
-  FK_HOST_FUSE auto build(const ParamsType &params) { return Parent::build(params); }
+#define READ_BUILD(NAME, ReadDataT, ParamsT, OutputT, IS_FOP, TF_) \
+  READ_ALIAS(ReadDataT, ParamsT, OutputT, IS_FOP, TF_)             \
+  using InstantiableType = Read<NAME>;                             \
+  DECLARE_PARAMS_BUILD
 
+#define TEMPLATE_READ_BUILD(NAME, TEMPLATE_PARAMS, ReadDataT, ParamsT, OutputT, IS_FOP, TF_)  \
+  READ_ALIAS(ReadDataT, ParamsT, OutputT, IS_FOP, TF_)                                        \
+  using InstantiableType = Read<NAME<DEPAREN(TEMPLATE_PARAMS)>>;                              \
+  DECLARE_PARAMS_BUILD
+
+#define READBACK_BUILD(NAME, ReadDataT, ParamsT, BackIOpT, OutputT, IS_FOP, TF_) \
+  READBACK_ALIAS(ReadDataT, ParamsT, BackIOpT, OutputT, IS_FOP, TF_)             \
+  using InstantiableType = ReadBack<NAME>;                                       \
+  DECLARE_PARAMS_BACKIOP_BUILD
+
+#define TEMPLATE_READBACK_BUILD(NAME, TEMPLATE_PARAMS, ReadDataT, ParamsT, BackIOpT, OutputT, IS_FOP, TF_) \
+  READBACK_ALIAS(ReadDataT, ParamsT, BackIOpT, OutputT, IS_FOP, TF_)                                       \
+  using InstantiableType = ReadBack<NAME<DEPAREN(TEMPLATE_PARAMS)>>;                                       \
+  DECLARE_PARAMS_BACKIOP_BUILD
 
 } // namespace fk
 
