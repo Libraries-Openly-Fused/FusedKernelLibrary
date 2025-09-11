@@ -15,6 +15,7 @@
 #ifndef FK_UTILS
 #define FK_UTILS
 
+#include <fused_kernel/core/utils/macro_utils.h>
 #if !defined(NVRTC_COMPILER)
 #include <string>
 #include <stdexcept>
@@ -75,12 +76,18 @@
 #endif
 
 #define FK_STATIC_STRUCT(struct_name, struct_alias) \
-    public: /* Ensure deletions are in a public section (conventional) */ \
         struct_name() = delete; \
         struct_name(const struct_alias&) = delete; \
         struct_name& operator=(const struct_alias&) = delete; \
         struct_name(struct_alias&&) = delete; \
         struct_name& operator=(struct_alias&&) = delete;
+
+#define FK_STATIC_STRUCT_(struct_name, struct_alias) \
+        struct_name() = delete; \
+        struct_name(const DEPAREN(struct_alias)&) = delete; \
+        struct_name& operator=(const DEPAREN(struct_alias)&) = delete; \
+        struct_name(DEPAREN(struct_alias)&&) = delete; \
+        struct_name& operator=(DEPAREN(struct_alias)&&) = delete;
 
 using uchar = unsigned char;
 using schar = signed char;

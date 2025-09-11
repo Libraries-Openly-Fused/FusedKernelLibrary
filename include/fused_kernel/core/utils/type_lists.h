@@ -104,6 +104,9 @@ namespace fk { // namespace fused kernel
     template <typename T, typename TypeList_t>
     constexpr bool one_of_v = one_of<T, TypeList_t>::value;
 
+    template <typename T, typename TypeList_t>
+    constexpr bool none_of_v = !one_of_v<T, TypeList_t>;
+
     template <typename... Args>
     struct all_of {};
 
