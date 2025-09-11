@@ -12,9 +12,8 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
-#ifndef FK_ARITHMETIC_EXEC_H
-#define FK_ARITHMETIC_EXEC_H
+#include "tests/main.h"
 
-
-
-#endif // FK_ARITHMETIC_EXEC_H
+int launch() {
+    return 0;
+}
