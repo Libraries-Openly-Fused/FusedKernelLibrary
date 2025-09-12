@@ -334,6 +334,7 @@ namespace fk {
     struct BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH_, TypeList<Op, DefType>> {
     private:
         using SelfType = BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH_, TypeList<Op, DefType>>;
+    public:
         FK_STATIC_STRUCT(BatchRead, SelfType)
         using Operation = Op;
         static constexpr size_t BATCH = BATCH_;
