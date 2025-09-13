@@ -48,7 +48,7 @@ namespace fk {
     template <enum ParArch PA>
     class Stream_;
 
-#if defined(__NVCC__) || CLANG_HOST
+#if defined(__NVCC__) || CLANG_HOST_DEVICE
     template <>
     class Stream_<ParArch::GPU_NVIDIA> final : public BaseStream {
         cudaStream_t m_stream;
