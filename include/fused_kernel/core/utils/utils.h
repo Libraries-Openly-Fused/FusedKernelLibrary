@@ -90,7 +90,7 @@ using ulonglong = unsigned long long;
 using ushort = unsigned short;
 using ulong = unsigned long;
 
-#if (defined(__NVCC__) || CLANG_HOST
+#if defined(__NVCC__) || CLANG_HOST
 namespace fk {
     inline void gpuAssert(cudaError_t code,
                           const char *file,
