@@ -258,7 +258,7 @@ namespace fk {
     };
 } // namespace fk
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE || defined(__HIP__) || defined(NVRTC_ENABLED) || defined(__NVRTC__)
+#if defined(__NVCC__) || CLANG_HOST_DEVICE
 #include <vector_types.h>
 #elif defined(NVRTC_COMPILER)
 // Nothing to include here
