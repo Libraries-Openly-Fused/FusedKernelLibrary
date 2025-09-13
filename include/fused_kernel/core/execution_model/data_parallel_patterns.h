@@ -15,7 +15,7 @@
 #ifndef FK_INSTANTIABLE_DATA_PARALLEL_PATTERNS
 #define FK_INSTANTIABLE_DATA_PARALLEL_PATTERNS
 
-#if (defined(__NVCC__) || defined(__CUDA__) || defined(__HIP__) || defined(__NVRTC__) || defined(NVRTC_COMPILER)) && NO_VS2017_COMPILER
+#if (defined(__NVCC__) || defined(__HIP__) || defined(__NVRTC__) || defined(NVRTC_COMPILER)) && NO_VS2017_COMPILER
 #include <cooperative_groups.h>
 namespace cooperative_groups {};
 namespace cg = cooperative_groups;
@@ -238,7 +238,7 @@ namespace fk { // namespace FusedKernel
 // Note: there are no ParArch::GPU_NVIDIA_JIT DPP implementaitons, because
 // the DPP's are going to be compiled by NVRTC, which uses ParArch::GPU_NVIDIA
 // That is why we include defined(__NVRTC__) in the ifdef below.
-#if defined(__NVCC__) || defined(__CUDA__) || defined(__HIP__) || defined(__NVRTC__) || defined(NVRTC_COMPILER)
+#if defined(__NVCC__) || CLANG_HOST_DEVICE || defined(__HIP__) || defined(__NVRTC__) || defined(NVRTC_COMPILER)
     template <typename DPPDetails, enum TF TFEN, bool THREAD_DIVISIBLE>
     struct TransformDPP<ParArch::GPU_NVIDIA, TFEN, DPPDetails, THREAD_DIVISIBLE, std::enable_if_t<!std::is_same_v<DPPDetails, void>, void>> {
     private:
@@ -254,11 +254,7 @@ namespace fk { // namespace FusedKernel
 
         template <typename... IOps>
         FK_DEVICE_FUSE void exec(const Details& details, const IOps&... iOps) {
-#if VS2017_COMPILER
-            const int x = (blockDim.x * blockIdx.x) + threadIdx.x;
-            const int y = (blockDim.y * blockIdx.y) + threadIdx.y;
-            const int z = blockIdx.z; // So far we only consider the option of using the z dimension to specify n (x*y) thread planes
-#elif defined(__CUDA__)  //clang with cuda
+#if VS2017_COMPILER || CLANG_DEVICE
             const int x = (blockDim.x * blockIdx.x) + threadIdx.x;
             const int y = (blockDim.y * blockIdx.y) + threadIdx.y;
             const int z = blockIdx.z; // So far we only consider the option of using the z dimension to specify n (x*y) thread planes
@@ -335,7 +331,7 @@ namespace fk { // namespace FusedKernel
         }
     };
 
-#if defined(__NVCC__) || defined(__CUDA__) || defined(__HIP__) || defined(__NVRTC__)
+#if defined(__NVCC__) || CLANG_HOST_DEVICE || defined(__HIP__) || defined(__NVRTC__)
     template <typename SequenceSelector>
     struct DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelector> {
     private:
@@ -344,9 +340,7 @@ namespace fk { // namespace FusedKernel
         static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
         template <typename... IOpSequenceTypes>
         FK_DEVICE_FUSE void exec(const IOpSequenceTypes&... iOpSequences) {
-#if VS2017_COMPILER 
-            const uint z = blockIdx.z;
-#elif defined(__CUDA__)  //clang with cuda
+#if VS2017_COMPILER || CLANG_DEVICE
             const uint z = blockIdx.z;
 #else
             const cg::thread_block g = cg::this_thread_block();
