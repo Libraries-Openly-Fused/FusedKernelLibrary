@@ -14,7 +14,9 @@ jobs:
       # Set fail-fast to false to ensure that feedback is delivered for all matrix combinations. Consider changing this to true when your workflow is stable.
       fail-fast: false
       matrix:         
-        toolset: ["cl,14.16,11.8","cl,14.44,12.9","llvm,21.1.0,12.9"]
+      #host compiler, version, cuda compiler, cuda version,
+      #disabling ,"llvm,21.1.0,llvm,12.1", not working on windows yet
+        toolset: ["cl,14.16,nvcc,11.8","cl,14.44,nvcc,12.9","llvm,21.1.0,nvcc,12.9"]
  
 
     steps:
@@ -43,14 +45,22 @@ jobs:
             $devargs='-arch=x64 -vcvars_ver='+$y[1]     
         }
         
+        if  ($y[2].contains("llvm")) {
+            #we only support clang with gnu frontend for cuda
+            $env:CC="D:\clang+llvm-"+$y[1]+"-x86_64-pc-windows-msvc\bin\clang++.exe"
+            $env:CXX=$env:CC
+            $env:CUDACXX=$env:CC
+        }  else {
+            $env:CUDACXX="${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v$($y[3])\bin\nvcc.exe"
+        }
         Import-Module (Get-ChildItem $vsInstallationPath -Recurse -File -Filter Microsoft.VisualStudio.DevShell.dll).FullName           
         Enter-VsDevShell -VsInstallPath $vsInstallationPath -SkipAutomaticLocation -DevCmdArguments $devargs      
-        $env:CUDACXX= "${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v$($y[2])\bin\nvcc.exe"
         
-        cmake -G "Ninja"  -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE=Release -S ${{github.workspace}};        
+        cmake -G "Ninja"  -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_CUDA_COMPILER="$env:CUDACXX" -DCMAKE_BUILD_TYPE=Release -S ${{github.workspace}};        
         #worksaround for rules.ninja generating empty path
-        (Get-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja) -replace "\\nvcc\\bin\\nvcc.exe", "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v$($y[2])\bin\nvcc.exe" | Set-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja
-    
+        if  ($y[2].contains("nvcc"))  {
+        (Get-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja) -replace "\\nvcc\\bin\\nvcc.exe", "$env:CUDACXX" | Set-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja
+        }
     - name: Build  
       # Build your program with the given configuration. Note that --config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).      
       run: |             

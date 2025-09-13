@@ -1,4 +1,4 @@
-/* Copyright 2025 Grup Mediapro S.L.U (Oscar Amoros Huguet)
+﻿/* Copyright 2025 Grup Mediapro S.L.U (Oscar Amoros Huguet)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -258,7 +258,7 @@ namespace fk {
     };
 } // namespace fk
 
-#if defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED) || defined(__NVRTC__)
+#if defined(__NVCC__) || CLANG_HOST_DEVICE
 #include <vector_types.h>
 #elif defined(NVRTC_COMPILER)
 // Nothing to include here

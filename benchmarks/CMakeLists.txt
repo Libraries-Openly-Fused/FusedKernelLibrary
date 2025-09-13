@@ -22,8 +22,7 @@ function (add_generated_benchmark TARGET_NAME TEST_SOURCE EXTENSION DIR)
         configure_file(${CMAKE_SOURCE_DIR}/benchmarks/launcher.in ${TEST_GENERATED_SOURCE} @ONLY) #replace variables in the test source file                 
         set (TARGET_NAME_EXT "${TARGET_NAME}_${EXTENSION}")
         #message(STATUS "Adding test: ${TARGET_NAME_EXT} from ${TEST_GENERATED_SOURCE} and ${TEST_SOURCE}")
-        add_executable(${TARGET_NAME_EXT} "${TEST_GENERATED_SOURCE};${TEST_SOURCE}" )
-        target_sources(${TARGET_NAME_EXT} PRIVATE ${LAUNCH_SOURCES})            
+        add_executable(${TARGET_NAME_EXT} "${TEST_GENERATED_SOURCE};${TEST_SOURCE};${LAUNCH_SOURCES}" )
         
         if(${ENABLE_BENCHMARK})
             target_compile_definitions(${TARGET_NAME_EXT} PRIVATE ENABLE_BENCHMARK)
