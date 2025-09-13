@@ -15,9 +15,11 @@ function (discover_tests DIR)
        
         string(FIND "${TEST_SOURCE_CONTENTS}" "ONLY_CU"  POS_ONLY_CU)
         string(FIND "${TEST_SOURCE_CONTENTS}" "ONLY_CPU"  POS_ONLY_CPU)
-        cmake_path(GET TEST_SOURCE RELATIVE_PART DIR_RELATIVE_PATH)     
-        string(REPLACE "${PROJECT_NAME}/" " " DIR_RELATIVE_PATH "${DIR_RELATIVE_PATH}") #remove the project name from the relative path
+        set (TEST_SOURCE1 "${TEST_SOURCE}")
+        string(REPLACE ${CMAKE_SOURCE_DIR} "" TEST_SOURCE1 "${TEST_SOURCE1}") #make the path relative to the current directory)
         
+        cmake_path(GET TEST_SOURCE1 RELATIVE_PART DIR_RELATIVE_PATH) 
+              
         if (${POS_ONLY_CU} EQUAL -1) #if the source file does not contain "__ONLY_CU__"    
             if (${ENABLE_CPU})                                    
                 add_generated_test("${TARGET_NAME}" "${TEST_SOURCE}" "cpp" "${DIR_RELATIVE_PATH}")                

@@ -51,7 +51,7 @@ function (set_ide_target_folder  TARGET_NAME  DIR_PARENT_PATH EXTENSION)
         else()
             message(FATAL_ERROR "Unknown extension: ${EXTENSION}") 
         endif()
-        set_property(TARGET "${TARGET_NAME}" PROPERTY FOLDER "${DIR_PARENT_PATH}/${FKL_BACKEND}/")  
+        set_property(TARGET "${TARGET_NAME}" PROPERTY FOLDER "${DIR_PARENT_PATH}/${FKL_BACKEND}/")       
 endfunction()
 
 
@@ -65,7 +65,8 @@ function (add_generated_test_stub TARGET_NAME_EXT TEST_SOURCE DIR)
         cmake_path(SET path2 "${DIR}")
 		cmake_path(GET path2 FILENAME DIR_NAME)   
         cmake_path(GET path2 PARENT_PATH DIR_PARENT_PATH)  
-        string(REPLACE " " "" DIR_PARENT_PATH "${DIR_PARENT_PATH}") #for windows           
+        string(REPLACE " " "" DIR_PARENT_PATH "${DIR_PARENT_PATH}") #for windows     
+              
         set_ide_target_folder("${TARGET_NAME_EXT}" "${DIR_PARENT_PATH}" "${EXTENSION}")
 
 endfunction()
