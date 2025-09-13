@@ -9,21 +9,6 @@
 #include <fused_kernel/core/utils/vlimits.h>
 #include <tests/operation_test_utils.h>
 
-inline std::string niceType(const std::string &input) {
-    // Map "unsigned type" to specific type names
-    static const std::unordered_map<std::string, std::string> unsignedTypeMap = {
-        {"unsigned char", "uchar"},       {"unsigned short", "ushort"},       {"unsigned int", "uint"},
-        {"unsigned long", "ulong"},       {"unsigned longlong", "ulonglong"}, {"__int64", "longlong"},
-        {"unsigned __int64", "ulonglong"}};
-
-    // Check if the input matches any key in the map
-    auto it = unsignedTypeMap.find(input);
-    if (it != unsignedTypeMap.end()) {
-        return it->second; // Return the mapped type name
-    }
-    return input;
-}
-
 template <typename InputType, typename OutputType> constexpr OutputType expectedMinValue() {
     if constexpr (cxp::cmp_less_equal(fk::minValue<fk::VBase<InputType>>, fk::minValue<fk::VBase<OutputType>>)) {
         return fk::minValue<OutputType>;
@@ -43,17 +28,10 @@ template <typename OutputType, typename InputType> constexpr OutputType expected
 }
 
 template <typename InputType, typename OutputType> void addOneTest() {
-    // minValue<Input> <= minValue<Output> -> output{ fk::minValue<Output>, ... }
-    // minValue<Input> > minValue<Output> -> output{ fk::Cast<Input, Output>::exec(fk::minValue<Input>), ... }
     constexpr OutputType expectedMinVal = expectedMinValue<InputType, OutputType>();
 
-    // maxValue<Input> < maxValue<Output> -> output{ ... , fk::Cast<Input, Output>::exec(fk::maxValue<Input>) }
-    // maxValue<Input> >= maxValue<Output> -> output{ ... , fk::maxValue<Output> }
     constexpr OutputType expectedMaxVal = expectedPositiveValue<OutputType>(fk::maxValue<InputType>);
 
-    // halfPositiveRange<InputType>() < maxValue<Output> -> output{ ... , fk::Cast<Input,
-    // Output>::exec(fk::maxValue<Input>) } halfPositiveRange<InputType>() >= maxValue<Output> -> output{ ... ,
-    // fk::maxValue<Output> }
     constexpr OutputType expectedHalfMaxValue = expectedPositiveValue<OutputType>(halfPositiveRange<InputType>());
 
     constexpr std::array<InputType, 3> inputVals{fk::minValue<InputType>, halfPositiveRange<InputType>(),
