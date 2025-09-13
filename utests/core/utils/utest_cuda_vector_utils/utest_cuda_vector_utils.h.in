@@ -1,0 +1,51 @@
+﻿/* Copyright 2025 Oscar Amoros Huguet
+   Copyright 2025 Albert Andaluz
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License. */
+
+#define __ONLY_CPU__
+
+#ifndef FK_UTEST_CUDA_VECTOR_UTILS_@EXTENSION@_H
+#define FK_UTEST_CUDA_VECTOR_UTILS_@EXTENSION@_H
+
+#include "utest_cuda_vector_utils_char_@EXTENSION@.h"
+#include "utest_cuda_vector_utils_double_@EXTENSION@.h"
+#include "utest_cuda_vector_utils_float_@EXTENSION@.h"
+#include "utest_cuda_vector_utils_int_@EXTENSION@.h"
+#include "utest_cuda_vector_utils_long_@EXTENSION@.h"
+#include "utest_cuda_vector_utils_longlong_@EXTENSION@.h"
+#include "utest_cuda_vector_utils_short_@EXTENSION@.h"
+#include "utest_cuda_vector_utils_uchar_@EXTENSION@.h"
+#include "utest_cuda_vector_utils_uint_@EXTENSION@.h"
+#include "utest_cuda_vector_utils_ulong_@EXTENSION@.h"
+#include "utest_cuda_vector_utils_ulonglong_@EXTENSION@.h"
+#include "utest_cuda_vector_utils_ushort_@EXTENSION@.h"
+
+#include <vector>
+#include <algorithm>
+
+int launch() {
+    const std::vector<int> v{
+        fk::utest_cuda_vector_utils_char_@EXTENSION@::launch(),      fk::utest_cuda_vector_utils_double_@EXTENSION@::launch(),
+        fk::utest_cuda_vector_utils_float_@EXTENSION@::launch(),     fk::utest_cuda_vector_utils_int_@EXTENSION@::launch(),
+        fk::utest_cuda_vector_utils_long_@EXTENSION@::launch(),      fk::utest_cuda_vector_utils_longlong_@EXTENSION@::launch(),
+        fk::utest_cuda_vector_utils_short_@EXTENSION@::launch(),     fk::utest_cuda_vector_utils_uchar_@EXTENSION@::launch(),
+        fk::utest_cuda_vector_utils_uint_@EXTENSION@::launch(),      fk::utest_cuda_vector_utils_ulong_@EXTENSION@::launch(),
+        fk::utest_cuda_vector_utils_ulonglong_@EXTENSION@::launch(), fk::utest_cuda_vector_utils_ushort_@EXTENSION@::launch(),
+    };
+    bool zeros = std::all_of(v.begin(), v.end(), [](int i) { return i == 0; });
+ 
+    return zeros ? 0 : -1;
+}
+
+#endif // FK_UTEST_CUDA_VECTOR_UTILS_H
