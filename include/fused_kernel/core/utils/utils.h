@@ -21,14 +21,6 @@
 #define _MSC_VER_EXISTS 0
 #endif
  
-
-#if defined(__clang__) && defined(__CUDA__) && defined(__CUDA_ARCH__)
-// clang compiling CUDA code, device mode.º
-#define CLANG_DEVICE 1
-#else
-#define CLANG_DEVICE 0
-#endif
-
 #if defined(__clang__) && defined(__CUDA__)
 // clang compiling CUDA code, device mode.º
 #define CLANG_HOST_DEVICE 1
