@@ -20,12 +20,7 @@
 #else
 #define _MSC_VER_EXISTS 0
 #endif
-#if defined(__clang__) && defined(__CUDA__) && !defined(__CUDA_ARCH__)
-// clang compiling CUDA code, host mode.
-#define CLANG_HOST 1
-#else
-#define CLANG_HOST 0
-#endif
+ 
 
 #if defined(__clang__) && defined(__CUDA__) && defined(__CUDA_ARCH__)
 // clang compiling CUDA code, device mode.º
@@ -48,7 +43,7 @@
 #include <string>
 #include <stdexcept>
 
-#if defined(__NVCC__) || CLANG_HOST
+#if defined(__NVCC__) || CLANG_HOST_DEVICE
 #include <cuda_runtime.h>
 #endif
 
@@ -119,7 +114,7 @@ using ulonglong = unsigned long long;
 using ushort = unsigned short;
 using ulong = unsigned long;
 
-#if defined(__NVCC__) || CLANG_HOST
+#if defined(__NVCC__) || CLANG_HOST_DEVICE
 namespace fk {
     inline void gpuAssert(cudaError_t code,
                           const char *file,

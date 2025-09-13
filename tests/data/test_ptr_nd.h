@@ -42,7 +42,7 @@ PtrToTest& test_return_by_reference(PtrToTest& somePtr) {
 }
 
 void test_uploadTo(Stream& stream) {
-#if defined(__NVCC__) || CLANG_HOST
+#if defined(__NVCC__) || CLANG_HOST_DEVICE
     // Device pointers
     Ptr1D<uchar3> test1D(1333, 0, MemType::Device);
     Ptr2D<uchar3> test2D(1333, 444, 0, MemType::Device);
@@ -77,7 +77,7 @@ void test_uploadTo(Stream& stream) {
 }
 
 void test_downloadTo(Stream& stream) {
-#if defined(__NVCC__) || CLANG_HOST
+#if defined(__NVCC__) || CLANG_HOST_DEVICE
     // Device pointers
     Ptr1D<uchar3> test1D(1333, 0, MemType::Device);
     Ptr2D<uchar3> test2D(1333, 444, 0, MemType::Device);

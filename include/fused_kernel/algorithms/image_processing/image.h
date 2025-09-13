@@ -65,7 +65,7 @@ namespace fk {
             return Image<PF>(data.crop(dataPoint, newDataDims), newWidth, newHeight);
         }
 #if !defined(NVRTC_COMPILER)
-#if defined(__NVCC__) || CLANG_HOST 
+#if defined(__NVCC__) || CLANG_HOST_DEVICE 
         inline void uploadTo(Image& other, cudaStream_t stream = 0) {
             data.uploadTo(other.data, stream);
         }

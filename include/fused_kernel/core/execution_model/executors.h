@@ -287,7 +287,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         return CtxDim3(blockDimX[bxS], blockDimY[byS][bxS]);
     }
 #endif
-#if defined(__NVCC__) || CLANG_HOST
+#if defined(__NVCC__) || CLANG_HOST_DEVICE
     template <enum TF TFEN>
     struct Executor<TransformDPP<ParArch::GPU_NVIDIA, TFEN>> {
         FK_STATIC_STRUCT(Executor, Executor)
