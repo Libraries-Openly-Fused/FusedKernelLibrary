@@ -9,6 +9,7 @@
 #include <string>
 #include <type_traits>
 #include <vector>
+
 using namespace fk;
 std::vector<std::string> unexpected_failed_compilations;
 
@@ -133,7 +134,8 @@ struct can_or_assign<T1, T2, std::void_t<decltype(std::declval<T1 &>() |= std::d
 
 using VecAndStdTypes = TypeListCat_t<VAll, StandardTypes>;
 
-template <typename T> void detectUnaryUnexpectedCompilationErrors() {
+template <typename T>
+void detectUnaryUnexpectedCompilationErrors() {
     if constexpr (can_unary_minus<T>::value != can_unary_minus<VBase<T>>::value) {
         unexpected_failed_compilations.push_back("unaryMinus_" + typeToString<T>());
     }
@@ -145,7 +147,8 @@ template <typename T> void detectUnaryUnexpectedCompilationErrors() {
     }
 }
 
-template <typename I1, typename I2> void detectBinaryUnexpectedCompilationErrors() {
+template <typename I1, typename I2>
+void detectBinaryUnexpectedCompilationErrors() {
     if constexpr (cn<I1> == cn<I2>) {
         if constexpr (can_add<I1, I2>::value != can_add<VBase<I1>, VBase<I2>>::value) {
             unexpected_failed_compilations.push_back("binaryAdd_" + typeToString<I1>() + "_" + typeToString<I2>());
@@ -197,7 +200,8 @@ template <typename I1, typename I2> void detectBinaryUnexpectedCompilationErrors
     }
 }
 
-template <typename I1, typename I2> void detectCompoundUnexpectedCompilationErrors() {
+template <typename I1, typename I2>
+void detectCompoundUnexpectedCompilationErrors() {
     if constexpr (fk::AreVVEqCN<I1, I2>::value || fk::AreVS<I1, I2>::value) {
         // The case scalar += vector is not supported (same for the other compound operators)
         if constexpr (can_add_assign<I1, I2>::value != can_add_assign<VBase<I1>, VBase<I2>>::value) {
@@ -386,9 +390,11 @@ template <typename I1, typename I2> bool testCompoundOperators() {
     return correct;
 }
 
-template <typename TypeList_> struct UnaryTest;
+template <typename TypeList_>
+struct UnaryTest;
 
-template <typename... Types> struct UnaryTest<TypeList<Types...>> {
+template <typename... Types>
+struct UnaryTest<TypeList<Types...>> {
     static bool execute() {
         (detectUnaryUnexpectedCompilationErrors<Types>(), ...);
         return (testUnaryOperators<Types>() && ...);

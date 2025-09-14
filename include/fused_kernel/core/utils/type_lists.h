@@ -31,28 +31,129 @@ namespace fk { // namespace fused kernel
     template <typename... Types>
     struct TypeList {
     private:
-        template <size_t n, typename... TypeList_t>
+        template <size_t n, typename... Types_>
         struct At;
         template <typename Head>
-        struct At<0, TypeList<Head>> {
+        struct At<0, Head> {
             using type = Head;
         };
         template <typename Head, typename... Tail>
-        struct At<0, TypeList<Head, Tail...>> {
+        struct At<0, Head, Tail...> {
             using type = Head;
         };
         template <size_t n, typename Head, typename... Tail>
-        struct At<n, TypeList<Head, Tail...>> {
-            static_assert(n < TypeList<Head, Tail...>::size, "Index out of range");
-            using type = typename At<n - 1, TypeList<Tail...>>::type;
+        struct At<n, Head, Tail...> {
+            static_assert(n < TypeList<Types...>::size, "Index out of range");
+            using type = typename At<n - 1, Tail...>::type;
         };
+
+        template<typename... TypeLists>
+        struct TypeListCat;
+
+        template<typename... Args1>
+        struct TypeListCat<TypeList<Args1...>> {
+            using type = TypeList<Args1...>;
+        };
+
+        template<typename... Args1, typename... Args2>
+        struct TypeListCat<TypeList<Args1...>, TypeList<Args2...>> {
+            using type = TypeList<Args1..., Args2...>;
+        };
+
+        template<typename... Args1, typename... Args2, typename... TypeLists>
+        struct TypeListCat<TypeList<Args1...>, TypeList<Args2...>, TypeLists...> {
+            using type = typename TypeListCat<TypeList<Args1..., Args2...>, TypeLists...>::type;
+        };
+
+        /**
+         * @struct TypeIndex
+         * @brief Struct to find at compile time, the index in which the type T is found
+         * for the first time in the TypeList.
+         */
+        template <typename T>
+        struct TypeIndex {
+            static_assert(TypeList<Types...>::template contains<T>, "The type is not in the list");
+            template <size_t CurrentIdx, typename U, typename... Remaining>
+            struct TypeIndexHelper{
+                static constexpr size_t value =
+                    std::is_same_v<T, U> ? CurrentIdx : TypeIndexHelper<CurrentIdx + 1, Remaining...>::value;
+            };
+
+            template <size_t CurrentIdx, typename U>
+            struct TypeIndexHelper<CurrentIdx, U> {
+                static constexpr size_t value =
+                    std::is_same_v<T, U> ? CurrentIdx : CurrentIdx + 1;
+            };
+
+            static constexpr size_t value = TypeIndexHelper<0, Types...>::value;
+        };
+
+        template <size_t Index, typename T, typename... Types>
+        struct InsertType;
+
+        template <typename T>
+        struct InsertType<0, T> {
+            using type = TypeList<T>;
+        };
+
+        template <size_t Index, typename T, typename Head>
+        struct InsertType<Index, T, Head> {
+            using type = std::conditional_t<Index == 0,
+                TypeList<T, Head>,
+                TypeList<Head, T>
+            >;
+        };
+
+        template <size_t Index, typename T, typename Head, typename... Tail>
+        struct InsertType<Index, T, Head, Tail...> {
+            using type = std::conditional_t<Index == 0,
+                TypeList<T, Head, Tail...>,
+                typename TypeList<Head>::template cat<typename InsertType<Index - 1, T, Tail...>::type>
+            >;
+        };
+
+        template <size_t Index, typename... Types>
+        struct RemoveType;
+
+        template <typename Head, typename... Tail>
+        struct RemoveType<0, Head, Tail...> {
+            using type = TypeList<Tail...>; // Remove the first type
+        };
+
+        template <size_t Index, typename Head, typename... Tail>
+        struct RemoveType<Index, Head, Tail...> {
+            static_assert(Index < TypeList<Head, Tail...>::size, "Index out of range");
+            using type = typename TypeList<Head>::template cat<typename RemoveType<Index - 1, Tail...>::type>;
+        };
+
     public:
         static constexpr size_t size{sizeof...(Types)};
 
         template <size_t Idx>
-        using at = typename At<Idx, TypeList<Types...>>::type;
+        using at = typename At<Idx, Types...>::type;
         using first = at<0>;
         using last = at<sizeof...(Types)-1>;
+        template <typename T>
+        using addFront = TypeList<T, Types...>;
+        template <typename T>
+        using addBack = TypeList<Types..., T>;
+        template <size_t Idx, typename T>
+        using addAt = typename InsertType<Idx, T, Types...>::type;
+        template <typename... TypeLists>
+        using cat = typename TypeListCat<TypeList<Types...>, TypeLists...>::type;
+        template <size_t Idx>
+        using removeAt = typename RemoveType<Idx, Types...>::type;
+
+        template <typename T>
+        static constexpr bool contains = (std::is_same_v<T, Types> || ...);
+
+        template <typename T>
+        static constexpr bool allAre = (std::is_same_v<T, Types> && ...);
+
+        static constexpr bool allAreSame = (std::is_same_v<first, Types> && ...);
+
+        template <typename T>
+        static constexpr size_t idx = TypeIndex<T>::value;
     };
 
     template <typename T>
@@ -64,23 +165,12 @@ namespace fk { // namespace fused kernel
     template <typename T>
     constexpr bool isTypeList = IsTypeList<T>::value;
 
-    template<typename... Types>
-    struct TypeListCat{};
+    template <typename TypeList1, typename... TypeLists>
+    using TypeListCat_t = typename TypeList1::template cat<TypeLists...>;
 
-    template<typename... Args1, typename... Args2>
-    struct TypeListCat<TypeList<Args1...>, TypeList<Args2...>> {
-        using type = TypeList<Args1..., Args2...>;
-    };
-
-    template <typename TypeList1, typename TypeList2>
-    using TypeListCat_t = typename TypeListCat<TypeList1, TypeList2>::type;
-
-    template <typename... Args>
-    struct one_of {};
-
-    template <typename T, typename... U>
-    struct one_of<T, TypeList<U...>> {
-        static constexpr int value = std::disjunction_v<std::is_same<T,U>...>;
+    template <typename T, typename TypeList_t>
+    struct one_of {
+        static constexpr int value = TypeList_t::template contains<T>;
     };
 
     template <typename T, typename TypeList_t>
@@ -89,12 +179,9 @@ namespace fk { // namespace fused kernel
     template <typename T, typename TypeList_t>
     constexpr bool none_of_v = !one_of_v<T, TypeList_t>;
 
-    template <typename... Args>
-    struct all_of {};
-
-    template <typename T, typename... U>
-    struct all_of<T, TypeList<U...>> {
-        static constexpr bool value = std::conjunction_v<std::is_same<T, U>...>;
+    template <typename T, typename TypeList_t>
+    struct all_of {
+        static constexpr bool value = TypeList_t::template allAre<T>;
     };
 
     template <typename T, typename TypeList_t>
@@ -116,37 +203,12 @@ namespace fk { // namespace fused kernel
      * @struct TypeIndex
      * @brief Struct to find at compile time, the index in which the type T is found
      * in the TypeList TypeList_t.
-     *
-     * This the base defintion of the struct. Contains no implementation
      */
     template <typename T, typename TypeList_t>
-    struct TypeIndex;
-
-    /**
-     * @struct TypeIndex<T, TypeList<T, Types...>>
-     * @brief TypeIndex especialization that implements the case when T is
-     * the same type as the first type in TypeList.
-     *
-     * This the stop condition of the recursive algorithm.
-     */
-    template <typename T, typename... Types>
-    struct TypeIndex<T, TypeList<T, Types...>> {
-        static constexpr size_t value = 0;
-    };
-
-    /**
-     * @struct TypeIndex<T, TypeList<U, Types...>>
-     * @brief TypeIndex especialization that implements the case when T is
-     * not the same type as the first type in TypeList.
-     *
-     * If T is not the same type as the first Type in TypeList, U, then we define value to be 1 + 
-     * whatever is expanded by TypeIndex<T, TypeList<Types...>>::value which will evaluate the 
-     * TypeList minus U type.
-     */
-    template <typename T, typename U, typename... Types>
-    struct TypeIndex<T, TypeList<U, Types...>> {
-        static_assert(one_of<T, TypeList<U, Types...>>::value == true, "The type is not on the type list");
-        static constexpr size_t value = 1 + TypeIndex<T, TypeList<Types...>>::value;
+    struct TypeIndex {
+        static_assert(isTypeList<TypeList_t>, "The second parameter must be a TypeList");
+        static_assert(TypeList_t::template contains<T>, "The type is not in the list");
+        static constexpr size_t value = TypeList_t::template idx<T>;
     };
 
     /**
@@ -161,10 +223,10 @@ namespace fk { // namespace fused kernel
     using TypeAt_t = std::conditional_t<(n>=0), typename TypeList_t::template at<static_cast<size_t>(n)>, typename TypeList_t::last>;
 
     template <typename... Types>
-    using FirstType_t = TypeAt_t<0, TypeList<Types...>>;
+    using FirstType_t = typename TypeList<Types...>::first;
 
     template <typename... Types>
-    using LastType_t = TypeAt_t<sizeof...(Types)-1, TypeList<Types...>>;
+    using LastType_t = typename TypeList<Types...>::last;
 
     template <typename... Types>
     using FirstInstantiableOperationInputType_t = typename FirstType_t<Types...>::Operation::InputType;
@@ -178,7 +240,10 @@ namespace fk { // namespace fused kernel
     template <typename T, typename TypeList1, typename TypeList2>
     struct EquivalentType {
         static_assert(one_of_v<T, TypeList1>, "The type is not in the first list");
-        using type = TypeAt_t<TypeIndex_v<T, TypeList1>, TypeList2>;
+    private:
+        static constexpr size_t index = TypeList1::template idx<T>;
+    public:
+        using type = typename TypeList2::template at<index>;
     };
 
     template <typename T, typename TypeList1, typename TypeList2>
@@ -187,55 +252,17 @@ namespace fk { // namespace fused kernel
     template<typename T, typename... Ts>
     constexpr bool all_types_are_same = std::conjunction_v<std::is_same<T, Ts>...>;
 
-    template <size_t Index, typename T, typename... Types>
-    struct InsertType {};
-
-    template <typename T>
-    struct InsertType<0, T> {
-        using type = TypeList<T>;
-    };
-
-    template <size_t Index, typename T, typename Head>
-    struct InsertType<Index, T, TypeList<Head>> {
-        using type = std::conditional_t<Index == 0,
-            TypeList<T, Head>,
-            TypeList<Head, T>
-        >;
-    };
-
-    template <size_t Index, typename T, typename Head, typename... Tail>
-    struct InsertType<Index, T, TypeList<Head, Tail...>> {
-        using type = std::conditional_t<Index == 0,
-                                        TypeList<T, Head, Tail...>,
-                                        TypeListCat_t<TypeList<Head>, typename InsertType<Index - 1, T, TypeList<Tail...>>::type>
-                                       >;
-    };
-
     template <size_t Index, typename T, typename TypeList>
-    using InsertType_t = typename InsertType<Index, T, TypeList>::type;
+    using InsertType_t = typename TypeList::template addAt<Index, T>;
 
     template <typename TypeList, typename T>
-    using InsertTypeBack_t = typename InsertType<TypeList::size, T, TypeList>::type;
+    using InsertTypeBack_t = typename TypeList::template addBack<T>;
 
     template <typename T, typename TypeList>
-    using InsertTypeFront_t = typename InsertType<0, T, TypeList>::type;
-
-    template <size_t Index, typename... Types>
-    struct RemoveType;
-
-    template <typename Head, typename... Tail>
-    struct RemoveType<0, TypeList<Head, Tail...>> {
-        using type = TypeList<Tail...>; // Remove the first type
-    };
-
-    template <size_t Index, typename Head, typename... Tail>
-    struct RemoveType<Index, TypeList<Head, Tail...>> {
-        static_assert(Index < TypeList<Head, Tail...>::size, "Index out of range");
-        using type = TypeListCat_t<TypeList<Head>, typename RemoveType<Index - 1, TypeList<Tail...>>::type>;
-    };
+    using InsertTypeFront_t = typename TypeList::template addFront<T>;
 
     template <size_t Index, typename TypeList>
-    using RemoveType_t = typename RemoveType<Index, TypeList>::type;
+    using RemoveType_t = typename TypeList::template removeAt<Index>;
 
     template <typename T, typename Restriction, typename TypeList, bool last, T currentInt, T... integers>
     struct RestrictedIntegerSequenceBuilder;

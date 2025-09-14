@@ -47,7 +47,7 @@ namespace fk {
     Times bigger can be: 1, 2, 4
     */
 
-    using TFSourceTypes = typename TypeList<TypeListCat_t<BaseTypes, VOne>, VTwo, VThree, VFour>::type;
+    using TFSourceTypes = TypeListCat_t<BaseTypes, VOne, VTwo, VThree, VFour>;
     using TFBiggerTypes = TypeList<bool4, uchar4,  char4,  ushort2,  short2,  uint2, int2, ulong,  long,  ulonglong,  longlong,  float2, double,
                                    bool4, uchar4,  char4,  ushort2,  short2,  uint2, int2, ulong,  long,  ulonglong,  longlong,  float2, double,
                                    bool4, uchar4,  char4,  ushort2,  short2,  uint2, int2, ulong2, long2, ulonglong2, longlong2, float2, double2,
@@ -82,7 +82,7 @@ namespace fk {
     template <typename ReadType, typename WriteType, bool ENABLED_>
     struct ThreadFusionInfo {
         public:
-            static constexpr bool ENABLED = ENABLED_ && isValidChannelNumber<(cn<TFBiggerType_t<ReadType>> / cn<ReadType>) * cn<WriteType>>;
+            static constexpr bool ENABLED = ENABLED_ && isValidChannelNumber<((cn<TFBiggerType_t<ReadType>>) / (cn<ReadType>)) * cn<WriteType>>;
             using BiggerReadType = std::conditional_t<ENABLED, TFBiggerType_t<ReadType>, ReadType>;
             static constexpr uint elems_per_thread{ cn<BiggerReadType> / cn<ReadType> };
             using BiggerWriteType = VectorType_t<VBase<WriteType>, elems_per_thread * cn<WriteType>>;

@@ -83,13 +83,13 @@ namespace fk {
     using FloatingTypes = TypeList<float, double>;
     using IntegralTypes = TypeList<uchar, char, schar, ushort, short, uint, int, ulong, long, ulonglong, longlong>;
     using IntegralBaseTypes = TypeList<uchar, schar, ushort, short, uint, int, ulong, long, ulonglong, longlong>;
-    using StandardTypes = TypeListCat_t<TypeListCat_t<TypeList<bool>, IntegralTypes>, FloatingTypes>;
-    using BaseTypes = TypeListCat_t<TypeListCat_t<TypeList<bool>, IntegralBaseTypes>, FloatingTypes>;
+    using StandardTypes = TypeListCat_t<IntegralTypes, FloatingTypes>::addFront<bool>;
+    using BaseTypes = TypeListCat_t<IntegralBaseTypes, FloatingTypes>::addFront<bool>;
     using VOne = TypeList<bool1, uchar1, char1, ushort1, short1, uint1, int1, ulong1, long1, ulonglong1, longlong1, float1, double1>;
     using VTwo = VectorTypeList<2>;
     using VThree = VectorTypeList<3>;
     using VFour = VectorTypeList<4>;
-    using VAll = TypeListCat_t<TypeListCat_t<VOne, VTwo>, TypeListCat_t<VThree, VFour>>;
+    using VAll = TypeListCat_t<VOne, VTwo, VThree, VFour>;
 
     template <typename T>
     constexpr bool validCUDAVec = one_of<T, VAll>::value;
