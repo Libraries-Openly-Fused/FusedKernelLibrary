@@ -22,20 +22,43 @@
 
 
 namespace fk {
+    // Operation type tags
+    struct ReadType;
+    struct ReadBackType;
+    struct IncompleteReadBackType;
+    struct UnaryType;
+    struct BinaryType;
+    struct TernaryType;
+    struct MidWriteType;
+    struct WriteType;
 
+    // Aliases to define the Operation types
     template <typename T = NullType>
-    struct RDT;
+    struct RDT {
+        using type = T;
+    };
     template <typename T = NullType>
-    struct IT;
+    struct IT {
+        using type = T;
+    };
     template <typename T = NullType>
-    struct PT;
+    struct PT {
+        using type = T;
+    };
     template <typename T = NullType>
-    struct OT;
+    struct OT {
+        using type = T;
+    };
     template <typename T = NullType>
-    struct BIOpT;
+    struct BIOpT {
+        using type = T;
+    };
     template <typename T = NullType>
-    struct WDT;
+    struct WDT {
+        using type = T;
+    };
 
+    // Helper to extract the type associated to an alias
     template <typename Alias, typename... Aliases>
     struct OpAlias;
 
@@ -112,6 +135,9 @@ namespace fk {
         using ParamsType = OpAlias_t<PT<>, Types...>;
         using OutputType = OpAlias_t<OT<>, Types...>;
         constexpr ReadOp() {};
+        static constexpr bool complete = !isNullType<ReadDataType> &&
+                                         !isNullType<ParamsType> &&
+                                         !isNullType<OutputType>;
     };
     template <>
     struct ReadOp<> {
@@ -120,6 +146,7 @@ namespace fk {
         using OutputType = NullType;
 
         constexpr ReadOp() {};
+        static constexpr bool complete = false;
     };
 
     template <typename... Types>
@@ -228,14 +255,12 @@ namespace fk {
         constexpr WriteOp() {};
     };
 
-    struct ReadType;
-    struct ReadBackType;
-    struct IncompleteReadBackType;
-    struct UnaryType;
-    struct BinaryType;
-    struct TernaryType;
-    struct MidWriteType;
-    struct WriteType;
+    /*template <typename OpAlias> struct IsCompleteOpAlias : std::false_type {};
+    template <typename... Types>
+    struct IsCompleteOpAlias<ReadOp<Types...>, std::enable_if_t<Types::>> : std::true_type {};*/
+
+    template <typename OpAlias>
+    constexpr bool isCompleteOpAlias = true;
 
     template <typename T, typename = void>
     struct HasInstanceType : std::false_type {};

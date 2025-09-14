@@ -64,24 +64,6 @@ namespace fk { // namespace fused kernel
     template <typename T>
     constexpr bool isTypeList = IsTypeList<T>::value;
 
-    /**
-     * @struct TypeList<TypeList<Args1...>, TypeList<Args2...>, TypeList<Args3...>, TypeList<Args4...>>
-     * @brief Struct to fuse 4 TypeList into a single one.
-     *
-     * The expansion results into a single struct that holds all the types.
-     */
-    template<typename... Args1, typename... Args2, typename... Args3, typename... Args4>
-    struct TypeList<TypeList<Args1...>, TypeList<Args2...>, TypeList<Args3...>, TypeList<Args4...>> {
-        using type = TypeList<Args1..., Args2..., Args3..., Args4...>;
-    };
-
-    template<typename... Args1, typename... Args2, typename... Args3,
-             typename... Args4, typename... Args5, typename... Args6>
-    struct TypeList<TypeList<Args1...>, TypeList<Args2...>, TypeList<Args3...>,
-                    TypeList<Args4...>, TypeList<Args5...>, TypeList<Args6...>> {
-        using type = TypeList<Args1..., Args2..., Args3..., Args4..., Args5..., Args6...>;
-    };
-
     template<typename... Types>
     struct TypeListCat{};
 

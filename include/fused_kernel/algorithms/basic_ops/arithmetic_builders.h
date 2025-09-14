@@ -15,6 +15,13 @@
 #ifndef FK_ARITHMETIC_BUILDERS_H
 #define FK_ARITHMETIC_BUILDERS_H
 
+#include <fused_kernel/core/execution_model/operation_model/parent_operation_builders.h>
+#include <fused_kernel/algorithms/basic_ops/arithmetic_exec.h>
 
+namespace fk {
+
+
+
+} // namespace fk
 
 #endif // FK_ARITHMETIC_BUILDERS_H

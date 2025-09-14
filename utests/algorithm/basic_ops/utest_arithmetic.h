@@ -14,6 +14,11 @@
 
 #include "tests/main.h"
 
+#include <fused_kernel/algorithms/basic_ops/arithmetic_builders.h>
+
 int launch() {
+
+
+
     return 0;
 }

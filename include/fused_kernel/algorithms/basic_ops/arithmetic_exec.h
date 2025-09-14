@@ -15,6 +15,31 @@
 #ifndef FK_ARITHMETIC_EXEC_H
 #define FK_ARITHMETIC_EXEC_H
 
+#include <fused_kernel/core/utils/cuda_vector_utils.h>
+#include <fused_kernel/core/execution_model/operation_model/parent_operations_exec.h>
+#include <fused_kernel/core/data/tuple.h>
 
+namespace fk {
+
+    template <typename I1, typename I2 = I1, typename O = I1, typename IT = BinaryType>
+    struct AddExec;
+
+    template <typename I, typename P, typename O>
+    struct AddExec<I, P, O, BinaryType> {
+        TEMPLATE_BINARY_OPERATION_EXEC(AddExec, (I, P, O, BinaryType), (I), (P), (O), (false))
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
+            return input + params;
+        }
+    };
+
+    template <typename I1, typename I2, typename O>
+    struct AddExec<I1, I2, O, UnaryType> {
+        TEMPLATE_UNARY_OPERATION_EXEC(AddExec, (I1, I2, O, UnaryType), (Tuple<I1, I2>), (O), (false))
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+            return get<0>(input) + get<1>(input);
+        }
+    };
+
+} // namespace fk
 
 #endif // FK_ARITHMETIC_EXEC_H
