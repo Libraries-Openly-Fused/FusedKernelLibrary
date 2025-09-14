@@ -142,7 +142,7 @@ namespace fk {
             launchDivergentBatchTransformDPP_Kernel<ParArch::GPU_NVIDIA, SequenceSelectorType<CT_ORDER, BATCH>><<<grid, block, 0, stream>>>(updateOps, copyOps);*/
 
             if (this->type == MemType::Device || this->type == MemType::DeviceAndPinned) {
-#if defined(__NVCC__) || defined(__HIP__)
+#if defined(__NVCC__) || CLANG_HOST_DEVICE 
                 Executor<DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelectorType<CT_ORDER, BATCH>>>::executeOperations(stream, updateOps, copyOps);
                 gpuErrchk(cudaGetLastError());
 #else

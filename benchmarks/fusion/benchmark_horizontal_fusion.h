@@ -209,7 +209,7 @@ bool benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD(const size_t& NUM_ELEMS_X, cons
     return passed;
 }
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || CLANG_HOST_DEVICE
 template <size_t BATCH>
 bool benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD_CUDAGraphs(const size_t& NUM_ELEMS_X, const size_t& NUM_ELEMS_Y, fk::Stream& stream) {
     constexpr std::string_view FIRST_LABEL{ "Iterated Batch" };
@@ -364,7 +364,7 @@ int launch() {
     launch_benchmark_Horizontal_Fusion(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
     launch_benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || CLANG_HOST_DEVICE
     warmup = true;
     launch_benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD_CUDAGraphs(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
     warmup = false;

@@ -16,11 +16,27 @@
 #define FK_UTILS
 
 #include <fused_kernel/core/utils/macro_utils.h>
+#if defined(_MSC_VER)
+#define _MSC_VER_EXISTS 1
+#else
+#define _MSC_VER_EXISTS 0
+#endif
+ 
+#if defined(__clang__) && defined(__CUDA__)
+// clang compiling CUDA code, device mode.º
+#define CLANG_HOST_DEVICE 1
+#else
+#define CLANG_HOST_DEVICE 0
+#endif
+
+#define VS2017_COMPILER (_MSC_VER_EXISTS && _MSC_VER >= 1910 && _MSC_VER < 1920)
+#define NO_VS2017_COMPILER !VS2017_COMPILER
+
 #if !defined(NVRTC_COMPILER)
 #include <string>
 #include <stdexcept>
 
-#if defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED)
+#if defined(__NVCC__) || CLANG_HOST_DEVICE
 #include <cuda_runtime.h>
 #endif
 
@@ -30,7 +46,7 @@
 #endif
 #endif // NVRTC_COMPILER
 
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || CLANG_HOST_DEVICE
 #define FK_DEVICE_FUSE __device__ __forceinline__ static constexpr
 #define FK_DEVICE_CNST __device__ __forceinline__ constexpr
 #define FK_HOST_DEVICE_FUSE __host__ FK_DEVICE_FUSE
@@ -97,7 +113,7 @@ using ulonglong = unsigned long long;
 using ushort = unsigned short;
 using ulong = unsigned long;
 
-#if (defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED)) && !defined(NVRTC_COMPILER)
+#if defined(__NVCC__) || CLANG_HOST_DEVICE
 namespace fk {
     inline void gpuAssert(cudaError_t code,
                           const char *file,
@@ -158,17 +174,12 @@ namespace fk {
 // from a backwards operation that is till not defined.
 struct NullType {};
 
+template <typename T>
+constexpr bool isNullType = std::is_same_v<T, NullType>;
+
 namespace fk {
     template <typename... Types>
     struct PrintTypes;
 }
 
-#if defined(_MSC_VER)
-#define _MSC_VER_EXISTS 1
-#else
-#define _MSC_VER_EXISTS 0
-#endif
-
-#define VS2017_COMPILER (_MSC_VER_EXISTS && _MSC_VER >= 1910 && _MSC_VER < 1920)
-#define NO_VS2017_COMPILER !VS2017_COMPILER
 #endif // FK_UTILS
