@@ -89,7 +89,7 @@ namespace fk {
     using VTwo = VectorTypeList<2>;
     using VThree = VectorTypeList<3>;
     using VFour = VectorTypeList<4>;
-    using VAll = typename TypeList<VOne, VTwo, VThree, VFour>::type;
+    using VAll = TypeListCat_t<TypeListCat_t<VOne, VTwo>, TypeListCat_t<VThree, VFour>>;
 
     template <typename T>
     constexpr bool validCUDAVec = one_of<T, VAll>::value;
