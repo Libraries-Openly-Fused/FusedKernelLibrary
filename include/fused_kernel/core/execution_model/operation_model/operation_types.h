@@ -18,8 +18,216 @@
 #include <fused_kernel/core/data/point.h>
 #include <fused_kernel/core/utils/template_operations.h>
 #include <fused_kernel/core/utils/type_lists.h>
+#include <fused_kernel/core/utils/utils.h>
+
 
 namespace fk {
+
+    template <typename T = NullType>
+    struct RDT;
+    template <typename T = NullType>
+    struct IT;
+    template <typename T = NullType>
+    struct PT;
+    template <typename T = NullType>
+    struct OT;
+    template <typename T = NullType>
+    struct BIOpT;
+    template <typename T = NullType>
+    struct WDT;
+
+    template <typename Alias, typename... Aliases>
+    struct OpAlias;
+
+#define OP_ALIAS_MATCH(ALIAS) \
+    template <typename T, typename... Aliases> \
+    struct OpAlias<ALIAS<NullType>, ALIAS<T>, Aliases...> { \
+        using type = T; \
+    }; \
+    template <typename T> \
+    struct OpAlias<ALIAS<NullType>, ALIAS<T>> { \
+        using type = T; \
+    };
+
+    OP_ALIAS_MATCH(RDT)
+    OP_ALIAS_MATCH(IT)
+    OP_ALIAS_MATCH(PT)
+    OP_ALIAS_MATCH(OT)
+    OP_ALIAS_MATCH(BIOpT)
+    OP_ALIAS_MATCH(WDT)
+
+#undef OP_ALIAS_MATCH
+
+#define OP_ALIAS_NO_MATCH(ALIAS_SEARCH, ALIAS_FOUND) \
+    template <typename T, typename... Aliases> \
+    struct OpAlias<ALIAS_SEARCH<NullType>, ALIAS_FOUND<T>, Aliases...> { \
+        using type = typename OpAlias<ALIAS_SEARCH<NullType>, Aliases...>::type; \
+    }; \
+    template <typename T> \
+    struct OpAlias<ALIAS_SEARCH<NullType>, ALIAS_FOUND<T>> { \
+        using type = NullType; \
+    };
+
+    OP_ALIAS_NO_MATCH(RDT, IT)
+    OP_ALIAS_NO_MATCH(RDT, PT)
+    OP_ALIAS_NO_MATCH(RDT, OT)
+    OP_ALIAS_NO_MATCH(RDT, BIOpT)
+    OP_ALIAS_NO_MATCH(RDT, WDT)
+    OP_ALIAS_NO_MATCH(IT, RDT)
+    OP_ALIAS_NO_MATCH(IT, PT)
+    OP_ALIAS_NO_MATCH(IT, OT)
+    OP_ALIAS_NO_MATCH(IT, BIOpT)
+    OP_ALIAS_NO_MATCH(IT, WDT)
+    OP_ALIAS_NO_MATCH(PT, RDT)
+    OP_ALIAS_NO_MATCH(PT, IT)
+    OP_ALIAS_NO_MATCH(PT, OT)
+    OP_ALIAS_NO_MATCH(PT, BIOpT)
+    OP_ALIAS_NO_MATCH(PT, WDT)
+    OP_ALIAS_NO_MATCH(OT, RDT)
+    OP_ALIAS_NO_MATCH(OT, IT)
+    OP_ALIAS_NO_MATCH(OT, PT)
+    OP_ALIAS_NO_MATCH(OT, BIOpT)
+    OP_ALIAS_NO_MATCH(OT, WDT)
+    OP_ALIAS_NO_MATCH(BIOpT, RDT)
+    OP_ALIAS_NO_MATCH(BIOpT, IT)
+    OP_ALIAS_NO_MATCH(BIOpT, PT)
+    OP_ALIAS_NO_MATCH(BIOpT, OT)
+    OP_ALIAS_NO_MATCH(BIOpT, WDT)
+    OP_ALIAS_NO_MATCH(WDT, RDT)
+    OP_ALIAS_NO_MATCH(WDT, IT)
+    OP_ALIAS_NO_MATCH(WDT, PT)
+    OP_ALIAS_NO_MATCH(WDT, OT)
+    OP_ALIAS_NO_MATCH(WDT, BIOpT)
+
+#undef OP_ALIAS_NO_MATCH
+
+    template <typename Alias, typename... Aliases>
+    using OpAlias_t = typename OpAlias<Alias, Aliases...>::type;
+
+    // Operation types specifier, helpers to define the Operation required aliases.
+    template <typename... Types>
+    struct ReadOp {
+        static_assert(sizeof...(Types) <= 3, "ReadOp can only have up to 3 type aliases: RDT, PT and OT");
+        using ReadDataType = OpAlias_t<RDT<>, Types...>;
+        using ParamsType = OpAlias_t<PT<>, Types...>;
+        using OutputType = OpAlias_t<OT<>, Types...>;
+        constexpr ReadOp() {};
+    };
+    template <>
+    struct ReadOp<> {
+        using ReadDataType = NullType;
+        using ParamsType = NullType;
+        using OutputType = NullType;
+
+        constexpr ReadOp() {};
+    };
+
+    template <typename... Types>
+    struct ReadBackOp {
+        static_assert(sizeof...(Types) <= 4, "ReadBackOp can only have up to 4 type aliases: RDT, PT, OT and BIOpT");
+        using ReadDataType = OpAlias_t<RDT<>, Types...>;
+        using ParamsType = OpAlias_t<PT<>, Types...>;
+        using OutputType = OpAlias_t<OT<>, Types...>;
+        using BackIOp = OpAlias_t<BIOpT<>, Types...>;
+        constexpr ReadBackOp() {};
+    };
+    template <>
+    struct ReadBackOp<> {
+        using ReadDataType = NullType;
+        using ParamsType = NullType;
+        using OutputType = NullType;
+        using BackIOp = NullType;
+        constexpr ReadBackOp() {};
+    };
+
+    template <typename... Types>
+    struct UnaryOp {
+        static_assert(sizeof...(Types) <= 2, "UnaryOp can only have up to 2 type aliases: IT and OT");
+        using InputType = OpAlias_t<IT<>, Types...>;
+        using OutputType = OpAlias_t<OT<>, Types...>;
+        constexpr UnaryOp() {};
+    };
+    template <>
+    struct UnaryOp<> {
+        using InputType = NullType;
+        using OutputType = NullType;
+        constexpr UnaryOp() {};
+    };
+
+    template <typename... Types>
+    struct BinaryOp {
+        static_assert(sizeof...(Types) <= 3, "BinaryOp can only have up to 3 type aliases: IT, PT and OT");
+        using InputType = OpAlias_t<IT<>, Types...>;
+        using ParamsType = OpAlias_t<PT<>, Types...>;
+        using OutputType = OpAlias_t<OT<>, Types...>;
+        constexpr BinaryOp() {};
+    };
+    template <>
+    struct BinaryOp<> {
+        using InputType = NullType;
+        using ParamsType = NullType;
+        using OutputType = NullType;
+        constexpr BinaryOp() {};
+    };
+
+    template <typename... Types>
+    struct TernaryOp {
+        static_assert(sizeof...(Types) <= 4, "TernaryOp can only have up to 4 type aliases: IT, PT, BIOpT and OT");
+        using InputType = OpAlias_t<IT<>, Types...>;
+        using ParamsType = OpAlias_t<PT<>, Types...>;
+        using BackIOp = OpAlias_t<BIOpT<>, Types...>;
+        using OutputType = OpAlias_t<OT<>, Types...>;
+        constexpr TernaryOp() {};
+    };
+    template <>
+    struct TernaryOp<> {
+        using InputType = NullType;
+        using ParamsType = NullType;
+        using BackIOp = NullType;
+        using OutputType = NullType;
+        constexpr TernaryOp() {};
+    };
+
+    template <typename... Types>
+    struct MidWriteOp {
+        static_assert(sizeof...(Types) <= 4, "MidWriteOp can only have up to 4 type aliases: IT, PT, WDT and OT");
+        using InputType = OpAlias_t<IT<>, Types... >;
+        using ParamsType = OpAlias_t<PT<>, Types...>;
+        using WriteDataType = OpAlias_t<WDT<>, Types...>;
+        using OutputType = OpAlias_t<OT<>, Types...>;
+        
+        constexpr MidWriteOp() {};
+    private:
+        static constexpr bool sameITAndOTTypes =
+            (!isNullType<InputType> && !isNullType<OutputType>) && std::is_same_v<InputType, OutputType>;
+        static constexpr bool anyITOrOTIsNullType = isNullType<InputType> || isNullType<OutputType>;
+        static_assert(anyITOrOTIsNullType || sameITAndOTTypes, "MidWriteOp can not have different IT and OT.");
+    };
+    template <>
+    struct MidWriteOp<> {
+        using InputType = NullType;
+        using ParamsType = NullType;
+        using WriteDataType = NullType;
+        using OutputType = NullType;
+        constexpr MidWriteOp() {};
+    };
+
+    template <typename... Types>
+    struct WriteOp {
+        static_assert(sizeof...(Types) <= 3, "WriteOp can only have up to 3 type aliases: IT, PT and WDT");
+        using InputType = OpAlias_t<IT<>, Types...>;
+        using ParamsType = OpAlias_t<PT<>, Types...>;
+        using WriteDataType = OpAlias_t<WDT<>, Types...>;
+        constexpr WriteOp() {};
+    };
+    template <>
+    struct WriteOp<> {
+        using InputType = NullType;
+        using ParamsType = NullType;
+        using WriteDataType = NullType;
+        constexpr WriteOp() {};
+    };
+
     struct ReadType;
     struct ReadBackType;
     struct IncompleteReadBackType;
