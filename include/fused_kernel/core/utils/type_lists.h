@@ -31,7 +31,7 @@ namespace fk { // namespace fused kernel
     template <typename... Types>
     struct TypeList {
     private:
-        template <size_t n, typename... Types_>
+        template <size_t Idx, typename... Types_>
         struct At;
         template <typename Head>
         struct At<0, Head> {
@@ -41,10 +41,10 @@ namespace fk { // namespace fused kernel
         struct At<0, Head, Tail...> {
             using type = Head;
         };
-        template <size_t n, typename Head, typename... Tail>
-        struct At<n, Head, Tail...> {
-            static_assert(n < TypeList<Types...>::size, "Index out of range");
-            using type = typename At<n - 1, Tail...>::type;
+        template <size_t Idx, typename Head, typename... Tail>
+        struct At<Idx, Head, Tail...> {
+            static_assert(Idx < TypeList<Types...>::size, "Index out of range");
+            using type = typename At<Idx - 1, Tail...>::type;
         };
 
         template<typename... TypeLists>
@@ -68,7 +68,7 @@ namespace fk { // namespace fused kernel
         /**
          * @struct TypeIndex
          * @brief Struct to find at compile time, the index in which the type T is found
-         * for the first time in the TypeList.
+         * for the first time in the TypeList (searching left to right).
          */
         template <typename T>
         struct TypeIndex {
@@ -88,7 +88,7 @@ namespace fk { // namespace fused kernel
             static constexpr size_t value = TypeIndexHelper<0, Types...>::value;
         };
 
-        template <size_t Index, typename T, typename... Types>
+        template <size_t Idx, typename T, typename... Types>
         struct InsertType;
 
         template <typename T>
@@ -96,23 +96,27 @@ namespace fk { // namespace fused kernel
             using type = TypeList<T>;
         };
 
-        template <size_t Index, typename T, typename Head>
-        struct InsertType<Index, T, Head> {
-            using type = std::conditional_t<Index == 0,
+        template <size_t Idx, typename T, typename Head>
+        struct InsertType<Idx, T, Head> {
+            using type = std::conditional_t<Idx == 0,
                 TypeList<T, Head>,
                 TypeList<Head, T>
             >;
         };
 
-        template <size_t Index, typename T, typename Head, typename... Tail>
-        struct InsertType<Index, T, Head, Tail...> {
-            using type = std::conditional_t<Index == 0,
+        template <size_t Idx, typename T, typename Head, typename... Tail>
+        struct InsertType<Idx, T, Head, Tail...> {
+            using type = std::conditional_t<Idx == 0,
                 TypeList<T, Head, Tail...>,
-                typename TypeList<Head>::template cat<typename InsertType<Index - 1, T, Tail...>::type>
+                typename TypeList<Head>::template cat<typename InsertType<Idx - 1, T, Tail...>::type>
             >;
         };
 
-        template <size_t Index, typename... Types>
+        /*
+        * @struct RemoveType
+         * @brief Struct to remove at compile time, the type found at Idx
+        */
+        template <size_t Idx, typename... Types>
         struct RemoveType;
 
         template <typename Head, typename... Tail>
@@ -120,10 +124,10 @@ namespace fk { // namespace fused kernel
             using type = TypeList<Tail...>; // Remove the first type
         };
 
-        template <size_t Index, typename Head, typename... Tail>
-        struct RemoveType<Index, Head, Tail...> {
-            static_assert(Index < TypeList<Head, Tail...>::size, "Index out of range");
-            using type = typename TypeList<Head>::template cat<typename RemoveType<Index - 1, Tail...>::type>;
+        template <size_t Idx, typename Head, typename... Tail>
+        struct RemoveType<Idx, Head, Tail...> {
+            static_assert(Idx < TypeList<Head, Tail...>::size, "Index out of range");
+            using type = typename TypeList<Head>::template cat<typename RemoveType<Idx - 1, Tail...>::type>;
         };
 
     public:
