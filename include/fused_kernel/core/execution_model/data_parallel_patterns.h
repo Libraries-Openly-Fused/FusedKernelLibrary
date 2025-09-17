@@ -331,15 +331,27 @@ namespace fk { // namespace FusedKernel
         }
     };
 
+    template <ParArch PA>
+    struct DivergentBatchTransformDPPDetails;
+
+    template <>
+    struct DivergentBatchTransformDPPDetails<ParArch::GPU_NVIDIA> {};
+
+    template <>
+    struct DivergentBatchTransformDPPDetails<ParArch::CPU> {
+        uint numPlanes;
+    };
+
 #if defined(__NVCC__) || CLANG_HOST_DEVICE 
     template <typename SequenceSelector>
     struct DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelector> {
     private:
         using Parent = DivergentBatchTransformDPPBase<SequenceSelector>;
+        using DPPDetails = DivergentBatchTransformDPPDetails<ParArch::GPU_NVIDIA>;
     public:
         static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
         template <typename... IOpSequenceTypes>
-        FK_DEVICE_FUSE void exec(const IOpSequenceTypes&... iOpSequences) {
+        FK_DEVICE_FUSE void exec(const DPPDetails&, const IOpSequenceTypes&... iOpSequences) {
 #if VS2017_COMPILER || CLANG_HOST_DEVICE
             const uint z = blockIdx.z;
 #else
@@ -354,11 +366,12 @@ namespace fk { // namespace FusedKernel
     struct DivergentBatchTransformDPP<ParArch::CPU, SequenceSelector> {
     private:
         using Parent = DivergentBatchTransformDPPBase<SequenceSelector>;
+        using DPPDetails = DivergentBatchTransformDPPDetails<ParArch::CPU>;
     public:
         static constexpr ParArch PAR_ARCH = ParArch::CPU;
         template <typename... IOpSequenceTypes>
-        FK_DEVICE_FUSE void exec(const uint& num_planes, const IOpSequenceTypes&... iOpSequences) {
-            for (uint z = 0; z < num_planes; ++z) {
+        FK_DEVICE_FUSE void exec(const DPPDetails& details, const IOpSequenceTypes&... iOpSequences) {
+            for (uint z = 0; z < details.numPlanes; ++z) {
                 Parent::template divergent_operate<1>(z, iOpSequences...);
             }
         }

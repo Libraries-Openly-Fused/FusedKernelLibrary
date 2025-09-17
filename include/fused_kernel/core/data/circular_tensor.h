@@ -143,13 +143,13 @@ namespace fk {
 
             if (this->type == MemType::Device || this->type == MemType::DeviceAndPinned) {
 #if defined(__NVCC__) || CLANG_HOST_DEVICE 
-                Executor<DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelectorType<CT_ORDER, BATCH>>>::executeOperations(stream, updateOps, copyOps);
+                Executor<DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelectorType<CT_ORDER, BATCH>>>::executeOperations(stream, static_cast<uint>(BATCH), updateOps, copyOps);
                 gpuErrchk(cudaGetLastError());
 #else
                 throw std::runtime_error("CircularTensor operations on Device memory only supported in nvcc or hipcc compilation.");
 #endif
             } else {
-                Executor<DivergentBatchTransformDPP<ParArch::CPU, SequenceSelectorType<CT_ORDER, BATCH>>>::executeOperations(stream, updateOps, copyOps);
+                Executor<DivergentBatchTransformDPP<ParArch::CPU, SequenceSelectorType<CT_ORDER, BATCH>>>::executeOperations(stream, static_cast<uint>(BATCH), updateOps, copyOps);
             }
 
             m_nextUpdateIdx = (m_nextUpdateIdx + 1) % BATCH;

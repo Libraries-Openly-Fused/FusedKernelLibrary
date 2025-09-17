@@ -192,10 +192,9 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
 
     template <enum TF TFEN>
     struct Executor<TransformDPP<ParArch::CPU, TFEN, void>> {
-        FK_STATIC_STRUCT(Executor, Executor)
     private:
-        using Child = Executor<TransformDPP<ParArch::CPU, TFEN>>;
-        using Parent = BaseExecutor<Child>;
+        using SelfType = Executor<TransformDPP<ParArch::CPU, TFEN>>;
+        using Parent = BaseExecutor<SelfType>;
         template <typename... IOps>
         FK_HOST_FUSE void executeOperations_helper(Stream_<ParArch::CPU>& stream, const IOps&... iOps) {
             constexpr ParArch PA = ParArch::CPU;
@@ -212,6 +211,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             }
         }
     public:
+        FK_STATIC_STRUCT(Executor, SelfType)
         FK_HOST_FUSE ParArch parArch() {
             return ParArch::CPU;
         }
@@ -290,11 +290,9 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
 #if defined(__NVCC__) || CLANG_HOST_DEVICE
     template <enum TF TFEN>
     struct Executor<TransformDPP<ParArch::GPU_NVIDIA, TFEN>> {
-        FK_STATIC_STRUCT(Executor, Executor)
     private:
-        using Child = Executor<TransformDPP<ParArch::GPU_NVIDIA, TFEN>>;
-        using Parent = BaseExecutor<Child>;
-
+        using SelfType = Executor<TransformDPP<ParArch::GPU_NVIDIA, TFEN>>;
+        using Parent = BaseExecutor<SelfType>;
         template <typename... IOps>
         FK_HOST_FUSE void executeOperations_helper(Stream_<ParArch::GPU_NVIDIA>& stream_, const IOps&... iOps) {
             const cudaStream_t stream = stream_.getCUDAStream();
@@ -310,10 +308,10 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                                  static_cast<uint>(ceil(activeThreads.y / static_cast<float>(block.y))),
                                  activeThreads.z };
                 if (!tDetails.threadDivisible) {
-                    launchTransformDPP_Kernel<PA, TFEN, false><<<grid, block, 0, stream>>>(tDetails, iOps...);
+                    launchTransformDPP_Kernel<PA, TFEN, false> << <grid, block, 0, stream >> > (tDetails, iOps...);
                     gpuErrchk(cudaGetLastError());
                 } else {
-                    launchTransformDPP_Kernel<PA, TFEN, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
+                    launchTransformDPP_Kernel<PA, TFEN, true> << <grid, block, 0, stream >> > (tDetails, iOps...);
                     gpuErrchk(cudaGetLastError());
                 }
             } else {
@@ -327,15 +325,32 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                 const dim3 grid{ static_cast<uint>(ceil(activeThreads.x / static_cast<float>(block.x))),
                                  static_cast<uint>(ceil(activeThreads.y / static_cast<float>(block.y))),
                                  activeThreads.z };
-                launchTransformDPP_Kernel<PA, TFEN, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
+                launchTransformDPP_Kernel<PA, TFEN, true> << <grid, block, 0, stream >> > (tDetails, iOps...);
                 gpuErrchk(cudaGetLastError());
             }
         }
     public:
+        FK_STATIC_STRUCT(Executor, SelfType)
         FK_HOST_FUSE ParArch parArch() {
             return ParArch::GPU_NVIDIA;
         }
         DECLARE_EXECUTOR_PARENT_IMPL
+    };
+
+    template <typename SequenceSelector>
+    struct Executor<DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelector>> {
+    private:
+        using SelfType = Executor<DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelector>>;
+        FK_HOST_FUSE ActiveThreads getActiveThreads() { return ActiveThreads{} }
+    public:
+        FK_STATIC_STRUCT(Executor, SelfType)
+        FK_HOST_FUSE ParArch parArch() {
+            return ParArch::GPU_NVIDIA;
+        }
+        FK_HOST_FUSE void executeOperations(Stream stream, const uint& num_planes, const IOpSequenceTypes&... iOpSequences) {
+            Tuple<IOpSequenceTypes...> iOpSeqTuple{iOpSequences...};
+
+        }
     };
 #endif
 } // namespace fk
