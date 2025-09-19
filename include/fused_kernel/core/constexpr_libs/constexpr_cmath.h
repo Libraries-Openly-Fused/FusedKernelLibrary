@@ -154,14 +154,22 @@ namespace cxp {
 
     template <typename FirstType, typename... Types>
     FK_HOST_DEVICE_CNST auto max(const FirstType& value, const Types&... values) {
-        static_assert(fk::all_types_are_same<FirstType, Types...>, "All types must be the same");
-        return internal::max_helper(value, values...);
+        if constexpr (sizeof...(values) == 0) {
+            return value;
+        } else {
+            static_assert((fk::all_types_are_same<FirstType, Types...>), "All types must be the same");
+            return internal::max_helper(value, values...);
+        }
     }
 
     template <typename FirstType, typename... Types>
     FK_HOST_DEVICE_CNST auto min(const FirstType& value, const Types&... values) {
-        static_assert(fk::all_types_are_same<FirstType, Types...>, "All types must be the same");
-        return internal::min_helper(value, values...);
+        if constexpr (sizeof...(values) == 0) {
+            return value;
+        } else {
+            static_assert(fk::all_types_are_same<FirstType, Types...>, "All types must be the same");
+            return internal::min_helper(value, values...);
+        }
     }
 
     template <typename T>
@@ -177,6 +185,16 @@ namespace cxp {
         }
     }
 
+    // Non std variants
+    template <typename FirstType, typename... Types>
+    FK_HOST_DEVICE_CNST auto sum(const FirstType& value, const Types&... values) {
+        static_assert(fk::all_types_are_same<FirstType, Types...>, "All types must be the same");
+        if constexpr (sizeof...(values) == 0) {
+            return value;
+        } else {
+            return value + sum(values...);
+        }
+    }
 } // namespace cxp
 
 #endif

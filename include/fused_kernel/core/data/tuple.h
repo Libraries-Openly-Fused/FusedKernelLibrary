@@ -16,7 +16,7 @@
 #define FK_TUPLE
 
 #include <fused_kernel/core/utils/type_lists.h>
-#include <fused_kernel/core/utils/cuda_vector_utils.h>
+#include <fused_kernel/core/utils/vector_utils.h>
 #include <array>
 
 namespace fk {

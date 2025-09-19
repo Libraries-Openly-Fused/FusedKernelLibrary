@@ -3,7 +3,7 @@
 
 #include <fused_kernel/algorithms/basic_ops/cast.h>
 #include <fused_kernel/algorithms/image_processing/saturate.h>
-#include <fused_kernel/core/utils/cuda_vector_utils.h>
+#include <fused_kernel/core/utils/vector_utils.h>
 #include <fused_kernel/core/utils/type_lists.h>
 #include <fused_kernel/core/utils/type_to_string.h>
 #include <fused_kernel/core/utils/vlimits.h>

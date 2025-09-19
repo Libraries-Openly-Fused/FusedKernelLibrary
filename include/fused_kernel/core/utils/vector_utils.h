@@ -974,30 +974,4 @@ VEC_BINARY_BITWISE(|)
 VEC_BINARY_BITWISE(^)
 #undef VEC_BINARY_BITWISE
 #endif // VS2017_COMPILER
-namespace fk::internal {
-    template <typename TargetT, typename SourceT, size_t... Idx>
-    FK_HOST_DEVICE_CNST TargetT v_static_cast_helper(const SourceT& source, const std::index_sequence<Idx...>&) {
-        return make_<TargetT>(static_cast<VBase<TargetT>>(vectorAt<Idx>(source))...);
-    }
-} // namespace fk::internal
-
-template <typename TargetT, typename SourceT>
-FK_HOST_DEVICE_CNST TargetT v_static_cast(const SourceT& source) {
-    using namespace fk;
-    if constexpr (std::is_same_v<TargetT, SourceT>) {
-        return source;
-    } else if constexpr (validCUDAVec<SourceT>) {
-        static_assert(cn<TargetT> == cn<SourceT>, "Can not cast to a type with different number of channels");
-        return internal::v_static_cast_helper<TargetT>(source, std::make_index_sequence<cn<SourceT>>{});
-    } else {
-        static_assert(!validCUDAVec<TargetT> || (cn<TargetT> == 1),
-            "Can not convert a fundamental type to a vetor type with more than one channel");
-        if constexpr (validCUDAVec<TargetT>) {
-            return make_<TargetT>(static_cast<VBase<TargetT>>(source));
-        } else {
-            return static_cast<TargetT>(source);
-        }
-    }
-}
-
 #endif

@@ -16,7 +16,7 @@
 #define FK_CAST
 
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
-#include <fused_kernel/algorithms/basic_ops/cast_base.h>
+#include <fused_kernel/core/constexpr_libs/constexpr_vector.h>
 
 namespace fk {
     template <typename I, typename O>
@@ -28,7 +28,7 @@ namespace fk {
         using Parent = UnaryOperation<I, O, Cast<I, O>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            return UnaryV<CastBase<VBase<I>, VBase<O>>, I, O>::exec(input);
+            return cxp::v_static_cast<OutputType>(input);
         }
     };
 } // namespace fk

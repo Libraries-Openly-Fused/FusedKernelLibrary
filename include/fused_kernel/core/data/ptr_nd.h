@@ -21,7 +21,7 @@
 #if !defined(NVRTC_COMPILER)
 #include <fused_kernel/core/execution_model/stream.h>
 #endif
-#include <fused_kernel/core/utils/cuda_vector_utils.h>
+#include <fused_kernel/core/utils/vector_utils.h>
 
 #include <atomic>
 

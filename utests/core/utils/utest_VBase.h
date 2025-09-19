@@ -15,7 +15,7 @@
 #ifndef FK_TEST_VBASE_H
 #define FK_TEST_VBASE_H
 
-#include <fused_kernel/core/utils/cuda_vector_utils.h>
+#include <fused_kernel/core/utils/vector_utils.h>
 
 template <typename InputTypeList, typename ExpectedTypeList, size_t... Idx>
 constexpr bool validateVBaseFor(const std::index_sequence<Idx...>&) {

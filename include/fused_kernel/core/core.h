@@ -15,7 +15,7 @@
 #ifndef FK_CORE
 #define FK_CORE
 
-#include <fused_kernel/core/utils/cuda_vector_utils.h>
+#include <fused_kernel/core/utils/vector_utils.h>
 #include <fused_kernel/core/utils/parameter_pack_utils.h>
 #include <fused_kernel/core/utils/template_operations.h>
 #include <fused_kernel/core/utils/type_lists.h>

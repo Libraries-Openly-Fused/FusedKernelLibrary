@@ -113,7 +113,7 @@ namespace fk {
                 return BorderReader<BorderType::CONSTANT, BorderReaderParameters<BorderType::CONSTANT, T>, BIOp>::build(selfIOp.params, backFunction);
             } else {
                 return BorderReader<BorderType::CONSTANT, BorderReaderParameters<BorderType::CONSTANT, BIOpOutputType>, BIOp>::build(
-                    { v_static_cast<BIOpOutputType>(selfIOp.params.value) }, backFunction);
+                    { cxp::v_static_cast<BIOpOutputType>(selfIOp.params.value) }, backFunction);
             }
         }
     };

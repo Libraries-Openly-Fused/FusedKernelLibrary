@@ -16,7 +16,6 @@
 #define FK_CUDA_VECTOR
 
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
-#include <fused_kernel/algorithms/basic_ops/logical.h>
 
 namespace fk {
     template <typename I, typename O>
@@ -160,18 +159,16 @@ namespace fk {
         using SelfType = VectorAnd<T>;
     public:
         FK_STATIC_STRUCT(VectorAnd, SelfType)
-        //static_assert(std::is_same_v<VBase<T>, bool>, "VectorAnd only works with boolean vectors");
         using Parent = UnaryOperation<T, bool, VectorAnd<T>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            return VectorReduce<T, Equal<bool, bool>>::exec(input);
+            using BoolType = VectorType_t<bool, cn<T>>;
+            const auto boolInput = cxp::v_static_cast<BoolType>(input);
+            return boolInput;
         }
     };
 
-    template <typename T>
-    constexpr inline bool vecAnd(const T& value) {
-        return VectorAnd<T>::exec(value);
-    }
+    
 } // namespace fk
 
 #endif

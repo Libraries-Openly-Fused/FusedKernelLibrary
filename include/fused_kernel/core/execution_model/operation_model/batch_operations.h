@@ -16,6 +16,7 @@
 #define FK_BATCH_OPERATIONS_CUH
 
 #include <fused_kernel/core/execution_model/operation_model/parent_operations.h>
+#include <fused_kernel/core/constexpr_libs/constexpr_vector.h>
 
 /*
 BatchRead implementation gidelines, including ReadBackOperations:
@@ -448,7 +449,7 @@ namespace fk {
             using BatchReadType = std::conditional_t<isCompleteOperation<NewOperation>,
                                                         BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH, NewOperation>,
                                                         BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH, TypeList<NewOperation, NewOutputType>>>;
-            return BatchReadType::build( { {iOps[Idx]...}, usedPlanes, v_static_cast<NewOutputType>(defaultValue),
+            return BatchReadType::build( { {iOps[Idx]...}, usedPlanes, cxp::v_static_cast<NewOutputType>(defaultValue),
                                            ActiveThreads{ max_width, max_height, static_cast<uint>(BATCH) }});
         }
     };

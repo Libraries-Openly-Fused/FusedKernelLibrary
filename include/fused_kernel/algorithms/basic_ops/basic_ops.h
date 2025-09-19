@@ -18,8 +18,7 @@
 #include <fused_kernel/algorithms/basic_ops/algebraic.h>
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/basic_ops/cast.h>
-#include <fused_kernel/algorithms/basic_ops/cast_base.h>
-#include <fused_kernel/algorithms/basic_ops/cuda_vector.h>
+#include <fused_kernel/algorithms/basic_ops/vector_ops.h>
 #include <fused_kernel/algorithms/basic_ops/logical.h>
 #include <fused_kernel/algorithms/basic_ops/set.h>
 #include <fused_kernel/algorithms/basic_ops/static_loop.h>
