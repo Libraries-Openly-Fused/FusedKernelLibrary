@@ -213,8 +213,9 @@ public: \
         private:
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
-            template <typename ST1, typename ST2>
-            FK_HOST_DEVICE_FUSE auto exec(const ST1& s1, const ST2& s2) {
+            template <typename ST>
+            FK_HOST_DEVICE_FUSE auto exec(const ST& s1, const ST& s2)
+                -> std::enable_if_t<std::is_fundamental_v<ST>, ST> {
                 return s1 >= s2 ? s1 : s2;
             }
         };
@@ -229,8 +230,9 @@ public: \
         private:
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
-            template <typename ST1, typename ST2>
-            FK_HOST_DEVICE_FUSE auto exec(const ST1& s1, const ST2& s2) {
+            template <typename ST>
+            FK_HOST_DEVICE_FUSE auto exec(const ST& s1, const ST& s2) 
+                -> std::enable_if_t<std::is_fundamental_v<ST>, ST> {
                 return s1 <= s2 ? s1 : s2;
             }
         };

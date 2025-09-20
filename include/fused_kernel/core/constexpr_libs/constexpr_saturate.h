@@ -17,50 +17,44 @@
 
 #include <fused_kernel/core/utils/utils.h>
 #include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
+#include <fused_kernel/core/constexpr_libs/constexpr_vector_exec.h>
 
 namespace cxp {
-    template <typename O, typename I>
-    FK_HOST_DEVICE_CNST O saturate_cast(const I& input) {
-        constexpr auto maxValOutput = maxValue<O>;
-        constexpr auto minValueOutput = minValue<O>;
-        if (cxp::cmp_greater::f(input, maxValOutput)) {
-            return maxValOutput;
-        } else if (cxp::cmp_less::f(input, minValueOutput)) {
-            return minValueOutput;
-        } else {
-            // We know that the value of input is within the
-            // numerical range of OutputType.
-            if constexpr (std::is_floating_point_v<I> && std::is_integral_v<O>) {
-                // For floating point to integral conversion, we need to round
-                return static_cast<O>(cxp::round::f(input));
-            } else {
-                // For any other case, we can cast directly
-                return static_cast<O>(input);
+    template <typename OT>
+    struct saturate_cast {
+        private:
+        struct BaseFunc {
+            using InstanceType = fk::UnaryType;
+            template <typename ST>
+            FK_HOST_DEVICE_FUSE auto exec(const ST& s) {
+                constexpr auto maxValOutput = maxValue<fk::VBase<OT>>;
+                constexpr auto minValueOutput = minValue<fk::VBase<OT>>;
+                if (cxp::cmp_greater::f(s, maxValOutput)) {
+                    return maxValOutput;
+                } else if (cxp::cmp_less::f(s, minValueOutput)) {
+                    return minValueOutput;
+                } else {
+                    // We know that the value of input is within the
+                    // numerical range of OutputType.
+                    if constexpr (std::is_floating_point_v<ST> && std::is_integral_v<OT>) {
+                        // For floating point to integral conversion, we need to round
+                        return static_cast<fk::VBase<OT>>(cxp::round::f(s));
+                    } else {
+                        // For any other case, we can cast directly
+                        return static_cast<fk::VBase<OT>>(s);
+                    }
+                }
             }
+        };
+    public:
+        template <typename T>
+        FK_HOST_DEVICE_FUSE auto f(const T& val) {
+            static_assert(fk::AreSS<OT, T>::value || fk::AreVVEqCN<OT, T>::value,
+                "saturate_cast can not cast vector to non vector or the other way arround, or from vector to vector of different channel number.");
+            return Exec<BaseFunc>::exec(val);
         }
-    }
-
-    namespace internal {
-        template <typename O, size_t... Idx, typename I>
-        FK_HOST_DEVICE_CNST O v_saturate_cast_helper(const std::index_sequence<Idx...>&,
-                                                     const I& input) {
-            return {saturate_cast<fk::VBase<O>>(fk::get<Idx>(input))...};
-        }
-    }
-
-    template <typename O, typename I>
-    FK_HOST_DEVICE_CNST O v_saturate_cast(const I& input) {
-        static_assert(fk::cn<I> == fk::cn<O>, "Input and Output number of channels should be the same.");
-        if constexpr (fk::validCUDAVec<O>) {
-            return internal::v_saturate_cast_helper<O>(std::make_index_sequence<fk::cn<I>>{}, input);
-        } else {
-            if constexpr (fk::validCUDAVec<I>) {
-                return saturate_cast<O>(input.x);
-            } else {
-                return saturate_cast<O>(input);
-            }
-        }
-    }
+    };
+    
 }
 
 

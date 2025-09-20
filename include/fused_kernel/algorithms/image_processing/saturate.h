@@ -18,13 +18,10 @@
 #include <cmath>
 
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
-//#include <fused_kernel/algorithms/basic_ops/logical.h>
 #include <fused_kernel/core/utils/vlimits.h>
-#include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 #include <fused_kernel/core/constexpr_libs/constexpr_saturate.h>
 
 namespace fk {
-
     template <typename I, typename O>
     struct SaturateCast {
     private:
@@ -34,16 +31,7 @@ namespace fk {
         using Parent = UnaryOperation<I, O, SaturateCast<I, O>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            return cxp::v_saturate_cast<OutputType>(input);
-        }
-    };
-
-    struct SaturateFloatBase {
-        FK_STATIC_STRUCT(SaturateFloatBase, SaturateFloatBase)
-        using Parent = UnaryOperation<float, float, SaturateFloatBase>;
-        DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            return cxp::max::f(0.f, cxp::min::f(input, 1.f));
+            return cxp::saturate_cast<OutputType>::f(input);
         }
     };
 
@@ -71,7 +59,8 @@ namespace fk {
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
             static_assert(std::is_same_v<VBase<T>, float>, "Saturate float only works with float base types.");
-            return UnaryV<SaturateFloatBase, T, T>::exec(input);
+            
+            return cxp::max::f(make_set<InputType>(0.f), cxp::min::f(input, make_set<InputType>(1.f)));;
         }
     };
 
