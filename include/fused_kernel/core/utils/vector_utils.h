@@ -330,6 +330,12 @@ namespace fk {
     template <typename I1, typename I2>
     struct AreVS<I1, I2, std::enable_if_t<fk::validCUDAVec<I1>&& std::is_fundamental_v<I2>, void>> : public std::true_type {};
 
+    template <typename I1, typename I2, typename = void>
+    struct AreSS : public std::false_type {};
+
+    template <typename I1, typename I2>
+    struct AreSS<I1, I2, std::enable_if_t<std::is_fundamental_v<I1> && std::is_fundamental_v<I2>, void>> : public std::true_type {};
+
     // Utils to check if the type or combination of types can be used with a particular operator
     template <typename T, typename = void>
     struct CanUnary : public std::false_type {};
@@ -352,6 +358,14 @@ namespace fk {
     struct CanBinaryBitwise<I1, I2,
         std::enable_if_t<(AreVVEqCN<I1, I2>::value || AreSV<I1, I2>::value ||
             AreVS<I1, I2>::value) && BothIntegrals<I1, I2>::value, void>> : public std::true_type {};
+
+    template <typename I1, typename I2, typename = void>
+    struct CanShift : public std::false_type {};
+
+    template <typename I1, typename I2>
+    struct CanShift<I1, I2,
+        std::enable_if_t<(AreVVEqCN<I1, I2>::value || AreVS<I1, I2>::value)
+                         && BothIntegrals<I1, I2>::value, void>> : public std::true_type {};
 
     template <typename I1, typename I2, typename = void>
     struct CanCompound : public std::false_type {};
@@ -972,6 +986,78 @@ FK_HOST_DEVICE_CNST auto operator op(const I1& a, const I2& b) \
 VEC_BINARY_BITWISE(&)
 VEC_BINARY_BITWISE(|)
 VEC_BINARY_BITWISE(^)
+
 #undef VEC_BINARY_BITWISE
 #endif // VS2017_COMPILER
+
+template <typename I1, typename I2>
+FK_HOST_DEVICE_CNST auto operator<<(const I1& a, const I2& b)
+-> std::enable_if_t<fk::CanShift<I1, I2>::value, I1> {
+    if constexpr (fk::validCUDAVec<I2>) {
+        static_assert(fk::cn<I1> == fk::cn<I2>, "Vectors must have the same number of channels");
+        if constexpr (fk::cn<I1> == 1) {
+            if constexpr (fk::validCUDAVec<I1>) {
+                return fk::make_<I1>(a.x << b.x);
+            } else {
+                return a << b.x;
+            }
+        } else if constexpr (fk::cn<I1> == 2) {
+            return fk::make_<I1>(a.x << b.x, a.y << b.y);
+        } else if constexpr (fk::cn<I1> == 3) {
+            return fk::make_<I1>(a.x << b.x, a.y << b.y, a.z << b.z);
+        } else {
+            return fk::make_<I1>(a.x << b.x, a.y << b.y, a.z << b.z, a.w << b.w);
+        }
+    } else {
+        if constexpr (fk::validCUDAVec<I1>) {
+            if constexpr (fk::cn<I1> == 1) {
+                return fk::make_<I1>(a.x << b);
+            } else if constexpr (fk::cn<I1> == 2) {
+                return fk::make_<I1>(a.x << b, a.y << b);
+            } else if constexpr (fk::cn<I1> == 3) {
+                return fk::make_<I1>(a.x << b, a.y << b, a.z << b);
+            } else {
+                return fk::make_<I1>(a.x << b, a.y << b, a.z << b, a.w << b);
+            }
+        } else {
+            return a << b;
+        }
+    }
+}
+
+template <typename I1, typename I2>
+FK_HOST_DEVICE_CNST auto operator>>(const I1& a, const I2& b)
+-> std::enable_if_t<fk::CanShift<I1, I2>::value, I1> {
+    if constexpr (fk::validCUDAVec<I2>) {
+        static_assert(fk::cn<I1> == fk::cn<I2>, "Vectors must have the same number of channels");
+        if constexpr (fk::cn<I1> == 1) {
+            if constexpr (fk::validCUDAVec<I1>) {
+                return fk::make_<I1>(a.x >> b.x);
+            } else {
+                return a >> b.x;
+            }
+        } else if constexpr (fk::cn<I1> == 2) {
+            return fk::make_<I1>(a.x >> b.x, a.y >> b.y);
+        } else if constexpr (fk::cn<I1> == 3) {
+            return fk::make_<I1>(a.x >> b.x, a.y >> b.y, a.z >> b.z);
+        } else {
+            return fk::make_<I1>(a.x >> b.x, a.y >> b.y, a.z >> b.z, a.w >> b.w);
+        }
+    } else {
+        if constexpr (fk::validCUDAVec<I1>) {
+            if constexpr (fk::cn<I1> == 1) {
+                return fk::make_<I1>(a.x >> b);
+            } else if constexpr (fk::cn<I1> == 2) {
+                return fk::make_<I1>(a.x >> b, a.y >> b);
+            } else if constexpr (fk::cn<I1> == 3) {
+                return fk::make_<I1>(a.x >> b, a.y >> b, a.z >> b);
+            } else {
+                return fk::make_<I1>(a.x >> b, a.y >> b, a.z >> b, a.w >> b);
+            }
+        } else {
+            return a >> b;
+        }
+    }
+}
+
 #endif

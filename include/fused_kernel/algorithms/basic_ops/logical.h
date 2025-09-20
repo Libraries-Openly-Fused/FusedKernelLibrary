@@ -20,64 +20,17 @@
 #include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 
 namespace fk {
-    enum class ShiftDirection { Left, Right };
-
-    template <typename T, ShiftDirection SD>
-    struct ShiftBase {
-    private:
-        using SelfType = ShiftBase<T, SD>;
-    public:
-        FK_STATIC_STRUCT(ShiftBase, SelfType)
-        using Parent = BinaryOperation<T, uint, T, ShiftBase<T, SD>>;
-        DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
-            static_assert(!validCUDAVec<T>, "Shift can't work with cuda vector types.");
-            static_assert(std::is_unsigned_v<T>, "Shift only works with unsigned integers.");
-            if constexpr (SD == ShiftDirection::Left) {
-                return input << params;
-            } else if constexpr (SD == ShiftDirection::Right) {
-                return input >> params;
-            }
-        }
-    };
-
-    template <typename T, ShiftDirection SD>
-    struct Shift {
-    private:
-        using SelfType = Shift<T, SD>;
-    public:
-        FK_STATIC_STRUCT(Shift, SelfType)
-        using Parent = BinaryOperation<T, uint, T, Shift<T, SD>>;
-        DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
-            return BinaryV<ShiftBase<VBase<T>, SD>, T, uint>::exec(input, { params });
-        }
-    };
-
-    template <typename T>
-    using ShiftLeft = Shift<T, ShiftDirection::Left>;
-    template <typename T>
-    using ShiftRight = Shift<T, ShiftDirection::Right>;
-
     template <typename I>
     struct IsEven {
+        static_assert(std::is_integral_v<VBase<I>>, "IsEven only works with integral and integral vector types");
     private:
         using SelfType = IsEven<I>;
     public:
         FK_STATIC_STRUCT(IsEven, SelfType)
         using Parent = UnaryOperation<I, bool, IsEven<I>>;
         DECLARE_UNARY_PARENT
-        using AcceptedTypes = TypeList<uchar, ushort, uint, ulong, ulonglong>;
-        using SigendTypes = TypeList<char, short, int, long, longlong>;
-        template <typename IType = InputType>
-        FK_HOST_DEVICE_FUSE std::enable_if_t<one_of_v<IType, AcceptedTypes>, OutputType> exec(const InputType& input) {
-            static_assert(one_of_v<I, AcceptedTypes>, "Input type not valid for UnaryIsEven");
-            return (input & 1u) == 0;
-        }
-        template <typename IType = InputType>
-        FK_HOST_DEVICE_FUSE std::enable_if_t<one_of_v<IType, SigendTypes>, OutputType> exec(const InputType& input) {
-            using UT = std::make_unsigned_t<IType>;
-            return IsEven<UT>::exec(static_cast<UT>(input));
+        FK_HOST_DEVICE_FUSE auto exec(const InputType& input) {
+            return cxp::is_even(input);
         }
     };
 

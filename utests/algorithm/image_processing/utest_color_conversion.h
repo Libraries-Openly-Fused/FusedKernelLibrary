@@ -14,6 +14,7 @@
    limitations under the License. */
 
 #include <fused_kernel/algorithms/image_processing/color_conversion.h>
+#include <fused_kernel/algorithms/basic_ops/logical.h>
 #include <fused_kernel/core/utils/vector_utils.h>
 #include <fused_kernel/core/utils/type_to_string.h>
 #include <tests/operation_test_utils.h>
