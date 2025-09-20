@@ -293,6 +293,31 @@ public: \
         }
     };
 
+    struct and {
+        template <typename T>
+        FK_HOST_DEVICE_FUSE bool f(const T& value) {
+            if constexpr (fk::validCUDAVec<T>) {
+                const auto valBool = cast<fk::VectorType_t<bool, fk::cn<T>>>::f(value);
+                return valBool;
+            } else {
+                return static_cast<bool>(value);
+            }
+        } // namespace cxp
+    };
+
+    struct is_even {
+        private:
+        struct BaseFunc {
+            using InstanceType = fk::UnaryType;
+            template <typename ST>
+            FK_HOST_DEVICE_FUSE bool exec(const ST& s) {
+                static_assert(std::is_integral_v<ST>, "is_even only works with integral types");
+                return (s & 1) == 0;
+            }
+        };
+        CXP_F_FUNC
+    };
+
 #undef CXP_F_FUNC
 
 } // namespace cxp

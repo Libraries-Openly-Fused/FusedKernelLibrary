@@ -30,7 +30,7 @@ namespace fk {
         using Parent = UnaryOperation<I, bool, IsEven<I>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE auto exec(const InputType& input) {
-            return cxp::is_even(input);
+            return cxp::is_even::f(input);
         }
     };
 

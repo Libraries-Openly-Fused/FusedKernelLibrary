@@ -365,7 +365,7 @@ namespace fk {
                 const RawPtr<ND::_2D, VectorType4> image{ reinterpret_cast<VectorType4*>(rawPtr.data), {dims.width >> 2, dims.height, dims.pitch} };
                 const VectorType4 pixel = *PtrAccessor<ND::_2D>::cr_point({ thread.x >> 1, thread.y, thread.z }, image);
 
-                const bool isEvenThread = cxp::is_even(thread.x);
+                const bool isEvenThread = cxp::is_even::f(thread.x);
                 if constexpr (PF == PixelFormat::UYVY) {
                     return { isEvenThread ? pixel.y : pixel.w, pixel.x, pixel.z };
                 } else {
@@ -432,12 +432,12 @@ namespace fk {
                 constexpr ColorSpace CS = PixelFormatTraits<PF>::space;
                 if constexpr (CS == ColorSpace::YUV420) {
                     // Chroma subsampling 4:2:0
-                    if (cxp::is_even(thread.x) && cxp::is_even(thread.y)) {
+                    if (cxp::is_even::f(thread.x) && cxp::is_even::f(thread.y)) {
                         *PtrAccessor<ND::_2D>::point({ thread.x >> 1, thread.y >> 1, thread.z }, chromaPlane) = make_<VectorType2>(input.y, input.z);
                     }
                 } else {
                     // Chroma subsampling 4:2:2
-                    if (cxp::is_even(thread.x)) {
+                    if (cxp::is_even::f(thread.x)) {
                         *PtrAccessor<ND::_2D>::point({ thread.x >> 1, thread.y, thread.z }, chromaPlane) = make_<VectorType2>(input.y, input.z);
                     }
                 }
@@ -459,7 +459,7 @@ namespace fk {
                 //*PtrAccessor<ND::_2D>::point({ (thread.x >> 1) * 2, thread.y, thread.z }, imageV2);
                 //*PtrAccessor<ND::_2D>::point({ (thread.x >> 1) * 4, thread.y, thread.z }, rawPtr);
 
-                const bool isEvenThread = cxp::is_even(thread.x);
+                const bool isEvenThread = cxp::is_even::f(thread.x);
                 // input = { Y, U, V }
                 if constexpr (PF == PixelFormat::UYVY) {
                     // Writting UYVY from two threads

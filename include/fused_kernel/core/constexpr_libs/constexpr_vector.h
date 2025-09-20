@@ -19,39 +19,6 @@
 #include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 #include <fused_kernel/core/constexpr_libs/constexpr_vector_exec.h>
 
-namespace cxp {
-    template <typename T>
-    FK_HOST_DEVICE_CNST bool v_and(const T& value) {
-        const auto valBool = cast<fk::VectorType_t<bool, fk::cn<T>>>::f(value);
-        return valBool;
-    }
-
-    namespace internal {
-        template <typename T>
-        FK_HOST_DEVICE_CNST auto is_even_helper(const T& value)
-            -> std::enable_if_t<std::is_integral_v<T>, bool> {
-            return (value & 1) == 0;
-        }
-        template <size_t... Idx, typename T>
-        FK_HOST_DEVICE_CNST auto is_even_helper(const std::index_sequence<Idx...>&, const T& value)
-            -> std::enable_if_t<fk::validCUDAVec<T>, fk::VectorType_t<bool, fk::cn<T>>> {
-            return fk::make_<fk::VectorType_t<bool, fk::cn<T>>>(is_even_heper(fk::get<Idx>(value))...);
-        }
-    }
-
-    template <typename T>
-    FK_HOST_DEVICE_CNST auto is_even(const T& value)
-        -> std::enable_if_t<fk::validCUDAVec<T>
-                            && std::is_integral_v<fk::VBase<T>>,
-                                fk::VectorType_t<bool, fk::cn<T>>> {
-        return internal::is_even_helper(std::make_index_sequence<fk::cn<T>>{}, value);
-    }
-
-    template <typename T>
-    FK_HOST_DEVICE_CNST auto is_even(const T& value)
-        -> std::enable_if_t<std::is_integral_v<T>, bool> {
-        return internal::is_even_helper(value);
-    }
- } // namespace cxp
+namespace cxp {} // namespace cxp
 
 #endif // CXP_CONSTEXPR_VECTOR_H
