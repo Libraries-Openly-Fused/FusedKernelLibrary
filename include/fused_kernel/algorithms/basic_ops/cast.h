@@ -16,7 +16,7 @@
 #define FK_CAST
 
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
-#include <fused_kernel/core/constexpr_libs/constexpr_vector.h>
+#include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 
 namespace fk {
     template <typename I, typename O>

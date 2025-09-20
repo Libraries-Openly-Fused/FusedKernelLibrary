@@ -16,7 +16,7 @@
 #define FK_BATCH_OPERATIONS_CUH
 
 #include <fused_kernel/core/execution_model/operation_model/parent_operations.h>
-#include <fused_kernel/core/constexpr_libs/constexpr_vector.h>
+#include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 
 /*
 BatchRead implementation gidelines, including ReadBackOperations:
