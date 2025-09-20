@@ -42,7 +42,7 @@ namespace fk {
             const float3 xOut = input * params.x;
             const float3 yOut = input * params.y;
             const float3 zOut = input * params.z;
-            return { cxp::v_sum(xOut), cxp::v_sum(yOut), cxp::v_sum(zOut) };
+            return { cxp::sum::f(xOut), cxp::sum::f(yOut), cxp::sum::f(zOut) };
         }
     };
 
@@ -58,7 +58,7 @@ namespace fk {
             const float3 xOut = get<0>(input) * get<1>(input).x;
             const float3 yOut = get<0>(input) * get<1>(input).y;
             const float3 zOut = get<0>(input) * get<1>(input).z;
-            return { cxp::v_sum(xOut), cxp::v_sum(yOut), cxp::v_sum(zOut) };
+            return { cxp::sum::f(xOut), cxp::sum::f(yOut), cxp::sum::f(zOut) };
         }
     };
 } //namespace fk

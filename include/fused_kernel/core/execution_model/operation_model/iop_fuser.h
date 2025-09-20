@@ -70,7 +70,7 @@ namespace fk {
                         return BuilderType::build(selfIOp.params.usedPlanes, selfIOp.params.default_value, backOpArray, forwardOpArray);
                     } else {
                         using Original = typename BackType::value_type::Operation::OutputType;
-                        const auto defaultValue = cxp::v_static_cast<DefaultValueType>(selfIOp.params.default_value);
+                        const auto defaultValue = cxp::cast<DefaultValueType>::f(selfIOp.params.default_value);
                         return BuilderType::build(selfIOp.params.usedPlanes, defaultValue, backOpArray, forwardOpArray);
                     }
                 }
@@ -103,7 +103,7 @@ namespace fk {
                             return BuilderType::build(selfIOp.params.usedPlanes, selfIOp.params.default_value, backOpArray, forwardOpArray);
                         } else {
                             using Original = typename BackType::value_type::Operation::OutputType;
-                            const auto defaultValue = cxp::v_static_cast<DefaultValueType>(selfIOp.params.default_value);
+                            const auto defaultValue = cxp::cast<DefaultValueType>::f(selfIOp.params.default_value);
                             return BuilderType::build(selfIOp.params.usedPlanes, defaultValue, backOpArray, forwardOpArray);
                         }
                     } else {

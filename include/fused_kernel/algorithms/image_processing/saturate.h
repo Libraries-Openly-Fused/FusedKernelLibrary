@@ -43,7 +43,7 @@ namespace fk {
         using Parent = UnaryOperation<float, float, SaturateFloatBase>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            return cxp::max(0.f, cxp::min(input, 1.f));
+            return cxp::max::f(0.f, cxp::min::f(input, 1.f));
         }
     };
 
@@ -57,7 +57,7 @@ namespace fk {
         DECLARE_BINARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
             static_assert(!validCUDAVec<T>, "Saturate only works with non cuda vector types");
-            return cxp::max(cxp::min(input, params.y), params.x);
+            return cxp::max::f(cxp::min::f(input, params.y), params.x);
         }
     };
 

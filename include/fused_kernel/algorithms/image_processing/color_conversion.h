@@ -194,7 +194,8 @@ namespace fk {
         using Parent = UnaryOperation<VectorType_t<float, cn<O>>, O, DenormalizePixel<O, CD>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            return cxp::v_static_cast<OutputType>(input * static_cast<float>(maxDepthValue<CD>));
+            constexpr auto maxDepth = maxDepthValue<CD>;
+            return cxp::cast<OutputType>::f(input * maxDepth);
         }
     };
 

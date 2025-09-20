@@ -407,15 +407,15 @@ namespace fk {
             using NewOperation = typename IOp::Operation;
 #ifdef NDEBUG
             // Release mode. Use const variables and variadic template recursion for best performance
-            const uint max_width = cxp::max(NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[Idx])...);
-            const uint max_height = cxp::max(NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[Idx])...);
+            const uint max_width = cxp::max::f(NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[Idx])...);
+            const uint max_height = cxp::max::f(NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[Idx])...);
 #else
             // Debug mode. Loop to avoid stack overflow
             uint max_width = NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[0]);
             uint max_height = NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[0]);
             for (int i = 1; i < BATCH; ++i) {
-                max_width = cxp::max(max_width, NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[i]));
-                max_height = cxp::max(max_height, NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[i]));
+                max_width = cxp::max::f(max_width, NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[i]));
+                max_height = cxp::max::f(max_height, NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[i]));
             }
 #endif
             using BatchReadType = std::conditional_t<isCompleteOperation<NewOperation>,
@@ -442,14 +442,14 @@ namespace fk {
                                        const int& usedPlanes, const DefaultType& defaultValue,
                                        const std::index_sequence<Idx...>&) {
             using NewOperation = typename IOp::Operation;
-            const uint max_width = cxp::max(NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[Idx])...);
-            const uint max_height = cxp::max(NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[Idx])...);
+            const uint max_width = cxp::max::f(NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[Idx])...);
+            const uint max_height = cxp::max::f(NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[Idx])...);
 
             using NewOutputType = std::conditional_t<std::is_same_v<typename NewOperation::OutputType, NullType>, DefaultType, typename NewOperation::OutputType>;
             using BatchReadType = std::conditional_t<isCompleteOperation<NewOperation>,
                                                         BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH, NewOperation>,
                                                         BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH, TypeList<NewOperation, NewOutputType>>>;
-            return BatchReadType::build( { {iOps[Idx]...}, usedPlanes, cxp::v_static_cast<NewOutputType>(defaultValue),
+            return BatchReadType::build( { {iOps[Idx]...}, usedPlanes, cxp::cast<NewOutputType>::f(defaultValue),
                                            ActiveThreads{ max_width, max_height, static_cast<uint>(BATCH) }});
         }
     };

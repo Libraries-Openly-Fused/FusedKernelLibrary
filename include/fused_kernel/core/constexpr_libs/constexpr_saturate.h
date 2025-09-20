@@ -23,16 +23,16 @@ namespace cxp {
     FK_HOST_DEVICE_CNST O saturate_cast(const I& input) {
         constexpr auto maxValOutput = maxValue<O>;
         constexpr auto minValueOutput = minValue<O>;
-        if (cxp::cmp_greater(input, maxValOutput)) {
+        if (cxp::cmp_greater::f(input, maxValOutput)) {
             return maxValOutput;
-        } else if (cxp::cmp_less(input, minValueOutput)) {
+        } else if (cxp::cmp_less::f(input, minValueOutput)) {
             return minValueOutput;
         } else {
             // We know that the value of input is within the
             // numerical range of OutputType.
             if constexpr (std::is_floating_point_v<I> && std::is_integral_v<O>) {
                 // For floating point to integral conversion, we need to round
-                return static_cast<O>(cxp::round(input));
+                return static_cast<O>(cxp::round::f(input));
             } else {
                 // For any other case, we can cast directly
                 return static_cast<O>(input);
@@ -44,7 +44,7 @@ namespace cxp {
         template <typename O, size_t... Idx, typename I>
         FK_HOST_DEVICE_CNST O v_saturate_cast_helper(const std::index_sequence<Idx...>&,
                                                      const I& input) {
-            return {saturate_cast<fk::VBase<O>>(v_get<Idx>(input))...};
+            return {saturate_cast<fk::VBase<O>>(fk::get<Idx>(input))...};
         }
     }
 

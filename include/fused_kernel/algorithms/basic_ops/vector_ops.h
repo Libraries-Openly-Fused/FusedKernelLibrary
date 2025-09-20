@@ -56,7 +56,7 @@ namespace fk {
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
             static_assert(validCUDAVec<T>, "Non valid CUDA vetor type: UnaryVectorReorder");
             static_assert(cn<T> >= 2, "Minimum number of channels is 2: UnaryVectorReorder");
-            return {vectorAt<Idx>(input)...};
+            return {get<Idx>(input)...};
         }
     };
 
@@ -163,7 +163,7 @@ namespace fk {
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
             using BoolType = VectorType_t<bool, cn<T>>;
-            const auto boolInput = cxp::v_static_cast<BoolType>(input);
+            const auto boolInput = cxp::cast<BoolType>::f(input);
             return boolInput;
         }
     };

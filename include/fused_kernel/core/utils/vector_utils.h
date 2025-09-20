@@ -23,7 +23,6 @@
 #include <fused_kernel/core/data/vector_types.h>
 
 namespace fk {
-
     template <typename BaseType, int Channels>
     struct VectorType {};
 
@@ -158,26 +157,18 @@ namespace fk {
     template <typename T>
     using VBase = typename VectorTraits<T>::base;
     
-    template <int idx, typename T>
-    FK_HOST_DEVICE_CNST auto vectorAt(const T& vector) {
-        if constexpr (idx == 0) {
-            if constexpr (validCUDAVec<T>) {
-                return vector.x;
-            } else {
-                return vector;
-            }
-        } else if constexpr (idx == 1) {
-            static_assert(validCUDAVec<T>, "Non valid CUDA vetor type: vectorAt<invalid_type>()");
-            static_assert(cn<T> >= 2, "Vector type smaller than 2 elements has no member y");
-            return vector.y;
-        } else if constexpr (idx == 2) {
-            static_assert(validCUDAVec<T>, "Non valid CUDA vetor type: vectorAt<invalid_type>()");
-            static_assert(cn<T> >= 3, "Vector type smaller than 3 elements has no member z");
-            return vector.z;
-        } else if constexpr (idx == 3) {
-            static_assert(validCUDAVec<T>, "Non valid CUDA vetor type: vectorAt<invalid_type>()");
-            static_assert(cn<T> == 4, "Vector type smaller than 4 elements has no member w");
-            return vector.w;
+    template <size_t Idx, typename T>
+    FK_HOST_DEVICE_CNST auto get(const T& vecVal)
+        -> std::enable_if_t<fk::validCUDAVec<T>, typename fk::VBase<T>> {
+        static_assert(Idx < fk::cn<T>, "Index out of bounds");
+        if constexpr (Idx == 0) {
+            return vecVal.x;
+        } else if constexpr (Idx == 1) {
+            return vecVal.y;
+        } else if constexpr (Idx == 2) {
+            return vecVal.z;
+        } else {
+            return vecVal.w;
         }
     }
 

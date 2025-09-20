@@ -28,7 +28,7 @@ namespace fk {
         using Parent = UnaryOperation<I, O, Cast<I, O>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            return cxp::v_static_cast<OutputType>(input);
+            return cxp::cast<OutputType>::f(input);
         }
     };
 } // namespace fk

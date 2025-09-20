@@ -45,7 +45,7 @@ namespace fk {
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
             static_assert(!validCUDAVec<I> && !validCUDAVec<P> && !validCUDAVec<O>,
                 "Max_ can't work with cuda vector types.");
-            return cxp::max(input, params);
+            return cxp::max::f(input, params);
         }
     };
 
@@ -60,7 +60,7 @@ namespace fk {
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
             static_assert(!validCUDAVec<I> && !validCUDAVec<P> && !validCUDAVec<O>,
                 "Max_ can't work with cuda vector types.");
-            return cxp::max(get<0>(input), get<1>(input));
+            return cxp::max::f(get<0>(input), get<1>(input));
         }
     };
 
@@ -101,7 +101,7 @@ namespace fk {
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
             static_assert(!validCUDAVec<I> && !validCUDAVec<P> && !validCUDAVec<O>,
                 "Min_ can't work with cuda vector types.");
-            return cxp::min(input, params);
+            return cxp::min::f(input, params);
         }
     };
 
@@ -116,7 +116,7 @@ namespace fk {
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
             static_assert(!validCUDAVec<I> && !validCUDAVec<P> && !validCUDAVec<O>,
                 "Min_ can't work with cuda vector types.");
-            return cxp::min(get<0>(input), get<1>(input));
+            return cxp::min::f(get<0>(input), get<1>(input));
         }
     };
 

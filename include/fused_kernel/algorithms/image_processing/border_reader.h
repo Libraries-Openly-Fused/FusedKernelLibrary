@@ -113,7 +113,7 @@ namespace fk {
                 return BorderReader<BorderType::CONSTANT, BorderReaderParameters<BorderType::CONSTANT, T>, BIOp>::build(selfIOp.params, backFunction);
             } else {
                 return BorderReader<BorderType::CONSTANT, BorderReaderParameters<BorderType::CONSTANT, BIOpOutputType>, BIOp>::build(
-                    { cxp::v_static_cast<BIOpOutputType>(selfIOp.params.value) }, backFunction);
+                    { cxp::cast<BIOpOutputType>::f(selfIOp.params.value) }, backFunction);
             }
         }
     };
@@ -225,19 +225,19 @@ FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& param
         BORDER_READER_EXEC
     private:
         FK_HOST_DEVICE_FUSE int idx_row_low(const int& y) {
-            return cxp::max(y, 0);
+            return cxp::max::f(y, 0);
         }
         FK_HOST_DEVICE_FUSE int idx_row_high(const int& y, const int& last_row) {
-            return cxp::min(y, last_row);
+            return cxp::min::f(y, last_row);
         }
         FK_HOST_DEVICE_FUSE int idx_row(const int& y, const int& last_row) {
             return idx_row_low(idx_row_high(y, last_row));
         }
         FK_HOST_DEVICE_FUSE int idx_col_low(const int& x) {
-            return cxp::max(x, 0);
+            return cxp::max::f(x, 0);
         }
         FK_HOST_DEVICE_FUSE int idx_col_high(const int& x, const int& last_col) {
-            return cxp::min(x, last_col);
+            return cxp::min::f(x, last_col);
         }
         FK_HOST_DEVICE_FUSE int idx_col(const int& x, const int& last_col) {
             return idx_col_low(idx_col_high(x, last_col));
@@ -251,19 +251,19 @@ FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& param
         BORDER_READER_EXEC
     private:
         FK_HOST_DEVICE_FUSE int idx_row_low(const int& y, const int& last_row) {
-            return (cxp::abs(y) - (y < 0)) % (last_row + 1);
+            return (cxp::abs::f(y) - (y < 0)) % (last_row + 1);
         }
         FK_HOST_DEVICE_FUSE int idx_row_high(const int& y, const int& last_row) {
-            return (last_row - cxp::abs(last_row - y) + (y > last_row));
+            return (last_row - cxp::abs::f(last_row - y) + (y > last_row));
         }
         FK_HOST_DEVICE_FUSE int idx_row(const int& y, const int& last_row) {
             return idx_row_low(idx_row_high(y, last_row), last_row);
         }
         FK_HOST_DEVICE_FUSE int idx_col_low(const int& x, const int& last_col) {
-            return (cxp::abs(x) - (x < 0)) % (last_col + 1);
+            return (cxp::abs::f(x) - (x < 0)) % (last_col + 1);
         }
         FK_HOST_DEVICE_FUSE int idx_col_high(const int& x, const int& last_col) {
-            return (last_col - cxp::abs(last_col - x) + (x > last_col));
+            return (last_col - cxp::abs::f(last_col - x) + (x > last_col));
         }
         FK_HOST_DEVICE_FUSE int idx_col(const int& x, const int& last_col) {
             return idx_col_low(idx_col_high(x, last_col), last_col);
@@ -308,19 +308,19 @@ FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& param
         BORDER_READER_EXEC
     private:
         FK_HOST_DEVICE_FUSE int idx_row_low(const int& y, const int& last_row) {
-            return cxp::abs(y) % (last_row + 1);
+            return cxp::abs::f(y) % (last_row + 1);
         }
         FK_HOST_DEVICE_FUSE int idx_row_high(const int& y, const int& last_row) {
-            return cxp::abs(last_row - cxp::abs(last_row - y)) % (last_row + 1);
+            return cxp::abs::f(last_row - cxp::abs::f(last_row - y)) % (last_row + 1);
         }
         FK_HOST_DEVICE_FUSE int idx_row(const int& y, const int& last_row) {
             return idx_row_low(idx_row_high(y, last_row), last_row);
         }
         FK_HOST_DEVICE_FUSE int idx_col_low(const int& x, const int& last_col) {
-            return cxp::abs(x) % (last_col + 1);
+            return cxp::abs::f(x) % (last_col + 1);
         }
         FK_HOST_DEVICE_FUSE int idx_col_high(const int& x, const int& last_col) {
-            return cxp::abs(last_col - cxp::abs(last_col - x)) % (last_col + 1);
+            return cxp::abs::f(last_col - cxp::abs::f(last_col - x)) % (last_col + 1);
         }
         FK_HOST_DEVICE_FUSE int idx_col(const int& x, const int& last_col) {
             return idx_col_low(idx_col_high(x, last_col), last_col);
