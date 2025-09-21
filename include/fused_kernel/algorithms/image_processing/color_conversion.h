@@ -19,7 +19,6 @@
 #include <fused_kernel/core/data/ptr_nd.h>
 #include <fused_kernel/algorithms/basic_ops/algebraic.h>
 #include <fused_kernel/algorithms/image_processing/saturate.h>
-//#include <fused_kernel/algorithms/basic_ops/cast.h>
 #include <fused_kernel/algorithms/image_processing/raw_image.h>
 #include <fused_kernel/algorithms/basic_ops/vector_ops.h>
 
