@@ -347,8 +347,8 @@ namespace fk { // namespace FusedKernel
     struct DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelector> {
     private:
         using Parent = DivergentBatchTransformDPPBase<SequenceSelector>;
-        using DPPDetails = DivergentBatchTransformDPPDetails<ParArch::GPU_NVIDIA>;
     public:
+        using DPPDetails = DivergentBatchTransformDPPDetails<ParArch::GPU_NVIDIA>;
         static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
         template <typename... IOpSequenceTypes>
         FK_DEVICE_FUSE void exec(const DPPDetails&, const IOpSequenceTypes&... iOpSequences) {
@@ -366,8 +366,8 @@ namespace fk { // namespace FusedKernel
     struct DivergentBatchTransformDPP<ParArch::CPU, SequenceSelector> {
     private:
         using Parent = DivergentBatchTransformDPPBase<SequenceSelector>;
-        using DPPDetails = DivergentBatchTransformDPPDetails<ParArch::CPU>;
     public:
+        using DPPDetails = DivergentBatchTransformDPPDetails<ParArch::CPU>;
         static constexpr ParArch PAR_ARCH = ParArch::CPU;
         template <typename... IOpSequenceTypes>
         FK_DEVICE_FUSE void exec(const DPPDetails& details, const IOpSequenceTypes&... iOpSequences) {

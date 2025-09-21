@@ -109,7 +109,7 @@ namespace fk {
         }
 
         template <ParArch PA, typename... IOpTypes>
-        FK_HOST_CNST void update(const Stream_<PA>& stream,
+        FK_HOST_CNST void update(Stream_<PA>& stream,
             const IOpTypes&... instantiableOperationInstances) {
             const auto writeInstantiableOperation = ppLast(instantiableOperationInstances...);
             using writeDFType = std::decay_t<decltype(writeInstantiableOperation)>;

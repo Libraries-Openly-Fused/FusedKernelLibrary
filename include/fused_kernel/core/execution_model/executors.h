@@ -341,7 +341,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
     struct Executor<DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelector>> {
     private:
         using DPPType = DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelector>;
-        using DPPDetails = typename DPPType::Details;
+        using DPPDetails = typename DPPType::DPPDetails;
         using SelfType = Executor<DPPType>;
 
         template <size_t... Idx, typename... IOpSequenceTypes>
@@ -393,7 +393,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             return ParArch::GPU_NVIDIA;
         }
         template <typename... IOpSequenceTypes>
-        FK_HOST_FUSE void executeOperations(Stream& stream, const IOpSequenceTypes&... iOpSequences) {
+        FK_HOST_FUSE void executeOperations(Stream_<ParArch::GPU_NVIDIA>& stream, const IOpSequenceTypes&... iOpSequences) {
             executeOperations_helper(stream, iOpSequences...);
         }
     };
