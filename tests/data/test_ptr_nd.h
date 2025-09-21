@@ -16,8 +16,8 @@
 
 #include <fused_kernel/core/data/ptr_nd.h>
 #include <fused_kernel/core/data/ptr_utils.h>
-#include <fused_kernel/core/utils/cuda_vector_utils.h>
-#include <fused_kernel/algorithms/basic_ops/cuda_vector.h>
+#include <fused_kernel/core/utils/vector_utils.h>
+#include <fused_kernel/algorithms/basic_ops/vector_ops.h>
 #include <fused_kernel/fused_kernel.h>
 #include <fused_kernel/core/execution_model/stream.h>
 
@@ -150,7 +150,8 @@ int launch() {
     for (int y = 0; y < HEIGHT; y++) {
         for (int x = 0; x < WIDTH; x++) {
             const Bool3 boolVect = *PtrAccessor<ND::_2D>::cr_point(Point(x, y), test0.ptrPinned()) == make_<uchar3>(1, 2, 3);
-            h_correct &= VectorAnd<Bool3>::exec(boolVect);
+            const bool allTrue = boolVect;
+            h_correct &= allTrue;
         }
     }
 
@@ -181,8 +182,8 @@ int launch() {
     bool h_correct2{ true };
     for (int y = 0; y < HEIGHT; y++) {
         for (int x = 0; x < WIDTH; x++) {
-            const Bool3 boolVect = test7.at(Point(x, y)) == make_<uchar3>(3, 6, 10);
-            h_correct2 &= VectorAnd<Bool3>::exec(boolVect);
+            const bool allTrue = test7.at(Point(x, y)) == make_<uchar3>(3, 6, 10);
+            h_correct2 &= allTrue;
         }
     }
 

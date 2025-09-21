@@ -23,7 +23,6 @@
 #include <fused_kernel/core/data/array.h>
 #include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 #include <fused_kernel/core/execution_model/operation_model/vector_operations.h>
-#include <fused_kernel/algorithms/basic_ops/cast_base.h>
 #include <fused_kernel/core/execution_model/active_threads.h>
 
 namespace fk { // namespace FusedKernel

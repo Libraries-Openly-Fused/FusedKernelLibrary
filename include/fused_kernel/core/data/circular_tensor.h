@@ -146,9 +146,6 @@ namespace fk {
     private:
         CoreType_t<T, CP_MODE> m_tempTensor;
         int m_nextUpdateIdx{ 0 };
-
-        template <ParArch PA, typename... IOps>
-        FK_HOST_FUSE void executeUpdate()
     };
 } // namespace fk
 

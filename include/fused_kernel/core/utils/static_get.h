@@ -1,4 +1,4 @@
-/* Copyright 2023-2025 Oscar Amoros Huguet
+/* Copyright 2025 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -12,23 +12,24 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
-#ifndef FK_CAST_BASE
-#define FK_CAST_BASE
+#ifndef FK_STATIC_GET_H
+#define FK_STATIC_GET_H
+
+#include <fused_kernel/core/utils/utils.h>
 
 namespace fk {
-    template <typename I, typename O>
-    struct CastBase {
-    private:
-        using SelfType = CastBase<I, O>;
-    public:
-        FK_STATIC_STRUCT(CastBase, SelfType)
-        using InputType = I;
-        using OutputType = O;
-        using InstanceType = UnaryType;
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            return static_cast<O>(input);
-        }
+    template <typename VT>
+    class IsCudaVector;
+    template <typename VT>
+    class VectorTraits;
+
+    template <size_t Idx>
+    struct static_get {
+        template <typename VT>
+        FK_HOST_DEVICE_FUSE auto f(const VT& v) -> std::enable_if_t<IsCudaVector<VT>::value,
+            typename VectorTraits<VT>::base>;
     };
 } // namespace fk
 
-#endif
+
+#endif // FK_STATIC_GET_H

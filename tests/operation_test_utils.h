@@ -21,7 +21,7 @@
 #include <functional>
 #include <iostream>
 
-#include <fused_kernel/core/utils/cuda_vector_utils.h>
+#include <fused_kernel/core/utils/vector_utils.h>
 #include <fused_kernel/core/utils/type_to_string.h>
 #include <fused_kernel/core/execution_model/executors.h>
 

@@ -16,7 +16,7 @@
 #ifndef FK_ARRAY
 #define FK_ARRAY
 
-#include <fused_kernel/core/utils/cuda_vector_utils.h>
+#include <fused_kernel/core/utils/vector_utils.h>
 #include <cstddef>
 #include <array>
 
@@ -90,7 +90,7 @@ namespace fk {
         // if the variable is private, it will prevent the compiler from
         // placing it in local memory, which is way slower.
         FK_HOST_DEVICE_CNST T operator()(const int& index) const {
-            return vectorAt(index, make_<VectorType_t<T,size>>(x,y));
+            return vector_at::f(index, make_<VectorType_t<T,size>>(x,y));
         }
         FK_HOST_DEVICE_CNST Array<T, 2>& operator=(const VectorType_t<T, 2>& other) {
             x = other.x;
@@ -121,7 +121,7 @@ namespace fk {
         // if the variable is private, it will prevent the compiler from
         // placing it in local memory, which is way slower.
         FK_HOST_DEVICE_CNST T operator()(const int& index) const {
-            return vectorAt(index, make_<VectorType_t<T, size>>(x, y, z));
+            return vector_at::f(index, make_<VectorType_t<T, size>>(x, y, z));
         }
         FK_HOST_DEVICE_CNST Array<T, 3>& operator=(const VectorType_t<T, 3>& other) {
             x = other.x;
@@ -153,7 +153,7 @@ namespace fk {
         // if the variable is private, it will prevent the compiler from
         // placing it in local memory, which is way slower.
         FK_HOST_DEVICE_CNST T operator()(const int& index) const {
-            return vectorAt(index, make_<VectorType_t<T, size>>(x, y, z, w));
+            return vector_at::f(index, make_<VectorType_t<T, size>>(x, y, z, w));
         }
         FK_HOST_DEVICE_CNST Array<T, 4>& operator=(const VectorType_t<T, 4>& other) {
             x = other.x;

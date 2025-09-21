@@ -19,12 +19,12 @@
 #include <fused_kernel/core/data/ptr_nd.h>
 #include <fused_kernel/algorithms/basic_ops/algebraic.h>
 #include <fused_kernel/algorithms/image_processing/saturate.h>
-#include <fused_kernel/algorithms/basic_ops/cast.h>
 #include <fused_kernel/algorithms/image_processing/raw_image.h>
+#include <fused_kernel/algorithms/basic_ops/vector_ops.h>
 
 namespace fk {
     template <typename I>
-    using VOneMore = VectorType_t<VBase<I>, (cn<I> +1)>;
+    using VOneMore = VectorType_t<VBase<I>, (cn<I> + 1)>;
 
     template <typename I, VBase<I> alpha>
     struct StaticAddAlpha {
@@ -193,7 +193,8 @@ namespace fk {
         using Parent = UnaryOperation<VectorType_t<float, cn<O>>, O, DenormalizePixel<O, CD>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            return Cast<InputType, OutputType>::exec(input * static_cast<float>(maxDepthValue<CD>));
+            constexpr auto maxDepth = maxDepthValue<CD>;
+            return cxp::cast<OutputType>::f(input * maxDepth);
         }
     };
 
@@ -294,7 +295,7 @@ namespace fk {
         public:
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
             // Pixel data shifted to the right to it's color depth numerical range
-            const InputType shiftedPixel = ShiftRight<InputType>::exec(input, { shiftFactor<CD> });
+            const InputType shiftedPixel = input >> shiftFactor<CD>;
 
             // Using color depth numerical range to compute the RGB pixel
             const OutputType computedPixel = computePixel(shiftedPixel);
@@ -303,7 +304,7 @@ namespace fk {
                 return NormalizeColorRangeDepth<OutputType, CD>::exec(computedPixel);
             } else {
                 // Moving back the pixel channels to data type numerical range, either 8bit or 16bit
-                return ShiftLeft<OutputType>::exec(computedPixel, { shiftFactor<CD> });
+                return computedPixel << shiftFactor<CD>;
             }
         }
     };
@@ -363,7 +364,7 @@ namespace fk {
                 const RawPtr<ND::_2D, VectorType4> image{ reinterpret_cast<VectorType4*>(rawPtr.data), {dims.width >> 2, dims.height, dims.pitch} };
                 const VectorType4 pixel = *PtrAccessor<ND::_2D>::cr_point({ thread.x >> 1, thread.y, thread.z }, image);
 
-                const bool isEvenThread = IsEven<int>::exec(thread.x);
+                const bool isEvenThread = cxp::is_even::f(thread.x);
                 if constexpr (PF == PixelFormat::UYVY) {
                     return { isEvenThread ? pixel.y : pixel.w, pixel.x, pixel.z };
                 } else {
@@ -430,12 +431,12 @@ namespace fk {
                 constexpr ColorSpace CS = PixelFormatTraits<PF>::space;
                 if constexpr (CS == ColorSpace::YUV420) {
                     // Chroma subsampling 4:2:0
-                    if (IsEven<int>::exec(thread.x) && IsEven<int>::exec(thread.y)) {
+                    if (cxp::is_even::f(thread.x) && cxp::is_even::f(thread.y)) {
                         *PtrAccessor<ND::_2D>::point({ thread.x >> 1, thread.y >> 1, thread.z }, chromaPlane) = make_<VectorType2>(input.y, input.z);
                     }
                 } else {
                     // Chroma subsampling 4:2:2
-                    if (IsEven<int>::exec(thread.x)) {
+                    if (cxp::is_even::f(thread.x)) {
                         *PtrAccessor<ND::_2D>::point({ thread.x >> 1, thread.y, thread.z }, chromaPlane) = make_<VectorType2>(input.y, input.z);
                     }
                 }
@@ -457,7 +458,7 @@ namespace fk {
                 //*PtrAccessor<ND::_2D>::point({ (thread.x >> 1) * 2, thread.y, thread.z }, imageV2);
                 //*PtrAccessor<ND::_2D>::point({ (thread.x >> 1) * 4, thread.y, thread.z }, rawPtr);
 
-                const bool isEvenThread = IsEven<int>::exec(thread.x);
+                const bool isEvenThread = cxp::is_even::f(thread.x);
                 // input = { Y, U, V }
                 if constexpr (PF == PixelFormat::UYVY) {
                     // Writting UYVY from two threads

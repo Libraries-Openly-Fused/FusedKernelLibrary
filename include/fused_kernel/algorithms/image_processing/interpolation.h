@@ -15,9 +15,7 @@
 #ifndef FK_INTERPOLATION
 #define FK_INTERPOLATION
 
-#include <cmath>
-
-#include <fused_kernel/algorithms/basic_ops/logical.h>
+#include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 #include <fused_kernel/core/data/size.h>
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 
@@ -77,15 +75,15 @@ namespace fk {
             const int x1 = __float2int_rd(src_x);
             const int y1 = __float2int_rd(src_y);
 #else
-            const int x1 = static_cast<int>(std::floor(src_x));
-            const int y1 = static_cast<int>(std::floor(src_x));
+            const int x1 = static_cast<int>(cxp::floor::f(src_x));
+            const int y1 = static_cast<int>(cxp::floor::f(src_x));
 #endif
             const int x2 = x1 + 1;
             const int y2 = y1 + 1;
 
             const Size srcSize = NumElems::size(Point(), backIOp);
-            const int x2_read = Min<int>::exec(x2, { srcSize.width - 1 });
-            const int y2_read = Min<int>::exec(y2, { srcSize.height - 1 });
+            const int x2_read = cxp::min::f(x2, srcSize.width - 1);
+            const int y2_read = cxp::min::f(y2, srcSize.height - 1);
 
             const Slice2x2<Point> readPoints{ Point(x1, y1),
                                               Point(x2_read, y1),

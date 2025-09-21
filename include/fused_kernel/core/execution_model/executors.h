@@ -346,9 +346,9 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
 
         template <size_t... Idx, typename... IOpSequenceTypes>
         FK_HOST_FUSE ActiveThreads getActiveThreads(std::index_sequence<Idx...>&, const IOpSequenceTypes&... iOpSequences) {
-            const uint x = cxp::max(get<0>(iOpSequences.iOps).getActiveThreads().x...);
-            const uint y = cxp::max(get<0>(iOpSequences.iOps).getActiveThreads().y...);
-            const uint z = cxp::sum(get<0>(iOpSequences.iOps).getActiveThreads().z...);
+            const uint x = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().x...);
+            const uint y = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().y...);
+            const uint z = cxp::sum::f(get<0>(iOpSequences.iOps).getActiveThreads().z...);
             return ActiveThreads{ x, y, z }; 
         }
 
@@ -375,15 +375,15 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             const ActiveThreads activeThreads = getActiveThreads(std::make_index_sequence<sizeof...(iOpSequences)>{}, iOpSequences...);
             const DPPDetails details{};
 
-            const dim3 block(cxp::min(activeThreads.x, 32), cxp::min(activeThreads.y, 8));
+            const dim3 block(cxp::min::f(activeThreads.x, 32u), cxp::min::f(activeThreads.y, 8u));
             const dim3 grid(ceil(activeThreads.x / static_cast<float>(block.x)),
                             ceil(activeThreads.y / static_cast<float>(block.y)), activeThreads.z);
             launchDivergentBatchTransformDPP_Kernel<<<grid, block, 0, stream.getCUDAStream()>>>(details, iOpSequences...);
             gpuErrchk(cudaGetLastError());
         }
 
-        template <size_t... Idx, typename... IOpSequenceTypes>
-        FK_HOST_FUSE void executeOperations_helper(const std::index_sequence<Idx...>&, Stream& stream, const IOpSequenceTypes&... iOpSequences) {
+        template <typename... IOpSequenceTypes>
+        FK_HOST_FUSE void executeOperations_helper(Stream& stream, const IOpSequenceTypes&... iOpSequences) {
             executeOperationsFused(stream, fuseBackSequence(iOpSequences)...);
         }
 
@@ -394,7 +394,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         }
         template <typename... IOpSequenceTypes>
         FK_HOST_FUSE void executeOperations(Stream& stream, const IOpSequenceTypes&... iOpSequences) {
-            executeOperations_helper(std::make_index_sequence<sizeof...(iOpSequences)>{}, stream, iOpSequences...);
+            executeOperations_helper(stream, iOpSequences...);
         }
     };
 #endif
