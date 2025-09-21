@@ -198,8 +198,11 @@ namespace fk {
     // Struct to hold a parameter pack, and be able to pass it arround
     template <typename... IOpTypes>
     struct InstantiableOperationSequence {
-        Tuple<IOpTypes...> instantiableOperations;
+        Tuple<IOpTypes...> iOps;
     };
+
+    template <typename... IOpTypes>
+    using IOpSequence = InstantiableOperationSequence<IOpTypes...>;
 
     // Function that fills the OperationSequence struct, from a parameter pack
     template <typename... IOpTypes>

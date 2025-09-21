@@ -324,7 +324,7 @@ namespace fk { // namespace FusedKernel
         FK_HOST_DEVICE_FUSE void divergent_operate(const uint& z, const InstantiableOperationSequence<IOps...>& iOpSequence,
             const IOpSequenceTypes&... iOpSequences) {
             if (OpSequenceNumber == SequenceSelector::at(z)) {
-                apply(launchTransformDPP<IOps...>, iOpSequence.instantiableOperations);
+                apply(launchTransformDPP<IOps...>, iOpSequence.iOps);
             } else if constexpr (sizeof...(iOpSequences) > 0) {
                 divergent_operate<OpSequenceNumber + 1>(z, iOpSequences...);
             }

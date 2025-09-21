@@ -145,10 +145,10 @@ namespace fk {
     }
 
     template <bool THREAD_FUSION_ENABLED, typename... IOpTypes>
-    FK_HOST_INLINE bool isThreadDivisible(const uint& elems_per_thread, const IOpTypes&... instantiableOperations) {
+    FK_HOST_INLINE bool isThreadDivisible(const uint& elems_per_thread, const IOpTypes&... iOps) {
         if constexpr (THREAD_FUSION_ENABLED) {
-            const auto& readOp = ppFirst(instantiableOperations...);
-            const auto& writeOp = ppLast(instantiableOperations...);
+            const auto& readOp = ppFirst(iOps...);
+            const auto& writeOp = ppLast(iOps...);
             using ReadOperation = typename FirstType_t<IOpTypes...>::Operation;
             using WriteOperation = typename LastType_t<IOpTypes...>::Operation;
             const uint readRow = ReadOperation::num_elems_x(Point(0, 0, 0), { readOp.params });

@@ -41,11 +41,9 @@ namespace fk {
     };
 #endif
 
-    template <typename Child>
-    struct BaseExecutor {
-    private:
+    struct Back {
         template <typename First, typename Second, typename... IOps>
-        FK_HOST_FUSE auto fuseBack(const First& first, const Second& second, const IOps&... iOps) {
+        FK_HOST_FUSE auto fuse(const First& first, const Second& second, const IOps&... iOps) {
             if constexpr (sizeof...(iOps) == 0 || noneIncompleteReadBackType<IOps...>) {
                 if constexpr (isIncompleteReadBackType<Second>) {
                     return first.then(second);
@@ -53,7 +51,7 @@ namespace fk {
                     return first;
                 }
             } else {
-                return fuseBack(first.then(second), iOps...);
+                return fuse(first.then(second), iOps...);
             }
         }
 
@@ -73,14 +71,16 @@ namespace fk {
                 }
             }
         }
+    };
 
-    public:
+    template <typename Child>
+    struct BaseExecutor {
         template <size_t initialIdx, ParArch PA, size_t... Idx, typename... IOps>
         FK_HOST_FUSE void executeOperationsBase_helper(const std::index_sequence<Idx...>&, Stream_<PA>& stream, const IOps&... iOps) {
             if constexpr (initialIdx == 0) {
                 Child::executeOperations_helper(stream, iOps...);
             } else {
-                const auto firstOp = fuseBack(iOps...);
+                const auto firstOp = Back::fuse(iOps...);
                 Child::executeOperations_helper(stream, firstOp, get<Idx + initialIdx>(iOps...)...);
             }
         }
@@ -89,7 +89,7 @@ namespace fk {
 
         template <enum ParArch PA, typename... IOps>
         FK_HOST_FUSE void executeOperations(Stream_<PA>& stream, const IOps&... iOps) {
-            constexpr size_t firstNonBackIdx = idxFirstNonBack<IOps...>();
+            constexpr size_t firstNonBackIdx = Back::idxFirstNonBack<IOps...>();
             constexpr size_t remainingOps = sizeof...(iOps) - firstNonBackIdx;
             executeOperationsBase_helper<firstNonBackIdx>(std::make_index_sequence<remainingOps>{}, stream, iOps...);
         }
@@ -144,29 +144,29 @@ template <enum ParArch PA, typename... IOps> \
 FK_HOST_FUSE void executeOperations(Stream_<PA>& stream, const IOps&... iOps) { \
     Parent::executeOperations(stream, iOps...); \
 } \
-template <enum ParArch PA, enum ND D, typename I, typename... IOps> \
+template <ParArch PA, ND D, typename I, typename... IOps> \
 FK_HOST_FUSE void executeOperations(const Ptr<D, I>& input, Stream_<PA>& stream, const IOps&... iOps) { \
     Parent::executeOperations(input, stream, iOps...); \
 } \
-template <enum ParArch PA, enum ND D, typename I, typename O, typename... IOps> \
+template <ParArch PA, ND D, typename I, typename O, typename... IOps> \
 FK_HOST_FUSE void executeOperations(const Ptr<D, I>& input, const Ptr<D, O>& output, Stream_<PA>& stream, const IOps&... iOps) { \
     Parent::executeOperations(input, output, stream, iOps...); \
 } \
-template <enum ParArch PA, typename I, size_t BATCH, typename... IOps> \
+template <ParArch PA, typename I, size_t BATCH, typename... IOps> \
 FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, BATCH>& input, const int& activeBatch, const I& defaultValue, \
                                     Stream_<PA>& stream, const IOps&... iOps) { \
     Parent::executeOperations(input, activeBatch, defaultValue, stream, iOps...); \
 } \
-template <enum ParArch PA, typename I, size_t BATCH, typename... IOps> \
+template <ParArch PA, typename I, size_t BATCH, typename... IOps> \
 FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, BATCH>& input, Stream_<PA>& stream, const IOps&... iOps) { \
     Parent::executeOperations(input, stream, iOps...); \
 } \
-template <enum ParArch PA, typename I, typename O, size_t Batch, typename... IOps> \
+template <ParArch PA, typename I, typename O, size_t Batch, typename... IOps> \
 FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, const int& activeBatch, const I& defaultValue, \
                                     const Tensor<O>& output, Stream_<PA>& stream, const IOps&... iOps) { \
     Parent::executeOperations(input, activeBatch, defaultValue, output, stream, iOps...); \
 } \
-template <enum ParArch PA, typename I, typename O, size_t Batch, typename... IOps> \
+template <ParArch PA, typename I, typename O, size_t Batch, typename... IOps> \
 FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, const Tensor<O>& output, \
                                     Stream_<PA>& stream, const IOps&... iOps) { \
     Parent::executeOperations(input, output, stream, iOps...); \
@@ -193,8 +193,8 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
     template <enum TF TFEN>
     struct Executor<TransformDPP<ParArch::CPU, TFEN, void>> {
     private:
-        using SelfType = Executor<TransformDPP<ParArch::CPU, TFEN>>;
-        using Parent = BaseExecutor<SelfType>;
+        using Child = Executor<TransformDPP<ParArch::CPU, TFEN>>;
+        using Parent = BaseExecutor<Child>;
         template <typename... IOps>
         FK_HOST_FUSE void executeOperations_helper(Stream_<ParArch::CPU>& stream, const IOps&... iOps) {
             constexpr ParArch PA = ParArch::CPU;
@@ -211,7 +211,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             }
         }
     public:
-        FK_STATIC_STRUCT(Executor, SelfType)
+        FK_STATIC_STRUCT(Executor, Child)
         FK_HOST_FUSE ParArch parArch() {
             return ParArch::CPU;
         }
@@ -291,8 +291,8 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
     template <enum TF TFEN>
     struct Executor<TransformDPP<ParArch::GPU_NVIDIA, TFEN>> {
     private:
-        using SelfType = Executor<TransformDPP<ParArch::GPU_NVIDIA, TFEN>>;
-        using Parent = BaseExecutor<SelfType>;
+        using Child = Executor<TransformDPP<ParArch::GPU_NVIDIA, TFEN>>;
+        using Parent = BaseExecutor<Child>;
         template <typename... IOps>
         FK_HOST_FUSE void executeOperations_helper(Stream_<ParArch::GPU_NVIDIA>& stream_, const IOps&... iOps) {
             const cudaStream_t stream = stream_.getCUDAStream();
@@ -330,7 +330,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             }
         }
     public:
-        FK_STATIC_STRUCT(Executor, SelfType)
+        FK_STATIC_STRUCT(Executor, Child)
         FK_HOST_FUSE ParArch parArch() {
             return ParArch::GPU_NVIDIA;
         }
@@ -340,16 +340,61 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
     template <typename SequenceSelector>
     struct Executor<DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelector>> {
     private:
-        using SelfType = Executor<DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelector>>;
-        FK_HOST_FUSE ActiveThreads getActiveThreads() { return ActiveThreads{} }
+        using DPPType = DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelector>;
+        using DPPDetails = typename DPPType::Details;
+        using SelfType = Executor<DPPType>;
+
+        template <size_t... Idx, typename... IOpSequenceTypes>
+        FK_HOST_FUSE ActiveThreads getActiveThreads(std::index_sequence<Idx...>&, const IOpSequenceTypes&... iOpSequences) {
+            const uint x = cxp::max(get<0>(iOpSequences.iOps).getActiveThreads().x...);
+            const uint y = cxp::max(get<0>(iOpSequences.iOps).getActiveThreads().y...);
+            const uint z = cxp::sum(get<0>(iOpSequences.iOps).getActiveThreads().z...);
+            return ActiveThreads{ x, y, z }; 
+        }
+
+        template <typename FirstIOp, size_t firstNonBack, size_t... Idx, typename... IOps>
+        FK_HOST_FUSE auto getNewIOpSequence(const std::index_sequence<Idx...>&, const FirstIOp& firstIOp, const IOps&... iOps) {
+            return IOpSequence<FirstIOp, get_t<firstNonBack + Idx, IOps...>...>(firstIOp, get<firstNonBack + Idx>(iOps...)...);
+        }
+
+        template <typename FirstIOp, size_t firstNonBack, size_t... Idx, typename... IOps>
+        FK_HOST_FUSE auto getNewIOpSequence(const std::index_sequence<Idx...>&, const FirstIOp& firstIOp, const Tuple<IOps...>& iOps) {
+            return IOpSequence<FirstIOp, get_t<firstNonBack + Idx, IOps...>...>(firstIOp, get<firstNonBack + Idx>(iOps)...);
+        }
+
+        template <typename... IOps>
+        FK_HOST_FUSE auto fuseBackSequence(const IOpSequence<IOps...>& iOpSeq) {
+            const auto firstOp = fk::apply(Back::fuse<IOps...>, iOpSeq.iOps);
+            constexpr auto firstNonBackIdx = Back::idxFirstNonBack<IOps...>();
+            return getNewIOpSequence(std::make_index_sequence<sizeof...(IOps) - firstNonBackIdx>{}, firstOp,
+                                     iOpSeq.iOps);
+        }
+
+        template <typename... IOpSequenceTypes>
+        FK_HOST_FUSE void executeOperationsFused(Stream& stream, const IOpSequenceTypes&... iOpSequences) {
+            const ActiveThreads activeThreads = getActiveThreads(std::make_index_sequence<sizeof...(iOpSequences)>{}, iOpSequences...);
+            const DPPDetails details{};
+
+            const dim3 block(cxp::min(activeThreads.x, 32), cxp::min(activeThreads.y, 8));
+            const dim3 grid(ceil(activeThreads.x / static_cast<float>(block.x)),
+                            ceil(activeThreads.y / static_cast<float>(block.y)), activeThreads.z);
+            launchDivergentBatchTransformDPP_Kernel<<<grid, block, 0, stream.getCUDAStream()>>>(details, iOpSequences...);
+            gpuErrchk(cudaGetLastError());
+        }
+
+        template <size_t... Idx, typename... IOpSequenceTypes>
+        FK_HOST_FUSE void executeOperations_helper(const std::index_sequence<Idx...>&, Stream& stream, const IOpSequenceTypes&... iOpSequences) {
+            executeOperationsFused(stream, fuseBackSequence(iOpSequences)...);
+        }
+
     public:
         FK_STATIC_STRUCT(Executor, SelfType)
         FK_HOST_FUSE ParArch parArch() {
             return ParArch::GPU_NVIDIA;
         }
-        FK_HOST_FUSE void executeOperations(Stream stream, const uint& num_planes, const IOpSequenceTypes&... iOpSequences) {
-            Tuple<IOpSequenceTypes...> iOpSeqTuple{iOpSequences...};
-
+        template <typename... IOpSequenceTypes>
+        FK_HOST_FUSE void executeOperations(Stream& stream, const IOpSequenceTypes&... iOpSequences) {
+            executeOperations_helper(std::make_index_sequence<sizeof...(iOpSequences)>{}, stream, iOpSequences...);
         }
     };
 #endif

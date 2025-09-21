@@ -17,12 +17,13 @@
 
 #if defined(__NVCC__) || CLANG_HOST_DEVICE
 namespace fk {
-template <enum ParArch PA, typename SequenceSelector, typename... IOpSequences>
-__global__ void launchDivergentBatchTransformDPP_Kernel(const __grid_constant__ IOpSequences... iOpSequences) {
-    DivergentBatchTransformDPP<PA, SequenceSelector>::exec(iOpSequences...);
+template <ParArch PA, typename SequenceSelector, typename DPPDetails, typename... IOpSequences>
+__global__ void launchDivergentBatchTransformDPP_Kernel(const __grid_constant__ DPPDetails details,
+                                                        const __grid_constant__ IOpSequences... iOpSequences) {
+    DivergentBatchTransformDPP<PA, SequenceSelector>::exec(details, iOpSequences...);
 }
 
-template <enum ParArch PA, enum TF TFEN, bool THREAD_DIVISIBLE, typename TDPPDetails, typename... IOps>
+template <ParArch PA, TF TFEN, bool THREAD_DIVISIBLE, typename TDPPDetails, typename... IOps>
 __global__ void launchTransformDPP_Kernel(const __grid_constant__ TDPPDetails tDPPDetails,
                                           const __grid_constant__ IOps... operations) {
     TransformDPP<PA, TFEN, TDPPDetails, THREAD_DIVISIBLE>::exec(tDPPDetails, operations...);
