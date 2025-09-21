@@ -35,36 +35,6 @@ namespace fk {
     };
 
     template <typename I, typename P = I, typename O = I, typename IType = BinaryType>
-    struct MaxBase {
-    private:
-        using SelfType = MaxBase<I, P, O, IType>;
-    public:
-        FK_STATIC_STRUCT(MaxBase, SelfType)
-        using Parent = BinaryOperation<I, P, O, MaxBase<I, P, O, BinaryType>>;
-        DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
-            static_assert(!validCUDAVec<I> && !validCUDAVec<P> && !validCUDAVec<O>,
-                "Max_ can't work with cuda vector types.");
-            return cxp::max::f(input, params);
-        }
-    };
-
-    template <typename I, typename P, typename O>
-    struct MaxBase<I, P, O, UnaryType> {
-    private:
-        using SelfType = MaxBase<I, P, O, UnaryType>;
-    public:
-        FK_STATIC_STRUCT(MaxBase, SelfType)
-        using Parent = UnaryOperation<Tuple<I, P>, O, MaxBase<I, P, O, UnaryType>>;
-        DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            static_assert(!validCUDAVec<I> && !validCUDAVec<P> && !validCUDAVec<O>,
-                "Max_ can't work with cuda vector types.");
-            return cxp::max::f(get<0>(input), get<1>(input));
-        }
-    };
-
-    template <typename I, typename P = I, typename O = I, typename IType = BinaryType>
     struct Max {
     private:
         using SelfType = Max<I, P, O, IType>;
@@ -73,7 +43,7 @@ namespace fk {
         using Parent = BinaryOperation<I, P, O, Max<I, P, O, BinaryType>>;
         DECLARE_BINARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
-            return BinaryV<MaxBase<VBase<I>, VBase<P>, VBase<O>>, I, P, O>::exec(input, params);
+            return cxp::max::f(input, params);
         }
     };
 
@@ -86,37 +56,7 @@ namespace fk {
         using Parent = UnaryOperation<Tuple<I, P>, O, Max<I, P, O, UnaryType>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            return UnaryV<MaxBase<VBase<I>, VBase<P>, VBase<O>, UnaryType>, Tuple<I, P>, O>::exec(input);
-        }
-    };
-
-    template <typename I, typename P = I, typename O = I, typename IType = BinaryType>
-    struct MinBase {
-    private:
-        using SelfType = MinBase<I, P, O, IType>;
-    public:
-        FK_STATIC_STRUCT(MinBase, SelfType)
-        using Parent = BinaryOperation<I, P, O, MinBase<I, P, O, BinaryType>>;
-        DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
-            static_assert(!validCUDAVec<I> && !validCUDAVec<P> && !validCUDAVec<O>,
-                "Min_ can't work with cuda vector types.");
-            return cxp::min::f(input, params);
-        }
-    };
-
-    template <typename I, typename P, typename O>
-    struct MinBase<I, P, O, UnaryType> {
-    private:
-        using SelfType = MinBase<I, P, O, UnaryType>;
-    public:
-        FK_STATIC_STRUCT(MinBase, SelfType)
-        using Parent = UnaryOperation<Tuple<I, P>, O, MinBase<I, P, O, UnaryType>>;
-        DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            static_assert(!validCUDAVec<I> && !validCUDAVec<P> && !validCUDAVec<O>,
-                "Min_ can't work with cuda vector types.");
-            return cxp::min::f(get<0>(input), get<1>(input));
+            return cxp::max::f(get<0>(input), get<1>(input));
         }
     };
 
@@ -129,7 +69,7 @@ namespace fk {
         using Parent = BinaryOperation<I, P, O, Min<I, P, O, BinaryType>>;
         DECLARE_BINARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
-            return BinaryV<MinBase<VBase<I>, VBase<P>, VBase<O>>, I, P, O>::exec(input, params);
+            return cxp::min::f(input, params);
         }
     };
 
@@ -142,7 +82,7 @@ namespace fk {
         using Parent = UnaryOperation<Tuple<I, P>, O, Min<I, P, O, UnaryType>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            return UnaryV<MinBase<VBase<I>, VBase<P>, VBase<O>, UnaryType>, Tuple<I, P>, O>::exec(input);
+            return cxp::min::f(get<0>(input), get<1>(input));
         }
     };
 
