@@ -16,8 +16,6 @@
 #include <tests/main.h>
 
 #include <fused_kernel/core/utils/utils.h>
-#include <fused_kernel/algorithms/basic_ops/vector_ops.h>
-#include <fused_kernel/algorithms/basic_ops/logical.h>
 #include <fused_kernel/core/execution_model/thread_fusion.h>
 #include "tests/nvtx.h"
 
@@ -79,24 +77,21 @@ namespace fk {
 
         const typename BTInfo::BiggerReadType biggerType = ((typename BTInfo::BiggerReadType*) fourNumbers)[0];
 
-        using Reduction = VectorReduce<VectorType_t<bool, (cn<OriginalType>)>, Equal<uchar>>;
-
         if constexpr (BTInfo::elems_per_thread == 1) {
-            return Reduction::exec(biggerType == fourNumbers[0]);
+            return biggerType == fourNumbers[0];
         } else if constexpr (BTInfo::elems_per_thread == 2) {
             const OriginalType data0 = BTInfo::template get<0>(biggerType);
             const OriginalType data1 = BTInfo::template get<1>(biggerType);
-            return Reduction::exec(data0 == fourNumbers[0]) &&
-                Reduction::exec(data1 == fourNumbers[1]);
+            return (data0 == fourNumbers[0]) && (data1 == fourNumbers[1]);
         } else if constexpr (BTInfo::elems_per_thread == 4) {
             const OriginalType data0 = BTInfo::template get<0>(biggerType);
             const OriginalType data1 = BTInfo::template get<1>(biggerType);
             const OriginalType data2 = BTInfo::template get<2>(biggerType);
             const OriginalType data3 = BTInfo::template get<3>(biggerType);
-            return Reduction::exec(data0 == fourNumbers[0]) &&
-                Reduction::exec(data1 == fourNumbers[1]) &&
-                Reduction::exec(data2 == fourNumbers[2]) &&
-                Reduction::exec(data3 == fourNumbers[3]);
+            return (data0 == fourNumbers[0]) &&
+                   (data1 == fourNumbers[1]) &&
+                   (data2 == fourNumbers[2]) &&
+                   (data3 == fourNumbers[3]);
         } else {
             return false;
         }
