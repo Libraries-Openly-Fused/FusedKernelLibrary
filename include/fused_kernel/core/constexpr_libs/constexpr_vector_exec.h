@@ -52,10 +52,8 @@ namespace cxp {
             return Op::exec(s1, s2);
         }
         template <typename ST1, typename ST2, typename... STs>
-        FK_HOST_DEVICE_FUSE auto exec(const ST1& s1, const ST2& s2, const STs&... scals)
-            -> std::enable_if_t<std::is_fundamental_v<ST1> && std::is_fundamental_v<ST2> && (std::is_fundamental_v<STs> && ...),
-            decltype(exec(exec(std::declval<ST1>(), std::declval<ST2>()), std::declval<STs>()...))> {
-            return exec(exec(s1, s2), scals...);
+        FK_HOST_DEVICE_FUSE auto exec(const ST1& s1, const ST2& s2, const STs&... scals) {
+            return exec(Op::exec(s1, s2), scals...);
         }
         template <typename VT>
         FK_HOST_DEVICE_FUSE auto exec(const VT& v)

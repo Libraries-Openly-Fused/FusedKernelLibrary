@@ -44,22 +44,24 @@ namespace cxp {
     private:
         template <size_t... Idx, typename I>
         FK_HOST_DEVICE_FUSE auto f_helper(const std::index_sequence<Idx...>&,
-                                          const I& input) {
-            return fk::VectorType_t<fk::VBase<I>, NewNumChannels>{fk::static_get<Idx>::f(input)...};
+                                                            const I& input) {
+            using BaseType = fk::VBase<I>;
+            using OutputType = typename fk::VectorType<BaseType, NewNumChannels>::type_v;
+            if constexpr (NewNumChannels == 1) {
+                return BaseType{input.x};
+            } else if constexpr (NewNumChannels == 2) {
+                return OutputType{input.x, input.y};
+            } else if constexpr (NewNumChannels == 3) {
+                return OutputType{input.x, input.y, input.z};
+            }
         }
-
     public:
         template <typename I>
         FK_HOST_DEVICE_FUSE auto f(const I& input)
-            -> std::enable_if_t<(fk::cn<I> >= 2) &&
-                                (NewNumChannels < fk::cn<I>),
-                                fk::VectorType_t<fk::VBase<I>, NewNumChannels>> {
-            return f_helper<NewNumChannels>(std::make_index_sequence<NewNumChannels>{}, input);
-        }
-        template <typename I>
-        FK_HOST_DEVICE_FUSE auto f(const I& input)
-            -> std::enable_if_t<(NewNumChannels == fk::cn<I>), I> {
-            return input;
+            -> std::enable_if_t<(fk::cn<I> >= 2) && (NewNumChannels < fk::cn<I>),
+                                typename fk::VectorType<fk::VBase<I>, NewNumChannels>::type_v> {
+            // Remove the explicit template argument <NewNumChannels> here:
+            return f_helper(std::make_index_sequence<NewNumChannels>{}, input);
         }
     };
 

@@ -238,8 +238,8 @@ public: \
         };
         CXP_F_FUNC
         template <typename ST>
-        FK_HOST_DEVICE_FUSE ST f(const ST& value) {
-            return value; 
+        FK_HOST_DEVICE_FUSE ST f(const ST& s) {
+            return s; 
         }
     };
 
