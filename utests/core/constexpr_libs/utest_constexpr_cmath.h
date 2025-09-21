@@ -492,12 +492,220 @@ bool test_min_rt() {
     return allCorrect;
 }
 
+// Test floor function at compile-time
+template <typename T>
+constexpr bool test_floor_ct() {
+    static_assert(std::is_floating_point_v<T>, "floor test only for floating point types");
+
+    // Basic positive values
+    static_assert(cxp::floor::f(static_cast<T>(3.7)) == static_cast<T>(3.0), "floor(3.7) should be 3.0");
+    static_assert(cxp::floor::f(static_cast<T>(3.2)) == static_cast<T>(3.0), "floor(3.2) should be 3.0");
+    static_assert(cxp::floor::f(static_cast<T>(3.0)) == static_cast<T>(3.0), "floor(3.0) should be 3.0");
+    static_assert(cxp::floor::f(static_cast<T>(0.9)) == static_cast<T>(0.0), "floor(0.9) should be 0.0");
+    static_assert(cxp::floor::f(static_cast<T>(0.1)) == static_cast<T>(0.0), "floor(0.1) should be 0.0");
+    
+    // Basic negative values
+    static_assert(cxp::floor::f(static_cast<T>(-3.2)) == static_cast<T>(-4.0), "floor(-3.2) should be -4.0");
+    static_assert(cxp::floor::f(static_cast<T>(-3.7)) == static_cast<T>(-4.0), "floor(-3.7) should be -4.0");
+    static_assert(cxp::floor::f(static_cast<T>(-3.0)) == static_cast<T>(-3.0), "floor(-3.0) should be -3.0");
+    static_assert(cxp::floor::f(static_cast<T>(-0.1)) == static_cast<T>(-1.0), "floor(-0.1) should be -1.0");
+    static_assert(cxp::floor::f(static_cast<T>(-0.9)) == static_cast<T>(-1.0), "floor(-0.9) should be -1.0");
+    
+    // Zero values
+    static_assert(cxp::floor::f(static_cast<T>(0.0)) == static_cast<T>(0.0), "floor(0.0) should be 0.0");
+    static_assert(cxp::floor::f(static_cast<T>(-0.0)) == static_cast<T>(-0.0), "floor(-0.0) should be -0.0");
+    
+    // Values near integer boundaries
+    static_assert(cxp::floor::f(static_cast<T>(1.0)) == static_cast<T>(1.0), "floor(1.0) should be 1.0");
+    static_assert(cxp::floor::f(static_cast<T>(-1.0)) == static_cast<T>(-1.0), "floor(-1.0) should be -1.0");
+    static_assert(cxp::floor::f(static_cast<T>(1.9999)) == static_cast<T>(1.0), "floor(1.9999) should be 1.0");
+    static_assert(cxp::floor::f(static_cast<T>(-1.0001)) == static_cast<T>(-2.0), "floor(-1.0001) should be -2.0");
+    
+    // Large values
+    static_assert(cxp::floor::f(static_cast<T>(1000.7)) == static_cast<T>(1000.0), "floor(1000.7) should be 1000.0");
+    static_assert(cxp::floor::f(static_cast<T>(-1000.3)) == static_cast<T>(-1001.0), "floor(-1000.3) should be -1001.0");
+    
+    // Special values compile-time
+#if NO_VS2017_COMPILER
+    static_assert(cxp::isnan::f(cxp::floor::f(std::numeric_limits<T>::quiet_NaN())), "floor(NaN) should be NaN");
+#endif // NO_VS2017_COMPILER
+    static_assert(cxp::isinf::f(cxp::floor::f(std::numeric_limits<T>::infinity())), "floor(inf) should be inf");
+    static_assert(cxp::isinf::f(cxp::floor::f(-std::numeric_limits<T>::infinity())), "floor(-inf) should be -inf");
+
+    // Edge cases for different floating point precisions
+    if constexpr (std::is_same_v<T, float>) {
+        // Float-specific tests
+        static_assert(cxp::floor::f(16777215.9f) == 16777216.0f, "floor(16777215.9f) should be 16777216.0f");
+        static_assert(cxp::floor::f(-16777215.1f) == -16777215.0f, "floor(-16777215.1f) should be -16777215.0f");
+    } else if constexpr (std::is_same_v<T, double>) {
+        // Double-specific tests
+        static_assert(cxp::floor::f(9007199254740991.9) == 9007199254740992.0, "floor(9007199254740991.9) should be 9007199254740992.0");
+        static_assert(cxp::floor::f(-9007199254740991.1) == -9007199254740991.0, "floor(-9007199254740991.1) should be -9007199254740991.0");
+    }
+    
+    return true;
+}
+
+// Test floor function at runtime
+template <typename T>
+bool test_floor_rt() {
+    static_assert(std::is_floating_point_v<T>, "floor test only for floating point types");
+    
+    bool allCorrect{true};
+    
+    // Basic positive values
+    if (cxp::floor::f(static_cast<T>(3.7)) != std::floor(static_cast<T>(3.7))) {
+        std::cout << "Failed: cxp::floor::f(3.7) should match std::floor(3.7)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::floor::f(static_cast<T>(3.2)) != std::floor(static_cast<T>(3.2))) {
+        std::cout << "Failed: cxp::floor::f(3.2) should match std::floor(3.2)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::floor::f(static_cast<T>(3.0)) != std::floor(static_cast<T>(3.0))) {
+        std::cout << "Failed: cxp::floor::f(3.0) should match std::floor(3.0)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::floor::f(static_cast<T>(0.9)) != std::floor(static_cast<T>(0.9))) {
+        std::cout << "Failed: cxp::floor::f(0.9) should match std::floor(0.9)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::floor::f(static_cast<T>(0.1)) != std::floor(static_cast<T>(0.1))) {
+        std::cout << "Failed: cxp::floor::f(0.1) should match std::floor(0.1)" << std::endl;
+        allCorrect = false;
+    }
+    
+    // Basic negative values
+    if (cxp::floor::f(static_cast<T>(-3.2)) != std::floor(static_cast<T>(-3.2))) {
+        std::cout << "Failed: cxp::floor::f(-3.2) should match std::floor(-3.2)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::floor::f(static_cast<T>(-3.7)) != std::floor(static_cast<T>(-3.7))) {
+        std::cout << "Failed: cxp::floor::f(-3.7) should match std::floor(-3.7)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::floor::f(static_cast<T>(-3.0)) != std::floor(static_cast<T>(-3.0))) {
+        std::cout << "Failed: cxp::floor::f(-3.0) should match std::floor(-3.0)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::floor::f(static_cast<T>(-0.1)) != std::floor(static_cast<T>(-0.1))) {
+        std::cout << "Failed: cxp::floor::f(-0.1) should match std::floor(-0.1)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::floor::f(static_cast<T>(-0.9)) != std::floor(static_cast<T>(-0.9))) {
+        std::cout << "Failed: cxp::floor::f(-0.9) should match std::floor(-0.9)" << std::endl;
+        allCorrect = false;
+    }
+    
+    // Zero values
+    if (cxp::floor::f(static_cast<T>(0.0)) != std::floor(static_cast<T>(0.0))) {
+        std::cout << "Failed: cxp::floor::f(0.0) should match std::floor(0.0)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::floor::f(static_cast<T>(-0.0)) != std::floor(static_cast<T>(-0.0))) {
+        std::cout << "Failed: cxp::floor::f(-0.0) should match std::floor(-0.0)" << std::endl;
+        allCorrect = false;
+    }
+    
+    // Values near integer boundaries
+    if (cxp::floor::f(static_cast<T>(1.0)) != std::floor(static_cast<T>(1.0))) {
+        std::cout << "Failed: cxp::floor::f(1.0) should match std::floor(1.0)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::floor::f(static_cast<T>(-1.0)) != std::floor(static_cast<T>(-1.0))) {
+        std::cout << "Failed: cxp::floor::f(-1.0) should match std::floor(-1.0)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::floor::f(static_cast<T>(1.9999)) != std::floor(static_cast<T>(1.9999))) {
+        std::cout << "Failed: cxp::floor::f(1.9999) should match std::floor(1.9999)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::floor::f(static_cast<T>(-1.0001)) != std::floor(static_cast<T>(-1.0001))) {
+        std::cout << "Failed: cxp::floor::f(-1.0001) should match std::floor(-1.0001)" << std::endl;
+        allCorrect = false;
+    }
+    
+    // Large values
+    if (cxp::floor::f(static_cast<T>(1000.7)) != std::floor(static_cast<T>(1000.7))) {
+        std::cout << "Failed: cxp::floor::f(1000.7) should match std::floor(1000.7)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::floor::f(static_cast<T>(-1000.3)) != std::floor(static_cast<T>(-1000.3))) {
+        std::cout << "Failed: cxp::floor::f(-1000.3) should match std::floor(-1000.3)" << std::endl;
+        allCorrect = false;
+    }
+    
+    // Special values runtime
+    if (!std::isnan(cxp::floor::f(std::numeric_limits<T>::quiet_NaN()))) {
+        std::cout << "Failed: cxp::floor::f(NaN) should be NaN" << std::endl;
+        allCorrect = false;
+    }
+    if (!std::isinf(cxp::floor::f(std::numeric_limits<T>::infinity()))) {
+        std::cout << "Failed: cxp::floor::f(inf) should be inf" << std::endl;
+        allCorrect = false;
+    }
+    if (!std::isinf(cxp::floor::f(-std::numeric_limits<T>::infinity()))) {
+        std::cout << "Failed: cxp::floor::f(-inf) should be -inf" << std::endl;
+        allCorrect = false;
+    }
+    
+    // Verify special value signs are preserved
+    T result_pos_inf = cxp::floor::f(std::numeric_limits<T>::infinity());
+    T result_neg_inf = cxp::floor::f(-std::numeric_limits<T>::infinity());
+    if (result_pos_inf < 0) {
+        std::cout << "Failed: cxp::floor::f(+inf) should be positive infinity" << std::endl;
+        allCorrect = false;
+    }
+    if (result_neg_inf > 0) {
+        std::cout << "Failed: cxp::floor::f(-inf) should be negative infinity" << std::endl;
+        allCorrect = false;
+    }
+    
+    // Edge cases for different floating point precisions
+    if constexpr (std::is_same_v<T, float>) {
+        // Float-specific runtime tests
+        if (cxp::floor::f(16777215.9f) != std::floor(16777215.9f)) {
+            std::cout << "Failed: cxp::floor::f(16777215.9f) should match std::floor(16777215.9f)" << std::endl;
+            allCorrect = false;
+        }
+    } else if constexpr (std::is_same_v<T, double>) {
+        // Double-specific runtime tests
+        if (cxp::floor::f(9007199254740991.9) != std::floor(9007199254740991.9)) {
+            std::cout << "Failed: cxp::floor::f(9007199254740991.9) should match std::floor(9007199254740991.9)" << std::endl;
+            allCorrect = false;
+        }
+    }
+    
+    // Stress test with many small values
+    for (int i = -100; i <= 100; ++i) {
+        T val = static_cast<T>(i) + static_cast<T>(0.1);
+        if (cxp::floor::f(val) != std::floor(val)) {
+            std::cout << "Failed: cxp::floor::f(" << val << ") should match std::floor(" << val << ")" << std::endl;
+            allCorrect = false;
+            break;
+        }
+        
+        val = static_cast<T>(i) + static_cast<T>(0.9);
+        if (cxp::floor::f(val) != std::floor(val)) {
+            std::cout << "Failed: cxp::floor::f(" << val << ") should match std::floor(" << val << ")" << std::endl;
+            allCorrect = false;
+            break;
+        }
+    }
+    
+    return allCorrect;
+}
+
 // Runtime tests to complement compile-time tests
 bool runtime_tests() {
     bool allCorrect{true};
     // Test round with runtime values
     allCorrect &= test_round_rt<float>();
     allCorrect &= test_round_rt<double>();
+
+    // Test floor with runtime values
+    allCorrect &= test_floor_rt<float>();
+    allCorrect &= test_floor_rt<double>();
 
     // Test isinf with runtime values
     allCorrect &= test_isinf_rt<float>();
@@ -588,6 +796,9 @@ int launch() {
 
     static_assert(test_max_ct(), "max test failed");
     static_assert(test_min_ct(), "min test failed");
+
+    static_assert(test_floor_ct<float>(), "floor test failed for float");
+    static_assert(test_floor_ct<double>(), "floor test failed for double");
 
     // Runtime tests
     if (!runtime_tests()) {

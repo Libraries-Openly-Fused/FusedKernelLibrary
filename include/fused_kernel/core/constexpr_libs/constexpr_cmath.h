@@ -196,18 +196,35 @@ public: \
         CXP_F_FUNC
     };
 
-    namespace internal {
-        template <typename Type>
-        FK_HOST_DEVICE_CNST auto min_helper(const Type& value) {
-            return value;
-        }
-        template <typename FirstType, typename... Types>
-        FK_HOST_DEVICE_CNST auto min_helper(const FirstType& firstValue,
-            const Types&... values) {
-            const auto previousMin = min_helper(values...);
-            return firstValue <= previousMin ? firstValue : previousMin;
-        }
-    } // namespace internal
+    struct floor {
+    private:
+        struct BaseFunc {
+            using InstanceType = fk::UnaryType;
+            template <typename ST>
+            FK_HOST_DEVICE_FUSE ST exec(const ST& s) {
+                static_assert(std::is_floating_point_v<ST>, "Input must be a floating-point type");
+                if (isnan::f(s) || isinf::f(s) || (s == static_cast<ST>(0))) {
+                    return s;
+                }
+                if constexpr (std::is_same_v<ST, double>) {
+                    // For double, we can use long long safely
+                    const long long intPart = static_cast<long long>(s);
+                    if (s < ST(0) && s != static_cast<ST>(intPart)) {
+                        return static_cast<ST>(intPart - 1);
+                    }
+                    return static_cast<ST>(intPart);
+                } else {
+                    // For float, we use int to avoid performance issues with long long}
+                    const ST intPart = static_cast<int>(s);
+                    if (s < ST(0) && s != static_cast<ST>(intPart)) {
+                        return static_cast<ST>(intPart - 1);
+                    }
+                    return static_cast<ST>(intPart);
+                }
+            }
+        };
+        CXP_F_FUNC
+    };
 
     struct max {
         private:
