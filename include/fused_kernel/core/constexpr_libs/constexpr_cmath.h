@@ -65,6 +65,7 @@ public: \
 
     // safe_cmp_equal
     struct cmp_equal {
+        friend struct cmp_not_equal;
         private:
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
@@ -100,7 +101,7 @@ public: \
             using InstanceType = fk::BinaryType;
             template<typename ST1, typename ST2>
             FK_HOST_DEVICE_FUSE bool exec(const ST1& s1, const ST2& s2) {
-                return !cmp_equal::f(s1, s2);
+                return !cmp_equal::BaseFunc::exec(s1, s2);
             }
         };
         CXP_F_FUNC
