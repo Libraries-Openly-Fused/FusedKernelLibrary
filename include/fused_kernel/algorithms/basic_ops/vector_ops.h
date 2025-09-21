@@ -126,7 +126,7 @@ namespace fk {
         using Parent = UnaryOperation<T, bool, VectorAnd<T>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            return cxp::and::f(input);
+            return cxp::vector_and::f(input);
         }
     };
 } // namespace fk
