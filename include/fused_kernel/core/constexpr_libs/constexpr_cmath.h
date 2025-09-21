@@ -40,6 +40,8 @@ public: \
     }
 
     struct isnan {
+        friend struct round;
+        friend struct floor;
         private:
         struct BaseFunc {
             using InstanceType = fk::UnaryType;
@@ -52,6 +54,8 @@ public: \
     };
 
     struct isinf {
+        friend struct round;
+        friend struct floor;
         private:
         struct BaseFunc {
             using InstanceType = fk::UnaryType;
@@ -109,6 +113,8 @@ public: \
 
     // safe_cmp_less
     struct cmp_less {
+        friend struct cmp_greater;
+        friend struct cmp_greater_equal;
         private:
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
@@ -139,12 +145,13 @@ public: \
 
     // safe_cmp_greater
     struct cmp_greater {
+        friend struct cmp_less_equal;
         private:
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
             template<typename ST1, typename ST2>
             FK_HOST_DEVICE_FUSE bool exec(const ST1& s1, const ST2& s2) {
-                return cmp_less::f(s2, s1);
+                return cmp_less::BaseFunc::exec(s2, s1);
             }
         };
         CXP_F_FUNC
@@ -158,7 +165,7 @@ public: \
             template<typename ST1, typename ST2>
             FK_HOST_DEVICE_FUSE bool exec(const ST1& s1, const ST2& s2) {
                 // Equivalent to "not greater than".
-                return !cmp_greater::f(s1, s2);
+                return !cmp_greater::BaseFunc::exec(s1, s2);
             }
         };
         CXP_F_FUNC
@@ -172,7 +179,7 @@ public: \
             template<typename ST1, typename ST2>
             FK_HOST_DEVICE_FUSE bool exec(const ST1& s1, const ST2& s2) {
                 // Equivalent to "not less than".
-                return !cmp_less::f(s1, s2);
+                return !cmp_less::BaseFunc::exec(s1, s2);
             }
         };
         CXP_F_FUNC
@@ -185,7 +192,7 @@ public: \
             template <typename ST>
             FK_HOST_DEVICE_FUSE ST exec(const ST& s) {
                 static_assert(std::is_floating_point_v<ST>, "Input must be a floating-point type");
-                if (isnan::f(s) || isinf::f(s)) {
+                if (isnan::BaseFunc::exec(s) || isinf::BaseFunc::exec(s)) {
                     return s;
                 }
                 // Casted to int instead of long long, because long long is very slow on GPU
@@ -204,7 +211,7 @@ public: \
             template <typename ST>
             FK_HOST_DEVICE_FUSE ST exec(const ST& s) {
                 static_assert(std::is_floating_point_v<ST>, "Input must be a floating-point type");
-                if (isnan::f(s) || isinf::f(s) || (s == static_cast<ST>(0))) {
+                if (isnan::BaseFunc::exec(s) || isinf::BaseFunc::exec(s) || (s == static_cast<ST>(0))) {
                     return s;
                 }
                 if constexpr (std::is_same_v<ST, double>) {
