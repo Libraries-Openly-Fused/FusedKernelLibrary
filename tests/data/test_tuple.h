@@ -17,7 +17,7 @@
 #include <iostream>
 
 #include <fused_kernel/core/execution_model/operation_model/operation_tuple.h>
-#include <fused_kernel/algorithms/basic_ops/cuda_vector.h>
+#include <fused_kernel/algorithms/basic_ops/vector_ops.h>
 #include <fused_kernel/core/execution_model/memory_operations.h>
 
 constexpr bool buildTuple() {

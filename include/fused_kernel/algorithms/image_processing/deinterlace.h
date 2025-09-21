@@ -19,7 +19,7 @@
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <fused_kernel/core/execution_model/memory_operations.h>
 #include <fused_kernel/core/data/size.h>
-#include <fused_kernel/algorithms/basic_ops/logical.h>
+#include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 
 namespace fk {
     enum class DeinterlaceType { BLEND, INTER_LINEAR };
@@ -110,8 +110,8 @@ namespace fk {
             // useEvenLines = true, we interpolate if thread.y is odd and not the last line
             // useEvenLines = false, we interpolate if thread.y is even and not the first line
             const bool interpolate = params.useEvenLines ?
-                                        !IsEven<int>::exec(thread.y) && thread.y != ReadOperation::num_elems_y(Point(), backIOp) - 1
-                                        : IsEven<int>::exec(thread.y) && thread.y != 0;
+                                        !cxp::is_even::f(thread.y) && thread.y != ReadOperation::num_elems_y(Point(), backIOp) - 1
+                                        : cxp::is_even::f(thread.y) && thread.y != 0;
 
             return execInterLinearGetPixel(thread, backIOp, interpolate);
         }

@@ -16,7 +16,7 @@
 #define FK_ARITHMETIC
 
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
-#include <fused_kernel/core/utils/cuda_vector_utils.h>
+#include <fused_kernel/core/utils/vector_utils.h>
 
 namespace fk {
     template <typename I1, typename I2 = I1, typename O = I1, typename IT = BinaryType>

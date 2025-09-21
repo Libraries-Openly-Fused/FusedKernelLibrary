@@ -16,8 +16,7 @@
 #define FK_ALGEBRAIC
 
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
-#include <fused_kernel/algorithms/basic_ops/arithmetic.h>
-#include <fused_kernel/algorithms/basic_ops/cuda_vector.h>
+#include <fused_kernel/core/utils/vector_utils.h>
 
 namespace fk {
 
@@ -43,8 +42,7 @@ namespace fk {
             const float3 xOut = input * params.x;
             const float3 yOut = input * params.y;
             const float3 zOut = input * params.z;
-            using Reduce = VectorReduce<float3, Add<float>>;
-            return { Reduce::exec(xOut), Reduce::exec(yOut), Reduce::exec(zOut) };
+            return { cxp::sum::f(xOut), cxp::sum::f(yOut), cxp::sum::f(zOut) };
         }
     };
 
@@ -60,8 +58,7 @@ namespace fk {
             const float3 xOut = get<0>(input) * get<1>(input).x;
             const float3 yOut = get<0>(input) * get<1>(input).y;
             const float3 zOut = get<0>(input) * get<1>(input).z;
-            using Reduce = VectorReduce<float3, Add<float>>;
-            return { Reduce::exec(xOut), Reduce::exec(yOut), Reduce::exec(zOut) };
+            return { cxp::sum::f(xOut), cxp::sum::f(yOut), cxp::sum::f(zOut) };
         }
     };
 } //namespace fk

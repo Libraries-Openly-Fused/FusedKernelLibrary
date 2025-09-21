@@ -3,12 +3,17 @@
 #define FK_UTEST_CUDA_VECTOR_UTILS_COMMON_H
 
 #include <array>
-#include <fused_kernel/core/utils/cuda_vector_utils.h>
+#include <fused_kernel/core/utils/vector_utils.h>
 #include <fused_kernel/core/utils/type_to_string.h>
 #include <iostream>
 #include <string>
 #include <type_traits>
 #include <vector>
+
+#ifdef _MSC_VER
+#pragma warning(disable : 4804 4805 4806)
+#endif
+
 using namespace fk;
 std::vector<std::string> unexpected_failed_compilations;
 

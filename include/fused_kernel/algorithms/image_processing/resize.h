@@ -212,14 +212,14 @@ namespace fk {
         FK_HOST_FUSE Size compute_target_size(const Size& srcSize, const Size& dstSize) {
             const float scaleFactor = dstSize.height / (float)srcSize.height;
             const int targetHeight = dstSize.height;
-            const int targetWidth = static_cast<int>(cxp::round(scaleFactor * srcSize.width));
+            const int targetWidth = static_cast<int>(cxp::round::f(scaleFactor * srcSize.width));
             if constexpr (AR == AspectRatio::PRESERVE_AR_RN_EVEN) {
                 // We round to the next even integer smaller or equal to targetWidth
                 const int targetWidthTemp = targetWidth - (targetWidth % 2);
                 if (targetWidthTemp > dstSize.width) {
                     const float scaleFactorTemp = dstSize.width / (float)srcSize.width;
                     const int targetWidthTemp2 = dstSize.width;
-                    const int targetHeightTemp = static_cast<int> (cxp::round(scaleFactorTemp * srcSize.height));
+                    const int targetHeightTemp = static_cast<int> (cxp::round::f(scaleFactorTemp * srcSize.height));
                     return Size(targetWidthTemp2, targetHeightTemp - (targetHeightTemp % 2));
                 } else {
                     return Size(targetWidthTemp, targetHeight);
@@ -228,7 +228,7 @@ namespace fk {
                 if (targetWidth > dstSize.width) {
                     const float scaleFactorTemp = dstSize.width / (float)srcSize.width;
                     const int targetWidthTemp = dstSize.width;
-                    const int targetHeightTemp = static_cast<int> (cxp::round(scaleFactorTemp * srcSize.height));
+                    const int targetHeightTemp = static_cast<int> (cxp::round::f(scaleFactorTemp * srcSize.height));
                     return Size(targetWidthTemp, targetHeightTemp);
                 } else {
                     return Size(targetWidth, targetHeight);

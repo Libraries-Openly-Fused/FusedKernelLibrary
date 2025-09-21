@@ -20,94 +20,17 @@
 #include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 
 namespace fk {
-    enum class ShiftDirection { Left, Right };
-
-    template <typename T, ShiftDirection SD>
-    struct ShiftBase {
-    private:
-        using SelfType = ShiftBase<T, SD>;
-    public:
-        FK_STATIC_STRUCT(ShiftBase, SelfType)
-        using Parent = BinaryOperation<T, uint, T, ShiftBase<T, SD>>;
-        DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
-            static_assert(!validCUDAVec<T>, "Shift can't work with cuda vector types.");
-            static_assert(std::is_unsigned_v<T>, "Shift only works with unsigned integers.");
-            if constexpr (SD == ShiftDirection::Left) {
-                return input << params;
-            } else if constexpr (SD == ShiftDirection::Right) {
-                return input >> params;
-            }
-        }
-    };
-
-    template <typename T, ShiftDirection SD>
-    struct Shift {
-    private:
-        using SelfType = Shift<T, SD>;
-    public:
-        FK_STATIC_STRUCT(Shift, SelfType)
-        using Parent = BinaryOperation<T, uint, T, Shift<T, SD>>;
-        DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
-            return BinaryV<ShiftBase<VBase<T>, SD>, T, uint>::exec(input, { params });
-        }
-    };
-
-    template <typename T>
-    using ShiftLeft = Shift<T, ShiftDirection::Left>;
-    template <typename T>
-    using ShiftRight = Shift<T, ShiftDirection::Right>;
-
     template <typename I>
     struct IsEven {
+        static_assert(std::is_integral_v<VBase<I>>, "IsEven only works with integral and integral vector types");
     private:
         using SelfType = IsEven<I>;
     public:
         FK_STATIC_STRUCT(IsEven, SelfType)
         using Parent = UnaryOperation<I, bool, IsEven<I>>;
         DECLARE_UNARY_PARENT
-        using AcceptedTypes = TypeList<uchar, ushort, uint, ulong, ulonglong>;
-        using SigendTypes = TypeList<char, short, int, long, longlong>;
-        template <typename IType = InputType>
-        FK_HOST_DEVICE_FUSE std::enable_if_t<one_of_v<IType, AcceptedTypes>, OutputType> exec(const InputType& input) {
-            static_assert(one_of_v<I, AcceptedTypes>, "Input type not valid for UnaryIsEven");
-            return (input & 1u) == 0;
-        }
-        template <typename IType = InputType>
-        FK_HOST_DEVICE_FUSE std::enable_if_t<one_of_v<IType, SigendTypes>, OutputType> exec(const InputType& input) {
-            using UT = std::make_unsigned_t<IType>;
-            return IsEven<UT>::exec(static_cast<UT>(input));
-        }
-    };
-
-    template <typename I, typename P = I, typename O = I, typename IType = BinaryType>
-    struct MaxBase {
-    private:
-        using SelfType = MaxBase<I, P, O, IType>;
-    public:
-        FK_STATIC_STRUCT(MaxBase, SelfType)
-        using Parent = BinaryOperation<I, P, O, MaxBase<I, P, O, BinaryType>>;
-        DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
-            static_assert(!validCUDAVec<I> && !validCUDAVec<P> && !validCUDAVec<O>,
-                "Max_ can't work with cuda vector types.");
-            return cxp::max(input, params);
-        }
-    };
-
-    template <typename I, typename P, typename O>
-    struct MaxBase<I, P, O, UnaryType> {
-    private:
-        using SelfType = MaxBase<I, P, O, UnaryType>;
-    public:
-        FK_STATIC_STRUCT(MaxBase, SelfType)
-        using Parent = UnaryOperation<Tuple<I, P>, O, MaxBase<I, P, O, UnaryType>>;
-        DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            static_assert(!validCUDAVec<I> && !validCUDAVec<P> && !validCUDAVec<O>,
-                "Max_ can't work with cuda vector types.");
-            return cxp::max(get<0>(input), get<1>(input));
+        FK_HOST_DEVICE_FUSE auto exec(const InputType& input) {
+            return cxp::is_even::f(input);
         }
     };
 
@@ -120,7 +43,7 @@ namespace fk {
         using Parent = BinaryOperation<I, P, O, Max<I, P, O, BinaryType>>;
         DECLARE_BINARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
-            return BinaryV<MaxBase<VBase<I>, VBase<P>, VBase<O>>, I, P, O>::exec(input, params);
+            return cxp::max::f(input, params);
         }
     };
 
@@ -133,37 +56,7 @@ namespace fk {
         using Parent = UnaryOperation<Tuple<I, P>, O, Max<I, P, O, UnaryType>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            return UnaryV<MaxBase<VBase<I>, VBase<P>, VBase<O>, UnaryType>, Tuple<I, P>, O>::exec(input);
-        }
-    };
-
-    template <typename I, typename P = I, typename O = I, typename IType = BinaryType>
-    struct MinBase {
-    private:
-        using SelfType = MinBase<I, P, O, IType>;
-    public:
-        FK_STATIC_STRUCT(MinBase, SelfType)
-        using Parent = BinaryOperation<I, P, O, MinBase<I, P, O, BinaryType>>;
-        DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
-            static_assert(!validCUDAVec<I> && !validCUDAVec<P> && !validCUDAVec<O>,
-                "Min_ can't work with cuda vector types.");
-            return cxp::min(input, params);
-        }
-    };
-
-    template <typename I, typename P, typename O>
-    struct MinBase<I, P, O, UnaryType> {
-    private:
-        using SelfType = MinBase<I, P, O, UnaryType>;
-    public:
-        FK_STATIC_STRUCT(MinBase, SelfType)
-        using Parent = UnaryOperation<Tuple<I, P>, O, MinBase<I, P, O, UnaryType>>;
-        DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            static_assert(!validCUDAVec<I> && !validCUDAVec<P> && !validCUDAVec<O>,
-                "Min_ can't work with cuda vector types.");
-            return cxp::min(get<0>(input), get<1>(input));
+            return cxp::max::f(get<0>(input), get<1>(input));
         }
     };
 
@@ -176,7 +69,7 @@ namespace fk {
         using Parent = BinaryOperation<I, P, O, Min<I, P, O, BinaryType>>;
         DECLARE_BINARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
-            return BinaryV<MinBase<VBase<I>, VBase<P>, VBase<O>>, I, P, O>::exec(input, params);
+            return cxp::min::f(input, params);
         }
     };
 
@@ -189,7 +82,7 @@ namespace fk {
         using Parent = UnaryOperation<Tuple<I, P>, O, Min<I, P, O, UnaryType>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            return UnaryV<MinBase<VBase<I>, VBase<P>, VBase<O>, UnaryType>, Tuple<I, P>, O>::exec(input);
+            return cxp::min::f(get<0>(input), get<1>(input));
         }
     };
 

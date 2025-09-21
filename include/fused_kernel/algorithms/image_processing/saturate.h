@@ -18,41 +18,10 @@
 #include <cmath>
 
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
-#include <fused_kernel/algorithms/basic_ops/logical.h>
 #include <fused_kernel/core/utils/vlimits.h>
-#include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
+#include <fused_kernel/core/constexpr_libs/constexpr_saturate.h>
 
 namespace fk {
-
-    template <typename I, typename O>
-    struct SaturateCastBase {
-    private:
-        using SelfType = SaturateCastBase<I, O>;
-        using Parent = UnaryOperation<I, O, SelfType>;
-    public:
-        FK_STATIC_STRUCT(SaturateCastBase, SelfType)
-        DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            constexpr auto maxValOutput = maxValue<OutputType>;
-            constexpr auto minValueOutput = minValue<OutputType>;
-            if (cxp::cmp_greater(input, maxValOutput)) {
-                return maxValOutput;
-            } else if (cxp::cmp_less(input, minValueOutput)) {
-                return minValueOutput;
-            } else {
-                // We know that the value of input is within the
-                // numerical range of OutputType.
-                if constexpr (std::is_floating_point_v<I> && std::is_integral_v<O>) {
-                    // For floating point to integral conversion, we need to round
-                    return static_cast<OutputType>(cxp::round(input));
-                } else {
-                    // For any other case, we can cast directly
-                    return static_cast<OutputType>(input);
-                }
-            }
-        }
-    };
-
     template <typename I, typename O>
     struct SaturateCast {
     private:
@@ -62,16 +31,7 @@ namespace fk {
         using Parent = UnaryOperation<I, O, SaturateCast<I, O>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            return UnaryV<SaturateCastBase<VBase<I>, VBase<O>>, I, O>::exec(input);
-        }
-    };
-
-    struct SaturateFloatBase {
-        FK_STATIC_STRUCT(SaturateFloatBase, SaturateFloatBase)
-        using Parent = UnaryOperation<float, float, SaturateFloatBase>;
-        DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            return Max<float, float, float, UnaryType>::exec({ 0.f, Min<float,float,float,UnaryType>::exec({ input, 1.f }) });
+            return cxp::saturate_cast<OutputType>::f(input);
         }
     };
 
@@ -83,10 +43,9 @@ namespace fk {
         FK_STATIC_STRUCT(Saturate, SelfType)
         using Parent = BinaryOperation<T, VectorType_t<VBase<T>, 2>, T, Saturate<T>>;
         DECLARE_BINARY_PARENT
-        using Base = typename VectorTraits<T>::base;
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
             static_assert(!validCUDAVec<T>, "Saturate only works with non cuda vector types");
-            return Max<Base>::exec(Min<Base>::exec(input, { params.y }), { params.x });
+            return cxp::max::f(cxp::min::f(input, params.y), params.x);
         }
     };
 
@@ -100,7 +59,8 @@ namespace fk {
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
             static_assert(std::is_same_v<VBase<T>, float>, "Saturate float only works with float base types.");
-            return UnaryV<SaturateFloatBase, T, T>::exec(input);
+            
+            return cxp::max::f(make_set<InputType>(0.f), cxp::min::f(input, make_set<InputType>(1.f)));;
         }
     };
 

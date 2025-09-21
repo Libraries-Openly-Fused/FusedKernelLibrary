@@ -3,14 +3,14 @@
 
 #include <fused_kernel/algorithms/basic_ops/cast.h>
 #include <fused_kernel/algorithms/image_processing/saturate.h>
-#include <fused_kernel/core/utils/cuda_vector_utils.h>
+#include <fused_kernel/core/utils/vector_utils.h>
 #include <fused_kernel/core/utils/type_lists.h>
 #include <fused_kernel/core/utils/type_to_string.h>
 #include <fused_kernel/core/utils/vlimits.h>
 #include <tests/operation_test_utils.h>
 
 template <typename InputType, typename OutputType> constexpr OutputType expectedMinValue() {
-    if constexpr (cxp::cmp_less_equal(fk::minValue<fk::VBase<InputType>>, fk::minValue<fk::VBase<OutputType>>)) {
+    if constexpr (cxp::cmp_less_equal::f(fk::minValue<fk::VBase<InputType>>, fk::minValue<fk::VBase<OutputType>>)) {
         return fk::minValue<OutputType>;
     } else {
         return fk::Cast<InputType, OutputType>::exec(fk::minValue<InputType>);
@@ -20,7 +20,7 @@ template <typename InputType, typename OutputType> constexpr OutputType expected
 template <typename T> constexpr T halfPositiveRange() { return fk::make_set<T>(fk::maxValue<fk::VBase<T>> / 2); }
 
 template <typename OutputType, typename InputType> constexpr OutputType expectedPositiveValue(const InputType &input) {
-    if (cxp::cmp_greater(fk::vectorAt<0>(input), fk::maxValue<fk::VBase<OutputType>>)) {
+    if (cxp::cmp_greater::f(fk::get<0>(input), fk::maxValue<fk::VBase<OutputType>>)) {
         return fk::maxValue<OutputType>;
     } else {
         return fk::Cast<InputType, OutputType>::exec(input);

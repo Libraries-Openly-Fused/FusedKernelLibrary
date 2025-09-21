@@ -27,7 +27,7 @@
 #include <fused_kernel/core/utils/template_operations.h>
 #include <fused_kernel/algorithms/image_processing/saturate.h>
 #include <fused_kernel/core/execution_model/stream.h>
-#include <fused_kernel/algorithms/basic_ops/cuda_vector.h>
+#include <fused_kernel/algorithms/basic_ops/vector_ops.h>
 
 template <typename T>
 bool testPtr_2D() {
@@ -65,7 +65,7 @@ bool testPtr_2D() {
     for (int y = 0; y < output.dims().height; ++y) {
         for (int x = 0; x < output.dims().width; ++x) {
             const auto result = output.at({ x, y }) != fk::make_set<T>(2);
-            if (fk::vecAnd(result)) {
+            if (cxp::vector_and::f(result)) {
                 if constexpr (fk::cn<T> == 1 && !std::is_aggregate_v<T>) {
                     std::cout << "Error in output at (" << x << ", " << y << "): " << static_cast<int>(output.at({ x, y })) << std::endl;
                 } else {

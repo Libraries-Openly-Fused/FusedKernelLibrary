@@ -21,9 +21,9 @@
 #include <fused_kernel/core/utils/type_lists.h>
 #include <fused_kernel/core/utils/template_operations.h>
 #include <fused_kernel/core/data/vector_types.h>
+#include <fused_kernel/core/utils/static_get.h>
 
 namespace fk {
-
     template <typename BaseType, int Channels>
     struct VectorType {};
 
@@ -157,78 +157,69 @@ namespace fk {
 
     template <typename T>
     using VBase = typename VectorTraits<T>::base;
-    
-    template <int idx, typename T>
-    FK_HOST_DEVICE_CNST auto vectorAt(const T& vector) {
-        if constexpr (idx == 0) {
-            if constexpr (validCUDAVec<T>) {
-                return vector.x;
+
+    template <size_t Idx>
+    template <typename VT>
+    FK_HOST_DEVICE_CNST auto static_get<Idx>::f(const VT& v)
+        -> std::enable_if_t<IsCudaVector<VT>::value,
+                            typename VectorTraits<VT>::base> {
+        static_assert((Idx < cn<VT>), "Index out of bounds.");
+        if constexpr (Idx == 0) {
+            return v.x;
+        } else if constexpr (Idx == 1) {
+            return v.y;
+        } else if constexpr (Idx == 2) {
+            return v.z;
+        } else {
+            return v.w;
+        }
+    }
+
+    struct vector_at {
+        template <typename VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
+            -> std::enable_if_t<std::is_fundamental_v<VT>, VT> {
+            return v;
+        }
+        template <typename VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
+            -> std::enable_if_t<IsCudaVector<VT>::value && (cn<VT> == 1), VBase<VT>> {
+            return v.x;
+        }
+        template <typename VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
+            -> std::enable_if_t<IsCudaVector<VT>::value && (cn<VT> == 2), VBase<VT>> {
+            if (idx == 0) {
+                return v.x;
             } else {
-                return vector;
+                return v.y;
             }
-        } else if constexpr (idx == 1) {
-            static_assert(validCUDAVec<T>, "Non valid CUDA vetor type: vectorAt<invalid_type>()");
-            static_assert(cn<T> >= 2, "Vector type smaller than 2 elements has no member y");
-            return vector.y;
-        } else if constexpr (idx == 2) {
-            static_assert(validCUDAVec<T>, "Non valid CUDA vetor type: vectorAt<invalid_type>()");
-            static_assert(cn<T> >= 3, "Vector type smaller than 3 elements has no member z");
-            return vector.z;
-        } else if constexpr (idx == 3) {
-            static_assert(validCUDAVec<T>, "Non valid CUDA vetor type: vectorAt<invalid_type>()");
-            static_assert(cn<T> == 4, "Vector type smaller than 4 elements has no member w");
-            return vector.w;
         }
-    }
-
-    template <typename T>
-    FK_HOST_DEVICE_CNST std::enable_if_t<(cn<T> == 1), VBase<T>> vectorAt(const int& idx, const T& vector) {
-        assert((idx == 0 && idx >= 0) && "Index out of range. Either the Vector type has 1 channel or the type is not a CUDA Vector type");
-        if constexpr (validCUDAVec<T>) {
-            return vector.x;
-        } else {
-            return vector;
+        template <typename VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
+            -> std::enable_if_t<IsCudaVector<VT>::value && (cn<VT> == 3), VBase<VT>> {
+            if (idx == 0) {
+                return v.x;
+            } else if (idx == 1) {
+                return v.y;
+            } else {
+                return v.z;
+            }
         }
-    }
-
-    template <typename T>
-    FK_HOST_DEVICE_CNST std::enable_if_t<(cn<T> == 2), VBase<T>> vectorAt(const int& idx, const T& vector) {
-        assert((idx < 2 && idx >= 0) && "Index out of range. Vector type has only 2 channels.");
-        assert(validCUDAVec<T> && "Non valid CUDA vetor type: vectorAt<invalid_type>()");
-        if (idx == 0) {
-            return vector.x;
-        } else {
-            return vector.y;
+        template <typename VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
+            -> std::enable_if_t<IsCudaVector<VT>::value && (cn<VT> == 4), VBase<VT>> {
+            if (idx == 0) {
+                return v.x;
+            } else if (idx == 1) {
+                return v.y;
+            } else if (idx == 2) {
+                return v.z;
+            } else {
+                return v.w;
+            }
         }
-    }
-
-    template <typename T>
-    FK_HOST_DEVICE_CNST std::enable_if_t<(cn<T> == 3), VBase<T>> vectorAt(const int& idx, const T& vector) {
-        assert((idx < 3 && idx >= 0) && "Index out of range. Vector type has only 2 channels.");
-        assert(validCUDAVec<T> && "Non valid CUDA vetor type: vectorAt<invalid_type>()");
-        if (idx == 0) {
-            return vector.x;
-        } else if (idx == 1) {
-            return vector.y;
-        } else {
-            return vector.z;
-        }
-    }
-
-    template <typename T>
-    FK_HOST_DEVICE_CNST std::enable_if_t<(cn<T> == 4), VBase<T>> vectorAt(const int& idx, const T& vector) {
-        assert((idx < 4 && idx >= 0) && "Index out of range. Vector type has only 2 channels.");
-        assert(validCUDAVec<T> && "Non valid CUDA vetor type: vectorAt<invalid_type>()");
-        if (idx == 0) {
-            return vector.x;
-        } else if (idx == 1) {
-            return vector.y;
-        } else if (idx == 2) {
-            return vector.z;
-        } else {
-            return vector.w;
-        }
-    }
+    };
 
     // Automagically making any CUDA vector type from a template type
     // It will not compile if you try to do bad things. The number of elements
@@ -330,6 +321,12 @@ namespace fk {
     template <typename I1, typename I2>
     struct AreVS<I1, I2, std::enable_if_t<fk::validCUDAVec<I1>&& std::is_fundamental_v<I2>, void>> : public std::true_type {};
 
+    template <typename I1, typename I2, typename = void>
+    struct AreSS : public std::false_type {};
+
+    template <typename I1, typename I2>
+    struct AreSS<I1, I2, std::enable_if_t<std::is_fundamental_v<I1> && std::is_fundamental_v<I2>, void>> : public std::true_type {};
+
     // Utils to check if the type or combination of types can be used with a particular operator
     template <typename T, typename = void>
     struct CanUnary : public std::false_type {};
@@ -352,6 +349,14 @@ namespace fk {
     struct CanBinaryBitwise<I1, I2,
         std::enable_if_t<(AreVVEqCN<I1, I2>::value || AreSV<I1, I2>::value ||
             AreVS<I1, I2>::value) && BothIntegrals<I1, I2>::value, void>> : public std::true_type {};
+
+    template <typename I1, typename I2, typename = void>
+    struct CanShift : public std::false_type {};
+
+    template <typename I1, typename I2>
+    struct CanShift<I1, I2,
+        std::enable_if_t<(AreVVEqCN<I1, I2>::value || AreVS<I1, I2>::value)
+                         && BothIntegrals<I1, I2>::value, void>> : public std::true_type {};
 
     template <typename I1, typename I2, typename = void>
     struct CanCompound : public std::false_type {};
@@ -972,30 +977,76 @@ FK_HOST_DEVICE_CNST auto operator op(const I1& a, const I2& b) \
 VEC_BINARY_BITWISE(&)
 VEC_BINARY_BITWISE(|)
 VEC_BINARY_BITWISE(^)
+
 #undef VEC_BINARY_BITWISE
 #endif // VS2017_COMPILER
-namespace fk::internal {
-    template <typename TargetT, typename SourceT, size_t... Idx>
-    FK_HOST_DEVICE_CNST TargetT v_static_cast_helper(const SourceT& source, const std::index_sequence<Idx...>&) {
-        return make_<TargetT>(static_cast<VBase<TargetT>>(vectorAt<Idx>(source))...);
-    }
-} // namespace fk::internal
 
-template <typename TargetT, typename SourceT>
-FK_HOST_DEVICE_CNST TargetT v_static_cast(const SourceT& source) {
-    using namespace fk;
-    if constexpr (std::is_same_v<TargetT, SourceT>) {
-        return source;
-    } else if constexpr (validCUDAVec<SourceT>) {
-        static_assert(cn<TargetT> == cn<SourceT>, "Can not cast to a type with different number of channels");
-        return internal::v_static_cast_helper<TargetT>(source, std::make_index_sequence<cn<SourceT>>{});
-    } else {
-        static_assert(!validCUDAVec<TargetT> || (cn<TargetT> == 1),
-            "Can not convert a fundamental type to a vetor type with more than one channel");
-        if constexpr (validCUDAVec<TargetT>) {
-            return make_<TargetT>(static_cast<VBase<TargetT>>(source));
+template <typename I1, typename I2>
+FK_HOST_DEVICE_CNST auto operator<<(const I1& a, const I2& b)
+-> std::enable_if_t<fk::CanShift<I1, I2>::value, I1> {
+    if constexpr (fk::validCUDAVec<I2>) {
+        static_assert(fk::cn<I1> == fk::cn<I2>, "Vectors must have the same number of channels");
+        if constexpr (fk::cn<I1> == 1) {
+            if constexpr (fk::validCUDAVec<I1>) {
+                return fk::make_<I1>(a.x << b.x);
+            } else {
+                return a << b.x;
+            }
+        } else if constexpr (fk::cn<I1> == 2) {
+            return fk::make_<I1>(a.x << b.x, a.y << b.y);
+        } else if constexpr (fk::cn<I1> == 3) {
+            return fk::make_<I1>(a.x << b.x, a.y << b.y, a.z << b.z);
         } else {
-            return static_cast<TargetT>(source);
+            return fk::make_<I1>(a.x << b.x, a.y << b.y, a.z << b.z, a.w << b.w);
+        }
+    } else {
+        if constexpr (fk::validCUDAVec<I1>) {
+            if constexpr (fk::cn<I1> == 1) {
+                return fk::make_<I1>(a.x << b);
+            } else if constexpr (fk::cn<I1> == 2) {
+                return fk::make_<I1>(a.x << b, a.y << b);
+            } else if constexpr (fk::cn<I1> == 3) {
+                return fk::make_<I1>(a.x << b, a.y << b, a.z << b);
+            } else {
+                return fk::make_<I1>(a.x << b, a.y << b, a.z << b, a.w << b);
+            }
+        } else {
+            return a << b;
+        }
+    }
+}
+
+template <typename I1, typename I2>
+FK_HOST_DEVICE_CNST auto operator>>(const I1& a, const I2& b)
+-> std::enable_if_t<fk::CanShift<I1, I2>::value, I1> {
+    if constexpr (fk::validCUDAVec<I2>) {
+        static_assert(fk::cn<I1> == fk::cn<I2>, "Vectors must have the same number of channels");
+        if constexpr (fk::cn<I1> == 1) {
+            if constexpr (fk::validCUDAVec<I1>) {
+                return fk::make_<I1>(a.x >> b.x);
+            } else {
+                return a >> b.x;
+            }
+        } else if constexpr (fk::cn<I1> == 2) {
+            return fk::make_<I1>(a.x >> b.x, a.y >> b.y);
+        } else if constexpr (fk::cn<I1> == 3) {
+            return fk::make_<I1>(a.x >> b.x, a.y >> b.y, a.z >> b.z);
+        } else {
+            return fk::make_<I1>(a.x >> b.x, a.y >> b.y, a.z >> b.z, a.w >> b.w);
+        }
+    } else {
+        if constexpr (fk::validCUDAVec<I1>) {
+            if constexpr (fk::cn<I1> == 1) {
+                return fk::make_<I1>(a.x >> b);
+            } else if constexpr (fk::cn<I1> == 2) {
+                return fk::make_<I1>(a.x >> b, a.y >> b);
+            } else if constexpr (fk::cn<I1> == 3) {
+                return fk::make_<I1>(a.x >> b, a.y >> b, a.z >> b);
+            } else {
+                return fk::make_<I1>(a.x >> b, a.y >> b, a.z >> b, a.w >> b);
+            }
+        } else {
+            return a >> b;
         }
     }
 }
