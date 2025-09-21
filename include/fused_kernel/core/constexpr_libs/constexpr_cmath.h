@@ -32,17 +32,13 @@ namespace cxp {
     template <typename T>
     constexpr T smallestPositiveValue = std::is_floating_point_v<T> ? std::numeric_limits<T>::min() : static_cast<T>(1);
 
-#define CXP_F_FUNC \
-public: \
-    template <typename... Types> \
+#define CXP_F_FUNC                                     \
+    template <typename... Types>                       \
     FK_HOST_DEVICE_FUSE auto f(const Types&... vals) { \
-        return Exec<BaseFunc>::exec(vals...); \
+        return Exec<BaseFunc>::exec(vals...);          \
     }
 
     struct isnan {
-        friend struct round;
-        friend struct floor;
-        private:
         struct BaseFunc {
             using InstanceType = fk::UnaryType;
             template <typename ST>
@@ -54,9 +50,6 @@ public: \
     };
 
     struct isinf {
-        friend struct round;
-        friend struct floor;
-        private:
         struct BaseFunc {
             using InstanceType = fk::UnaryType;
             template <typename ST>
@@ -69,8 +62,6 @@ public: \
 
     // safe_cmp_equal
     struct cmp_equal {
-        friend struct cmp_not_equal;
-        private:
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
             template<typename ST1, typename ST2>
@@ -100,7 +91,6 @@ public: \
 
     // safe_cmp_not_equal
     struct cmp_not_equal {
-        private:
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
             template<typename ST1, typename ST2>
@@ -113,9 +103,6 @@ public: \
 
     // safe_cmp_less
     struct cmp_less {
-        friend struct cmp_greater;
-        friend struct cmp_greater_equal;
-        private:
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
             template<typename ST1, typename ST2>
@@ -145,8 +132,6 @@ public: \
 
     // safe_cmp_greater
     struct cmp_greater {
-        friend struct cmp_less_equal;
-        private:
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
             template<typename ST1, typename ST2>
@@ -159,7 +144,6 @@ public: \
 
     // safe_cmp_less_equal
     struct cmp_less_equal {
-        private:
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
             template<typename ST1, typename ST2>
@@ -173,7 +157,6 @@ public: \
 
     // safe_cmp_greater_equal
     struct cmp_greater_equal {
-        private:
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
             template<typename ST1, typename ST2>
@@ -186,7 +169,6 @@ public: \
     };
 
     struct round {
-        private:
         struct BaseFunc {
             using InstanceType = fk::UnaryType;
             template <typename ST>
@@ -205,7 +187,6 @@ public: \
     };
 
     struct floor {
-    private:
         struct BaseFunc {
             using InstanceType = fk::UnaryType;
             template <typename ST>
@@ -235,7 +216,6 @@ public: \
     };
 
     struct max {
-        private:
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
             template <typename ST>
@@ -252,7 +232,6 @@ public: \
     };
 
     struct min {
-        private:
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
             template <typename ST>
@@ -269,7 +248,6 @@ public: \
     };
 
     struct abs {
-        private:
         struct BaseFunc {
             using InstanceType = fk::UnaryType;
             template <typename ST>
@@ -290,7 +268,6 @@ public: \
 
     // NON SDT FUNCTIONS
     struct sum {
-    private:
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
             template <typename ST1, typename ST2>
@@ -303,7 +280,6 @@ public: \
 
     template <typename OT>
     struct cast {
-    private:
         struct BaseFunc {
             using InstanceType = fk::UnaryType;
             template <typename ST>
@@ -311,7 +287,6 @@ public: \
                 return static_cast<fk::VBase<OT>>(s);
             }
         };
-    public: 
         template <typename T>
         FK_HOST_DEVICE_FUSE auto f(const T& val) {
             static_assert(fk::AreSS<OT, T>::value || fk::AreVVEqCN<OT, T>::value,
@@ -321,7 +296,6 @@ public: \
     };
 
     struct is_even {
-        private:
         struct BaseFunc {
             using InstanceType = fk::UnaryType;
             template <typename ST>

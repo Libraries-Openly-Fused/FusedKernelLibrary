@@ -29,16 +29,16 @@ namespace cxp {
             FK_HOST_DEVICE_FUSE auto exec(const ST& s) {
                 constexpr auto maxValOutput = maxValue<fk::VBase<OT>>;
                 constexpr auto minValueOutput = minValue<fk::VBase<OT>>;
-                if (cxp::cmp_greater::f(s, maxValOutput)) {
+                if (cxp::cmp_greater::BaseFunc::exec(s, maxValOutput)) {
                     return maxValOutput;
-                } else if (cxp::cmp_less::f(s, minValueOutput)) {
+                } else if (cxp::cmp_less::BaseFunc::exec(s, minValueOutput)) {
                     return minValueOutput;
                 } else {
                     // We know that the value of input is within the
                     // numerical range of OutputType.
                     if constexpr (std::is_floating_point_v<ST> && std::is_integral_v<OT>) {
                         // For floating point to integral conversion, we need to round
-                        return static_cast<fk::VBase<OT>>(cxp::round::f(s));
+                        return static_cast<fk::VBase<OT>>(cxp::round::BaseFunc::exec(s));
                     } else {
                         // For any other case, we can cast directly
                         return static_cast<fk::VBase<OT>>(s);

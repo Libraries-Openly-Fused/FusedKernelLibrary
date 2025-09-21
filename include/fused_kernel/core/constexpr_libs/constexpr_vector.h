@@ -23,9 +23,10 @@ namespace cxp {
         template <typename T>
         FK_HOST_DEVICE_FUSE bool f(const T& value) {
             if constexpr (fk::validCUDAVec<T>) {
-                const auto valBool = cast<fk::VectorType_t<bool, fk::cn<T>>>::f(value);
+                using VecBoolType = fk::VectorType_t<bool, fk::cn<T>>;
+                const auto valBool = cast<VecBoolType>::f(value);
                 if constexpr (fk::cn<T> == 1) {
-                    return valBool;
+                    return valBool.x;
                 } else if constexpr (fk::cn<T> == 2) {
                     return valBool.x && valBool.y;
                 } else if constexpr (fk::cn<T> == 3) {
@@ -41,21 +42,13 @@ namespace cxp {
 
     template <size_t NewNumChannels>
     struct discard {
-    private:
         template <size_t... Idx, typename I>
         FK_HOST_DEVICE_FUSE auto f_helper(const std::index_sequence<Idx...>&,
-                                                            const I& input) {
+                                          const I& input) {
             using BaseType = fk::VBase<I>;
             using OutputType = typename fk::VectorType<BaseType, NewNumChannels>::type_v;
-            if constexpr (NewNumChannels == 1) {
-                return BaseType{input.x};
-            } else if constexpr (NewNumChannels == 2) {
-                return OutputType{input.x, input.y};
-            } else if constexpr (NewNumChannels == 3) {
-                return OutputType{input.x, input.y, input.z};
-            }
+            return OutputType{fk::static_get<Idx>::f(input)...};
         }
-    public:
         template <typename I>
         FK_HOST_DEVICE_FUSE auto f(const I& input)
             -> std::enable_if_t<(fk::cn<I> >= 2) && (NewNumChannels < fk::cn<I>),
@@ -81,8 +74,7 @@ namespace cxp {
         template <typename VT>
         FK_HOST_DEVICE_FUSE auto f(const VT& v) {
             if constexpr (std::is_same_v<typename Op::InstanceType, fk::UnaryType>) {
-                using T1 = fk::get_type_t<0, typename Op::InputType>;
-                using T2 = fk::get_type_t<1, typename Op::InputType>;
+                using IT = typename Op::InputType;
                 if constexpr (fk::cn<VT> == 1) {
                     if constexpr (fk::validCUDAVec<VT>) {
                         return v.x;
@@ -90,14 +82,14 @@ namespace cxp {
                         return v;
                     }
                 } else if constexpr (fk::cn<VT> == 2) {
-                    return Op::exec({ static_cast<T1>(v.x), static_cast<T2>(v.y) });
+                    return Op::exec(IT{ v.x, v.y });
                 } else if constexpr (fk::cn<VT> == 3) {
-                    const auto firstR = Op::exec({ static_cast<T1>(v.x), static_cast<T2>(v.y) });
-                    return Op::exec({ static_cast<T1>(firstR), static_cast<T2>(v.z) });
+                    const auto firstR = Op::exec(IT{ v.x, v.y });
+                    return Op::exec(IT{ firstR, v.z });
                 } else if constexpr (fk::cn<VT> == 4) {
-                    const auto firstR  = Op::exec({ static_cast<T1>(v.x),     static_cast<T2>(v.y) });
-                    const auto secondR = Op::exec({ static_cast<T1>(firstR),  static_cast<T2>(v.z)});
-                    return Op::exec({ static_cast<T1>(secondR), static_cast<T2>(v.w) });
+                    const auto firstR  = Op::exec(IT{ v.x, v.y });
+                    const auto secondR = Op::exec(IT{ firstR, v.z });
+                    return Op::exec(IT{ secondR, v.w });
                 }
             } else if constexpr (std::is_same_v<typename Op::InstanceType, fk::BinaryType>) {
                 if constexpr (fk::cn<VT> == 1) {
