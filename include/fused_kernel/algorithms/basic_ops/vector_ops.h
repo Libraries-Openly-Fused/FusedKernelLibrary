@@ -16,6 +16,7 @@
 #define FK_CUDA_VECTOR
 
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
+#include <fused_kernel/core/constexpr_libs/constexpr_vector.h>
 
 namespace fk {
     template <typename I, typename O>
@@ -28,19 +29,13 @@ namespace fk {
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
             static_assert(cn<I> > cn<O>, "Output type should at least have one channel less");
-            static_assert(std::is_same_v<typename VectorTraits<I>::base,
-                typename VectorTraits<O>::base>,
+            static_assert(std::is_same_v<VBase<I>, VBase<O>>,
                 "Base types should be the same");
-            if constexpr (cn<O> == 1) {
-                if constexpr (std::is_aggregate_v<O>) {
-                    return { input.x };
-                } else {
-                    return input.x;
-                }
-            } else if constexpr (cn<O> == 2) {
-                return { input.x, input.y };
-            } else if constexpr (cn<O> == 3) {
-                return { input.x, input.y, input.z };
+            const auto result = cxp::discard<cn<OutputType>>::f(input);
+            if constexpr (std::is_fundamental_v<OutputType>) {
+                return result.x;
+            } else {
+                return result;
             }
         }
     };
@@ -56,7 +51,7 @@ namespace fk {
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
             static_assert(validCUDAVec<T>, "Non valid CUDA vetor type: UnaryVectorReorder");
             static_assert(cn<T> >= 2, "Minimum number of channels is 2: UnaryVectorReorder");
-            return {get<Idx>(input)...};
+            return {static_get<Idx>::f(input)...};
         }
     };
 
@@ -72,14 +67,13 @@ namespace fk {
             static_assert(validCUDAVec<T>, "Non valid CUDA vetor type");
             static_assert(cn<T> >= 2, "Minimum number of channels is 2");
             if constexpr (cn<T> == 2) {
-                const fk::Array<VBase<T>, 2> temp{ input.x, input.y };
-                return { temp.at[params.x], temp.at[params.y] };
+                return { vector_at::f(params.x, input), vector_at::f(params.y, input) };
             } else if constexpr (cn<T> == 3) {
-                const fk::Array<VBase<T>, 3> temp{ input.x, input.y, input.z };
-                return { temp.at[params.x], temp.at[params.y], temp.at[params.z] };
+                return { vector_at::f(params.x, input), vector_at::f(params.y, input),
+                         vector_at::f(params.z, input) };
             } else {
-                const fk::Array<VBase<T>, 4> temp{ input.x, input.y, input.z, input.w };
-                return { temp.at[params.x], temp.at[params.y], temp.at[params.z], temp.at[params.w] };
+                return { vector_at::f(params.x, input), vector_at::f(params.y, input),
+                         vector_at::f(params.z, input), vector_at::f(params.w, input) };
             }
         }
     };
@@ -92,38 +86,8 @@ namespace fk {
         FK_STATIC_STRUCT(VectorReduce, SelfType)
         using Parent = UnaryOperation<T, typename Operation::OutputType, VectorReduce<T, Operation>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            if constexpr (std::is_same_v<typename Operation::InstanceType, UnaryType>) {
-                using T1 = get_type_t<0, typename Operation::InputType>;
-                using T2 = get_type_t<1, typename Operation::InputType>;
-                if constexpr (cn<T> == 1) {
-                    if constexpr (validCUDAVec<T>) {
-                        return input.x;
-                    } else {
-                        return input;
-                    }
-                } else if constexpr (cn<T> == 2) {
-                    return Operation::exec({ static_cast<T1>(input.x), static_cast<T2>(input.y) });
-                } else if constexpr (cn<T> == 3) {
-                    return Operation::exec({ static_cast<T1>(Operation::exec({ static_cast<T1>(input.x), static_cast<T2>(input.y) })), static_cast<T2>(input.z) });
-                } else if constexpr (cn<T> == 4) {
-                    return Operation::exec({ static_cast<T1>(Operation::exec({ static_cast<T1>(Operation::exec({ static_cast<T1>(input.x), static_cast<T2>(input.y) })), static_cast<T2>(input.z) })), static_cast<T2>(input.w) });
-                }
-            } else if constexpr (std::is_same_v<typename Operation::InstanceType, BinaryType>) {
-                if constexpr (cn<T> == 1) {
-                    if constexpr (validCUDAVec<T>) {
-                        return input.x;
-                    } else {
-                        return input;
-                    }
-                } else if constexpr (cn<T> == 2) {
-                    return Operation::exec(input.x, input.y);
-                } else if constexpr (cn<T> == 3) {
-                    return Operation::exec(Operation::exec(input.x, input.y), input.z);
-                } else if constexpr (cn<T> == 4) {
-                    return Operation::exec(Operation::exec(Operation::exec(input.x, input.y), input.z), input.w);
-                }
-            }
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) { 
+            return cxp::vector_reduce<Operation>::f(input);
         }
     };
 
@@ -140,7 +104,7 @@ namespace fk {
             static_assert(std::is_same_v<typename VectorTraits<I>::base, typename VectorTraits<O>::base>,
                 "Base types should be the same");
             if constexpr (cn<I> == 1) {
-                if constexpr (std::is_aggregate_v<I>) {
+                if constexpr (validCUDAVec<I>) {
                     return { input.x, params };
                 } else {
                   return {input, params};
@@ -162,13 +126,9 @@ namespace fk {
         using Parent = UnaryOperation<T, bool, VectorAnd<T>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
-            using BoolType = VectorType_t<bool, cn<T>>;
-            const auto boolInput = cxp::cast<BoolType>::f(input);
-            return boolInput;
+            return cxp::and::f(input);
         }
     };
-
-    
 } // namespace fk
 
 #endif

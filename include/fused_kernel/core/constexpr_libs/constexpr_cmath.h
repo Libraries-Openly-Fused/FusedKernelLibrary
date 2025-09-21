@@ -300,7 +300,15 @@ public: \
         FK_HOST_DEVICE_FUSE bool f(const T& value) {
             if constexpr (fk::validCUDAVec<T>) {
                 const auto valBool = cast<fk::VectorType_t<bool, fk::cn<T>>>::f(value);
-                return valBool;
+                if constexpr (fk::cn<T> == 1) {
+                    return valBool;
+                } else if constexpr (fk::cn<T> == 2) {
+                    return valBool.x && valBool.y;
+                } else if constexpr (fk::cn<T> == 3) {
+                    return valBool.x && valBool.y && valBool.z;
+                } else {
+                    return valBool.x && valBool.y && valBool.z && valBool.w;
+                }
             } else {
                 return static_cast<bool>(value);
             }
