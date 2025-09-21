@@ -21,6 +21,7 @@
 #include <fused_kernel/core/utils/type_lists.h>
 #include <fused_kernel/core/utils/template_operations.h>
 #include <fused_kernel/core/data/vector_types.h>
+#include <fused_kernel/core/utils/static_get.h>
 
 namespace fk {
     template <typename BaseType, int Channels>
@@ -156,70 +157,69 @@ namespace fk {
 
     template <typename T>
     using VBase = typename VectorTraits<T>::base;
-    
-    template <size_t Idx, typename T>
-    FK_HOST_DEVICE_CNST auto get(const T& vecVal)
-        -> std::enable_if_t<fk::validCUDAVec<T>, typename fk::VBase<T>> {
-        static_assert(Idx < fk::cn<T>, "Index out of bounds");
+
+    template <size_t Idx>
+    template <typename VT>
+    FK_HOST_DEVICE_CNST auto static_get<Idx>::f(const VT& v)
+        -> std::enable_if_t<IsCudaVector<VT>::value,
+                            typename VectorTraits<VT>::base> {
+        static_assert((Idx < cn<VT>), "Index out of bounds.");
         if constexpr (Idx == 0) {
-            return vecVal.x;
+            return v.x;
         } else if constexpr (Idx == 1) {
-            return vecVal.y;
+            return v.y;
         } else if constexpr (Idx == 2) {
-            return vecVal.z;
+            return v.z;
         } else {
-            return vecVal.w;
+            return v.w;
         }
     }
 
-    template <typename T>
-    FK_HOST_DEVICE_CNST std::enable_if_t<(cn<T> == 1), VBase<T>> vectorAt(const int& idx, const T& vector) {
-        assert((idx == 0 && idx >= 0) && "Index out of range. Either the Vector type has 1 channel or the type is not a CUDA Vector type");
-        if constexpr (validCUDAVec<T>) {
-            return vector.x;
-        } else {
-            return vector;
+    struct vector_at {
+        template <typename VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
+            -> std::enable_if_t<std::is_fundamental_v<VT>, VT> {
+            return v;
         }
-    }
-
-    template <typename T>
-    FK_HOST_DEVICE_CNST std::enable_if_t<(cn<T> == 2), VBase<T>> vectorAt(const int& idx, const T& vector) {
-        assert((idx < 2 && idx >= 0) && "Index out of range. Vector type has only 2 channels.");
-        assert(validCUDAVec<T> && "Non valid CUDA vetor type: vectorAt<invalid_type>()");
-        if (idx == 0) {
-            return vector.x;
-        } else {
-            return vector.y;
+        template <typename VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
+            -> std::enable_if_t<IsCudaVector<VT>::value && (cn<VT> == 1), VBase<VT>> {
+            return v.x;
         }
-    }
-
-    template <typename T>
-    FK_HOST_DEVICE_CNST std::enable_if_t<(cn<T> == 3), VBase<T>> vectorAt(const int& idx, const T& vector) {
-        assert((idx < 3 && idx >= 0) && "Index out of range. Vector type has only 2 channels.");
-        assert(validCUDAVec<T> && "Non valid CUDA vetor type: vectorAt<invalid_type>()");
-        if (idx == 0) {
-            return vector.x;
-        } else if (idx == 1) {
-            return vector.y;
-        } else {
-            return vector.z;
+        template <typename VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
+            -> std::enable_if_t<IsCudaVector<VT>::value && (cn<VT> == 2), VBase<VT>> {
+            if (idx == 0) {
+                return v.x;
+            } else {
+                return v.y;
+            }
         }
-    }
-
-    template <typename T>
-    FK_HOST_DEVICE_CNST std::enable_if_t<(cn<T> == 4), VBase<T>> vectorAt(const int& idx, const T& vector) {
-        assert((idx < 4 && idx >= 0) && "Index out of range. Vector type has only 2 channels.");
-        assert(validCUDAVec<T> && "Non valid CUDA vetor type: vectorAt<invalid_type>()");
-        if (idx == 0) {
-            return vector.x;
-        } else if (idx == 1) {
-            return vector.y;
-        } else if (idx == 2) {
-            return vector.z;
-        } else {
-            return vector.w;
+        template <typename VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
+            -> std::enable_if_t<IsCudaVector<VT>::value && (cn<VT> == 3), VBase<VT>> {
+            if (idx == 0) {
+                return v.x;
+            } else if (idx == 1) {
+                return v.y;
+            } else {
+                return v.z;
+            }
         }
-    }
+        template <typename VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
+            -> std::enable_if_t<IsCudaVector<VT>::value && (cn<VT> == 4), VBase<VT>> {
+            if (idx == 0) {
+                return v.x;
+            } else if (idx == 1) {
+                return v.y;
+            } else if (idx == 2) {
+                return v.z;
+            } else {
+                return v.w;
+            }
+        }
+    };
 
     // Automagically making any CUDA vector type from a template type
     // It will not compile if you try to do bad things. The number of elements
