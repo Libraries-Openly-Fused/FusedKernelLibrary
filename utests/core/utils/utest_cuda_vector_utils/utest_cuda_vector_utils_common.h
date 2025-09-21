@@ -9,6 +9,11 @@
 #include <string>
 #include <type_traits>
 #include <vector>
+
+#ifdef _MSC_VER
+#pragma warning(disable : 4804 4805 4806)
+#endif
+
 using namespace fk;
 std::vector<std::string> unexpected_failed_compilations;
 
