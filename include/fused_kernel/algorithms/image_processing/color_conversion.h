@@ -295,7 +295,8 @@ namespace fk {
         public:
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
             // Pixel data shifted to the right to it's color depth numerical range
-            const InputType shiftedPixel = input >> shiftFactor<CD>;
+            constexpr auto shiftFactorLocal = shiftFactor<CD>;
+            const InputType shiftedPixel = input >> shiftFactorLocal;
 
             // Using color depth numerical range to compute the RGB pixel
             const OutputType computedPixel = computePixel(shiftedPixel);
@@ -304,7 +305,8 @@ namespace fk {
                 return NormalizeColorRangeDepth<OutputType, CD>::exec(computedPixel);
             } else {
                 // Moving back the pixel channels to data type numerical range, either 8bit or 16bit
-                return computedPixel << shiftFactor<CD>;
+                constexpr auto shiftFactorLocal = shiftFactor<CD>;
+                return computedPixel << shiftFactorLocal;
             }
         }
     };

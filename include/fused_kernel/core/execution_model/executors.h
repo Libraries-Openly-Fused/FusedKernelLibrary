@@ -77,7 +77,7 @@ namespace fk {
     struct BaseExecutor {
         template <size_t initialIdx, ParArch PA, size_t... Idx, typename... IOps>
         FK_HOST_FUSE void executeOperationsBase_helper(const std::index_sequence<Idx...>&, Stream_<PA>& stream, const IOps&... iOps) {
-            if constexpr (initialIdx == 0) {
+            if constexpr (initialIdx < 2) {
                 Child::executeOperations_helper(stream, iOps...);
             } else {
                 const auto firstOp = Back::fuse(iOps...);
@@ -308,10 +308,10 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                                  static_cast<uint>(ceil(activeThreads.y / static_cast<float>(block.y))),
                                  activeThreads.z };
                 if (!tDetails.threadDivisible) {
-                    launchTransformDPP_Kernel<PA, TFEN, false> << <grid, block, 0, stream >> > (tDetails, iOps...);
+                    launchTransformDPP_Kernel<ParArch::GPU_NVIDIA, TFEN, false> << <grid, block, 0, stream >> > (tDetails, iOps...);
                     gpuErrchk(cudaGetLastError());
                 } else {
-                    launchTransformDPP_Kernel<PA, TFEN, true> << <grid, block, 0, stream >> > (tDetails, iOps...);
+                    launchTransformDPP_Kernel<ParArch::GPU_NVIDIA, TFEN, true> << <grid, block, 0, stream >> > (tDetails, iOps...);
                     gpuErrchk(cudaGetLastError());
                 }
             } else {
@@ -325,7 +325,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                 const dim3 grid{ static_cast<uint>(ceil(activeThreads.x / static_cast<float>(block.x))),
                                  static_cast<uint>(ceil(activeThreads.y / static_cast<float>(block.y))),
                                  activeThreads.z };
-                launchTransformDPP_Kernel<PA, TFEN, true> << <grid, block, 0, stream >> > (tDetails, iOps...);
+                launchTransformDPP_Kernel<ParArch::GPU_NVIDIA, TFEN, true> << <grid, block, 0, stream >> > (tDetails, iOps...);
                 gpuErrchk(cudaGetLastError());
             }
         }
@@ -354,7 +354,13 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
 
         template <size_t firstNonBack, size_t... Idx, typename FirstIOp, typename... IOps>
         FK_HOST_FUSE auto getNewIOpSequence(const std::index_sequence<Idx...>&, const FirstIOp& firstIOp, const Tuple<IOps...>& iOps) {
-            return IOpSequence<FirstIOp, get_t<firstNonBack + Idx, Tuple<IOps...>>...>(firstIOp, get<firstNonBack + Idx>(iOps)...);
+            if constexpr (firstNonBack < 2) {
+                return IOpSequence<IOps...>{iOps};
+            } else {
+                return IOpSequence<FirstIOp, get_t<firstNonBack + Idx, Tuple<IOps...>>...>{
+                    Tuple<FirstIOp, get_t<firstNonBack + Idx, Tuple<IOps...>>...>{firstIOp, get<firstNonBack + Idx>(iOps)...}
+                };
+            }
         }
 
         template <typename... IOps>
@@ -366,19 +372,19 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         }
 
         template <typename... IOpSequenceTypes>
-        FK_HOST_FUSE void executeOperationsFused(Stream& stream, const IOpSequenceTypes&... iOpSequences) {
+        FK_HOST_FUSE void executeOperationsFused(Stream_<ParArch::GPU_NVIDIA>& stream, const IOpSequenceTypes&... iOpSequences) {
             const ActiveThreads activeThreads = getActiveThreads(std::make_index_sequence<sizeof...(iOpSequences)>{}, iOpSequences...);
             const DPPDetails details{};
 
             const dim3 block(cxp::min::f(activeThreads.x, 32u), cxp::min::f(activeThreads.y, 8u));
             const dim3 grid(ceil(activeThreads.x / static_cast<float>(block.x)),
                             ceil(activeThreads.y / static_cast<float>(block.y)), activeThreads.z);
-            launchDivergentBatchTransformDPP_Kernel<<<grid, block, 0, stream.getCUDAStream()>>>(details, iOpSequences...);
+            launchDivergentBatchTransformDPP_Kernel<ParArch::GPU_NVIDIA, SequenceSelector><<<grid, block, 0, stream.getCUDAStream()>>>(details, iOpSequences...);
             gpuErrchk(cudaGetLastError());
         }
 
         template <typename... IOpSequenceTypes>
-        FK_HOST_FUSE void executeOperations_helper(Stream& stream, const IOpSequenceTypes&... iOpSequences) {
+        FK_HOST_FUSE void executeOperations_helper(Stream_<ParArch::GPU_NVIDIA>& stream, const IOpSequenceTypes&... iOpSequences) {
             executeOperationsFused(stream, fuseBackSequence(iOpSequences)...);
         }
 

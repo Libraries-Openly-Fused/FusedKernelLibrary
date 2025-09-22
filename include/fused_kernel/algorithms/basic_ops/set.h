@@ -69,8 +69,11 @@ namespace fk {
             } else if constexpr (D == ND::_3D) {
                 const ActiveThreads activeThreads(dims.width, dims.height, dims.planes);
                 return InstantiableType{ OperationDataType{{ value, activeThreads }} };
+            } else if constexpr (D == ND::T3D) {
+                const ActiveThreads activeThreads(dims.width, dims.height, dims.planes);
+                return InstantiableType{ OperationDataType{{value, activeThreads}} };
             } else {
-                static_assert(D == ND::_1D || D == ND::_2D || D == ND::_3D, "Unsupported ND type for ReadSet build.");
+                static_assert(D == ND::_1D || D == ND::_2D || D == ND::_3D || D == ND::T3D, "Unsupported ND type for ReadSet build.");
                 return InstantiableType{};
             }
         }
