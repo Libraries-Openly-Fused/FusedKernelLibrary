@@ -352,21 +352,16 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             return ActiveThreads{ x, y, z }; 
         }
 
-        template <typename FirstIOp, size_t firstNonBack, size_t... Idx, typename... IOps>
-        FK_HOST_FUSE auto getNewIOpSequence(const std::index_sequence<Idx...>&, const FirstIOp& firstIOp, const IOps&... iOps) {
-            return IOpSequence<FirstIOp, get_t<firstNonBack + Idx, IOps...>...>(firstIOp, get<firstNonBack + Idx>(iOps...)...);
-        }
-
-        template <typename FirstIOp, size_t firstNonBack, size_t... Idx, typename... IOps>
+        template <size_t firstNonBack, size_t... Idx, typename FirstIOp, typename... IOps>
         FK_HOST_FUSE auto getNewIOpSequence(const std::index_sequence<Idx...>&, const FirstIOp& firstIOp, const Tuple<IOps...>& iOps) {
-            return IOpSequence<FirstIOp, get_t<firstNonBack + Idx, IOps...>...>(firstIOp, get<firstNonBack + Idx>(iOps)...);
+            return IOpSequence<FirstIOp, get_t<firstNonBack + Idx, Tuple<IOps...>>...>(firstIOp, get<firstNonBack + Idx>(iOps)...);
         }
 
         template <typename... IOps>
         FK_HOST_FUSE auto fuseBackSequence(const IOpSequence<IOps...>& iOpSeq) {
             const auto firstOp = fk::apply(Back::fuse<IOps...>, iOpSeq.iOps);
             constexpr auto firstNonBackIdx = Back::idxFirstNonBack<IOps...>();
-            return getNewIOpSequence(std::make_index_sequence<sizeof...(IOps) - firstNonBackIdx>{}, firstOp,
+            return getNewIOpSequence<firstNonBackIdx>(std::make_index_sequence<sizeof...(IOps) - firstNonBackIdx>{}, firstOp,
                                      iOpSeq.iOps);
         }
 
