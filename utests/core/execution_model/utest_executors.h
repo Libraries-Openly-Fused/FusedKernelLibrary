@@ -21,6 +21,58 @@
 
 using namespace fk;
 
+template <typename... IOps>
+constexpr size_t testIdxFirstNonBack(const IOps&...) {
+    return Back::idxFirstNonBack<IOps...>();
+}
+
+bool testBack() {
+
+    // Inputs
+    constexpr RawPtr<ND::_2D, uchar3> input{nullptr, {128, 128, 0}};
+
+    // Read Operations
+    constexpr auto readOp = PerThreadRead<ND::_2D, uchar3>::build({ input });
+
+    // ReadBack Operations
+    constexpr auto cropOp = Crop<>::build(Rect(0, 0, 16, 16));
+    constexpr auto resizeOp = Resize<InterpolationType::INTER_LINEAR>::build(Size(1024, 1024));
+
+    // Compute Operations
+    constexpr auto castU3F3 = Cast<uchar3, float3>::build();
+    constexpr auto mulOpU3 = Mul<uchar3>::build(uchar3{ 2, 2, 2 });
+    constexpr auto mulOpF3 = Mul<float3>::build(float3{ 2, 2, 2 });
+    //constexpr auto mulOpF = Mul<float>::build( 2.f );
+    //constexpr auto addLastF2 = AddLast<float2, float3>::build(45.f);
+    //constexpr auto addLastF3 = AddLast<float3, float4>::build(45.f);
+    constexpr auto vecReduceF3 = VectorReduce<float3, Add<float>>::build();
+    //constexpr auto vecReduceF4 = VectorReduce<float4, Add<float>>::build();
+    //constexpr auto addF = Add<float, float, float>::build(10.f);
+
+    // Outputs
+    constexpr RawPtr<ND::_2D, float> outputF{nullptr, {1024, 1024, 0}};
+    constexpr RawPtr<ND::_2D, float3> outputF3{ nullptr, {1024, 1024, 0} };
+    //constexpr RawPtr<ND::_2D, float4> outputF4{ nullptr, {1024, 1024, 0} };
+
+    // Write Operations
+    constexpr auto writeF = PerThreadWrite<ND::_2D, float>::build({ outputF });
+    constexpr auto writeF3 = PerThreadWrite<ND::_2D, float3>::build({ outputF3 });
+    //constexpr auto writeF4 = PerThreadWrite<ND::_2D, float4>::build({ outputF4 });
+
+    // Test no read back
+    {
+        // Test idxFirstNonBack
+        constexpr size_t idx1 = testIdxFirstNonBack(readOp, castU3F3, mulOpF3, writeF3);
+        static_assert(idx1 == 0, "idx1 should be 0");
+        constexpr size_t idx2 = testIdxFirstNonBack(readOp, cropOp, castU3F3, writeF3);
+        static_assert(idx2 == 2, "idx2 should be 2");
+        constexpr size_t idx3 = testIdxFirstNonBack(readOp, cropOp, mulOpU3, resizeOp, mulOpF3, vecReduceF3, writeF);
+        static_assert(idx3 == 4, "idx3 should be 4");
+    }
+
+    return true;
+}
+
 int launch() {
     Stream stream;
 
@@ -64,5 +116,5 @@ int launch() {
         }
     }
 
-    return correct ? 0 : -1;
+    return (correct && testBack()) ? 0 : -1;
 }
