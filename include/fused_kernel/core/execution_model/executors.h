@@ -41,11 +41,9 @@ namespace fk {
     };
 #endif
 
-    template <typename Child>
-    struct BaseExecutor {
-    private:
+    struct Back {
         template <typename First, typename Second, typename... IOps>
-        FK_HOST_FUSE auto fuseBack(const First& first, const Second& second, const IOps&... iOps) {
+        FK_HOST_FUSE auto fuse(const First& first, const Second& second, const IOps&... iOps) {
             if constexpr (sizeof...(iOps) == 0 || noneIncompleteReadBackType<IOps...>) {
                 if constexpr (isIncompleteReadBackType<Second>) {
                     return first.then(second);
@@ -53,7 +51,7 @@ namespace fk {
                     return first;
                 }
             } else {
-                return fuseBack(first.then(second), iOps...);
+                return fuse(first.then(second), iOps...);
             }
         }
 
@@ -73,14 +71,16 @@ namespace fk {
                 }
             }
         }
+    };
 
-    public:
+    template <typename Child>
+    struct BaseExecutor {
         template <size_t initialIdx, ParArch PA, size_t... Idx, typename... IOps>
         FK_HOST_FUSE void executeOperationsBase_helper(const std::index_sequence<Idx...>&, Stream_<PA>& stream, const IOps&... iOps) {
             if constexpr (initialIdx == 0) {
                 Child::executeOperations_helper(stream, iOps...);
             } else {
-                const auto firstOp = fuseBack(iOps...);
+                const auto firstOp = Back::fuse(iOps...);
                 Child::executeOperations_helper(stream, firstOp, get<Idx + initialIdx>(iOps...)...);
             }
         }
@@ -89,7 +89,7 @@ namespace fk {
 
         template <enum ParArch PA, typename... IOps>
         FK_HOST_FUSE void executeOperations(Stream_<PA>& stream, const IOps&... iOps) {
-            constexpr size_t firstNonBackIdx = idxFirstNonBack<IOps...>();
+            constexpr size_t firstNonBackIdx = Back::idxFirstNonBack<IOps...>();
             constexpr size_t remainingOps = sizeof...(iOps) - firstNonBackIdx;
             executeOperationsBase_helper<firstNonBackIdx>(std::make_index_sequence<remainingOps>{}, stream, iOps...);
         }
