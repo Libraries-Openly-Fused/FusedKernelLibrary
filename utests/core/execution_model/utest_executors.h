@@ -42,22 +42,16 @@ bool testBack() {
     constexpr auto castU3F3 = Cast<uchar3, float3>::build();
     constexpr auto mulOpU3 = Mul<uchar3>::build(uchar3{ 2, 2, 2 });
     constexpr auto mulOpF3 = Mul<float3>::build(float3{ 2, 2, 2 });
-    //constexpr auto mulOpF = Mul<float>::build( 2.f );
-    //constexpr auto addLastF2 = AddLast<float2, float3>::build(45.f);
-    //constexpr auto addLastF3 = AddLast<float3, float4>::build(45.f);
+
     constexpr auto vecReduceF3 = VectorReduce<float3, Add<float>>::build();
-    //constexpr auto vecReduceF4 = VectorReduce<float4, Add<float>>::build();
-    //constexpr auto addF = Add<float, float, float>::build(10.f);
 
     // Outputs
     constexpr RawPtr<ND::_2D, float> outputF{nullptr, {1024, 1024, 0}};
     constexpr RawPtr<ND::_2D, float3> outputF3{ nullptr, {1024, 1024, 0} };
-    //constexpr RawPtr<ND::_2D, float4> outputF4{ nullptr, {1024, 1024, 0} };
 
     // Write Operations
     constexpr auto writeF = PerThreadWrite<ND::_2D, float>::build({ outputF });
     constexpr auto writeF3 = PerThreadWrite<ND::_2D, float3>::build({ outputF3 });
-    //constexpr auto writeF4 = PerThreadWrite<ND::_2D, float4>::build({ outputF4 });
 
     // Test no read back
     {
