@@ -167,6 +167,40 @@ This novel type of Horizontal Fusion, allows to Horizontally Fuse kernels that a
 
 This has been tested before, by creating special compilers that generate the assembly code, and the performance benefits have been already reported. The novelty in our approach is that we do not require a different compiler. We do this by leveraging the C++17 capabilities found in nvcc.
 
+## MCP Integration for AI Agents
+
+The FusedKernelLibrary now includes Model Context Protocol (MCP) server integration, enabling AI agents to interact with and test the library through a standardized interface.
+
+### AI Agent Capabilities
+
+Through the MCP integration, AI agents can:
+- **Discover** library capabilities and documentation
+- **Build** the library with configurable options (CPU/CUDA backends)
+- **Execute** comprehensive test suites
+- **Generate** fusion kernel code examples
+- **Validate** code implementations against the library API
+- **Analyze** system requirements and CUDA support
+
+### Quick Start with MCP
+
+```bash
+# Navigate to MCP integration directory
+cd mcp
+
+# Install dependencies
+npm install
+
+# Start MCP server
+npm start
+
+# Run AI agent tests
+npm test
+```
+
+The MCP server provides tools for building, testing, and validating FusedKernelLibrary code, making it ideal for AI-assisted development and automated code generation workflows.
+
+For detailed MCP integration documentation, see [mcp/README.md](mcp/README.md).
+
 ## Closed source friendly
 
 A company that has it's own CUDA kernels, and wants to start fusing them along with operations present in this library, can do so by shaping their kernels into a conformant FusedKernel Operation, that can be passed as a template parameter of one of the FKL InstantiableOperation structs.

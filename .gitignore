@@ -13,3 +13,9 @@ cmake_install.cmake
 Makefile
 CTestTestfile.cmake
 Testing/
+
+# MCP Integration
+mcp/node_modules/
+mcp/package-lock.json
+mcp/server_output.log
+*.log

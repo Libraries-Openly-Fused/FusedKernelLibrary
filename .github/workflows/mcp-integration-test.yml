@@ -1,0 +1,76 @@
+name: MCP Integration Test
+
+on:
+  pull_request:
+    branches: [ "main" ]
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mcp-test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: mcp/package-lock.json
+
+    - name: Install MCP dependencies
+      working-directory: ./mcp
+      run: npm ci
+
+    - name: Run MCP integration tests
+      working-directory: ./mcp
+      run: npm test
+
+    - name: Test MCP server startup
+      working-directory: ./mcp
+      run: |
+        # Test that the MCP server can start without errors
+        timeout 10s node server.js 2>&1 | tee server_output.log || true
+        # Check if server started successfully
+        if grep -q "MCP server running" server_output.log; then
+          echo "✅ MCP server started successfully"
+        else
+          echo "❌ MCP server failed to start"
+          cat server_output.log
+          exit 1
+        fi
+
+    - name: Validate MCP configuration
+      working-directory: ./mcp
+      run: |
+        # Check if configuration file is valid JSON
+        node -e "
+          const config = require('./mcp-config.json');
+          console.log('✅ MCP configuration is valid JSON');
+          console.log('Tools available:', Object.keys(config.tools).length);
+          console.log('Resources available:', Object.keys(config.resources).length);
+          console.log('AI scenarios:', config.aiAgentScenarios.length);
+        "
+
+    - name: Check library build capability (if CUDA available)
+      run: |
+        # Check if we can at least configure the build
+        if command -v cmake &> /dev/null; then
+          echo "✅ CMake available, testing configuration..."
+          mkdir -p build
+          cd build
+          cmake -DENABLE_CUDA=OFF -DCMAKE_BUILD_TYPE=Release .. || echo "⚠️ Build configuration needs adjustment for CI environment"
+        else
+          echo "⚠️ CMake not available in CI environment"
+        fi

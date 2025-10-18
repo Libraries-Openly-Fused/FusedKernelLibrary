@@ -1,0 +1,32 @@
+{
+  "name": "fused-kernel-library-mcp",
+  "version": "1.0.0",
+  "description": "MCP server integration for FusedKernelLibrary AI agent testing",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/mcp-client-test.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai-agents",
+    "cuda",
+    "fused-kernels"
+  ],
+  "author": "FusedKernelLibrary Contributors",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.5.0",
+    "zod": "^3.23.8",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

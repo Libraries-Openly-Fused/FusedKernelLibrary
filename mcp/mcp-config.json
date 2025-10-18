@@ -1,0 +1,85 @@
+{
+  "mcpServers": {
+    "fused-kernel-library": {
+      "command": "node",
+      "args": ["./server.js"],
+      "cwd": "./mcp",
+      "env": {
+        "NODE_ENV": "production"
+      }
+    }
+  },
+  "globalSettings": {
+    "allowLocalFileAccess": true,
+    "timeout": 30000
+  },
+  "resources": {
+    "fusedkernel://readme": {
+      "description": "FusedKernelLibrary main documentation",
+      "mimeType": "text/markdown"
+    },
+    "fusedkernel://cmake-config": {
+      "description": "CMake build configuration",
+      "mimeType": "text/plain"
+    },
+    "fusedkernel://examples": {
+      "description": "Code examples and patterns",
+      "mimeType": "application/json"
+    }
+  },
+  "tools": {
+    "build_library": {
+      "description": "Build the FusedKernelLibrary with specified options",
+      "category": "build"
+    },
+    "run_tests": {
+      "description": "Execute library test suites",
+      "category": "test"
+    },
+    "get_library_info": {
+      "description": "Get comprehensive library information",
+      "category": "info"
+    },
+    "check_cuda_support": {
+      "description": "Verify CUDA availability and configuration",
+      "category": "system"
+    },
+    "list_examples": {
+      "description": "List all available code examples",
+      "category": "examples"
+    },
+    "validate_code_example": {
+      "description": "Validate code examples against library API",
+      "category": "validation"
+    }
+  },
+  "aiAgentScenarios": [
+    {
+      "name": "Library Discovery",
+      "description": "AI agent discovers library capabilities and documentation",
+      "steps": [
+        "Call get_library_info to understand the library",
+        "Read fusedkernel://readme resource",
+        "List available examples"
+      ]
+    },
+    {
+      "name": "Build and Test",
+      "description": "AI agent builds and tests the library",
+      "steps": [
+        "Check CUDA support availability",
+        "Build library with appropriate configuration",
+        "Run comprehensive test suite"
+      ]
+    },
+    {
+      "name": "Code Generation and Validation",
+      "description": "AI agent generates and validates code using the library",
+      "steps": [
+        "Examine existing code examples",
+        "Generate new fusion code patterns", 
+        "Validate generated code against library API"
+      ]
+    }
+  ]
+}
