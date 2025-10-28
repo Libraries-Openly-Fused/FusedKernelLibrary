@@ -28,17 +28,57 @@ template <typename OutputType, typename InputType> constexpr OutputType expected
 }
 
 template <typename InputType, typename OutputType> void addOneTest() {
-    constexpr OutputType expectedMinVal = expectedMinValue<InputType, OutputType>();
+    if constexpr (std::is_floating_point_v<InputType> && std::is_integral_v<OutputType> && std::is_signed_v<OutputType>) {
+        constexpr OutputType expectedMinVal = expectedMinValue<InputType, OutputType>();
 
-    constexpr OutputType expectedMaxVal = expectedPositiveValue<OutputType>(fk::maxValue<InputType>);
+        constexpr OutputType expectedMaxVal = expectedPositiveValue<OutputType>(fk::maxValue<InputType>);
 
-    constexpr OutputType expectedHalfMaxValue = expectedPositiveValue<OutputType>(halfPositiveRange<InputType>());
+        constexpr OutputType expectedHalfMaxValue = expectedPositiveValue<OutputType>(halfPositiveRange<InputType>());
 
-    constexpr std::array<InputType, 3> inputVals{fk::minValue<InputType>, halfPositiveRange<InputType>(),
-                                                 fk::maxValue<InputType>};
-    constexpr std::array<OutputType, 3> outputVals{expectedMinVal, expectedHalfMaxValue, expectedMaxVal};
+        constexpr std::array<InputType, 8> inputVals{ fk::minValue<InputType>, halfPositiveRange<InputType>(),
+                                                      fk::maxValue<InputType>, static_cast<InputType>(0.5),
+                                                      static_cast<InputType>(1.5),
+                                                      static_cast<InputType>(2.5),
+                                                      static_cast<InputType>(-1.5),
+                                                      static_cast<InputType>(-2.5) };
+        constexpr std::array<OutputType, 8> outputVals{ expectedMinVal, expectedHalfMaxValue, expectedMaxVal,
+                                                        static_cast<OutputType>(0),
+                                                        static_cast<OutputType>(2),
+                                                        static_cast<OutputType>(2),
+                                                        static_cast<OutputType>(-2),
+                                                        static_cast<OutputType>(-2) };
 
-    TestCaseBuilder<fk::SaturateCast<InputType, OutputType>>::addTest(testCases, inputVals, outputVals);
+        TestCaseBuilder<fk::SaturateCast<InputType, OutputType>>::addTest(testCases, inputVals, outputVals);
+    } else if constexpr (std::is_floating_point_v<InputType> && std::is_integral_v<OutputType> && !std::is_signed_v<OutputType>) {
+        constexpr OutputType expectedMinVal = expectedMinValue<InputType, OutputType>();
+
+        constexpr OutputType expectedMaxVal = expectedPositiveValue<OutputType>(fk::maxValue<InputType>);
+
+        constexpr OutputType expectedHalfMaxValue = expectedPositiveValue<OutputType>(halfPositiveRange<InputType>());
+
+        constexpr std::array<InputType, 6> inputVals{ fk::minValue<InputType>, halfPositiveRange<InputType>(), fk::maxValue<InputType>,
+                                                      static_cast<InputType>(0.5),
+                                                      static_cast<InputType>(1.5),
+                                                      static_cast<InputType>(2.5) };
+        constexpr std::array<OutputType, 6> outputVals{ expectedMinVal, expectedHalfMaxValue, expectedMaxVal,
+                                                        static_cast<OutputType>(0),
+                                                        static_cast<OutputType>(2),
+                                                        static_cast<OutputType>(2) };
+
+        TestCaseBuilder<fk::SaturateCast<InputType, OutputType>>::addTest(testCases, inputVals, outputVals);
+    } else {
+        constexpr OutputType expectedMinVal = expectedMinValue<InputType, OutputType>();
+
+        constexpr OutputType expectedMaxVal = expectedPositiveValue<OutputType>(fk::maxValue<InputType>);
+
+        constexpr OutputType expectedHalfMaxValue = expectedPositiveValue<OutputType>(halfPositiveRange<InputType>());
+
+        constexpr std::array<InputType, 3> inputVals{ fk::minValue<InputType>, halfPositiveRange<InputType>(),
+                                                     fk::maxValue<InputType> };
+        constexpr std::array<OutputType, 3> outputVals{ expectedMinVal, expectedHalfMaxValue, expectedMaxVal };
+
+        TestCaseBuilder<fk::SaturateCast<InputType, OutputType>>::addTest(testCases, inputVals, outputVals);
+    }
 }
 
 template <typename BaseInput, typename BaseOutput> void addOneTestAllChannels() {

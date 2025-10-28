@@ -38,7 +38,7 @@ namespace cxp {
                     // numerical range of OutputType.
                     if constexpr (std::is_floating_point_v<ST> && std::is_integral_v<OT>) {
                         // For floating point to integral conversion, we need to round
-                        return static_cast<fk::VBase<OT>>(cxp::round::BaseFunc::exec(s));
+                        return static_cast<fk::VBase<OT>>(cxp::nearbyint::BaseFunc::exec(s));
                     } else {
                         // For any other case, we can cast directly
                         return static_cast<fk::VBase<OT>>(s);
