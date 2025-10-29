@@ -76,7 +76,7 @@ namespace fk {
             const int y1 = __float2int_rd(src_y);
 #else
             const int x1 = static_cast<int>(cxp::floor::f(src_x));
-            const int y1 = static_cast<int>(cxp::floor::f(src_x));
+            const int y1 = static_cast<int>(cxp::floor::f(src_y));
 #endif
             const int x2 = x1 + 1;
             const int y2 = y1 + 1;

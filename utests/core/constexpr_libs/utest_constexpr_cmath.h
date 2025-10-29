@@ -1,4 +1,5 @@
 /* Copyright 2025 Oscar Amoros Huguet
+   Copyright 2025 Grup Mediapro S.L.U.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -696,6 +697,247 @@ bool test_floor_rt() {
     return allCorrect;
 }
 
+// Test nearbyint function at compile-time
+template <typename T>
+constexpr bool test_nearbyint_ct() {
+    static_assert(std::is_floating_point_v<T>, "nearbyint test only for floating point types");
+
+    // Basic positive values
+    static_assert(cxp::nearbyint::f(static_cast<T>(3.2)) == static_cast<T>(3.0), "nearbyint(3.2) should be 3.0");
+    static_assert(cxp::nearbyint::f(static_cast<T>(3.7)) == static_cast<T>(4.0), "nearbyint(3.7) should be 4.0");
+    static_assert(cxp::nearbyint::f(static_cast<T>(3.0)) == static_cast<T>(3.0), "nearbyint(3.0) should be 3.0");
+    static_assert(cxp::nearbyint::f(static_cast<T>(0.1)) == static_cast<T>(0.0), "nearbyint(0.1) should be 0.0");
+    static_assert(cxp::nearbyint::f(static_cast<T>(0.9)) == static_cast<T>(1.0), "nearbyint(0.9) should be 1.0");
+
+    // Basic negative values
+    static_assert(cxp::nearbyint::f(static_cast<T>(-3.2)) == static_cast<T>(-3.0), "nearbyint(-3.2) should be -3.0");
+    static_assert(cxp::nearbyint::f(static_cast<T>(-3.7)) == static_cast<T>(-4.0), "nearbyint(-3.7) should be -4.0");
+    static_assert(cxp::nearbyint::f(static_cast<T>(-3.0)) == static_cast<T>(-3.0), "nearbyint(-3.0) should be -3.0");
+    static_assert(cxp::nearbyint::f(static_cast<T>(-0.1)) == static_cast<T>(0.0), "nearbyint(-0.1) should be 0.0");
+    static_assert(cxp::nearbyint::f(static_cast<T>(-0.9)) == static_cast<T>(-1.0), "nearbyint(-0.9) should be -1.0");
+
+    // Zero values
+    static_assert(cxp::nearbyint::f(static_cast<T>(0.0)) == static_cast<T>(0.0), "nearbyint(0.0) should be 0.0");
+    static_assert(cxp::nearbyint::f(static_cast<T>(-0.0)) == static_cast<T>(-0.0), "nearbyint(-0.0) should be -0.0");
+
+    // Banker's rounding (round half to even) - positive values
+    static_assert(cxp::nearbyint::f(static_cast<T>(0.5)) == static_cast<T>(0.0), "nearbyint(0.5) should be 0.0 (round to even)");
+    static_assert(cxp::nearbyint::f(static_cast<T>(1.5)) == static_cast<T>(2.0), "nearbyint(1.5) should be 2.0 (round to even)");
+    static_assert(cxp::nearbyint::f(static_cast<T>(2.5)) == static_cast<T>(2.0), "nearbyint(2.5) should be 2.0 (round to even)");
+    static_assert(cxp::nearbyint::f(static_cast<T>(3.5)) == static_cast<T>(4.0), "nearbyint(3.5) should be 4.0 (round to even)");
+    static_assert(cxp::nearbyint::f(static_cast<T>(4.5)) == static_cast<T>(4.0), "nearbyint(4.5) should be 4.0 (round to even)");
+
+    // Banker's rounding (round half to even) - negative values
+    static_assert(cxp::nearbyint::f(static_cast<T>(-0.5)) == static_cast<T>(0.0), "nearbyint(-0.5) should be 0.0 (round to even)");
+    static_assert(cxp::nearbyint::f(static_cast<T>(-1.5)) == static_cast<T>(-2.0), "nearbyint(-1.5) should be -2.0 (round to even)");
+    static_assert(cxp::nearbyint::f(static_cast<T>(-2.5)) == static_cast<T>(-2.0), "nearbyint(-2.5) should be -2.0 (round to even)");
+    static_assert(cxp::nearbyint::f(static_cast<T>(-3.5)) == static_cast<T>(-4.0), "nearbyint(-3.5) should be -4.0 (round to even)");
+    static_assert(cxp::nearbyint::f(static_cast<T>(-4.5)) == static_cast<T>(-4.0), "nearbyint(-4.5) should be -4.0 (round to even)");
+
+    // Values near integer boundaries
+    static_assert(cxp::nearbyint::f(static_cast<T>(1.0)) == static_cast<T>(1.0), "nearbyint(1.0) should be 1.0");
+    static_assert(cxp::nearbyint::f(static_cast<T>(-1.0)) == static_cast<T>(-1.0), "nearbyint(-1.0) should be -1.0");
+    static_assert(cxp::nearbyint::f(static_cast<T>(1.4999)) == static_cast<T>(1.0), "nearbyint(1.4999) should be 1.0");
+    static_assert(cxp::nearbyint::f(static_cast<T>(1.5001)) == static_cast<T>(2.0), "nearbyint(1.5001) should be 2.0");
+    static_assert(cxp::nearbyint::f(static_cast<T>(-1.4999)) == static_cast<T>(-1.0), "nearbyint(-1.4999) should be -1.0");
+    static_assert(cxp::nearbyint::f(static_cast<T>(-1.5001)) == static_cast<T>(-2.0), "nearbyint(-1.5001) should be -2.0");
+
+    // Large values
+    static_assert(cxp::nearbyint::f(static_cast<T>(1000.2)) == static_cast<T>(1000.0), "nearbyint(1000.2) should be 1000.0");
+    static_assert(cxp::nearbyint::f(static_cast<T>(1000.7)) == static_cast<T>(1001.0), "nearbyint(1000.7) should be 1001.0");
+    static_assert(cxp::nearbyint::f(static_cast<T>(-1000.3)) == static_cast<T>(-1000.0), "nearbyint(-1000.3) should be -1000.0");
+    static_assert(cxp::nearbyint::f(static_cast<T>(-1000.8)) == static_cast<T>(-1001.0), "nearbyint(-1000.8) should be -1001.0");
+
+    // Special values compile-time
+#if NO_VS2017_COMPILER
+    static_assert(cxp::isnan::f(cxp::nearbyint::f(std::numeric_limits<T>::quiet_NaN())), "nearbyint(NaN) should be NaN");
+#endif // NO_VS2017_COMPILER
+    static_assert(cxp::isinf::f(cxp::nearbyint::f(std::numeric_limits<T>::infinity())), "nearbyint(inf) should be inf");
+    static_assert(cxp::isinf::f(cxp::nearbyint::f(-std::numeric_limits<T>::infinity())), "nearbyint(-inf) should be -inf");
+
+    return true;
+}
+
+// Test nearbyint function at runtime
+template <typename T>
+bool test_nearbyint_rt() {
+    static_assert(std::is_floating_point_v<T>, "nearbyint test only for floating point types");
+
+    bool allCorrect{ true };
+
+    // Basic positive values
+    if (cxp::nearbyint::f(static_cast<T>(3.2)) != std::nearbyint(static_cast<T>(3.2))) {
+        std::cout << "Failed: cxp::nearbyint::f(3.2) should match std::nearbyint(3.2)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(3.7)) != std::nearbyint(static_cast<T>(3.7))) {
+        std::cout << "Failed: cxp::nearbyint::f(3.7) should match std::nearbyint(3.7)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(3.0)) != std::nearbyint(static_cast<T>(3.0))) {
+        std::cout << "Failed: cxp::nearbyint::f(3.0) should match std::nearbyint(3.0)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(0.1)) != std::nearbyint(static_cast<T>(0.1))) {
+        std::cout << "Failed: cxp::nearbyint::f(0.1) should match std::nearbyint(0.1)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(0.9)) != std::nearbyint(static_cast<T>(0.9))) {
+        std::cout << "Failed: cxp::nearbyint::f(0.9) should match std::nearbyint(0.9)" << std::endl;
+        allCorrect = false;
+    }
+
+    // Basic negative values
+    if (cxp::nearbyint::f(static_cast<T>(-3.2)) != std::nearbyint(static_cast<T>(-3.2))) {
+        std::cout << "Failed: cxp::nearbyint::f(-3.2) should match std::nearbyint(-3.2)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(-3.7)) != std::nearbyint(static_cast<T>(-3.7))) {
+        std::cout << "Failed: cxp::nearbyint::f(-3.7) should match std::nearbyint(-3.7)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(-3.0)) != std::nearbyint(static_cast<T>(-3.0))) {
+        std::cout << "Failed: cxp::nearbyint::f(-3.0) should match std::nearbyint(-3.0)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(-0.1)) != std::nearbyint(static_cast<T>(-0.1))) {
+        std::cout << "Failed: cxp::nearbyint::f(-0.1) should match std::nearbyint(-0.1)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(-0.9)) != std::nearbyint(static_cast<T>(-0.9))) {
+        std::cout << "Failed: cxp::nearbyint::f(-0.9) should match std::nearbyint(-0.9)" << std::endl;
+        allCorrect = false;
+    }
+
+    // Zero values
+    if (cxp::nearbyint::f(static_cast<T>(0.0)) != std::nearbyint(static_cast<T>(0.0))) {
+        std::cout << "Failed: cxp::nearbyint::f(0.0) should match std::nearbyint(0.0)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(-0.0)) != std::nearbyint(static_cast<T>(-0.0))) {
+        std::cout << "Failed: cxp::nearbyint::f(-0.0) should match std::nearbyint(-0.0)" << std::endl;
+        allCorrect = false;
+    }
+
+    // Banker's rounding (round half to even) - positive values
+    if (cxp::nearbyint::f(static_cast<T>(0.5)) != std::nearbyint(static_cast<T>(0.5))) {
+        std::cout << "Failed: cxp::nearbyint::f(0.5) should match std::nearbyint(0.5)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(1.5)) != std::nearbyint(static_cast<T>(1.5))) {
+        std::cout << "Failed: cxp::nearbyint::f(1.5) should match std::nearbyint(1.5)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(2.5)) != std::nearbyint(static_cast<T>(2.5))) {
+        std::cout << "Failed: cxp::nearbyint::f(2.5) should match std::nearbyint(2.5)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(3.5)) != std::nearbyint(static_cast<T>(3.5))) {
+        std::cout << "Failed: cxp::nearbyint::f(3.5) should match std::nearbyint(3.5)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(4.5)) != std::nearbyint(static_cast<T>(4.5))) {
+        std::cout << "Failed: cxp::nearbyint::f(4.5) should match std::nearbyint(4.5)" << std::endl;
+        allCorrect = false;
+    }
+
+    // Banker's rounding (round half to even) - negative values
+    if (cxp::nearbyint::f(static_cast<T>(-0.5)) != std::nearbyint(static_cast<T>(-0.5))) {
+        std::cout << "Failed: cxp::nearbyint::f(-0.5) should match std::nearbyint(-0.5)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(-1.5)) != std::nearbyint(static_cast<T>(-1.5))) {
+        std::cout << "Failed: cxp::nearbyint::f(-1.5) should match std::nearbyint(-1.5)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(-2.5)) != std::nearbyint(static_cast<T>(-2.5))) {
+        std::cout << "Failed: cxp::nearbyint::f(-2.5) should match std::nearbyint(-2.5)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(-3.5)) != std::nearbyint(static_cast<T>(-3.5))) {
+        std::cout << "Failed: cxp::nearbyint::f(-3.5) should match std::nearbyint(-3.5)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(-4.5)) != std::nearbyint(static_cast<T>(-4.5))) {
+        std::cout << "Failed: cxp::nearbyint::f(-4.5) should match std::nearbyint(-4.5)" << std::endl;
+        allCorrect = false;
+    }
+
+    // Values near integer boundaries
+    if (cxp::nearbyint::f(static_cast<T>(1.0)) != std::nearbyint(static_cast<T>(1.0))) {
+        std::cout << "Failed: cxp::nearbyint::f(1.0) should match std::nearbyint(1.0)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(-1.0)) != std::nearbyint(static_cast<T>(-1.0))) {
+        std::cout << "Failed: cxp::nearbyint::f(-1.0) should match std::nearbyint(-1.0)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(1.4999)) != std::nearbyint(static_cast<T>(1.4999))) {
+        std::cout << "Failed: cxp::nearbyint::f(1.4999) should match std::nearbyint(1.4999)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(1.5001)) != std::nearbyint(static_cast<T>(1.5001))) {
+        std::cout << "Failed: cxp::nearbyint::f(1.5001) should match std::nearbyint(1.5001)" << std::endl;
+        allCorrect = false;
+    }
+
+    // Large values
+    if (cxp::nearbyint::f(static_cast<T>(1000.2)) != std::nearbyint(static_cast<T>(1000.2))) {
+        std::cout << "Failed: cxp::nearbyint::f(1000.2) should match std::nearbyint(1000.2)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(1000.7)) != std::nearbyint(static_cast<T>(1000.7))) {
+        std::cout << "Failed: cxp::nearbyint::f(1000.7) should match std::nearbyint(1000.7)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(-1000.3)) != std::nearbyint(static_cast<T>(-1000.3))) {
+        std::cout << "Failed: cxp::nearbyint::f(-1000.3) should match std::nearbyint(-1000.3)" << std::endl;
+        allCorrect = false;
+    }
+    if (cxp::nearbyint::f(static_cast<T>(-1000.8)) != std::nearbyint(static_cast<T>(-1000.8))) {
+        std::cout << "Failed: cxp::nearbyint::f(-1000.8) should match std::nearbyint(-1000.8)" << std::endl;
+        allCorrect = false;
+    }
+
+    // Special values runtime
+    if (!std::isnan(cxp::nearbyint::f(std::numeric_limits<T>::quiet_NaN()))) {
+        std::cout << "Failed: cxp::nearbyint::f(NaN) should be NaN" << std::endl;
+        allCorrect = false;
+    }
+    if (!std::isinf(cxp::nearbyint::f(std::numeric_limits<T>::infinity()))) {
+        std::cout << "Failed: cxp::nearbyint::f(inf) should be inf" << std::endl;
+        allCorrect = false;
+    }
+    if (!std::isinf(cxp::nearbyint::f(-std::numeric_limits<T>::infinity()))) {
+        std::cout << "Failed: cxp::nearbyint::f(-inf) should be -inf" << std::endl;
+        allCorrect = false;
+    }
+
+    // Verify special value signs are preserved
+    T result_pos_inf = cxp::nearbyint::f(std::numeric_limits<T>::infinity());
+    T result_neg_inf = cxp::nearbyint::f(-std::numeric_limits<T>::infinity());
+    if (result_pos_inf < 0) {
+        std::cout << "Failed: cxp::nearbyint::f(+inf) should be positive infinity" << std::endl;
+        allCorrect = false;
+    }
+    if (result_neg_inf > 0) {
+        std::cout << "Failed: cxp::nearbyint::f(-inf) should be negative infinity" << std::endl;
+        allCorrect = false;
+    }
+
+    // Stress test with many values around half-integers to verify banker's rounding
+    for (int i = -10; i <= 10; ++i) {
+        T val = static_cast<T>(i) + static_cast<T>(0.5);
+        if (cxp::nearbyint::f(val) != std::nearbyint(val)) {
+            std::cout << "Failed: cxp::nearbyint::f(" << val << ") should match std::nearbyint(" << val << ")" << std::endl;
+            allCorrect = false;
+            break;
+        }
+    }
+
+    return allCorrect;
+}
+
 // Runtime tests to complement compile-time tests
 bool runtime_tests() {
     bool allCorrect{true};
@@ -715,6 +957,10 @@ bool runtime_tests() {
     allCorrect &= test_isnan_rt<float>();
     allCorrect &= test_isnan_rt<double>();
     
+    // Test nearbyint with runtime values
+    allCorrect &= test_nearbyint_rt<float>();
+    allCorrect &= test_nearbyint_rt<double>();
+
     // Test comparison functions with runtime values
     if (!cxp::cmp_equal::f(5, 5)) {
         std::cout << "Failed: cxp::cmp_equal::f(5, 5) should be true" << std::endl;
@@ -799,6 +1045,9 @@ int launch() {
 
     static_assert(test_floor_ct<float>(), "floor test failed for float");
     static_assert(test_floor_ct<double>(), "floor test failed for double");
+
+    static_assert(test_nearbyint_ct<float>(), "nearbyint test failed for float");
+    static_assert(test_nearbyint_ct<double>(), "nearbyint test failed for double");
 
     // Runtime tests
     if (!runtime_tests()) {

@@ -32,13 +32,13 @@ namespace fk {
     private:
         /** @brief fuseIOps: function that creates either a Read or a Binary IOp, composed of a
         * FusedOperation, where the operations are the ones found in the InstantiableOperations in the
-        * instantiableOperations parameter pack.
+        * iOps parameter pack.
         * This is a convenience function to simplify the implementation of ReadBack and Ternary InstantiableOperations
         * and Operations.
         */
         template <typename... InstantiableOperations>
-        FK_HOST_FUSE auto fuseNonBatchForwardIOps(const InstantiableOperations&... instantiableOperations) {
-            return operationTupleToIOp(iOpsToOperationTuple(instantiableOperations...));
+        FK_HOST_FUSE auto fuseNonBatchForwardIOps(const InstantiableOperations&... iOps) {
+            return operationTupleToIOp(iOpsToOperationTuple(iOps...));
         }
 
         template <typename SelfType, typename ContinuationIOp>

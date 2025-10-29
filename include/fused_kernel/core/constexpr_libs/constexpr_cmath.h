@@ -1,4 +1,5 @@
 /* Copyright 2025 Oscar Amoros Huguet
+   Copyright 2025 Grup Mediapro S.L.U.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -55,6 +56,18 @@ namespace cxp {
             template <typename ST>
             FK_HOST_DEVICE_FUSE bool exec(const ST& s) {
                 return s == s && s != ST(0) && s + s == s;
+            }
+        };
+        CXP_F_FUNC
+    };
+
+    struct is_even {
+        struct BaseFunc {
+            using InstanceType = fk::UnaryType;
+            template <typename ST>
+            FK_HOST_DEVICE_FUSE bool exec(const ST& s) {
+                static_assert(std::is_integral_v<ST>, "is_even only works with integral types");
+                return (s & 1) == 0;
             }
         };
         CXP_F_FUNC
@@ -215,6 +228,69 @@ namespace cxp {
         CXP_F_FUNC
     };
 
+    struct nearbyint {
+        struct BaseFunc {
+            using InstanceType = fk::UnaryType;
+            template <typename ST>
+            FK_HOST_DEVICE_FUSE ST exec(const ST& s) {
+                static_assert(std::is_floating_point_v<ST>, "Input must be a floating-point type");
+                if (isnan::BaseFunc::exec(s) || isinf::BaseFunc::exec(s) || (s == static_cast<ST>(0))) {
+                    return s;
+                }
+                ST fl{0};
+                // This is doing the same as floor, but we don't want to execute the previous if again
+                if constexpr (std::is_same_v<ST, double>) {
+                    // For double, we can use long long safely
+                    const long long intPart = static_cast<long long>(s);
+                    if (s < ST(0) && s != static_cast<ST>(intPart)) {
+                        fl = static_cast<ST>(intPart - 1);
+                    } else {
+                        fl = static_cast<ST>(intPart);
+                    }
+                } else {
+                    // For float, we use int to avoid performance issues with long long
+                    const ST intPart = static_cast<int>(s);
+                    if (s < ST(0) && s != static_cast<ST>(intPart)) {
+                        fl = static_cast<ST>(intPart - 1);
+                    } else {
+                        fl = static_cast<ST>(intPart);
+                    }
+                }
+                const ST frac = s - fl;
+                if (frac < static_cast<ST>(0.5)) {
+                    // Closer to the floor.
+                    return fl;
+                } else if (frac > static_cast<ST>(0.5)) {
+                    // Closer to the ceiling.
+                    return fl + static_cast<ST>(1.0);
+                } else {
+                    // Exactly 0.5, the tie-breaker case.
+                    // We must round to the nearest *even* integer.
+                    if constexpr (std::is_same_v<ST, double>) {
+                        const auto i_f = static_cast<long long>(fl);
+                        if (is_even::BaseFunc::exec(i_f)) {
+                            // Floor is even, so round to it.
+                            return fl;
+                        } else {
+                            // Floor is odd, so round to the ceiling (which must be even).
+                            return fl + static_cast<ST>(1.0);
+                        }
+                    } else {
+                        const auto i_f = static_cast<int>(fl);
+                        if (is_even::BaseFunc::exec(i_f)) {
+                            // Floor is even, so round to it.
+                            return fl;
+                        } else {
+                            // Floor is odd, so round to the ceiling (which must be even).
+                            return fl + static_cast<ST>(1.0);
+                        }
+                    }
+                }
+            }
+        };
+        CXP_F_FUNC
+    };
+
     struct max {
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
@@ -293,18 +369,6 @@ namespace cxp {
                 "Can only cast from scalar to scalar or from vector to vector of the same number of channels.");
             return Exec<BaseFunc>::exec(val);
         }
-    };
-
-    struct is_even {
-        struct BaseFunc {
-            using InstanceType = fk::UnaryType;
-            template <typename ST>
-            FK_HOST_DEVICE_FUSE bool exec(const ST& s) {
-                static_assert(std::is_integral_v<ST>, "is_even only works with integral types");
-                return (s & 1) == 0;
-            }
-        };
-        CXP_F_FUNC
     };
 
 #undef CXP_F_FUNC

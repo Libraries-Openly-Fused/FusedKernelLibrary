@@ -9,7 +9,8 @@
 #include <fused_kernel/core/utils/vlimits.h>
 #include <tests/operation_test_utils.h>
 
-template <typename InputType, typename OutputType> constexpr OutputType expectedMinValue() {
+template <typename InputType, typename OutputType>
+constexpr OutputType expectedMinValue() {
     if constexpr (cxp::cmp_less_equal::f(fk::minValue<fk::VBase<InputType>>, fk::minValue<fk::VBase<OutputType>>)) {
         return fk::minValue<OutputType>;
     } else {
@@ -17,9 +18,13 @@ template <typename InputType, typename OutputType> constexpr OutputType expected
     }
 }
 
-template <typename T> constexpr T halfPositiveRange() { return fk::make_set<T>(fk::maxValue<fk::VBase<T>> / 2); }
+template <typename T>
+constexpr T halfPositiveRange() { 
+    return fk::make_set<T>(fk::maxValue<fk::VBase<T>> / 2);
+}
 
-template <typename OutputType, typename InputType> constexpr OutputType expectedPositiveValue(const InputType &input) {
+template <typename OutputType, typename InputType>
+constexpr OutputType expectedPositiveValue(const InputType &input) {
     if (cxp::cmp_greater::f(fk::get<0>(input), fk::maxValue<fk::VBase<OutputType>>)) {
         return fk::maxValue<OutputType>;
     } else {
@@ -27,21 +32,65 @@ template <typename OutputType, typename InputType> constexpr OutputType expected
     }
 }
 
-template <typename InputType, typename OutputType> void addOneTest() {
-    constexpr OutputType expectedMinVal = expectedMinValue<InputType, OutputType>();
+template <typename InputType, typename OutputType>
+void addOneTest() {
+    using InputBase = fk::VBase<InputType>;
+    using OutputBase = fk::VBase<OutputType>;
+    if constexpr (std::is_floating_point_v<InputBase> && std::is_integral_v<OutputBase> && std::is_signed_v<OutputBase>) {
+        constexpr OutputType expectedMinVal = expectedMinValue<InputType, OutputType>();
 
-    constexpr OutputType expectedMaxVal = expectedPositiveValue<OutputType>(fk::maxValue<InputType>);
+        constexpr OutputType expectedMaxVal = expectedPositiveValue<OutputType>(fk::maxValue<InputType>);
 
-    constexpr OutputType expectedHalfMaxValue = expectedPositiveValue<OutputType>(halfPositiveRange<InputType>());
+        constexpr OutputType expectedHalfMaxValue = expectedPositiveValue<OutputType>(halfPositiveRange<InputType>());
 
-    constexpr std::array<InputType, 3> inputVals{fk::minValue<InputType>, halfPositiveRange<InputType>(),
-                                                 fk::maxValue<InputType>};
-    constexpr std::array<OutputType, 3> outputVals{expectedMinVal, expectedHalfMaxValue, expectedMaxVal};
+        constexpr std::array<InputType, 8> inputVals{ fk::minValue<InputType>, halfPositiveRange<InputType>(),
+                                                      fk::maxValue<InputType>, fk::make_set<InputType>(0.5),
+                                                      fk::make_set<InputType>(1.5),
+                                                      fk::make_set<InputType>(2.5),
+                                                      fk::make_set<InputType>(-1.5),
+                                                      fk::make_set<InputType>(-2.5) };
+        constexpr std::array<OutputType, 8> outputVals{ expectedMinVal, expectedHalfMaxValue, expectedMaxVal,
+                                                        fk::make_set<OutputType>(0),
+                                                        fk::make_set<OutputType>(2),
+                                                        fk::make_set<OutputType>(2),
+                                                        fk::make_set<OutputType>(-2),
+                                                        fk::make_set<OutputType>(-2) };
 
-    TestCaseBuilder<fk::SaturateCast<InputType, OutputType>>::addTest(testCases, inputVals, outputVals);
+        TestCaseBuilder<fk::SaturateCast<InputType, OutputType>>::addTest(testCases, inputVals, outputVals);
+    } else if constexpr (std::is_floating_point_v<InputBase> && std::is_integral_v<OutputBase> && !std::is_signed_v<OutputBase>) {
+        constexpr OutputType expectedMinVal = expectedMinValue<InputType, OutputType>();
+
+        constexpr OutputType expectedMaxVal = expectedPositiveValue<OutputType>(fk::maxValue<InputType>);
+
+        constexpr OutputType expectedHalfMaxValue = expectedPositiveValue<OutputType>(halfPositiveRange<InputType>());
+
+        constexpr std::array<InputType, 6> inputVals{ fk::minValue<InputType>, halfPositiveRange<InputType>(), fk::maxValue<InputType>,
+                                                      fk::make_set<InputType>(0.5),
+                                                      fk::make_set<InputType>(1.5),
+                                                      fk::make_set<InputType>(2.5) };
+        constexpr std::array<OutputType, 6> outputVals{ expectedMinVal, expectedHalfMaxValue, expectedMaxVal,
+                                                        fk::make_set<OutputType>(0),
+                                                        fk::make_set<OutputType>(2),
+                                                        fk::make_set<OutputType>(2) };
+
+        TestCaseBuilder<fk::SaturateCast<InputType, OutputType>>::addTest(testCases, inputVals, outputVals);
+    } else {
+        constexpr OutputType expectedMinVal = expectedMinValue<InputType, OutputType>();
+
+        constexpr OutputType expectedMaxVal = expectedPositiveValue<OutputType>(fk::maxValue<InputType>);
+
+        constexpr OutputType expectedHalfMaxValue = expectedPositiveValue<OutputType>(halfPositiveRange<InputType>());
+
+        constexpr std::array<InputType, 3> inputVals{ fk::minValue<InputType>, halfPositiveRange<InputType>(),
+                                                     fk::maxValue<InputType> };
+        constexpr std::array<OutputType, 3> outputVals{ expectedMinVal, expectedHalfMaxValue, expectedMaxVal };
+
+        TestCaseBuilder<fk::SaturateCast<InputType, OutputType>>::addTest(testCases, inputVals, outputVals);
+    }
 }
 
-template <typename BaseInput, typename BaseOutput> void addOneTestAllChannels() {
+template <typename BaseInput, typename BaseOutput>
+void addOneTestAllChannels() {
     // Base Type
     addOneTest<BaseInput, BaseOutput>();
 

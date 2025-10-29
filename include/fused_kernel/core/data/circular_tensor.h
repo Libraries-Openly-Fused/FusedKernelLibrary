@@ -93,8 +93,8 @@ namespace fk {
             Write<TensorTSplit<StoreT>>>;
 
         using ReadInstantiableOperations = TypeList<Read<CircularTensorRead<CTReadDirection_v<CT_ORDER>, TensorRead<StoreT>, BATCH>>,
-            Read<CircularTensorRead<CTReadDirection_v<CT_ORDER>, TensorPack<StoreT>, BATCH>>,
-            Read<CircularTensorRead<CTReadDirection_v<CT_ORDER>, TensorTPack<StoreT>, BATCH>>>;
+                                                    Read<CircularTensorRead<CTReadDirection_v<CT_ORDER>, TensorPack<StoreT>, BATCH>>,
+                                                    Read<CircularTensorRead<CTReadDirection_v<CT_ORDER>, TensorTPack<StoreT>, BATCH>>>;
 
     public:
         FK_HOST_CNST CircularTensor() {};
@@ -108,9 +108,9 @@ namespace fk {
             m_tempTensor.allocTensor(width_, height_, BATCH, COLOR_PLANES, type_, deviceID_);
         }
 
-        template <typename... IOpTypes>
-        FK_HOST_CNST void update(const Stream& stream,
-                                 const IOpTypes&... instantiableOperationInstances) {
+        template <ParArch PA, typename... IOpTypes>
+        FK_HOST_CNST void update(Stream_<PA>& stream,
+            const IOpTypes&... instantiableOperationInstances) {
             const auto writeInstantiableOperation = ppLast(instantiableOperationInstances...);
             using writeDFType = std::decay_t<decltype(writeInstantiableOperation)>;
             using writeOpType = typename writeDFType::Operation;
@@ -133,24 +133,12 @@ namespace fk {
 
             const auto copyOps = buildOperationSequence(nonUpdateRead, writeInstantiableOperation);
 
-            /*const dim3 block(std::min(static_cast<int>(this->ptr_a.dims.width), 32),
-                             std::min(static_cast<int>(this->ptr_a.dims.height), 8));
-            const dim3 grid((uint)ceil((float)this->ptr_a.dims.width / static_cast<float>(block.x)),
-                            (uint)ceil((float)this->ptr_a.dims.height / static_cast<float>(block.y)),
-                            BATCH);
-
-            launchDivergentBatchTransformDPP_Kernel<ParArch::GPU_NVIDIA, SequenceSelectorType<CT_ORDER, BATCH>><<<grid, block, 0, stream>>>(updateOps, copyOps);*/
-
-            if (this->type == MemType::Device || this->type == MemType::DeviceAndPinned) {
-#if defined(__NVCC__) || CLANG_HOST_DEVICE 
-                Executor<DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelectorType<CT_ORDER, BATCH>>>::executeOperations(stream, updateOps, copyOps);
-                gpuErrchk(cudaGetLastError());
-#else
-                throw std::runtime_error("CircularTensor operations on Device memory only supported in nvcc or hipcc compilation.");
-#endif
-            } else {
-                Executor<DivergentBatchTransformDPP<ParArch::CPU, SequenceSelectorType<CT_ORDER, BATCH>>>::executeOperations(stream, updateOps, copyOps);
+            if (PA == ParArch::GPU_NVIDIA && !(this->type == MemType::Device || this->type == MemType::DeviceAndPinned)) {
+                throw std::runtime_error("CircularTensor operations on Device memory only supported \
+                    if the CircularTensor is MemType::Device or MemType::DeviceAndPinned");
             }
+
+            Executor<DivergentBatchTransformDPP<PA, SequenceSelectorType<CT_ORDER, BATCH>>>::executeOperations(stream, updateOps, copyOps);
 
             m_nextUpdateIdx = (m_nextUpdateIdx + 1) % BATCH;
         }
