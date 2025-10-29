@@ -36,7 +36,7 @@ namespace cxp {
                 } else {
                     // We know that the value of input is within the
                     // numerical range of OutputType.
-                    if constexpr (std::is_floating_point_v<ST> && std::is_integral_v<OT>) {
+                    if constexpr (std::is_floating_point_v<ST> && std::is_integral_v<fk::VBase<OT>>) {
                         // For floating point to integral conversion, we need to round
                         return static_cast<fk::VBase<OT>>(cxp::nearbyint::BaseFunc::exec(s));
                     } else {
