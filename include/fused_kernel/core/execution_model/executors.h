@@ -308,10 +308,10 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                                  static_cast<uint>(ceil(activeThreads.y / static_cast<float>(block.y))),
                                  activeThreads.z };
                 if (!tDetails.threadDivisible) {
-                    launchTransformDPP_Kernel<ParArch::GPU_NVIDIA, TFEN, false> << <grid, block, 0, stream >> > (tDetails, iOps...);
+                    launchTransformDPP_Kernel<ParArch::GPU_NVIDIA, TFEN, false><<<grid, block, 0, stream>>>(tDetails, iOps...);
                     gpuErrchk(cudaGetLastError());
                 } else {
-                    launchTransformDPP_Kernel<ParArch::GPU_NVIDIA, TFEN, true> << <grid, block, 0, stream >> > (tDetails, iOps...);
+                    launchTransformDPP_Kernel<ParArch::GPU_NVIDIA, TFEN, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
                     gpuErrchk(cudaGetLastError());
                 }
             } else {
@@ -325,7 +325,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                 const dim3 grid{ static_cast<uint>(ceil(activeThreads.x / static_cast<float>(block.x))),
                                  static_cast<uint>(ceil(activeThreads.y / static_cast<float>(block.y))),
                                  activeThreads.z };
-                launchTransformDPP_Kernel<ParArch::GPU_NVIDIA, TFEN, true> << <grid, block, 0, stream >> > (tDetails, iOps...);
+                launchTransformDPP_Kernel<ParArch::GPU_NVIDIA, TFEN, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
                 gpuErrchk(cudaGetLastError());
             }
         }
