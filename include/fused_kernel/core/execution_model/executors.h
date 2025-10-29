@@ -75,13 +75,17 @@ namespace fk {
 
     template <typename Child>
     struct BaseExecutor {
-        template <size_t initialIdx, ParArch PA, size_t... Idx, typename... IOps>
+        template <size_t firstNonBackOp, ParArch PA, size_t... Idx, typename... IOps>
         FK_HOST_FUSE void executeOperationsBase_helper(const std::index_sequence<Idx...>&, Stream_<PA>& stream, const IOps&... iOps) {
-            if constexpr (initialIdx < 2) {
+            // firstNonBackOp is the index of the first non back operation in the operation sequence
+            if constexpr (firstNonBackOp < 2) {
+                // Only the first operation is a back operation or there are no back operations
                 Child::executeOperations_helper(stream, iOps...);
             } else {
+                // There are back operations that are not the first operation, fuse them
                 const auto firstOp = Back::fuse(iOps...);
-                Child::executeOperations_helper(stream, firstOp, get<Idx + initialIdx>(iOps...)...);
+                // And call the executeOperations_helper with the fused back operation and the rest of operations
+                Child::executeOperations_helper(stream, firstOp, get<Idx + firstNonBackOp>(iOps...)...);
             }
         }
 
