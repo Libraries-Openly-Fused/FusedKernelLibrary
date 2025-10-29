@@ -248,7 +248,7 @@ namespace cxp {
                         fl = static_cast<ST>(intPart);
                     }
                 } else {
-                    // For float, we use int to avoid performance issues with long long}
+                    // For float, we use int to avoid performance issues with long long
                     const ST intPart = static_cast<int>(s);
                     if (s < ST(0) && s != static_cast<ST>(intPart)) {
                         fl = static_cast<ST>(intPart - 1);
