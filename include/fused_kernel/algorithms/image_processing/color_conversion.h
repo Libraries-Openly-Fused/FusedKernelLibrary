@@ -305,7 +305,6 @@ namespace fk {
                 return NormalizeColorRangeDepth<OutputType, CD>::exec(computedPixel);
             } else {
                 // Moving back the pixel channels to data type numerical range, either 8bit or 16bit
-                constexpr auto shiftFactorLocal = shiftFactor<CD>;
                 return computedPixel << shiftFactorLocal;
             }
         }
