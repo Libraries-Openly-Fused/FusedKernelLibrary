@@ -39,10 +39,8 @@ constexpr bool test_isnan_ct() {
     static_assert(!cxp::isnan::f(-std::numeric_limits<T>::infinity()), "-infinity should not be NaN");
 
     // Test with NaN
-#if NO_VS2017_COMPILER
     static_assert(cxp::isnan::f(std::numeric_limits<T>::quiet_NaN()), "quiet_NaN should be NaN");
     static_assert(cxp::isnan::f(std::numeric_limits<T>::signaling_NaN()), "signaling_NaN should be NaN");
-#endif // NO_VS2017_COMPILER
 
     return true;
 }
@@ -110,10 +108,7 @@ constexpr bool test_isinf_ct() {
     static_assert(!cxp::isinf::f(static_cast<T>(-1.0)), "-1.0 should not be infinite");
     static_assert(!cxp::isinf::f(static_cast<T>(1000.0)), "1000.0 should not be infinite");
     static_assert(!cxp::isinf::f(static_cast<T>(-1000.0)), "-1000.0 should not be infinite");
-
-#if NO_VS2017_COMPILER
     static_assert(!cxp::isinf::f(std::numeric_limits<T>::quiet_NaN()), "NaN should not be infinite");
-#endif // NO_VS2017_COMPILER
 
     // Test with infinity
     static_assert(cxp::isinf::f(std::numeric_limits<T>::infinity()), "infinity should be infinite");
@@ -321,11 +316,7 @@ constexpr bool test_round_ct() {
     static_assert(cxp::round::f(static_cast<T>(-1.6)) == static_cast<T>(-2.0), "round(-1.6) should be -2.0");
     static_assert(cxp::round::f(static_cast<T>(0.0)) == static_cast<T>(0.0), "round(0.0) should be 0.0");
     static_assert(cxp::round::f(static_cast<T>(2.0)) == static_cast<T>(2.0), "round(2.0) should be 2.0");
-
-    // Special values compile-time
-#if NO_VS2017_COMPILER
     static_assert(cxp::isnan::f(cxp::round::f(std::numeric_limits<T>::quiet_NaN())), "round(NaN) should be NaN");
-#endif // NO_VS2017_COMPILER
     static_assert(cxp::isinf::f(cxp::round::f(std::numeric_limits<T>::infinity())), "round(inf) should be inf");
     static_assert(cxp::isinf::f(cxp::round::f(-std::numeric_limits<T>::infinity())), "round(-inf) should be -inf");
 
@@ -527,9 +518,7 @@ constexpr bool test_floor_ct() {
     static_assert(cxp::floor::f(static_cast<T>(-1000.3)) == static_cast<T>(-1001.0), "floor(-1000.3) should be -1001.0");
     
     // Special values compile-time
-#if NO_VS2017_COMPILER
     static_assert(cxp::isnan::f(cxp::floor::f(std::numeric_limits<T>::quiet_NaN())), "floor(NaN) should be NaN");
-#endif // NO_VS2017_COMPILER
     static_assert(cxp::isinf::f(cxp::floor::f(std::numeric_limits<T>::infinity())), "floor(inf) should be inf");
     static_assert(cxp::isinf::f(cxp::floor::f(-std::numeric_limits<T>::infinity())), "floor(-inf) should be -inf");
 
@@ -749,9 +738,7 @@ constexpr bool test_nearbyint_ct() {
     static_assert(cxp::nearbyint::f(static_cast<T>(-1000.8)) == static_cast<T>(-1001.0), "nearbyint(-1000.8) should be -1001.0");
 
     // Special values compile-time
-#if NO_VS2017_COMPILER
     static_assert(cxp::isnan::f(cxp::nearbyint::f(std::numeric_limits<T>::quiet_NaN())), "nearbyint(NaN) should be NaN");
-#endif // NO_VS2017_COMPILER
     static_assert(cxp::isinf::f(cxp::nearbyint::f(std::numeric_limits<T>::infinity())), "nearbyint(inf) should be inf");
     static_assert(cxp::isinf::f(cxp::nearbyint::f(-std::numeric_limits<T>::infinity())), "nearbyint(-inf) should be -inf");
 

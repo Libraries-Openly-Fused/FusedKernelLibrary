@@ -112,8 +112,8 @@ namespace fk {
     template <>
     class Stream_<ParArch::CPU> final : public BaseStream {
     public:
-        Stream_<ParArch::CPU>() : BaseStream() {}
-        ~Stream_<ParArch::CPU>() = default;
+        Stream_() : BaseStream() {}
+        ~Stream_() = default;
         inline void sync() final {}
         constexpr inline enum ParArch getParArch() const {
             return ParArch::CPU;

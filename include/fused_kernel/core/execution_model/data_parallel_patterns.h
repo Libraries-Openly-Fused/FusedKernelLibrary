@@ -15,7 +15,7 @@
 #ifndef FK_INSTANTIABLE_DATA_PARALLEL_PATTERNS
 #define FK_INSTANTIABLE_DATA_PARALLEL_PATTERNS
 
-#if defined(__NVCC__) && !CLANG_HOST_DEVICE && NO_VS2017_COMPILER
+#if defined(__NVCC__) && !CLANG_HOST_DEVICE
 #include <cooperative_groups.h>
 namespace cooperative_groups {};
 namespace cg = cooperative_groups;
@@ -254,7 +254,7 @@ namespace fk { // namespace FusedKernel
 
         template <typename... IOps>
         FK_DEVICE_FUSE void exec(const Details& details, const IOps&... iOps) {
-#if VS2017_COMPILER || CLANG_HOST_DEVICE
+#if CLANG_HOST_DEVICE
             const int x = (blockDim.x * blockIdx.x) + threadIdx.x;
             const int y = (blockDim.y * blockIdx.y) + threadIdx.y;
             const int z = blockIdx.z; // So far we only consider the option of using the z dimension to specify n (x*y) thread planes
@@ -352,7 +352,7 @@ namespace fk { // namespace FusedKernel
         static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
         template <typename... IOpSequenceTypes>
         FK_DEVICE_FUSE void exec(const DPPDetails&, const IOpSequenceTypes&... iOpSequences) {
-#if VS2017_COMPILER || CLANG_HOST_DEVICE
+#if CLANG_HOST_DEVICE
             const uint z = blockIdx.z;
 #else
             const cg::thread_block g = cg::this_thread_block();

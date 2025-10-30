@@ -155,7 +155,6 @@ namespace fk {
     template <typename = void, typename... OpsOrIOps>
     struct NotAllUnary final : public std::false_type {};
 
-    // This intermediate step is needed to avoid VS2017 crashing with an unespecified error
     template <typename... OpsOrIOps>
     constexpr bool notAllUnaryTypesNoSFINAE = ((!std::is_same_v<typename OpsOrIOps::InstanceType, UnaryType>) || ...);
 
