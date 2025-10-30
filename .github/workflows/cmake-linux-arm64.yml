@@ -29,7 +29,7 @@ jobs:
     - name: Configure CMake      
       run: |          
         IFS="," read -r -a cpp_compiler <<< "${{matrix.cpp_compiler}}"   
-        export PATH=/usr/lib/llvm-21/bin/:$PATH  
+        export PATH=/home/cudeiro/cmake-4.1.2-linux-aarch64/bin:/usr/lib/llvm-21/bin/:$PATH  
         export CUDACXX=/usr/local/cuda-${cpp_compiler[2]}/bin/nvcc
         cmake -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_CXX_COMPILER="${cpp_compiler[0]}" -DCMAKE_CUDA_COMPILER="${cpp_compiler[1]}"  -DCUDAToolkit_ROOT="/usr/local/cuda-${cpp_compiler[2]}" -DCUDA_ARCH="87;" -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}       
  
