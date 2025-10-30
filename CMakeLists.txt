@@ -2,8 +2,8 @@
 cmake_minimum_required(VERSION 3.22 FATAL_ERROR)
 
 set (PROJECT_VERSION_MAJOR 0)
-set (PROJECT_VERSION_MINOR 1)
-set (PROJECT_VERSION_REV 11)
+set (PROJECT_VERSION_MINOR 2)
+set (PROJECT_VERSION_REV 0)
 set (PROJECT_VERSION ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_REV})
 include (cmake/cmake_init.cmake)
 include (cmake/doxygen.cmake)
