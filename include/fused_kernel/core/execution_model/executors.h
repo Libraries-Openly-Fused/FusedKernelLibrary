@@ -348,8 +348,8 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         using DPPDetails = typename DPPType::DPPDetails;
         using SelfType = Executor<DPPType>;
 
-        template <size_t... Idx, typename... IOpSequenceTypes>
-        FK_HOST_FUSE ActiveThreads getActiveThreads(std::index_sequence<Idx...>&, const IOpSequenceTypes&... iOpSequences) {
+        template <typename... IOpSequenceTypes>
+        FK_HOST_FUSE ActiveThreads getActiveThreads(const IOpSequenceTypes&... iOpSequences) {
             const uint x = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().x...);
             const uint y = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().y...);
             const uint z = cxp::sum::f(get<0>(iOpSequences.iOps).getActiveThreads().z...);
@@ -377,7 +377,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
 
         template <typename... IOpSequenceTypes>
         FK_HOST_FUSE void executeOperationsFused(Stream_<ParArch::GPU_NVIDIA>& stream, const IOpSequenceTypes&... iOpSequences) {
-            const ActiveThreads activeThreads = getActiveThreads(std::make_index_sequence<sizeof...(iOpSequences)>{}, iOpSequences...);
+            const ActiveThreads activeThreads = getActiveThreads(iOpSequences...);
             const DPPDetails details{};
 
             const dim3 block(cxp::min::f(activeThreads.x, 32u), cxp::min::f(activeThreads.y, 8u));
