@@ -4,7 +4,7 @@ function(set_default_cuda_target_properties TARGET_NAME)
     endif()
     target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${COMPILER_CUDA_FLAGS}>)
 
-    set_target_properties(${TARGET_NAME} PROPERTIES CUDA_STANDARD_REQUIRED ON CUDA_STANDARD 17 CUDA_RUNTIME_LIBRARY
+    set_target_properties(${TARGET_NAME} PROPERTIES CUDA_STANDARD_REQUIRED ON CUDA_STANDARD 20 CUDA_RUNTIME_LIBRARY
                                                                                                Shared)
     set_target_cuda_arch_flags(${TARGET_NAME})
     
