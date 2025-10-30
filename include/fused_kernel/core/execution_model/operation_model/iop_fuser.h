@@ -129,11 +129,16 @@ namespace fk {
         }
 
         template <size_t BATCH, size_t... Idx, typename ThisIOp, typename ForwardIOp>
-        FK_HOST_FUSE auto make_fusedArray(const std::index_sequence<Idx...>&,
-            const std::array<ThisIOp, BATCH>& thisArray,
-            const std::array<ForwardIOp, BATCH>& fwdArray) {
-            using ResultingType = decltype(fuseNonBatchForwardIOps(std::declval<ThisIOp>(), std::declval<ForwardIOp>()));
-            return std::array<ResultingType, BATCH>{fuseNonBatchForwardIOps(thisArray[Idx], fwdArray[Idx])...};
+        FK_HOST_FUSE auto make_fusedArray(const std::index_sequence<Idx...>&, const std::array<ThisIOp, BATCH>& thisArray,
+                                                                              const std::array<ForwardIOp, BATCH>& fwdArray) {
+            if constexpr (isIncompleteReadBackType<ForwardIOp>) {
+                using BuilderType = typename ForwardIOp::Operation;
+                using ResultingType = decltype(BuilderType::build(std::declval<ThisIOp>(), std::declval<ForwardIOp>()));
+                return std::array<ResultingType, BATCH>{ BuilderType::build(thisArray[Idx], fwdArray[Idx])... };
+            } else {
+                using ResultingType = decltype(fuseNonBatchForwardIOps(std::declval<ThisIOp>(), std::declval<ForwardIOp>()));
+                return std::array<ResultingType, BATCH>{fuseNonBatchForwardIOps(thisArray[Idx], fwdArray[Idx])...};
+            }
         }
     };
 
