@@ -15,6 +15,8 @@
 #ifndef FK_UTILS
 #define FK_UTILS
 
+#include <fused_kernel/core/utils/macro_utils.h>
+
 #if defined(_MSC_VER)
 #define _MSC_VER_EXISTS 1
 #else

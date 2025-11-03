@@ -32,10 +32,6 @@
 #define STRINGIFY_INNER(x) #x
 #define STRINGIFY(x) STRINGIFY_INNER(x)
 
-// Removes a single set of parentheses: DEPAREN((a,b)) -> a,b
-#define DEPAREN_IMPL(...) __VA_ARGS__
-#define DEPAREN(x) DEPAREN_IMPL x
-
 // =========================================================================
 // 2. Variadic Argument Concatenation (the magic part)
 //

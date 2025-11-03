@@ -29,6 +29,25 @@ namespace fk {
     struct MidWriteType;
     struct WriteType;
 
+    template<typename T>
+    concept ReadConcept = requires {
+        typename T::ParamsType;
+        typename T::ReadDataType;
+        typename T::InstanceType;
+        typename T::OutputType;
+        typename T::OperationDataType;
+        typename T::InstantiableType;
+        requires std::same_as<decltype(T::THREAD_FUSION), const bool>;
+        requires std::same_as<decltype(T::IS_FUSED_OP), const bool>;
+    }&& requires(const Point& thread, const typename T::OperationDataType& opData, const typename T::ParamsType& params) {
+        // Required num_elems functions
+        { T::num_elems_x(thread, opData) } -> std::same_as<uint>;
+        { T::num_elems_y(thread, opData) } -> std::same_as<uint>;
+        { T::num_elems_z(thread, opData) } -> std::same_as<uint>;
+        { T::exec(thread, params) } -> std::same_as<typename T::OutputType>;
+        { T::template exec<>(thread, opData) };
+    };
+
     template <typename T, typename = void>
     struct HasInstanceType : std::false_type {};
     template <typename T>

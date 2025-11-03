@@ -150,15 +150,6 @@ namespace fk {
     template <PlanePolicy PP = PlanePolicy::PROCESS_ALL, size_t BATCH = 1, typename Operation = TypeList<void>>
     struct BatchRead;
 
-    /*
-    BatchRead<PP, BATCH, Operation>:
-        Instantiable
-        ParamsType = BatchReadParams<BATCH, PP, Operation::ParamsType>
-        Implements exec(const Point& thread, const OperationDataType& opData)
-        Implements exec(const Point& thread, const ParamsType& params)
-        Implements build(const OperationDataType& opData)
-        Implements build(const ParamsType& params)
-    */
     template <size_t BATCH_, typename Op>
     struct BatchRead<PlanePolicy::PROCESS_ALL, BATCH_, Op> {
         static_assert(isCompleteOperation<Op>,
@@ -278,11 +269,6 @@ namespace fk {
         }
     };
 
-    /*
-    BatchRead<PlanePolicy::PROCESS_ALL, BATCH, TypeList<Op>>:
-        Instantiable
-        ParamsType = BatchReadParams<PlanePolicy::PROCESS_ALL, BATCH, Op>
-    */
     template <size_t BATCH_, typename Op>
     struct BatchRead<PlanePolicy::PROCESS_ALL, BATCH_, TypeList<Op>> {
     private:
@@ -326,11 +312,6 @@ namespace fk {
         }
     };
 
-    /*
-    BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH, TypeList<Op, DefType>>:
-        Instantiable
-        ParamsType = BatchReadParams<BATCH, PlanePolicy::CONDITIONAL_WITH_DEFAULT, Op, DefType>
-    */
     template <size_t BATCH_, typename Op, typename DefType>
     struct BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH_, TypeList<Op, DefType>> {
     private:
@@ -562,6 +543,20 @@ namespace fk {
 #define DECLARE_INCOMPLETEREADBACK_PARENT                                                                \
   DECLARE_INCOMPLETEREADBACK_PARENT_BASIC                                                                              \
   DECLARE_PARENT_READBATCH_BUILDERS
+
+#define DECLARE_TEMPLATE_READ_OPERATION(Name, TemplateParams, ParentParams) \
+        private: \
+        using Parent = ReadOperation<DEPAREN(ParentParams)>; \
+        using SelfType = Name<DEPAREN(TemplateParams)>; \
+        FK_STATIC_STRUCT(Name, SelfType) \
+        DECLARE_READ_PARENT
+
+#define DECLARE_READ_OPERATION(Name, ParentParams) \
+        private: \
+        using Parent = ReadOperation<DEPAREN(ParentParams)>; \
+        using SelfType = Name; \
+        FK_STATIC_STRUCT(Name, SelfType) \
+        DECLARE_READ_PARENT
 
   // END MEMORY OPERATIONS BATCH BUILDERS
   // END BATCH OPERATIONS
