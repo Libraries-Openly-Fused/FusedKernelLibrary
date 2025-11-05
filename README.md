@@ -14,17 +14,21 @@ A preprint journal paper is available at arxiv, pending approval at an IEEE jour
 A continuation poster was presented and awarded by NVIDIA members at PUMPS + AI summer school 2025, at Barcelona Supercomputing Center: [LinkedIn post](https://www.linkedin.com/posts/oscar-amoros-huguet_newgpuautomatickernelfusionspeciesposter-activity-7352086240935972867-znFD?utm_source=share&utm_medium=member_desktop&rcm=ACoAAAd9NREBlLso8JKbOumKpptnMzrUH9tmAgg)
 
 ## Sample code
+You can try FKL v0.1.9 at Compiler Explorer: https://godbolt.org
+
+Here is an example code, so you don't have to start from scratch: https://godbolt.org/z/6ncb3YMd8
+
 Let's see an example where we crop 5 images from a source image, and then apply some changes to those images, before storing them in a Tensor.
 
 You can view and run a similar code in this [FKL Playground](https://colab.research.google.com/drive/1WZd8FcWEKWAuxnJEOTfr0mrWVBtz8bzl?usp=sharing) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WZd8FcWEKWAuxnJEOTfr0mrWVBtz8bzl?usp=sharing)
 
 ```C++
-#include <fused_kernel/core/execution_model/memory_operations.cuh>
-#include <fused_kernel/algorithms/basic_ops/arithmetic.cuh>
-#include <fused_kernel/algorithms/image_processing/crop.cuh>
-#include <fused_kernel/algorithms/image_processing/color_conversion.cuh>
-#include <fused_kernel/algorithms/image_processing/resize.cuh>
-#include <fused_kernel/fused_kernel.cuh>
+#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/arithmetic.h>
+#include <fused_kernel/algorithms/image_processing/crop.h>
+#include <fused_kernel/algorithms/image_processing/color_conversion.h>
+#include <fused_kernel/algorithms/image_processing/resize.h>
+#include <fused_kernel/fused_kernel.h>
 
 using namespace fk;
 
@@ -59,13 +63,13 @@ const float3 divValue = make_set<float3>(255.f);
 
 // Create a fused operation that reads the input image,
 // crops it, resizes it, and applies arithmetic operations
-const auto mySender = PerThreadRead<_2D, uchar3>::build(inputImage)
-    .then(Crop<void>::build(crops))
-    .then(Resize<INTER_LINEAR, PRESERVE_AR>::build(outputSize, backgroundColor))
+const auto mySender = PerThreadRead<ND::_2D, uchar3>::build(inputImage)
+    .then(Crop<>::build(crops))
+    .then(Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>::build(outputSize, backgroundColor))
     .then(Mul<float3>::build(mulValue))
     .then(Sub<float3>::build(subValue))
     .then(Div<float3>::build(divValue))
-    .then(ColorConversion<COLOR_RGB2BGR, float3, float3>::build());
+    .then(ColorConversion<ColorConversionCodes::COLOR_RGB2BGR, float3, float3>::build());
 
 // Define the last operation that will write the results to the output pointer
 const auto myReceiver = TensorWrite<float3>::build(output);
