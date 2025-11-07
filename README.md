@@ -19,64 +19,49 @@ Let's see an example where we crop 5 images from a source image, and then apply 
 You can view and run a similar code in this [FKL Playground](https://colab.research.google.com/drive/1WZd8FcWEKWAuxnJEOTfr0mrWVBtz8bzl?usp=sharing) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WZd8FcWEKWAuxnJEOTfr0mrWVBtz8bzl?usp=sharing)
 
 ```C++
-#include <fused_kernel/core/execution_model/memory_operations.cuh>
-#include <fused_kernel/algorithms/basic_ops/arithmetic.cuh>
-#include <fused_kernel/algorithms/image_processing/crop.cuh>
-#include <fused_kernel/algorithms/image_processing/color_conversion.cuh>
-#include <fused_kernel/algorithms/image_processing/resize.cuh>
-#include <fused_kernel/fused_kernel.cuh>
+// NOTE: FKL version Beta-0.1.12-LTS
+#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/arithmetic.h>
+#include <fused_kernel/algorithms/image_processing/crop.h>
+#include <fused_kernel/algorithms/image_processing/color_conversion.h>
+#include <fused_kernel/algorithms/image_processing/resize.h>
+#include <fused_kernel/fused_kernel.h>
 
 using namespace fk;
 
+// Create the fkl CUDA stream
 Stream stream;
 
-// We set all outputs to the same size
-const Size outputSize(60, 60);
-// We perform 5 crops on the image
-constexpr int BATCH = 5;
+// Get the input image
+const Ptr2D<uchar3> inputImage = getGPUSourceImage(stream);
 
-// We have a 4K source image
-Ptr2D<uchar3> inputImage(3840, 2160);
-
-// We want a Tensor of contiguous memory for all images
-Tensor<float3> output(outputSize.width, outputSize.height, BATCH);
-
-// Crops can be of different sizes
-std::array<Rect, BATCH> crops{
-    Rect(0, 0, 34, 25),
-    Rect(10, 10, 70, 15),
-    Rect(20, 20, 60, 59),
-    Rect(30, 30, 20, 23),
-    Rect(40, 40, 12, 11)
+// Define the crops on the source image
+constexpr std::array<Rect, BATCH> crops{
+    Rect(300, 125, 60, 40),
+    Rect(400, 125, 60, 40),
+    Rect(530, 270, 130, 140),
+    Rect(560, 115, 100, 35),
+    Rect(572, 196, 40, 15)
 };
 
-initImageValues(inputImage);
-const float3 backgroundColor{ 0.f, 0.f, 0.f };
+// We want a Tensor of contiguous memory for all crops as output
+Tensor<uchar3> output(outputSize.width, outputSize.height, BATCH);
 
-const float3 mulValue = make_set<float3>(1.4f);
-const float3 subValue = make_set<float3>(0.5f);
-const float3 divValue = make_set<float3>(255.f);
-
+// CREATING AND EXECUTING YOUR FUSED CUDA KERNEL
 // Create a fused operation that reads the input image,
-// crops it, resizes it, and applies arithmetic operations
-const auto mySender = PerThreadRead<_2D, uchar3>::build(inputImage)
-    .then(Crop<void>::build(crops))
-    .then(Resize<INTER_LINEAR, PRESERVE_AR>::build(outputSize, backgroundColor))
-    .then(Mul<float3>::build(mulValue))
-    .then(Sub<float3>::build(subValue))
-    .then(Div<float3>::build(divValue))
-    .then(ColorConversion<COLOR_RGB2BGR, float3, float3>::build());
+// crops it, resizes it, and applies arithmetic operations.
+// At compile time, the types are used to define the kernel code.
+// At runtime, the kernel is executed with the provided parameters.
+executeOperations<TransformDPP<>>(stream,
+                                  PerThreadRead<ND::_2D, uchar3>::build(inputImage.ptr()),
+                                  Crop<>::build(crops),
+                                  Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>::build(outputSize, backgroundColor),
+                                  Mul<float3>::build(make_<float3>(2.f, 2.f, 2.f)),
+                                  Sub<float3>::build(make_set<float3>(128.f)),
+                                  SaturateCast<float3, uchar3>::build(),
+                                  TensorWrite<uchar3>::build(output.ptr()));
 
-// Define the last operation that will write the results to the output pointer
-const auto myReceiver = TensorWrite<float3>::build(output);
-
-// Execute the operations in a single kernel
-// At compile time, the types are used to define the kernel code
-// At runtime, the kernel is executed with the provided parameters
-executeOperations(stream, mySender, myReceiver);
-
-// Use the Tensor for inference
-stream.sync()
+stream.sync();
 
 ```
 Let's see a bit more in detail what is going on in the code.
@@ -84,47 +69,45 @@ Let's see a bit more in detail what is going on in the code.
 First of all, take into account that there is no CUDA kernel launch until we call the function executeOperations. Until then, we accumulate and combine information to build the final kernel.
 
 ```C++
-const auto mySender = PerThreadRead<_2D, uchar3>::build(inputImage)
+PerThreadRead<ND::_2D, uchar3>::build(inputImage.ptr()),
 ```
 In this line we are specifying that we want to read a 4K (2D) image, where we will have one CUDA thread per each pixel.
 
-The variable mySender will contain an object representing an Instantiable Operation that combines all the operations specified with the then() method.
+The call to `build(...)` will return a Read<PerThreadRead<ND::_2D, uchar3>> instance, that contains the code as an static member and the parameters stored in the instance.
 
 ```C++
-.then(Crop<void>::build(crops))
+Crop<>::build(crops),
 ```
 In the second line, we are changing the threads being used. Since crops it's an std::array of size 5, we now know that we need a 3D set of threadBlocks, where each plane will generate one of the crops, and where width and heigth will be different on each plane. The number of threads on each plane will be the maximum width and the maximum height of all crops, and only the useful threads (width and height of the current plane) will actually read, using the Operation PerThreadRead that we defined previously.
 
-The then() method, will return an instance of an Instantiable Operation that performs what we explained with the combination of PerThreadRead + Crop.
+The `build()` method will return an instance of Read<BatchRead<BATCH, Crop<>>> that only knows about the crop sizes, but nothing about the source image. Inside the executeOperations function, we will fuse the PreThreadRead and Crop operations into a Read<BatchRead<BATCH, Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>> fused Operation.
 
 ```C++
-.then(Resize<INTER_LINEAR, PRESERVE_AR>::build(outputSize, backgroundColor))
+Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>::build(outputSize, backgroundColor),
 ```
-In the third line, we are changing the threads again. This time we are setting a grid made of 60x60x5 active threads (outputSize 5 times). We are going to resize each crop from it's original size to 60x60, while preserving the orginal aspect ratio of the crop. The crop will be centered in the 60x60 image, filling the width or the height and having vertical or horizontal bands where all the pixels have the backgroundColor.
+In the third line, we are changing the threads again. This time we are setting a grid made of 60x60x5 active threads (outputSize 5 or BATCH times). We are going to resize each crop from it's original size to 60x60, while preserving the orginal aspect ratio of the crop. The crop will be centered in the 60x60 image, filling the width or the height and having vertical or horizontal bands where all the pixels have the backgroundColor.
+
+The `build()` method will return an instance of ReadBack<Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>> that only knows about the target size and the aspect ratio, but nothig about the source image. Inside the executeOperations function, we will fuse the Read<BatchRead<BATCH, Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>> with the ReadBack<Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>> into a Read<BatchRead<BATCH, Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR, ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>>>.
 
 Each thread will work as if the source image had the size informed by the corresponding Crop operation.
 Each thread will ask the Crop operation for the pixels it needs to interpolate the output pixel.
 
-The then() method, knows that the Crop operation is a batch operation, so it will assume that we need to apply the non batch resize operation to each one of the cropped images.
-The then() method, will return an instance of an Instantiable Operation that performs what we explained with the combination of PerThreadRead + Crop + Resize.
-
 ```C++
-.then(Mul<float3>::build(mulValue))
-.then(Sub<float3>::build(subValue))
-.then(Div<float3>::build(divValue))
-.then(ColorConversion<COLOR_RGB2BGR, float3, float3>::build());
+Mul<float3>::build(mulValue),
+Sub<float3>::build(subValue),
+Div<float3>::build(divValue),
+ColorConversion<COLOR_RGB2BGR, float3, float3>::build(),
 ```
 
-The following 4 lines will add element wise continuation operations to be applied to the output of the combined operation "PerThreadRead + Crop + Resize".
-The result will be an Instantiable Operation that combines "PerThreadRead + Crop + Resize + Mul + Sub + Div + ColorConversion".
+The following 4 lines will add element wise continuation operations to be applied to the output of the fused operation "PerThreadRead + Crop + Resize" (Read<BatchRead<BATCH, Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR, ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>>>).
 
 ```C++
-const auto myReceiver = TensorWrite<float3>::build(output);
+TensorWrite<float3>::build(output));
 ```
 
-The variable myReceiver will contain the last operation of the kernel, that writes the results from the previous Operations to the GPU DRAM.
+The Operation TensorWrite will write the 60x60x5 pixels into a contiguous memory region, without padding on the x axis. The CUDA kernel will receive as parameters the fused operation and the continuation operations, including TensorWrite, as a parameter pack. The kernel is a variadic template kernel function.
 
-The Operation TensorWrite will write the 60x60x5 pixels into a contiguous memory region, without padding on the x axis. DNNs generated with Pytorch usually expect the 3 pixel channels to be split into separated planes, but despite we include the split Operation, this is not the most efficient memory layout for the GPUs, and we wanted to show the creation of most efficient Tensor shape. 
+DNNs generated with Pytorch usually expect the 3 pixel channels to be split into separated planes, but despite we include the split Operation, this is not the most efficient memory layout for the GPUs, and we wanted to show the creation of most efficient Tensor shape. 
 
 You can view and run a similar code in this [FKL Playground](https://colab.research.google.com/drive/1WZd8FcWEKWAuxnJEOTfr0mrWVBtz8bzl?usp=sharing) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WZd8FcWEKWAuxnJEOTfr0mrWVBtz8bzl?usp=sharing)
 
