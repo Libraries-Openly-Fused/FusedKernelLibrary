@@ -76,21 +76,21 @@ PerThreadRead<ND::_2D, uchar3>::build(inputImage.ptr()),
 ```
 In this line we are specifying that we want to read a 4K (2D) image, where we will have one CUDA thread per each pixel.
 
-The call to `build(...)` will return a Read<PerThreadRead<ND::_2D, uchar3>> instance, that contains the code as an static member and the parameters stored in the instance.
+The call to `build(...)` will return a `Read<PerThreadRead<ND::_2D, uchar3>>` instance, that contains the code as an static member and the parameters stored in the instance.
 
 ```C++
 Crop<>::build(crops),
 ```
-In the second line, we are changing the threads being used. Since crops it's an std::array of size 5, we now know that we need a 3D set of threadBlocks, where each plane will generate one of the crops, and where width and heigth will be different on each plane. The number of threads on each plane will be the maximum width and the maximum height of all crops, and only the useful threads (width and height of the current plane) will actually read, using the Operation PerThreadRead that we defined previously.
+In the second line, we are changing the threads being used. Since crops it's an `std::array` of size 5, we now know that we need a 3D set of threadBlocks, where each plane will generate one of the crops, and where width and heigth will be different on each plane. The number of threads on each plane will be the maximum width and the maximum height of all crops, and only the useful threads (width and height of the current plane) will actually read, using the Operation PerThreadRead that we defined previously.
 
-The `build()` method will return an instance of Read<BatchRead<BATCH, Crop<>>> that only knows about the crop sizes, but nothing about the source image. Inside the executeOperations function, we will fuse the PreThreadRead and Crop operations into a Read<BatchRead<BATCH, Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>> fused Operation.
+The `build()` method will return an instance of `Read<BatchRead<BATCH, Crop<>>>` that only knows about the crop sizes, but nothing about the source image. Inside the executeOperations function, we will fuse the PreThreadRead and Crop operations into a `Read<BatchRead<BATCH, Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>` fused Operation.
 
 ```C++
 Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>::build(outputSize, backgroundColor),
 ```
 In the third line, we are changing the threads again. This time we are setting a grid made of 60x60x5 active threads (outputSize 5 or BATCH times). We are going to resize each crop from it's original size to 60x60, while preserving the orginal aspect ratio of the crop. The crop will be centered in the 60x60 image, filling the width or the height and having vertical or horizontal bands where all the pixels have the backgroundColor.
 
-The `build()` method will return an instance of ReadBack<Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>> that only knows about the target size and the aspect ratio, but nothig about the source image. Inside the executeOperations function, we will fuse the Read<BatchRead<BATCH, Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>> with the ReadBack<Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>> into a Read<BatchRead<BATCH, Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR, ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>>>.
+The `build()` method will return an instance of `ReadBack<Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>>` that only knows about the target size and the aspect ratio, but nothig about the source image. Inside the executeOperations function, we will fuse the `Read<BatchRead<BATCH, Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>` with the `ReadBack<Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>>` into a `Read<BatchRead<BATCH, Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR, ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>>>`.
 
 Each thread will work as if the source image had the size informed by the corresponding Crop operation.
 Each thread will ask the Crop operation for the pixels it needs to interpolate the output pixel.
@@ -102,7 +102,7 @@ Div<float3>::build(divValue),
 ColorConversion<COLOR_RGB2BGR, float3, float3>::build(),
 ```
 
-The following 4 lines will add element wise continuation operations to be applied to the output of the fused operation "PerThreadRead + Crop + Resize" (Read<BatchRead<BATCH, Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR, ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>>>).
+The following 4 lines will add element wise continuation operations to be applied to the output of the fused operation "PerThreadRead + Crop + Resize" (`Read<BatchRead<BATCH, Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR, ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>>>`).
 
 ```C++
 TensorWrite<float3>::build(output));
