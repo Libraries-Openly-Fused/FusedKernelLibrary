@@ -1,8 +1,12 @@
-# Fused Kernel Library (FKL)
+# Fused Kernel Library (FKL) Main branch
   
 The Fused Kernel Library is a C++ implementation of a methodology that allows to define a set of code elements that need to be executed inside a kernel, in the same order that they are expressed. The library currently has CPU and CUDA backends, but other GPU language implemenations (such as HIP) are possible. The LTS branch supports C++17 while the main branch has recently been updated to support C++20, in order to be able to use Concepts and Restrictions, along with other features that are very usefull in order to simplify the code and make it more maintainable.
 
 It automatically implements Vertical and Horizontal fusion, and also implements two new Fusion techniques, Backwards Vertical Fusion (akin to OpenCV Filters, but with an standard generic API), and Divergent Horizontal Fusion.
+
+This is the Main branch of the repository, where the FKL API can be modified, the minimum C++ version can be increased, and in general, we can break retro-compatibility with the goal of enabling more maintainable code, and fuse more types of algorithms.
+
+If you are looking for a more stable branch, where new features can be added, but the FKL API is frozen, to ensure your user code will continue to work with newer versions, check the C++17LTS branch.
 
 ## Reference paper and other publications
 This repository provides the official implementation of a kernel fusion methodology for GPU libraries, providing the mechanisms to perform automatic Vertical Fusion, Horizontal Fusion, Backwards Vertical Fusion and Divergent Horizontal Fusion.
