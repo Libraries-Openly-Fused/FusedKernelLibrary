@@ -18,9 +18,9 @@ A preprint journal paper is available at arxiv, pending approval at an IEEE jour
 A continuation poster was presented and awarded by NVIDIA members at PUMPS + AI summer school 2025, at Barcelona Supercomputing Center: [LinkedIn post](https://www.linkedin.com/posts/oscar-amoros-huguet_newgpuautomatickernelfusionspeciesposter-activity-7352086240935972867-znFD?utm_source=share&utm_medium=member_desktop&rcm=ACoAAAd9NREBlLso8JKbOumKpptnMzrUH9tmAgg)
 
 ## Sample code
-You can try FKL v0.1.13-LTS at Compiler Explorer: https://godbolt.org
+You can try FKL v0.1.13-LTS at [Compiler Explorer](https://godbolt.org)
 
-Here is an example code, so you don't have to start from scratch: https://godbolt.org/z/6ncb3YMd8
+You can also use this [sample code](https://godbolt.org/z/6ncb3YMd8), so you don't have to start from scratch: 
 
 Let's see an example where we crop 5 images from a source image, and then apply some changes to those images, before storing them in a Tensor.
 
