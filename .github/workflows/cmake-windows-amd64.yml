@@ -38,7 +38,7 @@ jobs:
         if  ($y[0].contains("llvm"))  {
             $env:CC="D:\clang+llvm-"+$y[1]+"-x86_64-pc-windows-msvc\bin\clang-cl.exe"
             $env:CXX="D:\clang+llvm-"+$y[1]+"-x86_64-pc-windows-msvc\bin\clang-cl.exe"
-            $devargs='-arch=x64'       
+            $devargs='-arch=x64 -vcvars_ver=14.44'       
         }  else {
             $env:CC="cl.exe"
             $env:CXX="cl.exe"
@@ -50,6 +50,7 @@ jobs:
             $env:CC="D:\clang+llvm-"+$y[1]+"-x86_64-pc-windows-msvc\bin\clang++.exe"
             $env:CXX=$env:CC
             $env:CUDACXX=$env:CC
+            $devargs='-arch=x64 -vcvars_ver=14.44'
         }  else {
             $env:CUDACXX="${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v$($y[3])\bin\nvcc.exe"
         }
@@ -69,7 +70,7 @@ jobs:
             $y = "${{matrix.toolset}}".split(",")
             Import-Module (Get-ChildItem $vsInstallationPath -Recurse -File -Filter Microsoft.VisualStudio.DevShell.dll).FullName           
             if  ($y[0].contains("llvm"))  {            
-            $devargs='-arch=x64'       
+            $devargs='-arch=x64 -vcvars_ver=14.44'       
             }  else {
             $devargs='-arch=x64 -vcvars_ver='+$y[1]     
             }
