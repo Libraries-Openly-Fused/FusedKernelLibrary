@@ -6,6 +6,8 @@ It automatically implements Vertical and Horizontal fusion, and also implements 
 
 This is the LTS-C++17 branch of the FKL, which means that the C++ version will be kept to C++17, and the FKL API will be frozen to it's current state, so that old code still works on newer LTS-C++17 versions. The goal of this branch is to have an stable FKL API to facilitate adding new Operations, DataParallelPatterns, Executors and architectures support, without having to refactor any user code or any pre-existing Operation, DataParallelPattern or Executor.
 
+The lts branch is tested against msvc2017,gcc 11-13 and llvm 21
+
 ## Reference paper and other publications
 This repository provides the official implementation of a kernel fusion methodology for GPU libraries, providing the mechanisms to perform automatic Vertical Fusion, Horizontal Fusion, Backwards Vertical Fusion and Divergent Horizontal Fusion.
 
