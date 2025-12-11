@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
 
       matrix:         #host,cuda,cuda_version
-        cpp_compiler: ["g++,nvcc,12.9","clang++,nvcc,12.9","clang++,clang++,12.1"]   
+        cpp_compiler: ["g++,nvcc,12.9","clang++,nvcc,12.9","clang++,clang++,12.1","g++,nvcc,13.1","clang++,nvcc,13.1"]   
         # 
     steps:    
     - uses: actions/checkout@v4
