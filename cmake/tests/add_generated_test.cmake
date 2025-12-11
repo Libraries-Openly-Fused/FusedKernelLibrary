@@ -31,6 +31,8 @@ function(configure_test_target_flags TARGET_NAME TEST_SOURCE DIR)
         if (MSVC)
             target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/diagnostics:caret>)
              target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/bigobj>)
+             #fix MSVC/cl.exe with traditional preprocessor is used warning
+             target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>)
         #    add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
              #target_link_libraries(${TARGET_NAME} -manifest:embed -manifestinput:"${PROJECT_SOURCE_DIR}/myapp.manifest" 
         endif()
