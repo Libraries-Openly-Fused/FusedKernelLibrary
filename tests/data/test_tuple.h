@@ -19,6 +19,22 @@
 #include <fused_kernel/core/execution_model/operation_model/operation_tuple.h>
 #include <fused_kernel/algorithms/basic_ops/vector_ops.h>
 #include <fused_kernel/core/execution_model/memory_operations.h>
+#ifdef __NVCC__
+// Condition 1: we are compiling with MSVC + nvcc OR other compilers + nvcc versions lower than 12.4.93
+#if (NVCC_VERSION_CALCULATED < NVCC_VERSION_12_4_99)
+#define WILL_COMPILE 1
+#else
+#define WILL_NOT_COMPILE 1
+#endif
+
+// Undefine helper macros to avoid polluting the global macro namespace
+#undef NVCC_VERSION_CALCULATED
+#undef NVCC_VERSION_12_4_99
+#else
+#define WILL_COMPILE 1
+#endif // __NVCC__
+
+#ifdef WILL_COMPILE
 
 constexpr bool buildTuple() {
     constexpr fk::Tuple<int, float, double, float3> test{1, 4.f, 5.0, {4.f, 3.f, 1.f}};
@@ -84,8 +100,10 @@ bool modifyTupleElement() {
            (fk::get<1>(myTuple) == 0.5f) &&
            (fk::get<2>(myTuple) == 3.0);
 }
+#endif
 
 int launch() {
+#ifdef WILL_COMPILE
     static_assert(buildTuple(), "Failed buildTuple test");
     static_assert(buildOperationTupleType(), "Failed buildOperationTupleType test");
     static_assert(tupleCat(), "Failed tupleCat test");
@@ -98,4 +116,9 @@ int launch() {
         std::cout << "test_tuple Failed!!" << std::endl;
         return -1;
     }
+ #else
+    return 0;
+#endif
 }
+ 
+

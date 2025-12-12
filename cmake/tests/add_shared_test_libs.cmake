@@ -24,6 +24,9 @@ function (add_shared_target TARGET_BASE_NAME EXTENSION FUNDAMENTAL_TYPE DIR)
     target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/")   #testcommon       
     target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_BINARY_DIR}/generated/${GEN_DIR}/")   #testcommon       
    
+    if (MSVC)
+        target_compile_options(${TARGET_NAME}_${EXTENSION} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>)
+    endif()
 endfunction()
 
 function (add_shared_test_lib TARGET_BASE_NAME DIR EXTENSION FUNDAMENTAL_TYPE)
