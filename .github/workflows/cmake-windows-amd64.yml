@@ -16,7 +16,7 @@ jobs:
       matrix:         
       #host compiler, version, cuda compiler, cuda version,
       #disabling ,"llvm,21.1.0,llvm,12.1", not working on windows yet
-        toolset: ["cl,14.44,nvcc,12.9","llvm,21.1.0,nvcc,12.9","cl,14.44,nvcc,13.1","llvm,21.1.0,nvcc,13.1"]
+        toolset: ["cl,14.44,nvcc,12.9","llvm,21.1.0,nvcc,12.9","cl,14.44,nvcc,13.0","llvm,21.1.0,nvcc,13.0"]
  
 
     steps:
