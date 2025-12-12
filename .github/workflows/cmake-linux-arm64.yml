@@ -4,7 +4,7 @@ on:
   #push:
  #  branches: [ $default-branch ]
   pull_request:
-    branches: [ "LTS-C++17"]
+    branches: [ "LTS-*"]
 
 jobs:
   build:
@@ -30,8 +30,12 @@ jobs:
       run: |          
         IFS="," read -r -a cpp_compiler <<< "${{matrix.cpp_compiler}}"   
         export PATH=/usr/lib/llvm-21/bin/:$PATH  
-        export CUDACXX=/usr/local/cuda-${cpp_compiler[2]}/bin/nvcc
-        cmake -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_CXX_COMPILER="${cpp_compiler[0]}" -DCMAKE_CUDA_COMPILER="${cpp_compiler[1]}"  -DCUDAToolkit_ROOT="/usr/local/cuda-${cpp_compiler[2]}" -DCUDA_ARCH="87;" -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}       
+        if [[ "${cpp_compiler[1]}" == "nvcc" ]]; then
+            export CUDACXX="/usr/local/cuda-${cpp_compiler[2]}/bin/nvcc"
+        else
+            export CUDACXX="${cpp_compiler[1]}"
+        fi
+        cmake -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_CXX_COMPILER="${cpp_compiler[0]}" -DCMAKE_CUDA_COMPILER="${CUDACXX}"  -DCUDAToolkit_ROOT="/usr/local/cuda-${cpp_compiler[2]}" -DCUDA_ARCH="87;" -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}       
  
     - name: Build
       # Build your program with the given configuration. Note that --config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).      
