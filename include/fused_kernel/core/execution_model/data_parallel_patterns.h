@@ -15,11 +15,11 @@
 #ifndef FK_INSTANTIABLE_DATA_PARALLEL_PATTERNS
 #define FK_INSTANTIABLE_DATA_PARALLEL_PATTERNS
 
-#if defined(__NVCC__) && !CLANG_HOST_DEVICE && NO_VS2017_COMPILER
+#if defined(__NVCC__) && !(VS2017_COMPILER || CLANG_HOST_DEVICE)
 #include <cooperative_groups.h>
 namespace cooperative_groups {};
 namespace cg = cooperative_groups;
-#endif // defined(__NVCC__) || defined(__HIP__) || defined(__NVRTC__) || defined(NVRTC_COMPILER)
+#endif
 
 #include <fused_kernel/core/utils/parameter_pack_utils.h>
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
