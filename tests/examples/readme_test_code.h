@@ -12,6 +12,8 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
+#include <tests/main.h>
+
 #include <fused_kernel/core/execution_model/memory_operations.h>
 #include <fused_kernel/core/utils/utils.h>
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
