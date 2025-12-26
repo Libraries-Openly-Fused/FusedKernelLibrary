@@ -16,6 +16,7 @@
 #define PARALLEL_ARCHITECTURES_H
 
 #include <string_view>
+#include <fused_kernel/core/utils/compiler_macros.h>
 
 namespace fk {
 
@@ -35,7 +36,7 @@ namespace fk {
         PARALLEL_ARCHITECTURES
 #undef PAR_ARCH_VALUE
     };
-#if !defined(NVRTC_COMPILER)
+
     constexpr inline std::string_view toStrView(const ParArch& arch) {
         switch (arch) {
 #define PAR_ARCH_VALUE(name) case ParArch::name: { return std::string_view{#name}; }
@@ -44,16 +45,14 @@ namespace fk {
         default: return "Unknown";
     }
 }
-#endif
 #undef PARALLEL_ARCHITECTURES
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#ifndef CLANG_HOST_DEVICE
+static_assert(false);
+#endif
+
+#if defined(__NVCC__) || (CLANG_HOST_DEVICE == 1)
     constexpr ParArch defaultParArch = ParArch::GPU_NVIDIA;
-#elif defined(NVRTC_ENABLED)
-    // Note: when using JIT, code compiled with the Host compiler 
-    // will have defaultParArch = ParArch::GPU_NVIDIA_JIT
-    // Device code, compiled at runtime, will have ParArch::GPU_NVIDIA
-    constexpr ParArch defaultParArch = ParArch::GPU_NVIDIA_JIT;
 #else
     constexpr ParArch defaultParArch = ParArch::CPU;
 #endif
