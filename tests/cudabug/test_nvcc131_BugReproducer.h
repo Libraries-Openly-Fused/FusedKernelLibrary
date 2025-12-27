@@ -29,7 +29,7 @@
 #define NVCC_VERSION_12_4_00 120400
 #define NVCC_VERSION_13_1_99 131199
 
-// Condition 1: we are compiling with nvcc versions lower than 12.4 or higher than 13.1
+// Condition 1: we are compiling with nvcc versions lower than 12.4 or 13.2 and higher
 #if ( NVCC_VERSION_CALCULATED < NVCC_VERSION_12_4_00 || NVCC_VERSION_CALCULATED >= NVCC_VERSION_13_1_99)
 #define WILL_COMPILE 1
 #else
