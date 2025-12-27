@@ -15,18 +15,7 @@
 #ifndef FK_UTILS
 #define FK_UTILS
 
-#if defined(_MSC_VER)
-#define _MSC_VER_EXISTS 1
-#else
-#define _MSC_VER_EXISTS 0
-#endif
- 
-#if defined(__clang__) && defined(__CUDA__)
-// clang compiling CUDA code, device mode.º
-#define CLANG_HOST_DEVICE 1
-#else
-#define CLANG_HOST_DEVICE 0
-#endif
+#include <fused_kernel/core/utils/compiler_macros.h>
 
 #if !defined(NVRTC_COMPILER)
 #include <string>
