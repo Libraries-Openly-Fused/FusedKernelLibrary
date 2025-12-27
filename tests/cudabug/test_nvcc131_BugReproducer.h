@@ -26,10 +26,11 @@
 
 #ifdef __NVCC__
 #define NVCC_VERSION_CALCULATED (__CUDACC_VER_MAJOR__ * 10000 + __CUDACC_VER_MINOR__ * 100 + __CUDACC_VER_BUILD__)
+#define NVCC_VERSION_12_4_00 120400
 #define NVCC_VERSION_13_1_99 131199
 
 // Condition 1: we are compiling with nvcc versions lower than 12.4 or higher than 13.1
-#if ( NVCC_VERSION_CALCULATED < 120400 || NVCC_VERSION_CALCULATED >= NVCC_VERSION_13_1_99)
+#if ( NVCC_VERSION_CALCULATED < NVCC_VERSION_12_4_00 || NVCC_VERSION_CALCULATED >= NVCC_VERSION_13_1_99)
 #define WILL_COMPILE 1
 #else
 #define WILL_NOT_COMPILE 1
@@ -37,6 +38,7 @@
 
 // Undefine helper macros to avoid polluting the global macro namespace
 #undef NVCC_VERSION_CALCULATED
+#undef NVCC_VERSION_12_4_00
 #undef NVCC_VERSION_13_1_99
 #else
 #define WILL_COMPILE 1
