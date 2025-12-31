@@ -28,7 +28,7 @@
 #define NVCC_VERSION_CALCULATED (__CUDACC_VER_MAJOR__ * 10000 + __CUDACC_VER_MINOR__ * 100 + __CUDACC_VER_BUILD__)
 #define NVCC_VERSION_12_4_99 120499
 
-// Condition 1: we are compiling with MSVC + nvcc OR other compilers + nvcc versions lower than 12.4.93
+// Condition 1: we are compiling with MSVC + nvcc OR other compilers + nvcc versions lower than 12.4.99
 #if ( NVCC_VERSION_CALCULATED < NVCC_VERSION_12_4_99)
 #define WILL_COMPILE 1
 #else
