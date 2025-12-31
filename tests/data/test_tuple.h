@@ -116,7 +116,7 @@ int launch() {
         std::cout << "test_tuple Failed!!" << std::endl;
         return -1;
     }
- #else
+#else
     return 0;
 #endif
 }
