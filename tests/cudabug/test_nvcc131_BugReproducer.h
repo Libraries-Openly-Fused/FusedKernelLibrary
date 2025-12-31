@@ -58,7 +58,7 @@ constexpr bool firstFunc() {
     constexpr bool result1 = myint.instance == 1;
 
     // Using and_v2 here and keeping and_v in line 67
-    // or the other way arround, compiles
+    // or the other way around, compiles
     // Changin result1 to the literal true, compiles
     return and_v<result1>;
 }
