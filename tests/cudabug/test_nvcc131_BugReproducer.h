@@ -59,7 +59,7 @@ constexpr bool firstFunc() {
 
     // Using and_v2 here and keeping and_v in line 67
     // or the other way around, compiles
-    // Changin result1 to the literal true, compiles
+    // Changing result1 to the literal true, compiles
     return and_v<result1>;
 }
 
