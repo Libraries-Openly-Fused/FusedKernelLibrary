@@ -1,4 +1,4 @@
-﻿/* Copyright 2023-2025 Mediaproduccion S.L.U. (Oscar Amoros Huguet)
+/* Copyright 2023-2025 Mediaproduccion S.L.U. (Oscar Amoros Huguet)
    Copyright 2025 Albert Andaluz
    
    Licensed under the Apache License, Version 2.0 (the "License");
