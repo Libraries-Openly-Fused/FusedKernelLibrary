@@ -44,7 +44,7 @@ namespace fk {
         ReadType value;
     };
 
-    template <BorderType BT, typename ParamsType = NullType, typename BackIOp = NullType, typename Enabler = void>
+    template <BorderType BT = BorderType::DEFAULT, typename ParamsType = NullType, typename BackIOp = NullType, typename Enabler = void>
     struct BorderReader;
     
     template <>
@@ -140,7 +140,7 @@ namespace fk {
         }
 
         FK_HOST_FUSE auto build() {
-            return BorderReader<BT>{};
+            return BorderReader<BT>::build(BorderReaderParameters<BT>{}, NullType{});
         }
 
         template <typename BIOp>
