@@ -133,9 +133,10 @@ namespace fk {
 
     template <enum ND D, typename T>
     class Ptr {
+    public:
         using Type = T;
         using At = PtrAccessor<D>;
-
+        static constexpr ND nd = D;
     protected:
         RefPtr* ref{ nullptr };
         RawPtr<D, T> ptr_a;

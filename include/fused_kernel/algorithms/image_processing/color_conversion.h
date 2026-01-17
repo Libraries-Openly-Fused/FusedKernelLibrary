@@ -82,7 +82,7 @@ namespace fk {
     using PackedPixelType = VectorType_t<ColorDepthPixelBaseType<static_cast<ColorDepth>(PixelFormatTraits<PF>::depth)>, PixelFormatTraits<PF>::cn>;
 
     template <PixelFormat PF, bool ALPHA>
-    using YUVOutputPixelType = VectorType_t<ColorDepthPixelBaseType<static_cast<ColorDepth>(PixelFormatTraits<PF>::depth)>, ALPHA ? 4 : PixelFormatTraits<PF>::cn>;
+    using YUVOutputPixelType = VectorType_t<ColorDepthPixelBaseType<PixelFormatTraits<PF>::depth>, ALPHA ? 4 : PixelFormatTraits<PF>::cn>;
 
     struct SubCoefficients {
         const float luma;
