@@ -21,6 +21,7 @@
 #include <fused_kernel/algorithms/image_processing/resize.h>
 #include <fused_kernel/algorithms/image_processing/color_conversion.h>
 #include <fused_kernel/algorithms/image_processing/image.h>
+#include <fused_kernel/algorithms/image_processing/border_reader.h>
 #include <fused_kernel/fused_kernel.h>
 
 using namespace fk;
@@ -36,10 +37,10 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     constexpr int BATCH = 100;
 
     // We have a 4K source image
-    Image<PixelFormat::NV12> inputImage(1920, 1080);
+    Image<PixelFormat::NV12> inputImage(3840, 2160);
 
     // Intermediate RGB image after YUV to RGB conversion
-    Ptr2D<float3> rgbImg(1920, 1080);
+    Ptr2D<float3> rgbImg(3840, 2160);
 
     // We want a Tensor of contiguous memory for all images
     Tensor<float3> output(outputSize.width, outputSize.height, BATCH);
@@ -72,6 +73,7 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
         ColorRange::Full,
         ColorPrimitives::bt2020,
         false>::build();
+    const auto borderReader = BorderReader<BorderType::REPLICATE>::build();
     const auto cropIOp = Crop<>::build(crops);
     const auto resizeIOp =
         Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>::build(outputSize, backgroundColor);
@@ -88,12 +90,11 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
         cropedPtrs[i] = rgbImg.crop2D(Point(crops[i].x, crops[i].y), PtrDims<ND::_2D>(crops[i].width, crops[i].height));
     }
 
-    executeOperations<TransformDPP<>>(
-        stream, ReadOp::build(cropedPtrs), resizeIOp, mulIOp,
+    executeOperations<TransformDPP<>>(stream, ReadOp::build(cropedPtrs), resizeIOp, mulIOp,
                                       subIOp, divIOp, tensorWriteIOp);
 
     // With BVF
-    executeOperations<TransformDPP<>>(stream, readIOp, yuvToRGB, cropIOp,
+    executeOperations<TransformDPP<>>(stream, readIOp, yuvToRGB, borderReader, cropIOp,
                                       resizeIOp, mulIOp, subIOp, divIOp, tensorWriteIOp);
 
     stream.sync();
