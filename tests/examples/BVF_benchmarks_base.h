@@ -72,7 +72,7 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     const auto yuvToRGB = ConvertYUVToRGB<PixelFormat::NV12,
         ColorRange::Full,
         ColorPrimitives::bt2020,
-        false>::build();
+        false, float3>::build();
     const auto borderReader = BorderReader<BorderType::REPLICATE>::build();
     const auto cropIOp = Crop<>::build(crops);
     const auto resizeIOp =
@@ -84,13 +84,13 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
 
     // Without BVF
     executeOperations<TransformDPP<>>(
-        stream, readIOp, yuvToRGB, Cast<uchar3, float3>::build(), WriteOp::build(rgbImg));
+        stream, readIOp, yuvToRGB, WriteOp::build(rgbImg));
 
     for (int i = 0; i < BATCH; ++i) {
         cropedPtrs[i] = rgbImg.crop2D(Point(crops[i].x, crops[i].y), PtrDims<ND::_2D>(crops[i].width, crops[i].height));
     }
 
-    executeOperations<TransformDPP<>>(stream, ReadOp::build(cropedPtrs), resizeIOp, mulIOp,
+    executeOperations<TransformDPP<>>(stream, ReadOp::build(cropedPtrs), borderReader, resizeIOp, mulIOp,
                                       subIOp, divIOp, tensorWriteIOp);
 
     // With BVF
