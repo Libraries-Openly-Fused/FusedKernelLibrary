@@ -75,6 +75,11 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
         FK_HOST_DEVICE_CNST ActiveThreads getActiveThreads() const {
             return Operation::getActiveThreads(*this);
         }
+
+        template <typename PreviousIOp, typename Fuser_t = Fuser>
+        FK_HOST_CNST friend auto operator&(PreviousIOp&& prevIOp, const ReadBackInstantiableOperation<Operation_t>& self) {
+            return Fuser_t::fuse(std::forward<PreviousIOp>(prevIOp), self);
+        }
     };
 
     template <typename Operation_t>
@@ -83,6 +88,11 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
 
         FK_HOST_DEVICE_CNST ActiveThreads getActiveThreads() const {
             return Operation::getActiveThreads(*this);
+        }
+
+        template <typename PreviousIOp, typename Fuser_t = Fuser>
+        FK_HOST_CNST friend auto operator&(PreviousIOp&& prevIOp, const IncompleteReadBackInstantiableOperation<Operation_t>& self) {
+            return Fuser_t::fuse(std::forward<PreviousIOp>(prevIOp), self);
         }
     };
 
@@ -99,6 +109,16 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     template <typename Operation_t>
     struct BinaryInstantiableOperation final : public OperationData<Operation_t> {
         INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(BinaryType)
+
+        template <typename Input>
+        FK_DEVICE_CNST friend auto operator|(Input&& input, const OperationData<Operation_t>& opData) {
+            return Operation_t::exec(std::forward<Input>(input), opData);
+        }
+
+        template <typename PreviousIOp, typename Fuser_t = Fuser>
+        FK_HOST_CNST friend auto operator&(PreviousIOp&& prevIOp, const BinaryInstantiableOperation<Operation_t>& self) {
+            return Fuser_t::fuse(std::forward<PreviousIOp>(prevIOp), self);
+        }
     };
 
     /**
@@ -114,6 +134,16 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     template <typename Operation_t>
     struct TernaryInstantiableOperation final : public OperationData<Operation_t> {
         INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(TernaryType)
+
+        template <typename Input>
+        FK_DEVICE_CNST friend auto operator|(Input&& input, const OperationData<Operation_t>& opData) {
+            return Operation_t::exec(std::forward<Input>(input), opData);
+        }
+
+        template <typename PreviousIOp, typename Fuser_t = Fuser>
+        FK_HOST_CNST friend auto operator&(PreviousIOp&& prevIOp, const TernaryInstantiableOperation<Operation_t>& self) {
+            return Fuser_t::fuse(std::forward<PreviousIOp>(prevIOp), self);
+        }
     };
 
     /**
@@ -127,6 +157,16 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     template <typename Operation_t>
     struct UnaryInstantiableOperation {
         INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(UnaryType)
+
+        template <typename Input>
+        FK_DEVICE_CNST friend auto operator|(Input&& input, const OperationData<Operation_t>& opData) {
+            return Operation_t::exec(std::forward<Input>(input));
+        }
+
+        template <typename PreviousIOp, typename Fuser_t = Fuser>
+        FK_HOST_CNST friend auto operator&(PreviousIOp&& prevIOp, const UnaryInstantiableOperation<Operation_t>& self) {
+            return Fuser_t::fuse(std::forward<PreviousIOp>(prevIOp), self);
+        }
     };
 
     /**
@@ -143,6 +183,17 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
                 "Operation is not WriteType or MidWriteType");
 
         INSTANTIABLE_OPERATION_THEN
+
+        template <typename Input>
+        FK_DEVICE_CNST friend auto operator|(Input&& input, const OperationData<Operation_t>& opData) {
+            Operation_t::exec(std::forward<Input>(input), opData);
+            return input;
+        }
+
+        template <typename PreviousIOp, typename Fuser_t = Fuser>
+        FK_HOST_CNST friend auto operator&(PreviousIOp&& prevIOp, const MidWriteInstantiableOperation<Operation_t>& self) {
+            return Fuser_t::fuse(std::forward<PreviousIOp>(prevIOp), self);
+        }
     };
 
     /**
@@ -154,6 +205,16 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     template <typename Operation_t>
     struct WriteInstantiableOperation final : public OperationData<Operation_t> {
         INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT(WriteType)
+
+        template <typename Input>
+        FK_DEVICE_CNST friend void operator|(Input&& input, const OperationData<Operation_t>& opData) {
+            Operation_t::exec(std::forward<Input>(input), opData);
+        }
+
+        template <typename PreviousIOp, typename Fuser_t = Fuser>
+        FK_HOST_CNST friend auto operator&(PreviousIOp&& prevIOp, const WriteInstantiableOperation<Operation_t>& self) {
+            return Fuser_t::fuse(std::forward<PreviousIOp>(prevIOp), self);
+        }
     };
 
 #undef INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN
