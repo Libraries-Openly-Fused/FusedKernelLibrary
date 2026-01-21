@@ -338,12 +338,12 @@ namespace fk {
                 const PtrDims<ND::_2D> dims = rawPtr.dims;
                 using VectorType2 = VectorType_t<PixelBaseType, 2>;
                 const RawPtr<ND::_2D, VectorType2> chromaPlane{
-                    reinterpret_cast<VectorType2*>(reinterpret_cast<uchar*>(rawPtr.data) + dims.pitch * dims.height),
-                    { dims.width >> 1, dims.height >> 1, dims.pitch }
+                    reinterpret_cast<VectorType2*>(reinterpret_cast<uchar*>(rawPtr.data) + (dims.pitch * params.height)),
+                    {dims.width >> 1, params.height >> 1, dims.pitch}
                 };
                 const ColorSpace CS = static_cast<ColorSpace>(PixelFormatTraits<PF>::space);
-                const VectorType2 UV =
-                    *PtrAccessor<ND::_2D>::cr_point({ thread.x >> 1, CS == ColorSpace::YUV420 ? thread.y >> 1 : thread.y, thread.z }, chromaPlane);
+                const Point chromaPoint{thread.x >> 1, CS == ColorSpace::YUV420 ? thread.y >> 1 : thread.y, thread.z};
+                const VectorType2 UV = *PtrAccessor<ND::_2D>::cr_point(chromaPoint, chromaPlane);
 
                 return { Y, UV.x, UV.y };
             } else if constexpr (PF == PixelFormat::NV21) {
@@ -353,10 +353,12 @@ namespace fk {
                 // Packed chroma
                 const PtrDims<ND::_2D> dims = rawPtr.dims;
                 const RawPtr<ND::_2D, uchar2> chromaPlane{
-                    reinterpret_cast<uchar2*>(reinterpret_cast<uchar*>(rawPtr.data) + dims.pitch * dims.height),
-                                              { dims.width >> 1, dims.height >> 1, dims.pitch }
+                    reinterpret_cast<uchar2*>(reinterpret_cast<uchar*>(rawPtr.data) + (dims.pitch * params.height)),
+                                              { dims.width >> 1, params.height >> 1, dims.pitch }
                 };
-                const uchar2 VU = *PtrAccessor<ND::_2D>::cr_point({ thread.x >> 1, thread.y >> 1, thread.z }, chromaPlane);
+
+                const Point chromaPoint{thread.x >> 1, thread.y >> 1, thread.z};
+                const uchar2 VU = *PtrAccessor<ND::_2D>::cr_point(chromaPoint, chromaPlane);
 
                 return { Y, VU.y, VU.x };
             } else if constexpr (PF == PixelFormat::Y216 || PF == PixelFormat::Y210 || PF == PixelFormat::UYVY) {
@@ -426,8 +428,8 @@ namespace fk {
                 using VectorType2 = VectorType_t<PixelBaseType, 2>;
                 const PtrDims<ND::_2D> dims = rawPtr.dims;
                 const RawPtr<ND::_2D, VectorType2> chromaPlane{
-                    reinterpret_cast<VectorType2*>(reinterpret_cast<uchar*>(rawPtr.data) + dims.pitch * dims.height),
-                    { dims.width >> 1, dims.height >> 1, dims.pitch }
+                    reinterpret_cast<VectorType2*>(reinterpret_cast<uchar*>(rawPtr.data) + (dims.pitch * params.height)),
+                    { dims.width >> 1, params.height >> 1, dims.pitch }
                 };
                 constexpr ColorSpace CS = PixelFormatTraits<PF>::space;
                 if constexpr (CS == ColorSpace::YUV420) {
@@ -448,16 +450,14 @@ namespace fk {
                 // Packed chroma
                 const PtrDims<ND::_2D> dims = rawPtr.dims;
                 const RawPtr<ND::_2D, uchar2> chromaPlane{
-                    reinterpret_cast<uchar2*>(reinterpret_cast<uchar*>(rawPtr.data) + dims.pitch * dims.height),
-                                              { dims.width >> 1, dims.height >> 1, dims.pitch }
+                    reinterpret_cast<uchar2*>(reinterpret_cast<uchar*>(rawPtr.data) + (dims.pitch * params.height)),
+                    { dims.width >> 1, params.height >> 1, dims.pitch }
                 };
                 *PtrAccessor<ND::_2D>::point({ thread.x >> 1, thread.y >> 1, thread.z }, chromaPlane) = make_<uchar2>(input.z, input.y);
             } else if constexpr (PF == PixelFormat::Y216 || PF == PixelFormat::Y210 || PF == PixelFormat::UYVY) {
                 const PtrDims<ND::_2D> dims = rawPtr.dims;
                 using VectorType2 = VectorType_t<PixelBaseType, 2>;
                 const RawPtr<ND::_2D, VectorType2> imageV2{ reinterpret_cast<VectorType2*>(rawPtr.data), {dims.width >> 1, dims.height, dims.pitch} };
-                //*PtrAccessor<ND::_2D>::point({ (thread.x >> 1) * 2, thread.y, thread.z }, imageV2);
-                //*PtrAccessor<ND::_2D>::point({ (thread.x >> 1) * 4, thread.y, thread.z }, rawPtr);
 
                 const bool isEvenThread = cxp::is_even::f(thread.x);
                 // input = { Y, U, V }
