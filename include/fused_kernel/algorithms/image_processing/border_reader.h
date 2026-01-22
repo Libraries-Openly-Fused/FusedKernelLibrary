@@ -140,7 +140,7 @@ namespace fk {
         }
 
         FK_HOST_FUSE auto build() {
-            return BorderReader<BT>{};
+            return InstantiableType{};
         }
 
         template <typename BIOp>
