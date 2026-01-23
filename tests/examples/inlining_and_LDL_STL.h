@@ -124,8 +124,8 @@ struct SimpleTransformDPPBaseReferenceFoldExpr {
         const auto writeDF = ppLast(iOps...);
 
         if constexpr (sizeof...(iOps) > 1) {
-            const auto tempO = (ReadIOp::Operation::exec(thread, readDF) | ... | iOps);
-            WriteOperation::exec(thread, tempO, writeDF);
+            const auto tempO = (InputFoldType(thread, ReadIOp::Operation::exec(thread, readDF)) | ... | iOps);
+            WriteOperation::exec(thread, tempO.input, writeDF);
         } else {
             WriteOperation::exec(thread, ReadIOp::Operation::exec(thread, readDF), writeDF);
         }
