@@ -142,9 +142,10 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     struct BinaryInstantiableOperation final : public OperationData<Operation_t> {
         INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(BinaryType)
 
-        FK_HOST_DEVICE_FUSE auto exec(const InputFoldType<typename Operation_t::InputType>& input, const OperationData<Operation_t>& opData) {
-            const auto result = Operation::exec(input.input, opData);
-            return InputFoldType(input.thread, result);
+        template <typename Input>
+        FK_HOST_DEVICE_FUSE auto exec(Input&& input, const OperationData<Operation_t>& opData) {
+            const auto result = Operation::exec(std::forward<Input>(input).input, opData);
+            return InputFoldType(std::forward<Input>(input).thread, result);
         }
 
         template <typename Input>
@@ -172,9 +173,10 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     struct TernaryInstantiableOperation final : public OperationData<Operation_t> {
         INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(TernaryType)
 
-        FK_HOST_DEVICE_FUSE auto exec(const InputFoldType<typename Operation_t::InputType>& input, const OperationData<Operation_t>& opData) {
-            const auto result = Operation::exec(input.input, opData);
-            return InputFoldType(input.thread, result);
+        template <typename Input>
+        FK_HOST_DEVICE_FUSE auto exec(Input&& input, const OperationData<Operation_t>& opData) {
+            const auto result = Operation::exec(std::forward<Input>(input).input, opData);
+            return InputFoldType(std::forward<Input>(input).thread, result);
         }
 
         template <typename Input>
@@ -200,13 +202,14 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     struct UnaryInstantiableOperation {
         INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(UnaryType)
 
-        FK_HOST_DEVICE_FUSE auto exec(const InputFoldType<typename Operation_t::InputType>& input) {
-            const auto result = Operation::exec(input.input);
-            return InputFoldType(input.thread, result);
+        template <typename Input>
+        FK_HOST_DEVICE_FUSE auto exec(Input&& input) {
+            const auto result = Operation::exec(std::forward<Input>(input).input);
+            return InputFoldType(std::forward<Input>(input).thread, result);
         }
 
         template <typename Input>
-        FK_DEVICE_CNST friend auto operator|(Input &&input, const UnaryInstantiableOperation<Operation_t>& opData) {
+        FK_DEVICE_CNST friend auto operator|(Input&& input, const UnaryInstantiableOperation<Operation_t>& opData) {
             return exec(std::forward<Input>(input));
         }
 
