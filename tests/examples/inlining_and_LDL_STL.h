@@ -189,7 +189,8 @@ struct SimpleTransformDPPReference<ParArch::GPU_NVIDIA> {
     }
 };
 
-template <> struct SimpleTransformDPPReferenceFoldExpr<ParArch::GPU_NVIDIA> {
+template <>
+struct SimpleTransformDPPReferenceFoldExpr<ParArch::GPU_NVIDIA> {
   private:
     using Parent = SimpleTransformDPPBaseReferenceFoldExpr;
 
@@ -199,7 +200,8 @@ template <> struct SimpleTransformDPPReferenceFoldExpr<ParArch::GPU_NVIDIA> {
         return Parent::getActiveThreads(iOp);
     }
 
-    template <typename... IOps> FK_DEVICE_FUSE void exec(const IOps &...iOps) {
+    template <typename... IOps>
+    FK_DEVICE_FUSE void exec(const IOps &...iOps) {
         const int x = (blockDim.x * blockIdx.x) + threadIdx.x;
         const int y = (blockDim.y * blockIdx.y) + threadIdx.y;
         const int z = blockIdx.z;

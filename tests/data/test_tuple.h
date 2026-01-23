@@ -37,7 +37,7 @@
 #ifdef WILL_COMPILE
 
 constexpr bool buildTuple() {
-    constexpr fk::Tuple<int, float, double, float3> test{1, 4.f, 5.0, {4.f, 3.f, 1.f}};
+    constexpr fk::Tuple<int, float, double, float3> test{1, 4.f, 5.0, float3{4.f, 3.f, 1.f}};
 
     constexpr bool result1 = fk::TupleUtil::get<0>(test) == 1;
     constexpr bool result2 = fk::TupleUtil::get<1>(test) == 4.f;
