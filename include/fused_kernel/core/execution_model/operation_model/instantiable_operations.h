@@ -159,7 +159,7 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
         INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(UnaryType)
 
         template <typename Input>
-        FK_DEVICE_CNST friend auto operator|(Input&& input, const OperationData<Operation_t>& opData) {
+        FK_DEVICE_CNST friend auto operator|(Input &&input, const UnaryInstantiableOperation<Operation_t>& opData) {
             return Operation_t::exec(std::forward<Input>(input));
         }
 
@@ -186,7 +186,10 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
 
         template <typename Input>
         FK_DEVICE_CNST friend auto operator|(Input&& input, const OperationData<Operation_t>& opData) {
-            Operation_t::exec(std::forward<Input>(input), opData);
+            // We can not use operator| with a midwrite operation. This will require a refactor we can not do in this branch
+            // We will need to make all exec functions binary, for all cases, and treat InputType as an struct that has Point and what
+            // before was IntputType. Then use OperationData as the other struct.
+            //Operation_t::exec(thread, std::forward<Input>(input), opData);
             return input;
         }
 
@@ -207,8 +210,8 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
         INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT(WriteType)
 
         template <typename Input>
-        FK_DEVICE_CNST friend void operator|(Input&& input, const OperationData<Operation_t>& opData) {
-            Operation_t::exec(std::forward<Input>(input), opData);
+        FK_DEVICE_CNST friend Input operator|(Input &&input, const OperationData<Operation_t> &opData) {
+            return input;
         }
 
         template <typename PreviousIOp, typename Fuser_t = Fuser>
