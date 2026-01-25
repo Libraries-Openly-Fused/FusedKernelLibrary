@@ -84,14 +84,18 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     struct ReadInstantiableOperation final : public OperationData<Operation_t> {
         INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(ReadType)
 
-        FK_HOST_DEVICE_FUSE auto exec(const InputFoldType<void>& input,
+        FK_HOST_DEVICE_FUSE auto exec(const Point& thread,
                                       const OperationData<Operation_t>& opData) {
-            const auto result = Operation::exec(input.thread, opData);
-            return InputFoldType(input.thread, result);
+            const auto result = Operation::exec(thread, opData);
+            return InputFoldType(thread, result);
         }
 
         FK_HOST_DEVICE_CNST ActiveThreads getActiveThreads() const {
             return Operation::getActiveThreads(*this);
+        }
+
+        FK_DEVICE_CNST friend auto operator|(const Point& thread, const OperationData<Operation_t>& opData) {
+            return exec(thread, opData);
         }
     };
 
@@ -99,9 +103,9 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     struct ReadBackInstantiableOperation final : public OperationData<Operation_t> {
         INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(ReadBackType)
 
-        FK_HOST_DEVICE_FUSE auto exec(const InputFoldType<void>& input, const OperationData<Operation_t>& opData) {
-            const auto result = Operation::exec(input.thread, opData);
-            return InputFoldType(input.thread, result);
+        FK_HOST_DEVICE_FUSE auto exec(const Point& thread, const OperationData<Operation_t>& opData) {
+            const auto result = Operation::exec(thread, opData);
+            return InputFoldType(thread, result);
         }
 
         FK_HOST_DEVICE_CNST ActiveThreads getActiveThreads() const {
@@ -111,6 +115,10 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
         template <typename PreviousIOp, typename Fuser_t = Fuser>
         FK_HOST_CNST friend auto operator&(PreviousIOp&& prevIOp, const ReadBackInstantiableOperation<Operation_t>& self) {
             return Fuser_t::fuse(std::forward<PreviousIOp>(prevIOp), self);
+        }
+
+        FK_DEVICE_CNST friend auto operator|(const Point& thread, const OperationData<Operation_t>& opData) {
+            return exec(thread, opData);
         }
     };
 
