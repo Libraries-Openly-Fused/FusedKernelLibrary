@@ -136,5 +136,59 @@ namespace fk {
     FK_HOST_CNST decltype(auto) fuse(FirstIOp&& firstIOp, IOps&&... iOps) {
         return (std::forward<FirstIOp>(firstIOp) & ... & std::forward<IOps>(iOps));
     }
+
+    struct BackFuser {
+      private:
+        template <typename... IOps>
+        FK_HOST_FUSE size_t idxFirstNonBack() {
+            size_t index = 0;
+            size_t result = 0;
+
+            // Iterate through every type in Ts...
+            // The comma operator ensures left-to-right evaluation.
+            ((index++, // Increment index for every type (1-based)
+              (isReadBackType<IOps> || isIncompleteReadBackType<IOps>) 
+                  ? result = index // If it's a Back type, update the result
+                  : 0              // Otherwise do nothing
+             ), ...);
+
+            return result;
+        }
+
+        template <typename T, size_t... Is>
+        FK_HOST_FUSE auto get_head(T&& t, const std::index_sequence<Is...>&) {
+            // Forward the specific elements to your function
+            return fuse(get<Is>(std::forward<T>(t))...);
+        }
+
+        // Helper to unpack the Tail (indices split_idx to End)
+        // Creates a new tuple starting from Offset
+        template <size_t Offset, typename T, size_t... Is>
+        FK_HOST_FUSE auto get_tail(T&& t, const std::index_sequence<Is...>&) {
+            // Apply Offset to grab the correct elements from the end of the tuple
+            return make_tuple(get<Offset + Is>(std::forward<T>(t))...);
+        }
+
+      public:
+        template <typename... IOps>
+        FK_HOST_FUSE auto fuse_back(IOps&&... iOps) {
+            // 1. Calculate the split point at compile time
+            constexpr size_t split_idx = idxFirstNonBack<std::decay_t<IOps>...>();
+            constexpr size_t total_size = sizeof...(IOps);
+
+            // 2. Pack arguments into a tuple so we can access them by index
+            //    Using a reference tuple prevents unnecessary copies.
+            auto full_tuple = forward_as_tuple(std::forward<IOps>(iOps)...);
+
+            // 3. Execute the split
+            //    Head: sequence 0..split_idx
+            //    Tail: sequence 0..(total - split_idx)
+            auto new_element = get_head(full_tuple, std::make_index_sequence<split_idx>{});
+            auto tail_tuple = get_tail<split_idx>(full_tuple, std::make_index_sequence<total_size - split_idx>{});
+
+            // 4. Concatenate the result
+            return tuple_cat(make_tuple(new_element), tail_tuple);
+        }
+    };
 } // namespace fk
 #endif // IOP_FUSER_CUH
