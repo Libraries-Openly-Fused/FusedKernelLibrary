@@ -20,29 +20,8 @@
 namespace fk {
 
     struct Fuser {
-        template <typename FirstIOp, typename SecondIOp>
-        FK_HOST_FUSE auto fuse(const FirstIOp& firstIOp, const SecondIOp& secondIOp) {
-            return fuseAllIOps(firstIOp, secondIOp);
-        }
-
-        template <typename FirstIOp, typename SecondIOp, typename... RestIOps>
-        FK_HOST_FUSE auto fuse(const FirstIOp& firstIOp, const SecondIOp& secondIOp, const RestIOps&... restIOps) {
-            return fuse(fuse(firstIOp, secondIOp), restIOps...);
-        }
-    private:
-        /** @brief fuseIOps: function that creates either a Read or a Binary IOp, composed of a
-        * FusedOperation, where the operations are the ones found in the InstantiableOperations in the
-        * iOps parameter pack.
-        * This is a convenience function to simplify the implementation of ReadBack and Ternary InstantiableOperations
-        * and Operations.
-        */
-        template <typename... InstantiableOperations>
-        FK_HOST_FUSE auto fuseNonBatchForwardIOps(const InstantiableOperations&... iOps) {
-            return operationTupleToIOp(iOpsToOperationTuple(iOps...));
-        }
-
         template <typename SelfType, typename ContinuationIOp>
-        FK_HOST_FUSE auto fuseAllIOps(const SelfType& selfIOp, const ContinuationIOp& cIOp) {
+        FK_HOST_FUSE auto fuse(const SelfType& selfIOp, const ContinuationIOp& cIOp) {
             using Operation = typename SelfType::Operation;
             if constexpr (isBatchOperation<Operation> && isBatchOperation<typename ContinuationIOp::Operation>) {
                 static_assert(Operation::BATCH == ContinuationIOp::Operation::BATCH,
@@ -127,6 +106,17 @@ namespace fk {
                 }
             }
         }
+        private:
+        /** @brief fuseIOps: function that creates either a Read or a Binary IOp, composed of a
+        * FusedOperation, where the operations are the ones found in the InstantiableOperations in the
+        * iOps parameter pack.
+        * This is a convenience function to simplify the implementation of ReadBack and Ternary InstantiableOperations
+        * and Operations.
+        */
+        template <typename... InstantiableOperations>
+        FK_HOST_FUSE auto fuseNonBatchForwardIOps(const InstantiableOperations&... iOps) {
+            return operationTupleToIOp(iOpsToOperationTuple(iOps...));
+        }
 
         template <size_t BATCH, size_t... Idx, typename ThisIOp, typename ForwardIOp>
         FK_HOST_FUSE auto make_fusedArray(const std::index_sequence<Idx...>&, const std::array<ThisIOp, BATCH>& thisArray,
@@ -142,9 +132,9 @@ namespace fk {
         }
     };
 
-    template <typename... IOps>
-    FK_HOST_CNST auto fuse(const IOps&... iOps) {
-        return Fuser::fuse(iOps...);
+    template <typename FirstIOp, typename... IOps>
+    FK_HOST_CNST decltype(auto) fuse(FirstIOp&& firstIOp, IOps&&... iOps) {
+        return (std::forward<FirstIOp>(firstIOp) & ... & std::forward<IOps>(iOps));
     }
 } // namespace fk
 #endif // IOP_FUSER_CUH
