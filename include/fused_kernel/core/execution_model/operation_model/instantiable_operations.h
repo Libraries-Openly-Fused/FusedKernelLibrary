@@ -91,6 +91,11 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
         FK_HOST_DEVICE_CNST friend auto operator|(const Point& thread, const OperationData<Operation_t>& opData) {
             return InputFoldType(thread, Operation::exec(thread, opData));
         }
+
+        template <typename PreviousIOp, typename Fuser_t = Fuser>
+        FK_HOST_CNST friend auto operator&(PreviousIOp&& prevIOp, const ReadInstantiableOperation<Operation_t>& self) {
+            return Fuser_t::fuse(std::forward<PreviousIOp>(prevIOp), self);
+        }
     };
 
     template <typename Operation_t>
