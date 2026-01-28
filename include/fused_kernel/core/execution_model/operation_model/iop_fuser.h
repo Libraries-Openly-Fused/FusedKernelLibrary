@@ -138,7 +138,7 @@ namespace fk {
     }
 
     struct BackFuser {
-      private:
+      protected:
         template <typename... IOps>
         FK_HOST_FUSE size_t idxFirstNonBack() {
             size_t index = 0;
@@ -174,20 +174,24 @@ namespace fk {
         FK_HOST_FUSE auto fuse_back(IOps&&... iOps) {
             // 1. Calculate the split point at compile time
             constexpr size_t split_idx = idxFirstNonBack<std::decay_t<IOps>...>();
-            constexpr size_t total_size = sizeof...(IOps);
+            if constexpr (split_idx < 2) {
+                return forward_as_tuple(iOps...);
+            } else {
+                constexpr size_t total_size = sizeof...(IOps);
 
-            // 2. Pack arguments into a tuple so we can access them by index
-            //    Using a reference tuple prevents unnecessary copies.
-            auto full_tuple = forward_as_tuple(std::forward<IOps>(iOps)...);
+                // 2. Pack arguments into a tuple so we can access them by index
+                //    Using a reference tuple prevents unnecessary copies.
+                auto full_tuple = forward_as_tuple(std::forward<IOps>(iOps)...);
 
-            // 3. Execute the split
-            //    Head: sequence 0..split_idx
-            //    Tail: sequence 0..(total - split_idx)
-            auto new_element = get_head(full_tuple, std::make_index_sequence<split_idx>{});
-            auto tail_tuple = get_tail<split_idx>(full_tuple, std::make_index_sequence<total_size - split_idx>{});
+                // 3. Execute the split
+                //    Head: sequence 0..split_idx
+                //    Tail: sequence 0..(total - split_idx)
+                auto new_element = get_head(full_tuple, std::make_index_sequence<split_idx>{});
+                auto tail_tuple = get_tail<split_idx>(full_tuple, std::make_index_sequence<total_size - split_idx>{});
 
-            // 4. Concatenate the result
-            return tuple_cat(make_tuple(new_element), tail_tuple);
+                // 4. Concatenate the result
+                return tuple_cat(make_tuple(new_element), tail_tuple);
+            }
         }
     };
 } // namespace fk
