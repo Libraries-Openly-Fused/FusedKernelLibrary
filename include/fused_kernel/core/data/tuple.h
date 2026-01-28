@@ -316,9 +316,9 @@ namespace fk {
         return TupleUtil::tuple_insert<TupleLike::size, T>(std::forward<TupleLike>(element), std::forward<T>(tuple));
     }
 
-    template <typename... Types1, typename... Types2>
-    FK_HOST_DEVICE_CNST auto cat(const Tuple<Types1...>& t1, const Tuple<Types2...>& t2) {
-        return TupleUtil::cat(t1, t2);
+    template <typename Tuple1, typename Tuple2>
+    FK_HOST_DEVICE_CNST auto tuple_cat(Tuple1&& t1, Tuple2&& t2) {
+        return TupleUtil::cat(std::forward<Tuple1>(t1), std::forward<Tuple2>(t2));
     }
 
     template <int INDEX, typename TupleLike>
