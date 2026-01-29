@@ -26,6 +26,7 @@
 using namespace fk;
 
 template <ParArch PA = defaultParArch> struct SimpleTransformDPPValue;
+template <ParArch PA = defaultParArch> struct SimpleTransformDPPValueLessCallDepth;
 template <ParArch PA = defaultParArch> struct SimpleTransformDPPReference;
 template <ParArch PA = defaultParArch> struct SimpleTransformDPPReferenceFoldExpr;
 
@@ -33,8 +34,8 @@ struct SimpleTransformDPPBaseValue {
     friend struct SimpleTransformDPPValue<ParArch::GPU_NVIDIA>; // Allow TransformDPP to access private members
   private:
     template <typename T, typename IOp, typename... IOpTypes>
-    FK_HOST_DEVICE_FUSE auto operate(const Point& thread, const T& i_data, const IOp& iOp,
-                                     const IOpTypes&... iOpInstances) {
+    FK_HOST_DEVICE_FUSE auto operate(const Point thread, const T i_data, const IOp iOp,
+                                     const IOpTypes... iOpInstances) {
         static_assert(!isIncompleteReadBackType<IOp>, "Trying to execute an incomplete IOp");
         if constexpr (IOp::template is<WriteType>) {
             return i_data;
@@ -54,7 +55,7 @@ struct SimpleTransformDPPBaseValue {
         using ReadOperation = typename ReadIOp::Operation;
         using WriteOperation = typename LastType_t<IOps...>::Operation;
 
-        const auto writeDF = ppLast(iOps...);
+        const auto& writeDF = ppLast(iOps...);
 
         const auto tempI = ReadIOp::Operation::exec(thread, readDF);
         if constexpr (sizeof...(iOps) > 1) {
@@ -65,7 +66,7 @@ struct SimpleTransformDPPBaseValue {
         }
     }
 
-    template <typename FirstIOp> FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const FirstIOp& iOp) {
+    template <typename FirstIOp> FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const FirstIOp iOp) {
         return FirstIOp::Operation::getActiveThreads(iOp);
     }
 };
@@ -95,7 +96,7 @@ struct SimpleTransformDPPBaseReference {
         using ReadOperation = typename ReadIOp::Operation;
         using WriteOperation = typename LastType_t<IOps...>::Operation;
 
-        const auto writeDF = ppLast(iOps...);
+        const auto& writeDF = ppLast(iOps...);
 
         const auto tempI = ReadIOp::Operation::exec(thread, readDF);
         if constexpr (sizeof...(iOps) > 1) {
@@ -121,7 +122,7 @@ struct SimpleTransformDPPBaseReferenceFoldExpr {
         using ReadOperation = typename ReadIOp::Operation;
         using WriteOperation = typename LastType_t<IOps...>::Operation;
 
-        const auto writeDF = ppLast(iOps...);
+        const auto& writeDF = ppLast(iOps...);
 
         if constexpr (sizeof...(iOps) > 1) {
             const auto tempO = (thread | readDF | ... | iOps);
@@ -160,6 +161,11 @@ struct SimpleTransformDPPValue<ParArch::GPU_NVIDIA> {
             Parent::execute_thread(thread, iOps...);
         }
     }
+};
+
+template <>
+struct SimpleTransformDPPValueLessCallDepth<ParArch::GPU_NVIDIA> {
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
 };
 
 template <>
@@ -245,6 +251,94 @@ __global__ void launchSimpleTransformDPPValue_Kernel(const __grid_constant__ IOp
     SimpleTransformDPPValue<ParArch::GPU_NVIDIA>::exec(iOps...);
 }
 
+template <size_t N, typename T> 
+FK_HOST_DEVICE_CNST T dummyCalls(const T something) { 
+    if constexpr (N == 0) {
+        return something;
+    } else {
+        return dummyCalls<N - 1, T>(something);
+    }
+}
+
+template <typename I, typename P, typename O, typename ChildImplementation, bool IS_FUSED = false>
+struct BinaryOperationValue {
+  private:
+    using SelfType = BinaryOperationValue<I, P, O, ChildImplementation, IS_FUSED>;
+
+  public:
+    FK_STATIC_STRUCT(BinaryOperationValue, SelfType)
+    using Child = ChildImplementation;
+    using InputType = I;
+    using OutputType = O;
+    using ParamsType = P;
+    using InstanceType = BinaryType;
+    using OperationDataType = OperationData<Child>;
+    using InstantiableType = Binary<Child>;
+    static constexpr bool IS_FUSED_OP = IS_FUSED;
+    static constexpr int N = 1;
+    FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const OperationDataType opData) {
+        if constexpr (N == 0) {
+            return Child::exec(input, opData.params);
+        } else {
+            return Child::exec(input, dummyCalls<N - 1>(opData).params);
+        }
+    }
+    FK_HOST_FUSE InstantiableType build(const OperationDataType &opData) { return InstantiableType{opData}; }
+    FK_HOST_FUSE InstantiableType build(const ParamsType &params) { return InstantiableType{{params}}; }
+};
+
+template <typename I, typename P = I, typename O = I>
+struct DummyOp {
+  private:
+    using Self = DummyOp<I, P, O>;
+    using Parent = BinaryOperationValue<I, P, O, Self>;
+  public:
+    using InputType = typename Parent::InputType;
+    using OutputType = typename Parent::OutputType;
+    using ParamsType = typename Parent::ParamsType;
+    using InstanceType = typename Parent::InstanceType;
+    using OperationDataType = typename Parent::OperationDataType;
+    using InstantiableType = typename Parent::InstantiableType;
+    static constexpr bool IS_FUSED_OP = Parent::IS_FUSED_OP;
+
+    FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const OperationDataType opData) {
+        return Parent::exec(input, opData);
+    }
+
+    static constexpr inline InstantiableType build(const OperationDataType &opData) { return Parent::build(opData); }
+    static constexpr inline InstantiableType build(const ParamsType &params) { return Parent::build(params); }
+    
+    FK_HOST_DEVICE_FUSE O exec(const I input, const P params) { 
+        return static_cast<O>(input + params);
+    }
+};
+
+template <typename ReadIOp, typename... IOps>
+__global__ void launchSimpleTransformDPPValueLessCallDepth_Kernel(const __grid_constant__ ReadIOp readIOp, const __grid_constant__ IOps... iOps) {
+    const int x = (blockDim.x * blockIdx.x) + threadIdx.x;
+    const int y = (blockDim.y * blockIdx.y) + threadIdx.y;
+    const int z = blockIdx.z;
+
+    const Point thread{x, y, z};
+
+    const ActiveThreads activeThreads = ReadIOp::Operation::getActiveThreads(readIOp);
+
+    if (x < activeThreads.x && y < activeThreads.y) {
+        using ReadOperation = typename ReadIOp::Operation;
+        using WriteOperation = typename LastType_t<IOps...>::Operation;
+
+        const auto writeIOp = ppLast(iOps...);
+        const auto readIOpTemp = dummyCalls<0>(readIOp);
+
+        if constexpr (sizeof...(iOps) > 1) {
+            const auto tempO = (thread | readIOpTemp | ... | iOps).input;
+            WriteOperation::exec(thread, tempO, writeIOp);
+        } else {
+            WriteOperation::exec(thread, (thread | readIOpTemp).input, writeIOp);
+        }
+    }
+}
+
 template <typename... IOps>
 __global__ void launchSimpleTransformDPPReference_Kernel(const __grid_constant__ IOps... iOps) {
     SimpleTransformDPPReference<ParArch::GPU_NVIDIA>::exec(iOps...);
@@ -315,6 +409,34 @@ struct Executor<SimpleTransformDPPValue<ParArch::GPU_NVIDIA>> {
 };
 
 template <>
+struct Executor<SimpleTransformDPPValueLessCallDepth<ParArch::GPU_NVIDIA>> {
+  private:
+    using Child = Executor<SimpleTransformDPPValueLessCallDepth<ParArch::GPU_NVIDIA>>;
+    using Parent = BaseExecutor<Child>;
+    template <typename... IOps>
+    FK_HOST_FUSE void executeOperations_helper(Stream_<ParArch::GPU_NVIDIA> &stream_, const IOps &...iOps) {
+        const cudaStream_t stream = stream_.getCUDAStream();
+
+        const auto& readOp = get<0>(iOps...);
+
+        const ActiveThreads activeThreads = readOp.getActiveThreads();
+
+        const CtxDim3 ctx_block = getDefaultBlockSize(activeThreads.x, activeThreads.y);
+
+        const dim3 block{ctx_block.x, ctx_block.y, 1};
+        const dim3 grid{static_cast<uint>(ceil(activeThreads.x / static_cast<float>(block.x))),
+                        static_cast<uint>(ceil(activeThreads.y / static_cast<float>(block.y))), activeThreads.z};
+        launchSimpleTransformDPPValueLessCallDepth_Kernel<<<grid, block, 0, stream>>>(iOps...);
+        gpuErrchk(cudaGetLastError());
+    }
+
+  public:
+    FK_STATIC_STRUCT(Executor, Child)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_NVIDIA; }
+    DECLARE_EXECUTOR_PARENT_IMPL
+};
+
+template <>
 struct Executor<SimpleTransformDPPReference<ParArch::GPU_NVIDIA>> {
   private:
     using Child = Executor<SimpleTransformDPPReference<ParArch::GPU_NVIDIA>>;
@@ -342,7 +464,8 @@ struct Executor<SimpleTransformDPPReference<ParArch::GPU_NVIDIA>> {
     DECLARE_EXECUTOR_PARENT_IMPL
 };
 
-template <> struct Executor<SimpleTransformDPPReferenceFoldExpr<ParArch::GPU_NVIDIA>> {
+template <>
+struct Executor<SimpleTransformDPPReferenceFoldExpr<ParArch::GPU_NVIDIA>> {
   private:
     using Child = Executor<SimpleTransformDPPReferenceFoldExpr<ParArch::GPU_NVIDIA>>;
     using Parent = BaseExecutor<Child>;
@@ -380,6 +503,7 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
 
     // We have a 4K source image
     Ptr2D<uchar3> inputImage(3840, 2160);
+    Ptr2D<float3> outputImage(3840, 2160);
 
     // We want a Tensor of contiguous memory for all images
     Tensor<float3> output(outputSize.width, outputSize.height, BATCH);
@@ -428,6 +552,17 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     // Fourth, test the fold expression solution to expand the IOp parameter pack
     executeOperations<SimpleTransformDPPReferenceFoldExpr<>>(stream, readIOp, cropIOp, resizeIOp, mulIOp, subIOp,
                                                                divIOp, colorIOp, tensorWriteIOp);
+
+    // Fifth, test (partial) pass by value, with less device function call depth
+    const auto dummyIOp = DummyOp<uchar3, float3, float3>::build(make_set<float3>(2.f));
+    using DummyOpType = typename std::decay_t<decltype(dummyIOp)>::Operation;
+    static_assert(std::is_same_v<typename DummyOpType::OutputType, float3>, "Not float3");
+    auto result = (Point(0, 0, 0) | readIOp.then(cropIOp) | dummyIOp);
+    using ResultType = decltype(result.input);
+    static_assert(std::is_same_v<ResultType, float3>, "Not float3");
+    executeOperations<SimpleTransformDPPValueLessCallDepth<>>(stream, readIOp.then(cropIOp), Cast<uchar3, float3>::build(), mulIOp,
+                                                              subIOp, divIOp, colorIOp, tensorWriteIOp);                                                      
+        //PerThreadWrite<ND::_2D, float3>::build(outputImage));
 
     stream.sync();
 }
