@@ -38,13 +38,13 @@ namespace fk { // namespace fused kernel
 
     // Util to get the last parameter of a parameter pack
     template <typename... Args>
-    FK_HOST_DEVICE_CNST auto ppLast(const Args&... args) {
+    FK_HOST_DEVICE_CNST const auto& ppLast(const Args&... args) {
         return get<sizeof...(args) - 1>(args...);
     }
 
     // Util to get the first parameter of a parameter pack
     template <typename... Args>
-    FK_HOST_DEVICE_CNST auto ppFirst(const Args&... args) {
+    FK_HOST_DEVICE_CNST const auto& ppFirst(const Args&... args) {
         return get<0>(args...);
     }
 
@@ -58,7 +58,7 @@ namespace fk { // namespace fused kernel
 
     template <typename T, T idx, T... iseq>
     constexpr inline size_t get_integer_f(const std::integer_sequence<T, iseq...>&) {
-        return get<static_cast<int>(idx)>(iseq...);
+        return get<static_cast<size_t>(idx)>(iseq...);
     }
 
     template <typename T, T idx, typename ISeq>
