@@ -92,7 +92,7 @@ namespace fk {
 
     template <size_t BATCH, typename Operation, typename DefaultType>
     struct BatchReadParams<BATCH, PlanePolicy::CONDITIONAL_WITH_DEFAULT, Operation, DefaultType> {
-        OperationData<Operation> opData[BATCH];
+        Array<OperationData<Operation>, BATCH> opData;
         int usedPlanes;
         DefaultType default_value;
         ActiveThreads activeThreads;
@@ -100,7 +100,7 @@ namespace fk {
 
     template <size_t BATCH, typename Operation>
     struct BatchReadParams<BATCH, PlanePolicy::PROCESS_ALL, Operation, NullType> {
-        OperationData<Operation> opData[BATCH];
+        Array<OperationData<Operation>, BATCH> opData;
         ActiveThreads activeThreads;
     };
 
@@ -400,31 +400,27 @@ namespace fk {
         FK_STATIC_STRUCT(BatchRead, SelfType)
         template <typename IOp, size_t BATCH>
         FK_HOST_FUSE auto build(const std::array<IOp, BATCH>& iOps) {
-            return build_helper(iOps, std::make_index_sequence<BATCH>{});
-        }
-    private:
-        template <typename IOp, size_t BATCH, size_t... Idx>
-        FK_HOST_FUSE auto build_helper(const std::array<IOp, BATCH>& iOps,
-                                       const std::index_sequence<Idx...>&) {
             using NewOperation = typename IOp::Operation;
-#ifdef NDEBUG
-            // Release mode. Use const variables and variadic template recursion for best performance
-            const uint max_width = cxp::max::f(NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[Idx])...);
-            const uint max_height = cxp::max::f(NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[Idx])...);
-#else
+
             // Debug mode. Loop to avoid stack overflow
-            uint max_width = NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[0]);
-            uint max_height = NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[0]);
-            for (int i = 1; i < BATCH; ++i) {
+            uint max_width{ 0 };
+            uint max_height{ 0 };
+            for (int i = 0; i < BATCH; ++i) {
                 max_width = cxp::max::f(max_width, NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[i]));
                 max_height = cxp::max::f(max_height, NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[i]));
             }
-#endif
             using BatchReadType = std::conditional_t<isCompleteOperation<NewOperation>,
-                                                        BatchRead<PlanePolicy::PROCESS_ALL, BATCH, NewOperation>,
-                                                        BatchRead<PlanePolicy::PROCESS_ALL, BATCH, TypeList<NewOperation>>>;
-            return BatchReadType::build( { {iOps[Idx]...},
-                                           ActiveThreads{ max_width, max_height, static_cast<uint>(BATCH) }});
+                BatchRead<PlanePolicy::PROCESS_ALL, BATCH, NewOperation>,
+                BatchRead<PlanePolicy::PROCESS_ALL, BATCH, TypeList<NewOperation>>>;
+            using ParamsStoreType = typename BatchReadType::ParamsType;
+
+            ParamsStoreType paramsStore{ {}, ActiveThreads{ max_width, max_height, static_cast<uint>(BATCH) } };
+
+            for (int i = 0; i < BATCH; ++i) {
+                paramsStore.opData[i] = iOps[i];
+            }
+
+            return BatchReadType::build(paramsStore);
         }
     };
 
@@ -436,23 +432,28 @@ namespace fk {
         FK_STATIC_STRUCT(BatchRead, SelfType)
         template <typename IOp, size_t BATCH, typename DefaultType, typename... ArrayTypes>
         FK_HOST_FUSE auto build(const std::array<IOp, BATCH>& iOps, const int& usedPlanes, const DefaultType& defaultValue) {
-            return build_helper(iOps, usedPlanes, defaultValue, std::make_index_sequence<BATCH>{});
-        }
-    private:
-        template <typename IOp, size_t BATCH, typename DefaultType, size_t... Idx>
-        FK_HOST_FUSE auto build_helper(const std::array<IOp, BATCH>& iOps,
-                                       const int& usedPlanes, const DefaultType& defaultValue,
-                                       const std::index_sequence<Idx...>&) {
             using NewOperation = typename IOp::Operation;
-            const uint max_width = cxp::max::f(NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[Idx])...);
-            const uint max_height = cxp::max::f(NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[Idx])...);
+
+            uint max_width{0};
+            uint max_height{0};
+            for (int i=0; i < BATCH; ++i) {
+                max_width = cxp::max::f(max_width, NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[i]));
+                max_height = cxp::max::f(max_height, NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[i]));
+            }
 
             using NewOutputType = std::conditional_t<std::is_same_v<typename NewOperation::OutputType, NullType>, DefaultType, typename NewOperation::OutputType>;
             using BatchReadType = std::conditional_t<isCompleteOperation<NewOperation>,
-                                                        BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH, NewOperation>,
-                                                        BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH, TypeList<NewOperation, NewOutputType>>>;
-            return BatchReadType::build( { {iOps[Idx]...}, usedPlanes, cxp::cast<NewOutputType>::f(defaultValue),
-                                           ActiveThreads{ max_width, max_height, static_cast<uint>(BATCH) }});
+                BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH, NewOperation>,
+                BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH, TypeList<NewOperation, NewOutputType>>>;
+            using ParamsStoreType = typename BatchReadType::ParamsType;
+            ParamsStoreType paramsStore{ {}, usedPlanes, cxp::cast<NewOutputType>::f(defaultValue),
+                                         ActiveThreads{max_width, max_height, static_cast<uint>(BATCH)} };
+
+            for (int i = 0; i < BATCH; ++i) {
+                paramsStore.opData[i] = iOps[i];
+            }
+
+            return BatchReadType::build(paramsStore);
         }
     };
     // ##################### END BATCH_READ #####################
@@ -488,13 +489,13 @@ namespace fk {
         }
         // Build WriteBatch from array of IOps
         FK_HOST_FUSE InstantiableType build(const std::array<Instantiable<Operation>, BATCH>& iOps) {
-            return build_helper(iOps, std::make_index_sequence<BATCH>{});
-        }
-    private:
-        template <size_t... Idx>
-        FK_HOST_FUSE InstantiableType build_helper(const std::array<Instantiable<Operation>, BATCH>& iOps,
-                                                   const std::index_sequence<Idx...>&) {
-            return { {{(iOps[Idx].params)...}} };
+            InstantiableType iOp{};
+
+            for (int i = 0; i < BATCH; ++i) {
+                iOp.params[i] = iOps[i].params;
+            }
+
+            return iOp;
         }
     };
 
@@ -514,7 +515,7 @@ namespace fk {
 
 // BATCH BUILDERS FOR READ AND READBACK OPERATIONS
 #define DECLARE_PARENT_BATCH_BUILDER                                                                                   \
-   template <size_t B, typename... ArrayTypes>                                                                         \
+    template <size_t B, typename... ArrayTypes>                                                                         \
     FK_HOST_FUSE auto build_batch(const std::array<ArrayTypes, B>&... arrays) {                                        \
         return BatchUtils::template build_batch<typename Parent::Child>(arrays...);                                    \
     }
@@ -561,7 +562,7 @@ namespace fk {
   DECLARE_READBACK_PARENT_BASIC                                                                                        \
   DECLARE_PARENT_READBATCH_BUILDERS
 
-#define DECLARE_INCOMPLETEREADBACK_PARENT                                                                \
+#define DECLARE_INCOMPLETEREADBACK_PARENT                                                                              \
   DECLARE_INCOMPLETEREADBACK_PARENT_BASIC                                                                              \
   DECLARE_PARENT_READBATCH_BUILDERS
 

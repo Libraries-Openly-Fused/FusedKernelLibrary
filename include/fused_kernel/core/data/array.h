@@ -22,68 +22,95 @@
 
 namespace fk {
     template <typename T, size_t SIZE>
-    union Array {
+    struct Array {
+        static constexpr size_t size{ SIZE };
+        T values[SIZE]{};
+        FK_HOST_DEVICE_CNST Array(const T& initValue) {
+            for (int i = 0; i < SIZE; i++) {
+                values[i] = initValue;
+            }
+        }
+        FK_HOST_DEVICE_CNST Array() {}
+        FK_HOST_DEVICE_CNST T operator[](const size_t& index) const {
+            return values[index];
+        }
+        FK_HOST_DEVICE_CNST T& operator[](const size_t& index) {
+            return values[index];
+        }
+    };
+
+    template <typename T, size_t SIZE>
+    union ArrayVector {
         enum { size = SIZE };
         T at[SIZE];
-        FK_HOST_DEVICE_CNST Array(const T& initValue) {
+        FK_HOST_DEVICE_CNST ArrayVector(const T& initValue) {
             for (int i = 0; i < static_cast<int>(SIZE); i++) {
                 at[i] = initValue;
             }
         }
         template <typename... Types>
-        FK_HOST_DEVICE_CNST Array(const Types&... values) : at{static_cast<T>(values)...} {
+        FK_HOST_DEVICE_CNST ArrayVector(const Types&... values) : at{static_cast<T>(values)...} {
             static_assert(all_of_v<T, TypeList<Types...>>, "Not all input types are the expected type T");
-            static_assert(sizeof...(Types) == SIZE, "The number of elements passed to the constructor does not correspond with the Array size.");
+            static_assert(sizeof...(Types) == SIZE, "The number of elements passed to the constructor does not correspond with the ArrayVector size.");
         }
         FK_HOST_DEVICE_CNST T operator[](const size_t& index) const {
+            return at[index];
+        }
+        FK_HOST_DEVICE_CNST T& operator[](const size_t& index) {
             return at[index];
         }
     };
 
     template <typename T>
-    union Array<T, 0> {
+    union ArrayVector<T, 0> {
         enum { size = 0 };
-        FK_HOST_DEVICE_CNST Array() {}
+        FK_HOST_DEVICE_CNST ArrayVector() {}
     };
 
     template <typename T>
-    union Array<T, 1> {
-        static_assert(std::is_fundamental_v<T>, "Array<T, 1> can only be used with fundamental types");
+    union ArrayVector<T, 1> {
+        static_assert(std::is_fundamental_v<T>, "ArrayVector<T, 1> can only be used with fundamental types");
         enum { size = 1 };
         T at[size];
         struct {
             T x;
         };
-        FK_HOST_DEVICE_CNST Array(const T& x) : at{ x } {}
-        FK_HOST_DEVICE_CNST Array(const typename VectorType<T, 1>::type_v& other) : x(other.x) {}
+        FK_HOST_DEVICE_CNST ArrayVector(const T& x) : at{ x } {}
+        FK_HOST_DEVICE_CNST ArrayVector(const typename VectorType<T, 1>::type_v& other) : x(other.x) {}
         FK_HOST_DEVICE_CNST T operator[](const size_t& index) const {
+            return at[index];
+        }
+        FK_HOST_DEVICE_CNST T& operator[](const size_t& index) {
             return at[index];
         }
         FK_HOST_DEVICE_CNST T operator()(const int& index) const {
             return x;
         }
-        FK_HOST_DEVICE_CNST Array<T, 1>& operator=(const VectorType_t<T, 1>& other) {
+        FK_HOST_DEVICE_CNST ArrayVector<T, 1>& operator=(const VectorType_t<T, 1>& other) {
             x = other.x;
             return *this;
         }
     };
 
     template <typename T>
-    union Array<T, 2> {
-        static_assert(std::is_fundamental_v<T>, "Array<T, 2> can only be used with fundamental types");
+    union ArrayVector<T, 2> {
+        static_assert(std::is_fundamental_v<T>, "ArrayVector<T, 2> can only be used with fundamental types");
         enum { size = 2 };
         T at[size];
         struct {
             T x, y;
         };
-        FK_HOST_DEVICE_CNST Array(const T& x, const T& y) : at{ x, y } {}
-        FK_HOST_DEVICE_CNST Array(const VectorType_t<T, 2>& other) : x(other.x), y(other.y) {}
-        FK_HOST_DEVICE_CNST Array(const T& initValue) {
+        FK_HOST_DEVICE_CNST ArrayVector(const T& x, const T& y) : at{ x, y } {}
+        FK_HOST_DEVICE_CNST ArrayVector(const VectorType_t<T, 2>& other) : x(other.x), y(other.y) {}
+        FK_HOST_DEVICE_CNST ArrayVector(const T& initValue) {
             for (int i = 0; i < size; i++) {
                 at[i] = initValue;
             }
         }
         FK_HOST_DEVICE_CNST T operator[](const size_t& index) const {
+            return at[index];
+        }
+        FK_HOST_DEVICE_CNST T& operator[](const size_t& index) {
             return at[index];
         }
         // This indexing method, is more costly than the previous one, but
@@ -92,7 +119,7 @@ namespace fk {
         FK_HOST_DEVICE_CNST T operator()(const int& index) const {
             return vector_at::f(index, make_<VectorType_t<T,size>>(x,y));
         }
-        FK_HOST_DEVICE_CNST Array<T, 2>& operator=(const VectorType_t<T, 2>& other) {
+        FK_HOST_DEVICE_CNST ArrayVector<T, 2>& operator=(const VectorType_t<T, 2>& other) {
             x = other.x;
             y = other.y;
             return *this;
@@ -100,21 +127,24 @@ namespace fk {
     };
 
     template <typename T>
-    union Array<T, 3> {
-        static_assert(std::is_fundamental_v<T>, "Array<T, 3> can only be used with fundamental types");
+    union ArrayVector<T, 3> {
+        static_assert(std::is_fundamental_v<T>, "ArrayVector<T, 3> can only be used with fundamental types");
         enum { size = 3 };
         T at[size];
         struct {
             T x, y, z;
         };
-        FK_HOST_DEVICE_CNST Array(const T& x, const T& y, const T& z) : at{ x, y, z } {}
-        FK_HOST_DEVICE_CNST Array(const VectorType_t<T, 3>& other) : x(other.x), y(other.y), z(other.z) {}
-        FK_HOST_DEVICE_CNST Array(const T& initValue) {
+        FK_HOST_DEVICE_CNST ArrayVector(const T& x, const T& y, const T& z) : at{ x, y, z } {}
+        FK_HOST_DEVICE_CNST ArrayVector(const VectorType_t<T, 3>& other) : x(other.x), y(other.y), z(other.z) {}
+        FK_HOST_DEVICE_CNST ArrayVector(const T& initValue) {
             for (int i = 0; i < size; i++) {
                 at[i] = initValue;
             }
         }
         FK_HOST_DEVICE_CNST T operator[](const size_t& index) const {
+            return at[index];
+        }
+        FK_HOST_DEVICE_CNST T& operator[](const size_t& index) {
             return at[index];
         }
         // This indexing method, is more costly than the previous one, but
@@ -123,7 +153,7 @@ namespace fk {
         FK_HOST_DEVICE_CNST T operator()(const int& index) const {
             return vector_at::f(index, make_<VectorType_t<T, size>>(x, y, z));
         }
-        FK_HOST_DEVICE_CNST Array<T, 3>& operator=(const VectorType_t<T, 3>& other) {
+        FK_HOST_DEVICE_CNST ArrayVector<T, 3>& operator=(const VectorType_t<T, 3>& other) {
             x = other.x;
             y = other.y;
             z = other.z;
@@ -132,21 +162,24 @@ namespace fk {
     };
 
     template <typename T>
-    union Array<T, 4> {
-        static_assert(std::is_fundamental_v<T>, "Array<T, 4> can only be used with fundamental types");
+    union ArrayVector<T, 4> {
+        static_assert(std::is_fundamental_v<T>, "ArrayVector<T, 4> can only be used with fundamental types");
         enum { size = 4 };
         T at[size];
         struct {
             T x, y, z, w;
         };
-        FK_HOST_DEVICE_CNST Array(const T& x, const T& y, const T& z, const T& w) : at{ x, y, z, w } {}
-        FK_HOST_DEVICE_CNST Array(const VectorType_t<T, 4>& other) : x(other.x), y(other.y), z(other.z), w(other.w) {}
-        FK_HOST_DEVICE_CNST Array(const T& initValue) {
+        FK_HOST_DEVICE_CNST ArrayVector(const T& x, const T& y, const T& z, const T& w) : at{ x, y, z, w } {}
+        FK_HOST_DEVICE_CNST ArrayVector(const VectorType_t<T, 4>& other) : x(other.x), y(other.y), z(other.z), w(other.w) {}
+        FK_HOST_DEVICE_CNST ArrayVector(const T& initValue) {
             for (int i = 0; i < size; i++) {
                 at[i] = initValue;
             }
         }
         FK_HOST_DEVICE_CNST T operator[](const size_t& index) const {
+            return at[index];
+        }
+        FK_HOST_DEVICE_CNST T& operator[](const size_t& index) {
             return at[index];
         }
         // This indexing method, is more costly than the previous one, but
@@ -155,7 +188,7 @@ namespace fk {
         FK_HOST_DEVICE_CNST T operator()(const int& index) const {
             return vector_at::f(index, make_<VectorType_t<T, size>>(x, y, z, w));
         }
-        FK_HOST_DEVICE_CNST Array<T, 4>& operator=(const VectorType_t<T, 4>& other) {
+        FK_HOST_DEVICE_CNST ArrayVector<T, 4>& operator=(const VectorType_t<T, 4>& other) {
             x = other.x;
             y = other.y;
             z = other.z;
@@ -165,7 +198,7 @@ namespace fk {
     };
 
     template <typename CUDAVector>
-    using ToArray = Array<VBase<CUDAVector>, cn<CUDAVector>>;
+    using ToArray = ArrayVector<VBase<CUDAVector>, cn<CUDAVector>>;
 
     template <typename V>
     FK_HOST_DEVICE_CNST ToArray<V> toArray(const V& vector) {
@@ -173,12 +206,12 @@ namespace fk {
     }
 
     template <typename T, size_t SIZE, size_t... Idx>
-    FK_HOST_DEVICE_CNST VectorType_t<T, SIZE> toVector_helper(const Array<T, SIZE>& array_v, const std::integer_sequence<int, Idx...>&) {
+    FK_HOST_DEVICE_CNST VectorType_t<T, SIZE> toVector_helper(const ArrayVector<T, SIZE>& array_v, const std::integer_sequence<int, Idx...>&) {
         return { array_v.at[Idx]... };
     }
 
     template <typename T, size_t SIZE>
-    FK_HOST_DEVICE_CNST VectorType_t<T, SIZE> toVector(const Array<T, SIZE>& array_v) {
+    FK_HOST_DEVICE_CNST VectorType_t<T, SIZE> toVector(const ArrayVector<T, SIZE>& array_v) {
         static_assert(SIZE <= 4, "No Vector types available with size greater than 4");
         if constexpr (SIZE == 1) {
             return array_v.at[0];
@@ -237,8 +270,8 @@ namespace fk {
     }
 
     template <size_t N>
-    FK_HOST_DEVICE_CNST Array<size_t, N> makeIndexArray() {
-        return getIndexArray_helper<Array<size_t, N>>(std::make_index_sequence<N>{});
+    FK_HOST_DEVICE_CNST ArrayVector<size_t, N> makeIndexArray() {
+        return getIndexArray_helper<ArrayVector<size_t, N>>(std::make_index_sequence<N>{});
     }
 
     template <typename T, typename ArrayType, size_t... Idx>
