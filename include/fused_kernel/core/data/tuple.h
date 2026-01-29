@@ -18,6 +18,8 @@
 #include <fused_kernel/core/utils/type_lists.h>
 #include <fused_kernel/core/utils/vector_utils.h>
 #include <array>
+#include <type_traits>
+#include <utility>
 
 namespace fk {
     // 1. The Leaf Node
@@ -86,9 +88,6 @@ namespace fk {
 
     template <typename TypeToTest>
     constexpr bool isTuple_v = isTuple<std::decay_t<TypeToTest>>::value;
-
-#include <type_traits>
-#include <utility>
 
     // Assuming FK_HOST_DEVICE_FUSE expands to:
     // __host__ __device__ __forceinline__ static constexpr
@@ -313,7 +312,7 @@ namespace fk {
 
     template <typename T, typename TupleLike>
     FK_HOST_DEVICE_CNST auto tuple_insert_back(TupleLike&& tuple, T&& element) {
-        return TupleUtil::tuple_insert<TupleLike::size, T>(std::forward<TupleLike>(element), std::forward<T>(tuple));
+        return TupleUtil::tuple_insert<std::decay_t<TupleLike>::size, T>(std::forward<T>(element), std::forward<TupleLike>(tuple));
     }
 
     template <typename Tuple1, typename Tuple2>

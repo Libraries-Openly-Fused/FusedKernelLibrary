@@ -53,7 +53,8 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     for (int i = 0; i < BATCH_10; ++i) {
         int j{ 0 };
         for (auto&& elem : crops_10) {
-            crops[i + j] = elem;
+            const int idx = i * BATCH_10 + j;
+            crops[idx] = elem;
             j++;
         }
     }
