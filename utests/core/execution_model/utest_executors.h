@@ -21,9 +21,16 @@
 
 using namespace fk;
 
+struct TestBackFuser : public BackFuser {
+    template <typename... IOps>
+    FK_HOST_FUSE size_t test_idxFirstNonBack() {
+        return BackFuser::idxFirstNonBack<IOps...>();
+    }
+};
+
 template <typename... IOps>
 constexpr size_t testIdxFirstNonBack(const IOps&...) {
-    return Back::idxFirstNonBack<IOps...>();
+    return TestBackFuser::template test_idxFirstNonBack<IOps...>();
 }
 
 bool testBack() {
@@ -58,18 +65,18 @@ bool testBack() {
         // Test idxFirstNonBack
         constexpr size_t idx1 = testIdxFirstNonBack(readOp, castU3F3, mulOpF3, writeF3);
         static_assert(idx1 == 0, "idx1 should be 0");
-        constexpr auto fusedIOp1 = Back::fuse(readOp, castU3F3, mulOpF3, writeF3);
+        constexpr auto fusedIOp1 = get<0>(BackFuser::fuse_back(readOp, castU3F3, mulOpF3, writeF3));
         static_assert(std::is_same_v<decltype(fusedIOp1), decltype(readOp)>, "Returned operation must be readOp");
 
         constexpr size_t idx2 = testIdxFirstNonBack(readOp, cropOp, castU3F3, writeF3);
         static_assert(idx2 == 2, "idx2 should be 2");
-        constexpr auto fusedIOp2 = Back::fuse(readOp, cropOp, castU3F3, writeF3);
+        constexpr auto fusedIOp2 = get<0>(BackFuser::fuse_back(readOp, cropOp, castU3F3, writeF3));
         static_assert(std::is_same_v<ReadBack<Crop<std::decay_t<decltype(readOp)>>>, std::decay_t<decltype(fusedIOp2)>>,
             "fusedIOps must have type ReadBack<Crop<PerThreadRead<ND::_2D, uchar3>>>");
 
         constexpr size_t idx3 = testIdxFirstNonBack(readOp, cropOp, mulOpU3, resizeOp, mulOpF3, vecReduceF3, writeF);
         static_assert(idx3 == 4, "idx3 should be 4");
-        constexpr auto fusedIOp3 = Back::fuse(readOp, cropOp, mulOpU3, resizeOp, mulOpF3, vecReduceF3, writeF);
+        constexpr auto fusedIOp3 = get<0>(BackFuser::fuse_back(readOp, cropOp, mulOpU3, resizeOp, mulOpF3, vecReduceF3, writeF));
         using GenerateFuseBack = std::decay_t<decltype(fusedIOp3)>;
         static_assert(std::is_same_v<typename GenerateFuseBack::Operation::InstanceType, ReadBackType>);
         static_assert(std::is_same_v<typename GenerateFuseBack::Operation::BackIOp::Operation::InstanceType, TernaryType>, "Expecting a ternary operation");

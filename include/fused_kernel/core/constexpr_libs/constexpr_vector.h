@@ -15,7 +15,7 @@
 #ifndef CXP_CONSTEXPR_VECTOR_H
 #define CXP_CONSTEXPR_VECTOR_H
 
-#include <fused_kernel/core/utils/static_get.h>
+#include <fused_kernel/core/utils/utils.h>
 #include <fused_kernel/core/execution_model/operation_model/operation_types.h>
 
 namespace cxp {
@@ -47,7 +47,7 @@ namespace cxp {
                                           const I& input) {
             using BaseType = fk::VBase<I>;
             using OutputType = typename fk::VectorType<BaseType, NewNumChannels>::type_v;
-            return OutputType{fk::static_get<Idx>::f(input)...};
+            return OutputType{fk::static_get<Idx>(input)...};
         }
         template <typename I>
         FK_HOST_DEVICE_FUSE auto f(const I& input)
@@ -65,7 +65,7 @@ namespace cxp {
             static_assert(fk::validCUDAVec<VT>, "Non valid CUDA vetor type: vector_reorder");
             static_assert(fk::cn<VT> >= 2, "Minimum number of channels is 2: vector_reorder");
             static_assert(sizeof...(Idx) == fk::cn<VT>, "Number of indices must match number of channels");
-            return {fk::static_get<Idx>::f(v)...};
+            return {fk::static_get<Idx>(v)...};
         }
     };
 

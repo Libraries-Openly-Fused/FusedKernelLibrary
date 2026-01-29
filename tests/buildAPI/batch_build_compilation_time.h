@@ -42,9 +42,6 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     // Intermediate RGB image after YUV to RGB conversion
     Ptr2D<float3> rgbImg(3840, 2160);
 
-    // We want a Tensor of contiguous memory for all images
-    Tensor<float3> output(outputSize.width, outputSize.height, BATCH);
-
     // Crops can be of different sizes
     constexpr std::array<Rect, BATCH_10> crops_10{ Rect(0, 0, 34, 25),      Rect(40, 40, 70, 15),     Rect(100, 200, 60, 59),
                                          Rect(300, 1000, 20, 23), Rect(3000, 2000, 12, 11), Rect(0, 0, 34, 25),
@@ -56,16 +53,13 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     for (int i = 0; i < BATCH_10; ++i) {
         int j{ 0 };
         for (auto&& elem : crops_10) {
-            crops[i + j] = elem;
+            const int idx = i * BATCH_10 + j;
+            crops[idx] = elem;
             j++;
         }
     }
 
-    // initImageValues(inputImage);
     const float3 backgroundColor{ 0.f, 0.f, 0.f };
-    const float3 mulValue = make_set<float3>(1.4f);
-    const float3 subValue = make_set<float3>(0.5f);
-    const float3 divValue = make_set<float3>(255.f);
 
     // Create the operation instances once, and use them multiple times
     const auto readIOp = ReadYUV<PixelFormat::NV12>::build(inputImage);
@@ -77,25 +71,8 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     const auto cropIOp = Crop<>::build(crops);
     const auto resizeIOp =
         Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>::build(outputSize, backgroundColor);
-    const auto mulIOp = Mul<float3>::build(mulValue);
-    const auto subIOp = Sub<float3>::build(subValue);
-    const auto divIOp = Div<float3>::build(divValue);
-    const auto tensorWriteIOp = TensorWrite<float3>::build(output);
 
-    // Without BVF
-    executeOperations<TransformDPP<>>(
-        stream, readIOp, yuvToRGB, WriteOp::build(rgbImg));
-
-    for (int i = 0; i < BATCH; ++i) {
-        cropedPtrs[i] = rgbImg.crop2D(Point(crops[i].x, crops[i].y), PtrDims<ND::_2D>(crops[i].width, crops[i].height));
-    }
-
-    executeOperations<TransformDPP<>>(stream, ReadOp::build(cropedPtrs), borderReader, resizeIOp, mulIOp,
-                                      subIOp, divIOp, tensorWriteIOp);
-
-    // With BVF
-    executeOperations<TransformDPP<>>(stream, readIOp, yuvToRGB, borderReader, cropIOp,
-                                      resizeIOp, mulIOp, subIOp, divIOp, tensorWriteIOp);
+    const auto fusedPipeline = readIOp & yuvToRGB & borderReader & cropIOp & resizeIOp;
 
     stream.sync();
 }
