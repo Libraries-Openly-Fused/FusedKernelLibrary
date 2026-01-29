@@ -125,7 +125,7 @@ struct SimpleTransformDPPBaseReferenceFoldExpr {
         const auto& writeDF = ppLast(iOps...);
 
         if constexpr (sizeof...(iOps) > 1) {
-            const auto tempO = (thread | readDF | ... | iOps);
+            const auto tempO = ((thread | readDF) | ... | iOps);
             WriteOperation::exec(thread, tempO.input, writeDF);
         } else {
             WriteOperation::exec(thread, ReadIOp::Operation::exec(thread, readDF), writeDF);
@@ -331,7 +331,7 @@ __global__ void launchSimpleTransformDPPValueLessCallDepth_Kernel(const __grid_c
         const auto readIOpTemp = dummyCalls<0>(readIOp);
 
         if constexpr (sizeof...(iOps) > 1) {
-            const auto tempO = (thread | readIOpTemp | ... | iOps).input;
+            const auto tempO = ((thread | readIOpTemp) | ... | iOps).input;
             WriteOperation::exec(thread, tempO, writeIOp);
         } else {
             WriteOperation::exec(thread, (thread | readIOpTemp).input, writeIOp);
