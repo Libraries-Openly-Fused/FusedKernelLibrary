@@ -114,7 +114,7 @@ namespace fk {
                 "The IOp passed as parameter is not a batch operation");
             using Operation = typename IOpType::Operation::Operation;
             using OutputArrayType = std::array<Instantiable<Operation>, IOpType::Operation::BATCH>;
-            OutputArrayType resultingArray;
+            OutputArrayType resultingArray{};
             for (int i = 0; i < IOpType::Operation::BATCH; i++) {
                 if constexpr (IOpType::template is<ReadType>) {
                     resultingArray[i] = Operation::build(std::forward<InstantiableType>(batchIOp).params.opData[i]);
@@ -137,7 +137,7 @@ namespace fk {
                 std::declval<std::decay_t<Arrays>>()[0]...
             ));
 
-            std::array<OutputArrayType, BATCH> resultArray;
+            std::array<OutputArrayType, BATCH> resultArray{};
 
             // One simple loop handles both 0 and N extra arrays
             for (int i = 0; i < BATCH; i++) {
