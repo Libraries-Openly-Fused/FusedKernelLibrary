@@ -106,45 +106,47 @@ namespace fk {
 
     struct BatchUtils {
         FK_STATIC_STRUCT(BatchUtils, BatchUtils)
-#ifndef NVRTC_COMPILER
-            template <typename InstantiableType>
-        FK_HOST_FUSE auto toArray(const InstantiableType& batchIOp) {
-            static_assert(isBatchOperation<typename InstantiableType::Operation>,
+
+        template <typename InstantiableType>
+        FK_HOST_FUSE auto toArray(InstantiableType&& batchIOp) {
+            using IOpType = std::decay_t<InstantiableType>;
+            static_assert(isBatchOperation<typename IOpType::Operation>,
                 "The IOp passed as parameter is not a batch operation");
-            constexpr size_t BATCH = InstantiableType::Operation::BATCH;
-            return toArray_helper(std::make_index_sequence<BATCH>{}, batchIOp);
-        }
-        template <typename Operation, size_t BATCH_N, typename FirstType, typename... ArrayTypes>
-        FK_HOST_FUSE auto build_batch(const std::array<FirstType, BATCH_N>& firstInstance, const ArrayTypes &...arrays) {
-            static_assert(allArraysSameSize_v<BATCH_N, ArrayTypes...>, "Not all arrays have the same size as BATCH");
-            return build_helper_generic<Operation>(std::make_index_sequence<BATCH_N>(), firstInstance, arrays...);
-        }
-    private:
-        template <typename InstantiableType, size_t... Idx>
-        FK_HOST_FUSE auto toArray_helper(const std::index_sequence<Idx...>&, const InstantiableType& batchIOp) {
-            using Operation = typename InstantiableType::Operation::Operation;
-            using OutputArrayType = std::array<Instantiable<Operation>, sizeof...(Idx)>;
-            if constexpr (InstantiableType::template is<ReadType>) {
-                return OutputArrayType{ Operation::build(batchIOp.params.opData[Idx])... };
-            } else {
-                static_assert(InstantiableType::template is<WriteType>, "InstantiableType is not a ReadType or WriteType. It means it is not a batch operation");
-                return OutputArrayType{ Operation::build(batchIOp.params[Idx])... };
+            using Operation = typename IOpType::Operation::Operation;
+            using OutputArrayType = std::array<Instantiable<Operation>, IOpType::Operation::BATCH>;
+            OutputArrayType resultingArray;
+            for (int i = 0; i < IOpType::Operation::BATCH; i++) {
+                if constexpr (IOpType::template is<ReadType>) {
+                    resultingArray[i] = Operation::build(std::forward<InstantiableType>(batchIOp).params.opData[i]);
+                } else {
+                    static_assert(IOpType::template is<WriteType>, "IOpType must be ReadType or WriteType");
+                    resultingArray[i] = Operation::build(std::forward<InstantiableType>(batchIOp).params[i]);
+                }
             }
+            return resultingArray;
         }
-        template <size_t Idx, typename Array>
-        FK_HOST_FUSE auto get_element_at_index(const Array& paramArray) -> decltype(paramArray[Idx]) {
-            return paramArray[Idx];
+
+        template <typename Operation, size_t BATCH, typename ArrayType, typename... Arrays>
+        FK_HOST_FUSE auto build_batch(const std::array<ArrayType, BATCH>& firstArray, Arrays&&...arrays) {
+            static_assert(allArraysSameSize_v<BATCH, std::decay_t<Arrays>...>,
+                "Not all arrays have the same size as BATCH");
+
+            // Determine return type based on the first element
+            using OutputArrayType = decltype(Operation::build(
+                std::declval<ArrayType>(),
+                std::declval<std::decay_t<Arrays>>()[0]...
+            ));
+
+            std::array<OutputArrayType, BATCH> resultArray;
+
+            // One simple loop handles both 0 and N extra arrays
+            for (int i = 0; i < BATCH; i++) {
+                // If 'arrays' is empty, this expands to just build(firstArray[i])
+                resultArray[i] = Operation::build(firstArray[i], std::forward<Arrays>(arrays)[i]...);
+            }
+
+            return resultArray;
         }
-        template <typename Operation, size_t Idx, typename... Arrays>
-        FK_HOST_FUSE auto call_build_at_index(const Arrays &...arrays) {
-            return Operation::build(get_element_at_index<Idx>(arrays)...);
-        }
-        template <typename Operation, size_t... Idx, typename... Arrays>
-        FK_HOST_FUSE auto build_helper_generic(const std::index_sequence<Idx...>&, const Arrays &...arrays) {
-            using OutputArrayType = decltype(call_build_at_index<Operation, 0>(std::declval<Arrays>()...));
-            return std::array<OutputArrayType, sizeof...(Idx)>{call_build_at_index<Operation, Idx>(arrays...)...};
-        }
-#endif // NVRTC_COMPILER
     };
 
     template <PlanePolicy PP = PlanePolicy::PROCESS_ALL, size_t BATCH = 1, typename Operation = TypeList<void>>
