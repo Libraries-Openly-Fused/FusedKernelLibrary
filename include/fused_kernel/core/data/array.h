@@ -220,14 +220,13 @@ namespace fk {
         }
     }
 
-    template <typename Value, size_t... Idx>
-    FK_HOST_DEVICE_CNST std::array<Value, sizeof...(Idx)> make_set_std_array_helper(const std::index_sequence<Idx...>&, const Value& value) {
-        return { { (static_cast<void>(Idx), value)... } };
-    }
-
     template <size_t BATCH, typename T>
-    FK_HOST_DEVICE_CNST std::array<T, BATCH> make_set_std_array(const T& value) {
-        return make_set_std_array_helper(std::make_index_sequence<BATCH>(), value);
+    FK_HOST_CNST std::array<T, BATCH> make_set_std_array(const T& value) {
+        std::array<T, BATCH> arr{};
+        for (size_t i = 0; i < BATCH; i++) {
+            arr[i] = value;
+        }
+        return arr;
     }
 
     template <typename ArrayLike>

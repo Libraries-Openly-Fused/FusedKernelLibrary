@@ -43,7 +43,7 @@ namespace fk {
                     using BackType = std::decay_t<decltype(backOpArray)>;
                     using ForType = std::decay_t<decltype(forwardOpArray)>;
                     constexpr size_t BATCH = static_cast<size_t>(ContinuationIOp::Operation::BATCH);
-                    using FusedType = typename decltype(make_fusedArray(std::declval<std::make_index_sequence<BATCH>>(), std::declval<BackType>(), std::declval<ForType>()))::value_type;
+                    using FusedType = typename decltype(make_fusedArray(std::declval<BackType>(), std::declval<ForType>()))::value_type;
                     using DefaultValueType = typename FusedType::Operation::OutputType;
                     if constexpr (std::is_same_v<typename Operation::OutputType, DefaultValueType>) {
                         return BuilderType::build(selfIOp.params.usedPlanes, selfIOp.params.default_value, backOpArray, forwardOpArray);
@@ -76,7 +76,7 @@ namespace fk {
                     if constexpr (Operation::PP == PlanePolicy::CONDITIONAL_WITH_DEFAULT) {
                         using BackType = std::decay_t<decltype(backOpArray)>;
                         using ForType = std::decay_t<decltype(forwardOpArray)>;
-                        using FusedType = typename decltype(make_fusedArray<BATCH>(std::declval<std::make_index_sequence<BATCH>>(), std::declval<BackType>(), std::declval<ForType>()))::value_type;
+                        using FusedType = typename decltype(make_fusedArray<BATCH>(std::declval<BackType>(), std::declval<ForType>()))::value_type;
                         using DefaultValueType = typename FusedType::Operation::OutputType;
                         if constexpr (std::is_same_v<typename Operation::OutputType, DefaultValueType>) {
                             return BuilderType::build(selfIOp.params.usedPlanes, selfIOp.params.default_value, backOpArray, forwardOpArray);
@@ -91,7 +91,7 @@ namespace fk {
                 } else {
                     const auto backOpArray = BatchUtils::toArray(selfIOp);
                     const auto forwardOpArray = make_set_std_array<BATCH>(cIOp);
-                    const auto iOpsArray = make_fusedArray(std::make_index_sequence<BATCH>{}, backOpArray, forwardOpArray);
+                    const auto iOpsArray = make_fusedArray(backOpArray, forwardOpArray);
                     using BuilderType = typename decltype(iOpsArray)::value_type::Operation;
                     return BuilderType::build(iOpsArray);
                 }
@@ -118,9 +118,9 @@ namespace fk {
             return operationTupleToIOp(iOpsToOperationTuple(iOps...));
         }
 
-        template <size_t BATCH, size_t... Idx, typename ThisIOp, typename ForwardIOp>
-        FK_HOST_FUSE auto make_fusedArray(const std::index_sequence<Idx...>&, const std::array<ThisIOp, BATCH>& thisArray,
-                                                                              const std::array<ForwardIOp, BATCH>& fwdArray) {
+        template <size_t BATCH, typename ThisIOp, typename ForwardIOp>
+        FK_HOST_FUSE auto make_fusedArray(const std::array<ThisIOp, BATCH>& thisArray,
+                                          const std::array<ForwardIOp, BATCH>& fwdArray) {
             if constexpr (isIncompleteReadBackType<ForwardIOp>) {
                 using BuilderType = typename ForwardIOp::Operation;
                 using ResultingType = decltype(BuilderType::build(std::declval<ThisIOp>(), std::declval<ForwardIOp>()));
