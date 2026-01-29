@@ -33,7 +33,7 @@ namespace fk { // namespace fused kernel
         // 3. forward_as_tuple creates a Tuple of references (Tuple<T&, U&&...>)
         // 4. get extracts it
         // 5. decltype(auto) returns exactly that reference
-        return get<I>(forward_as_tuple(std::forward<Args>(args)...));
+        return TupleUtil::get<I>(forward_as_tuple(std::forward<Args>(args)...));
     }
 
     // Util to get the last parameter of a parameter pack

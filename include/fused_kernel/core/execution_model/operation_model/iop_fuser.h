@@ -183,7 +183,7 @@ namespace fk {
             // 1. Calculate the split point at compile time
             constexpr size_t split_idx = idxFirstNonBack<std::decay_t<IOps>...>();
             if constexpr (split_idx < 2) {
-                return forward_as_tuple(iOps...);
+                return forward_as_tuple(std::forward<IOps>(iOps)...);
             } else {
                 constexpr size_t total_size = sizeof...(IOps);
 
