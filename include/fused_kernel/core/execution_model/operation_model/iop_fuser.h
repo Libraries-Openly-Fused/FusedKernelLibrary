@@ -124,10 +124,18 @@ namespace fk {
             if constexpr (isIncompleteReadBackType<ForwardIOp>) {
                 using BuilderType = typename ForwardIOp::Operation;
                 using ResultingType = decltype(BuilderType::build(std::declval<ThisIOp>(), std::declval<ForwardIOp>()));
-                return std::array<ResultingType, BATCH>{ BuilderType::build(thisArray[Idx], fwdArray[Idx])... };
+                std::array<ResultingType, BATCH> resultArray{};
+                for (size_t i = 0; i < BATCH; ++i) {
+                    resultArray[i] = BuilderType::build(thisArray[i], fwdArray[i]);
+                }
+                return resultArray;
             } else {
                 using ResultingType = decltype(fuseNonBatchForwardIOps(std::declval<ThisIOp>(), std::declval<ForwardIOp>()));
-                return std::array<ResultingType, BATCH>{fuseNonBatchForwardIOps(thisArray[Idx], fwdArray[Idx])...};
+                std::array<ResultingType, BATCH> resultArray{};
+                for (size_t i = 0; i < BATCH; ++i) {
+                    resultArray[i] = fuseNonBatchForwardIOps(thisArray[i], fwdArray[i]);
+                }
+                return resultArray;
             }
         }
     };
