@@ -24,8 +24,6 @@
 #include <fused_kernel/algorithms/image_processing/saturate.h>
 
 bool test_OTInitialization() {
-    fk::Stream stream;
-    
     constexpr uint X = 64;
     constexpr uint Y = 64;
 
@@ -64,6 +62,45 @@ bool test_OTInitialization() {
     return true;
 }
 
+bool testNewOperationTuple() {
+    using namespace fk;
+
+    constexpr auto op1 = Div<uchar>::build(1u);
+    constexpr auto op2 = SaturateCast<uchar, uint>::build();
+    constexpr auto op3 = Mul<uint>::build(0);
+    constexpr auto op4 = Cast<uint, float>::build();
+    constexpr auto op5 = Add<float>::build(0.5f);
+
+    using Op1 = std::decay_t<decltype(op1)>;
+    using Op2 = std::decay_t<decltype(op2)>;
+    using Op1NF = decltype(op1);
+    using Op2NF = decltype(op2);
+
+    using IdSeq = filtered_index_sequence_t<NotIsUnaryRestriction, TypeList<Op1, Op2>>;
+
+    constexpr auto filtIdx = filtered_index_sequence_t<NotIsUnaryRestriction, TypeList<Op1, Op2>>{};
+
+    using TupleType = typename FilteredOps<IdSeq, Op1, Op2>::type;
+
+    constexpr TupleType tupInstance{op1};
+
+    constexpr FilteredOperations<Op1, Op2> filtOps{
+        get<0>(std::forward<Op1NF>(op1), std::forward<Op2NF>(op2))
+    };
+
+    constexpr NewOperationTuple<Op1NF, Op2NF> opTup{ get<0>(std::forward<Op1NF>(op1), std::forward<Op2NF>(op2)) };
+
+    constexpr auto opTuple1 = make_new_operation_tuple_helper(
+        typename NewOperationTuple<Op1, Op2>::Indexes{}, op1, op2);
+
+    constexpr auto opTuple2 = make_new_operation_tuple(op1, op2);
+
+    constexpr auto gotOp1 = get<0>(opTuple2);
+    constexpr auto gotOp2 = get<1>(opTuple2);
+
+    return true;
+}
+
 int launch() {
     constexpr auto opTuple1 = fk::make_operation_tuple_<fk::Add<int, int, int, fk::UnaryType>>();
 
@@ -95,7 +132,7 @@ int launch() {
     static_assert(fk::isUnaryType<typename OpTuple3Type::Operation>, "Wrong Operation Type");
     static_assert(opTuple2.next.instance.params == 3, "Wrong value");
 
-    if (!test_OTInitialization()) {
+    if (!test_OTInitialization() || !testNewOperationTuple()) {
         return -1;
     }
 

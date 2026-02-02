@@ -203,6 +203,77 @@ namespace fk {
             return HasOperation<Type>::value;
         }
     };
+
+    struct NotIsUnaryRestriction {
+        template <typename Type>
+        FK_HOST_DEVICE_FUSE bool complies() {
+            return !isUnaryType<Type>;
+        }
+    };
+
+    template <typename IndexSequence, typename... Operations>
+    struct FilteredOps;
+
+    template <size_t... Idx, typename... Operations>
+    struct FilteredOps<std::index_sequence<Idx...>, Operations...> {
+        using type = Tuple<TypeAt_t<Idx, TypeList<Operations...>>...>;
+    };
+
+    template <typename... Operations>
+    using FilteredOperations = typename FilteredOps<filtered_index_sequence_t<NotIsUnaryRestriction, TypeList<std::decay_t<Operations>...>>, Operations...>::type;
+
+
+    template <typename... Operations_>
+    struct NewOperationTuple {
+        using Operations = TypeList<std::decay_t<Operations_>...>;
+        using Indexes = filtered_index_sequence_t<NotIsUnaryRestriction, Operations>;
+        FilteredOperations<Operations_...> instances;
+    };
+
+    template <typename IndexSeq, size_t IdxValue>
+    struct GetIndex;
+
+    template <typename IndexSeq, typename IndexSeqOut, size_t IdxValue>
+    struct GetIndexHelper;
+
+    template <size_t... Idx, size_t... IdxOut, size_t IdxValue>
+    struct  GetIndexHelper<std::index_sequence<Idx...>, std::index_sequence<IdxOut...>, IdxValue> {
+        static constexpr size_t value = []() {
+            size_t result = 0;
+            ((result = (Idx == IdxValue ? IdxOut : result)), ...);
+            return result;
+            }();
+    };
+
+    template <size_t... Idx, size_t IdxValue>
+    struct GetIndex<std::index_sequence<Idx...>, IdxValue> {
+        static constexpr size_t value = GetIndexHelper<std::index_sequence<Idx...>, decltype(std::make_index_sequence<sizeof...(Idx)>()), IdxValue>::value;
+    };
+
+    // We need to return auto instead of auto& because we may be returning temporaries
+    // As observed in get<>(Tuple<...>), returning a const& as auto,
+    // may lead to local memory accesses in the GPU
+    template <size_t Idx, typename... Operations>
+    FK_HOST_DEVICE_CNST auto get(const NewOperationTuple<Operations...>& opTuple){
+        if constexpr (isUnaryType<TypeAt_t<Idx, TypeList<Operations...>>>) {
+            return TypeAt_t<Idx, TypeList<Operations...>>::Operation::build();
+        } else {
+            return get<GetIndex<typename NewOperationTuple<Operations...>::Indexes, Idx>::value>(opTuple.instances);
+        }
+    }
+
+    template <size_t... Idx, typename... IOps>
+    FK_HOST_DEVICE_CNST decltype(auto) make_new_operation_tuple_helper(const std::index_sequence<Idx...>&, const IOps&... iOps) {
+        return NewOperationTuple<std::decay_t<IOps>...>{ get<Idx>(iOps...)... };
+    }
+
+    template <typename... IOps>
+    FK_HOST_DEVICE_CNST decltype(auto) make_new_operation_tuple(const IOps&... iOps) {
+        return make_new_operation_tuple_helper(
+            typename NewOperationTuple<std::decay_t<IOps>...>::Indexes{},
+            iOps...
+        );
+    }
 } // namespace fk
 
 #endif

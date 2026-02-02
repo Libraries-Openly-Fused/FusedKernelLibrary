@@ -34,7 +34,7 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
 
     // We perform 5 crops on the image
     constexpr int BATCH_10 = 10;
-    constexpr int BATCH = 100;
+    constexpr int BATCH = 500;
 
     // We have a 4K source image
     Image<PixelFormat::NV12> inputImage(3840, 2160);
@@ -43,7 +43,7 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     Ptr2D<float3> rgbImg(3840, 2160);
 
     // Crops can be of different sizes
-    constexpr std::array<Rect, BATCH_10> crops_10{ Rect(0, 0, 34, 25),      Rect(40, 40, 70, 15),     Rect(100, 200, 60, 59),
+    constexpr std::array<Rect, BATCH_10> crops_10{Rect(0, 0, 34, 25),      Rect(40, 40, 70, 15),     Rect(100, 200, 60, 59),
                                          Rect(300, 1000, 20, 23), Rect(3000, 2000, 12, 11), Rect(0, 0, 34, 25),
                                          Rect(40, 40, 70, 15),    Rect(100, 200, 60, 59),   Rect(300, 1000, 20, 23),
                                          Rect(3000, 2000, 12, 11) };
