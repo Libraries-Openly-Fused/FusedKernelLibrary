@@ -222,13 +222,25 @@ namespace fk {
     template <typename... Operations>
     using FilteredOperations = typename FilteredOps<filtered_index_sequence_t<NotIsUnaryRestriction, TypeList<std::decay_t<Operations>...>>, Operations...>::type;
 
+    template <typename Enabler, typename... Operations>
+    struct NewOperationTuple_;
 
     template <typename... Operations_>
-    struct NewOperationTuple {
+    struct NewOperationTuple_<std::enable_if_t<!allUnaryTypes<Operations_...>, void>, Operations_...> {
         using Operations = TypeList<std::decay_t<Operations_>...>;
         using Indexes = filtered_index_sequence_t<NotIsUnaryRestriction, Operations>;
-        FilteredOperations<Operations_...> instances;
+        using InstancesType = FilteredOperations<Operations_...>;
+        InstancesType instances;
     };
+
+    template <typename... Operations_>
+    struct NewOperationTuple_<std::enable_if_t<allUnaryTypes<Operations_...>, void>, Operations_...> {
+        using Operations = TypeList<std::decay_t<Operations_>...>;
+        using Indexes = filtered_index_sequence_t<NotIsUnaryRestriction, Operations>;
+    };
+
+    template <typename... Operations>
+    using NewOperationTuple = NewOperationTuple_<void, Operations...>;
 
     template <typename IndexSeq, size_t IdxValue>
     struct GetIndex;
@@ -256,7 +268,7 @@ namespace fk {
     template <size_t Idx, typename... Operations>
     FK_HOST_DEVICE_CNST auto get(const NewOperationTuple<Operations...>& opTuple){
         if constexpr (isUnaryType<TypeAt_t<Idx, TypeList<Operations...>>>) {
-            return TypeAt_t<Idx, TypeList<Operations...>>::Operation::build();
+            return typename TypeAt_t<Idx, TypeList<Operations...>>::Operation::InstantiableType{};
         } else {
             return get<GetIndex<typename NewOperationTuple<Operations...>::Indexes, Idx>::value>(opTuple.instances);
         }
@@ -264,15 +276,26 @@ namespace fk {
 
     template <size_t... Idx, typename... IOps>
     FK_HOST_DEVICE_CNST decltype(auto) make_new_operation_tuple_helper(const std::index_sequence<Idx...>&, const IOps&... iOps) {
-        return NewOperationTuple<std::decay_t<IOps>...>{ get<Idx>(iOps...)... };
+        // 1. Pack arguments into a tuple ONCE.
+        //    Using forward_as_tuple preserves references (Op1&, Op2&...)
+        auto args_tuple = forward_as_tuple(iOps...);
+
+        // 2. Expand using the tuple-based 'get'.
+        //    We move(args_tuple) to ensure we forward the r-valueness if needed.
+        using ResultType = NewOperationTuple<std::decay_t<IOps>...>;
+
+        // Note: We use fk::get (the one that takes a Tuple) here, not the pack one.
+        return ResultType{{get<Idx>(std::move(args_tuple))...}};
     }
 
     template <typename... IOps>
     FK_HOST_DEVICE_CNST decltype(auto) make_new_operation_tuple(const IOps&... iOps) {
-        return make_new_operation_tuple_helper(
-            typename NewOperationTuple<std::decay_t<IOps>...>::Indexes{},
-            iOps...
-        );
+        if constexpr (allUnaryTypes<IOps...>) {
+            return NewOperationTuple<std::decay_t<IOps>...>{};
+        } else {
+            using IdxType = typename NewOperationTuple<std::decay_t<IOps>...>::Indexes;
+            return make_new_operation_tuple_helper(IdxType{}, iOps...);
+        }
     }
 } // namespace fk
 

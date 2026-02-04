@@ -67,36 +67,40 @@ bool testNewOperationTuple() {
 
     constexpr auto op1 = Div<uchar>::build(1u);
     constexpr auto op2 = SaturateCast<uchar, uint>::build();
-    constexpr auto op3 = Mul<uint>::build(0);
+    constexpr auto op3 = Mul<uint>::build(5u);
     constexpr auto op4 = Cast<uint, float>::build();
     constexpr auto op5 = Add<float>::build(0.5f);
+    constexpr auto op6 = Div<float>::build(0.6f);
+    constexpr auto op7 = Mul<float>::build(0.8f);
 
-    using Op1 = std::decay_t<decltype(op1)>;
-    using Op2 = std::decay_t<decltype(op2)>;
-    using Op1NF = decltype(op1);
-    using Op2NF = decltype(op2);
+    // Some unary
+    constexpr auto opTuple1 = make_new_operation_tuple(op1, op2, op3);
+    constexpr auto gotOp1 = get<0>(opTuple1);
+    constexpr auto gotOp2 = get<1>(opTuple1);
+    constexpr auto gotOp3 = get<2>(opTuple1);
 
-    using IdSeq = filtered_index_sequence_t<NotIsUnaryRestriction, TypeList<Op1, Op2>>;
+    static_assert(opTuple1.instances.size == 2, "Wrong Tuple size in OperationTuple");
+    static_assert(gotOp1.params == 1u, "Wrong value in op1");
+    static_assert(isUnaryType<std::decay_t<decltype(gotOp2)>>, "Op2 must be Unary");
+    static_assert(gotOp3.params == 5u, "Wrong value in op3");
 
-    constexpr auto filtIdx = filtered_index_sequence_t<NotIsUnaryRestriction, TypeList<Op1, Op2>>{};
+    // All unary
+    constexpr auto opTuple2 = make_new_operation_tuple(op2, op4);
+    constexpr auto gotT2Op2 = get<0>(opTuple2);
+    constexpr auto gotT2Op4 = get<1>(opTuple2);
 
-    using TupleType = typename FilteredOps<IdSeq, Op1, Op2>::type;
+    static_assert(isUnaryType<std::decay_t<decltype(gotT2Op2)>>, "Op2 must be Unary");
+    static_assert(isUnaryType<std::decay_t<decltype(gotT2Op4)>>, "Op4 must be Unary");
 
-    constexpr TupleType tupInstance{op1};
+    // None unary
+    constexpr auto opTuple3 = make_new_operation_tuple(op5, op6, op7);
+    constexpr auto gotT3Op5 = get<0>(opTuple3);
+    constexpr auto gotT3Op6 = get<1>(opTuple3);
+    constexpr auto gotT3Op7 = get<2>(opTuple3);
 
-    constexpr FilteredOperations<Op1, Op2> filtOps{
-        get<0>(std::forward<Op1NF>(op1), std::forward<Op2NF>(op2))
-    };
-
-    constexpr NewOperationTuple<Op1NF, Op2NF> opTup{ get<0>(std::forward<Op1NF>(op1), std::forward<Op2NF>(op2)) };
-
-    constexpr auto opTuple1 = make_new_operation_tuple_helper(
-        typename NewOperationTuple<Op1, Op2>::Indexes{}, op1, op2);
-
-    constexpr auto opTuple2 = make_new_operation_tuple(op1, op2);
-
-    constexpr auto gotOp1 = get<0>(opTuple2);
-    constexpr auto gotOp2 = get<1>(opTuple2);
+    static_assert(gotT3Op5.params == 0.5f, "Wrong value in op5");
+    static_assert(gotT3Op6.params == 0.6f, "Wrong value in op6");
+    static_assert(gotT3Op7.params == 0.8f, "Wrong value in op7");
 
     return true;
 }
