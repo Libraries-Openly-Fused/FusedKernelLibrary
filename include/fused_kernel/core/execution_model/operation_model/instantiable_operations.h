@@ -68,13 +68,6 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
             : thread(thread_), input(input_) {}
     };
 
-    template <>
-    struct InputFoldType<void> {
-        Point thread;
-
-        FK_HOST_DEVICE_CNST InputFoldType(const Point& thread_) : thread(thread_) {}
-    };
-
     template <typename Operation_t>
     struct ReadInstantiableOperation final : public OperationData<Operation_t> {
         INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(ReadType)
@@ -231,6 +224,32 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     };
 
     /**
+    * @brief FusedInstantiableOperation: represents a IOp that takes the result of the previous IOp as input
+    * (which will reside on GPU registers) and an OperationTuple.
+    * It computes each of the IOps in the OperationTuple, passing the input to the first one, and returns
+    * the result on registers.
+    */
+    template <typename Operation_t>
+    struct FusedInstantiableOperation final : public OperationData<Operation_t> {
+        INSTANTIABLE_OPERATION_DETAILS_IS(FusedType)
+            static_assert(std::is_same_v<typename Operation::InstanceType, FusedType> ||
+                std::is_same_v<typename Operation::InstanceType, FusedType>,
+                "Operation is not FusedType");
+
+        INSTANTIABLE_OPERATION_THEN
+
+        template <typename Input>
+        FK_HOST_DEVICE_CNST friend auto operator|(Input&& input, const OperationData<Operation_t>& opData) {
+            return Operation::exec(std::forward<Input>(input).thread, std::forward<Input>(input).input, opData);
+        }
+
+        template <typename PreviousIOp, typename Fuser_t = Fuser>
+        FK_HOST_CNST friend auto operator&(PreviousIOp&& prevIOp, const FusedInstantiableOperation<Operation_t>& self) {
+            return Fuser_t::fuse(std::forward<PreviousIOp>(prevIOp), self);
+        }
+    };
+
+    /**
     * @brief WriteInstantiableOperation: represents a IOp that takes the result of the previous IOp as input
     * (which will reside on GPU registers) and writes it into device memory. The way that the data is written, is definded
     * by the implementation of Operation_t.
@@ -268,6 +287,8 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     using Binary = BinaryInstantiableOperation<Operation>;
     template <typename Operation>
     using Ternary = TernaryInstantiableOperation<Operation>;
+    template <typename Operation>
+    using Fused = FusedInstantiableOperation<Operation>;
     template <typename Operation>
     using MidWrite = MidWriteInstantiableOperation<Operation>;
     template <typename Operation>

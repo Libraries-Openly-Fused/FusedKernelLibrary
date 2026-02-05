@@ -230,6 +230,7 @@ namespace fk {
         using Operations = TypeList<std::decay_t<Operations_>...>;
         using Indexes = filtered_index_sequence_t<NotIsUnaryRestriction, Operations>;
         using InstancesType = FilteredOperations<Operations_...>;
+        static constexpr size_t size{sizeof...(Operations_)};
         InstancesType instances;
     };
 
@@ -237,6 +238,7 @@ namespace fk {
     struct NewOperationTuple_<std::enable_if_t<allUnaryTypes<Operations_...>, void>, Operations_...> {
         using Operations = TypeList<std::decay_t<Operations_>...>;
         using Indexes = filtered_index_sequence_t<NotIsUnaryRestriction, Operations>;
+        static constexpr size_t size{ sizeof...(Operations_) };
     };
 
     template <typename... Operations>

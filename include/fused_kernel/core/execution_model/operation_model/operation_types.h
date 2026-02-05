@@ -20,14 +20,15 @@
 #include <fused_kernel/core/utils/type_lists.h>
 
 namespace fk {
-    struct ReadType;
-    struct ReadBackType;
-    struct IncompleteReadBackType;
-    struct UnaryType;
-    struct BinaryType;
-    struct TernaryType;
-    struct MidWriteType;
-    struct WriteType;
+    struct ReadType; // Reads from DRAM and returns the value on registers
+    struct ReadBackType; // Same as ReadType, but part of the read process is implemented by other preceding operations.
+    struct IncompleteReadBackType; // RB without the exec function. Can store parameters and define build methods.
+    struct UnaryType; // Gets an input on registers, processes it and returns the result on registers.
+    struct BinaryType; // Gets an input + additional params, returns on registers
+    struct TernaryType; // Gets an input + additional params + another IOp, returns results on registers
+    struct MidWriteType; // Returns the input value as is, but stores it somewhere in DRAM
+    struct FusedType; // Gets a thread idx, an input and additional params, computes an output and returns it on registers
+    struct WriteType; // Gets a thread idx, an input and additional params, and stores input in DRAM
 
     template <typename T, typename = void>
     struct HasInstanceType : std::false_type {};
@@ -84,6 +85,13 @@ namespace fk {
     struct IsMidWriteType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, MidWriteType>, void>> : std::true_type {};
 
     template <typename T, typename = void>
+    struct IsFusedType : std::false_type {};
+    template <typename T>
+    struct IsFusedType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, FusedType>, void>> : std::false_type {};
+    template <typename T>
+    struct IsFusedType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, FusedType>, void>> : std::true_type {};
+
+    template <typename T, typename = void>
     struct IsWriteType : std::false_type {};
     template <typename T>
     struct IsWriteType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, WriteType>, void>> : std::false_type {};
@@ -116,6 +124,9 @@ namespace fk {
 
     template <typename OpORIOp>
     constexpr bool isTernaryType = IsTernaryType<OpORIOp>::value;
+
+    template <typename OpORIOp>
+    constexpr bool isFusedType = IsFusedType<OpORIOp>::value;
 
     template <typename OpORIOp>
     constexpr bool isWriteType = IsWriteType<OpORIOp>::value;

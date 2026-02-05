@@ -412,6 +412,56 @@ namespace fk {
     FK_HOST_CNST auto operationTupleToIOp(const OperationTuple& opTuple) {
         return OperationTupleToInstantiableOperation<OperationTuple>::value(opTuple);
     }
+
+    template <typename Enabler, typename... Operations>
+    struct NewFusedOperation_;
+
+    template <typename FirstOp, typename... RemOps>
+    struct NewFusedOperation_<std::enable_if_t<!isAnyReadType<FirstOp>>, FirstOp, RemOps...> {
+    private:
+        using SelfType = NewFusedOperation_<std::enable_if_t<!isAnyReadType<FirstOp>>, FirstOp, RemOps...>;
+    public:
+        FK_STATIC_STRUCT(NewFusedOperation_, SelfType)
+            using Parent =
+            FusedOperationParent<typename FirstOp::InputType, NewOperationTuple<FirstOp, RemOps...>,
+            typename LastType_t<RemOps...>::OutputType, SelfType, true>;
+        DECLARE_FUSED_PARENT
+
+        FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const InputType& input, const ParamsType& params) {
+            return exec_helper(std::make_index_sequence<ParamsType::size>{}, thread, input, params);
+        }
+    private:
+        template <size_t... Idx>
+        FK_HOST_DEVICE_FUSE OutputType exec_helper(const std::index_sequence<Idx...>&,
+                                                   const Point& thread,
+                                                   const InputType& input,
+                                                   const ParamsType& params) {
+            return (InputFoldType<InputType>{thread, input} | ... | get<Idx>(params));
+        }
+    };
+
+    template <typename FirstOp, typename... RemOps>
+    struct NewFusedOperation_<std::enable_if_t<isAnyReadType<FirstOp>>, FirstOp, RemOps...> {
+    private:
+        using SelfType = NewFusedOperation_<std::enable_if_t<isAnyReadType<FirstOp>>, FirstOp, RemOps...>;
+    public:
+        FK_STATIC_STRUCT(NewFusedOperation_, SelfType)
+            using Parent =
+            ReadOperation<typename FirstOp::Operation::ReadDataType, NewOperationTuple<FirstOp, RemOps...>,
+            typename LastType_t<RemOps...>::OutputType, TF::DISABLED, SelfType, true>;
+        DECLARE_READ_PARENT
+
+        FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params) {
+            return exec_helper(std::make_index_sequence<ParamsType::size>{}, thread, params);
+        }
+    private:
+        template <size_t... Idx>
+        FK_HOST_DEVICE_FUSE OutputType exec_helper(const std::index_sequence<Idx...>&,
+            const Point& thread,
+            const ParamsType& params) {
+            return (thread | ... | get<Idx>(params));
+        }
+    };
     // END FusedOperation
 } // namespace fk
 
