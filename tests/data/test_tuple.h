@@ -49,11 +49,11 @@ constexpr bool buildTuple() {
 }
 
 constexpr bool buildOperationTupleType() {
-    using Op1 = fk::PerThreadRead<fk::ND::_2D, uchar3>;
-    using Op2 = fk::VectorReorder<uchar3, 0, 1, 2>;
-    using Op3 = fk::PerThreadWrite<fk::ND::_2D, uchar3>;
+    using Op1 = typename fk::PerThreadRead<fk::ND::_2D, uchar3>::InstantiableType;
+    using Op2 = typename fk::VectorReorder<uchar3, 0, 1, 2>::InstantiableType;
+    using Op3 = typename fk::PerThreadWrite<fk::ND::_2D, uchar3>::InstantiableType;
 
-    using TupleType = fk::OperationTuple<Op1, Op2, Op3>;
+    using TupleType = typename fk::NewOperationTuple<Op1, Op2, Op3>::Operations;
 
     constexpr bool result1 = std::is_same_v<fk::get_type_t<0, TupleType>, Op1>;
     constexpr bool result2 = std::is_same_v<fk::get_type_t<1, TupleType>, Op2>;

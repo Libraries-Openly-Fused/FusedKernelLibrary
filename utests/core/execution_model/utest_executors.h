@@ -81,7 +81,7 @@ bool testBack() {
         static_assert(std::is_same_v<typename GenerateFuseBack::Operation::InstanceType, ReadBackType>);
         static_assert(std::is_same_v<typename GenerateFuseBack::Operation::BackIOp::Operation::InstanceType, TernaryType>, "Expecting a ternary operation");
         static_assert(GenerateFuseBack::Operation::BackIOp::Operation::BackIOp::Operation::IS_FUSED_OP, "Expecting a fused operation");
-        using FusedBackType = ReadBack<ResizeComplete<AspectRatio::IGNORE_AR, Ternary<InterpolateComplete<InterpolationType::INTER_LINEAR, Read<FusedOperation<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>, Mul<uchar3>>>>>>>;
+        using FusedBackType = ReadBack<ResizeComplete<AspectRatio::IGNORE_AR, Ternary<InterpolateComplete<InterpolationType::INTER_LINEAR, Read<FusedOperation<ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>, Binary<Mul<uchar3>>>>>>>>;
         static_assert(std::is_same_v<std::decay_t<decltype(fusedIOp3)>, FusedBackType>, "Expecting ReadBack<ResizeComplete<AspectRatio::IGNORE_AR, Ternary<InterpolateComplete<InterpolationType::INTER_LINEAR, Read<FusedOperation<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>, Mul<uchar3>>>>>>>");
     }
 

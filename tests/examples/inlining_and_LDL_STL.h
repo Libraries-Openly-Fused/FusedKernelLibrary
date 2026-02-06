@@ -33,23 +33,6 @@ template <ParArch PA = defaultParArch> struct SimpleTransformDPPReferenceFoldExp
 struct SimpleTransformDPPBaseValue {
     friend struct SimpleTransformDPPValue<ParArch::GPU_NVIDIA>; // Allow TransformDPP to access private members
   private:
-    template <typename T, typename IOp, typename... IOpTypes>
-    FK_HOST_DEVICE_FUSE auto operate(const Point thread, const T i_data, const IOp iOp,
-                                     const IOpTypes... iOpInstances) {
-        static_assert(!isIncompleteReadBackType<IOp>, "Trying to execute an incomplete IOp");
-        if constexpr (IOp::template is<WriteType>) {
-            return i_data;
-            // MidWriteOperation with continuations, based on FusedOperation
-        } else if constexpr (IOp::template is<MidWriteType> && isMidWriteType<typename IOp::Operation>) {
-            return IOp::Operation::exec(thread, i_data, iOp);
-        } else if constexpr (IOp::template is<MidWriteType> && !isMidWriteType<typename IOp::Operation>) {
-            IOp::Operation::exec(thread, i_data, iOp);
-            return i_data;
-        } else {
-            return operate(thread, compute(i_data, iOp), iOpInstances...);
-        }
-    }
-
     template <typename ReadIOp, typename... IOps>
     FK_HOST_DEVICE_FUSE void execute_thread(const Point thread, const ReadIOp readDF, const IOps... iOps) {
         using ReadOperation = typename ReadIOp::Operation;
@@ -59,7 +42,7 @@ struct SimpleTransformDPPBaseValue {
 
         const auto tempI = ReadIOp::Operation::exec(thread, readDF);
         if constexpr (sizeof...(iOps) > 1) {
-            const auto tempO = operate(thread, tempI, iOps...);
+            const auto tempO = ((thread | tempI) | ... | iOps);
             WriteOperation::exec(thread, tempO, writeDF);
         } else {
             WriteOperation::exec(thread, tempI, writeDF);
@@ -74,23 +57,6 @@ struct SimpleTransformDPPBaseValue {
 struct SimpleTransformDPPBaseReference {
     friend struct SimpleTransformDPPReference<ParArch::GPU_NVIDIA>; // Allow TransformDPP to access private members
   private:
-    template <typename T, typename IOp, typename... IOpTypes>
-    FK_HOST_DEVICE_FUSE auto operate(const Point& thread, const T& i_data, const IOp& iOp,
-                                     const IOpTypes&... iOpInstances) {
-        static_assert(!isIncompleteReadBackType<IOp>, "Trying to execute an incomplete IOp");
-        if constexpr (IOp::template is<WriteType>) {
-            return i_data;
-            // MidWriteOperation with continuations, based on FusedOperation
-        } else if constexpr (IOp::template is<MidWriteType> && isMidWriteType<typename IOp::Operation>) {
-            return IOp::Operation::exec(thread, i_data, iOp);
-        } else if constexpr (IOp::template is<MidWriteType> && !isMidWriteType<typename IOp::Operation>) {
-            IOp::Operation::exec(thread, i_data, iOp);
-            return i_data;
-        } else {
-            return operate(thread, compute(i_data, iOp), iOpInstances...);
-        }
-    }
-
     template <typename ReadIOp, typename... IOps>
     FK_HOST_DEVICE_FUSE void execute_thread(const Point& thread, const ReadIOp& readDF, const IOps&... iOps) {
         using ReadOperation = typename ReadIOp::Operation;
@@ -100,7 +66,7 @@ struct SimpleTransformDPPBaseReference {
 
         const auto tempI = ReadIOp::Operation::exec(thread, readDF);
         if constexpr (sizeof...(iOps) > 1) {
-            const auto tempO = operate(thread, tempI, iOps...);
+            const auto tempO = ((thread | tempI) | ... | iOps);
             WriteOperation::exec(thread, tempO, writeDF);
         } else {
             WriteOperation::exec(thread, tempI, writeDF);

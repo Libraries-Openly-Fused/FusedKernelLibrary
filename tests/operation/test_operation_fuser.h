@@ -20,10 +20,10 @@
 using namespace fk;
 
 using ComplexType =
-Read<FusedOperation_<void,
-    Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR,
-    ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>,
-    Mul<float3, float3, float3>>>;
+Read<FusedOperation<
+    ReadBack<Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR,
+    ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>>,
+    Binary<Mul<float3, float3, float3>>>>;
 
 // Operation types
 // Read
@@ -45,36 +45,18 @@ using WPerThrFloat = PerThreadWrite<ND::_2D, float>;
 // MidWrite
 using MWPerThrFloat = FusedOperation<WPerThrFloat, BAddFloat>;
 
-
 constexpr bool test_InstantiableFusedOperationToOperationTuple() {
-    constexpr bool mustFalse = isAllUnaryFusedOperation<MWPerThrFloat>;
-    static_assert(!mustFalse, "MWPerThrFloat is not an all Unary FusedOperation");
-    constexpr bool mustTrue = isAllUnaryFusedOperation<FusedOperation<UIntFloat>>;
-    static_assert(mustTrue, "FusedOperation<UIntFloat> is an all Unary FusedOperation");
-    constexpr bool mustTrue2 = isAllUnaryFusedOperation<FusedOperation<UIntFloat, UFloatInt>>;
-    static_assert(mustTrue2, "FusedOperation<UIntFloat, UFloatInt> is an all Unary FusedOperation");
 
-    constexpr bool mustTrue3 = isNotAllUnaryFusedOperation<MWPerThrFloat>;
-    static_assert(mustTrue3, "MWPerThrFloat is not an all Unary FusedOperation");
-    constexpr bool mustFalse2 = isNotAllUnaryFusedOperation<FusedOperation<UIntFloat>>;
-    static_assert(!mustFalse2, "FusedOperation<UIntFloat> is an all Unary FusedOperation");
-    constexpr bool mustFalse3 = isNotAllUnaryFusedOperation<FusedOperation<UIntFloat, UFloatInt>>;
-    static_assert(!mustFalse3, "FusedOperation<UIntFloat, UFloatInt> is an all Unary FusedOperation");
-    constexpr auto fusedOp0 = Binary<FusedOperation<Add<float>>>{};
-    [[maybe_unused]] constexpr auto operationTuple = InstantiableFusedOperationToOperationTuple<Binary<FusedOperation<Add<float>>>>::value(fusedOp0);
-    constexpr auto fusedOp = MWPerThrFloat::build(OperationData<MWPerThrFloat>{});
-    using FusedOpType = std::decay_t<decltype(fusedOp)>;
-    [[maybe_unused]] constexpr auto operationTuple2 = InstantiableFusedOperationToOperationTuple<FusedOpType>::value(fusedOp);
+    constexpr auto fusedOp = FusedOperation<>::build(ComplexType{}, Add<float3>::build(make_set<float3>(2.f)));
+
+    constexpr auto opTuple = fusedOp.params;
+
+    static_assert(opTuple.size == 3, "Wrong OperationTuple size");
 
     return true;
 }
 
 int launch() {
-#if defined(_MSC_VER) && (_MSC_VER >= 1910) && (_MSC_VER < 1920)
-    return test_InstantiableFusedOperationToOperationTuple() ? 0 : -1;
-#else
     constexpr ComplexType complexVar{};
-    [[maybe_unused]] constexpr auto opTuple = InstantiableFusedOperationToOperationTuple<ComplexType>::value(complexVar);
     return test_InstantiableFusedOperationToOperationTuple() ? 0 : -1;
-#endif
 }

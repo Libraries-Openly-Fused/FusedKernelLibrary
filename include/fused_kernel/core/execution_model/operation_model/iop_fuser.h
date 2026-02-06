@@ -102,20 +102,24 @@ namespace fk {
                     using BuilderType = typename ContinuationIOp::Operation;
                     return BuilderType::build(selfIOp, cIOp);
                 } else {
-                    return fuseNonBatchForwardIOps(selfIOp, cIOp);
+                    return fuseIOps(selfIOp, cIOp);
                 }
             }
         }
         private:
-        /** @brief fuseIOps: function that creates either a Read or a Binary IOp, composed of a
-        * FusedOperation, where the operations are the ones found in the InstantiableOperations in the
-        * iOps parameter pack.
-        * This is a convenience function to simplify the implementation of ReadBack and Ternary InstantiableOperations
-        * and Operations.
-        */
-        template <typename... InstantiableOperations>
-        FK_HOST_FUSE auto fuseNonBatchForwardIOps(const InstantiableOperations&... iOps) {
-            return operationTupleToIOp(iOpsToOperationTuple(iOps...));
+        template <typename IOp1, typename IOp2>
+        FK_HOST_FUSE decltype(auto) fuseIOps(IOp1&& iOp1, IOp2&& iOp2) {
+            constexpr bool iOp1Fused = std::decay_t<IOp1>::Operation::IS_FUSED_OP;
+            constexpr bool iOp2Fused = std::decay_t<IOp2>::Operation::IS_FUSED_OP;
+            if constexpr (iOp1Fused && iOp2Fused) {
+                return FusedOperation<>::build(cat(std::forward<IOp1>(iOp1).params, std::forward<IOp2>(iOp2).params));
+            } else if constexpr (iOp1Fused) {
+                return FusedOperation<>::build(cat(std::forward<IOp1>(iOp1).params, make_new_operation_tuple(std::forward<IOp2>(iOp2))));
+            } else if constexpr (iOp2Fused) {
+                return FusedOperation<>::build(cat(make_new_operation_tuple(std::forward<IOp1>(iOp1)), std::forward<IOp2>(iOp2).params));
+            } else {
+                return FusedOperation<>::build(std::forward<IOp1>(iOp1), std::forward<IOp2>(iOp2));
+            }
         }
 
         template <size_t BATCH, typename ThisIOp, typename ForwardIOp>
@@ -130,10 +134,10 @@ namespace fk {
                 }
                 return resultArray;
             } else {
-                using ResultingType = decltype(fuseNonBatchForwardIOps(std::declval<ThisIOp>(), std::declval<ForwardIOp>()));
+                using ResultingType = decltype(fuseIOps(std::declval<ThisIOp>(), std::declval<ForwardIOp>()));
                 std::array<ResultingType, BATCH> resultArray{};
                 for (size_t i = 0; i < BATCH; ++i) {
-                    resultArray[i] = fuseNonBatchForwardIOps(thisArray[i], fwdArray[i]);
+                    resultArray[i] = fuseIOps(thisArray[i], fwdArray[i]);
                 }
                 return resultArray;
             }

@@ -20,7 +20,7 @@
 
 namespace fk {
     // FusedOperation
-    namespace fused_operation_impl {
+    /*namespace fused_operation_impl {
         // FusedOperation implementation struct
         template <typename Operation>
         FK_HOST_DEVICE_CNST typename Operation::OutputType
@@ -411,7 +411,7 @@ namespace fk {
     template <typename OperationTuple>
     FK_HOST_CNST auto operationTupleToIOp(const OperationTuple& opTuple) {
         return OperationTupleToInstantiableOperation<OperationTuple>::value(opTuple);
-    }
+    }*/
 
     template <typename Enabler, typename... Operations>
     struct NewFusedOperation_;
@@ -448,20 +448,56 @@ namespace fk {
         FK_STATIC_STRUCT(NewFusedOperation_, SelfType)
             using Parent =
             ReadOperation<typename FirstOp::Operation::ReadDataType, NewOperationTuple<FirstOp, RemOps...>,
-            typename LastType_t<RemOps...>::OutputType, TF::DISABLED, SelfType, true>;
+            typename LastType_t<RemOps...>::Operation::OutputType, TF::DISABLED, SelfType, true>;
         DECLARE_READ_PARENT
 
         FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params) {
             return exec_helper(std::make_index_sequence<ParamsType::size>{}, thread, params);
         }
+
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread,
+                                             const OperationDataType& opData) {
+            return FirstOp::Operation::num_elems_x(thread, get<0>(opData.params));
+        }
+
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread,
+                                             const OperationDataType& opData) {
+            return FirstOp::Operation::num_elems_y(thread, get<0>(opData.params));
+        }
+
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread,
+                                             const OperationDataType& opData) {
+            return FirstOp::Operation::num_elems_z(thread, get<0>(opData.params));
+        }
+
+        FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
+            return { num_elems_x(Point(), opData), num_elems_y(Point(), opData), num_elems_z(Point(), opData) };
+        }
+
     private:
         template <size_t... Idx>
         FK_HOST_DEVICE_FUSE OutputType exec_helper(const std::index_sequence<Idx...>&,
-            const Point& thread,
-            const ParamsType& params) {
+                                                   const Point& thread,
+                                                   const ParamsType& params) {
             return (thread | ... | get<Idx>(params));
         }
     };
+
+    template <>
+    struct NewFusedOperation_<void> {
+        template <typename... IOps>
+        FK_HOST_FUSE decltype(auto) build(IOps&&... iOps) {
+            auto opTuple = make_new_operation_tuple(std::forward<IOps>(iOps)...);
+            return NewFusedOperation_<void, std::decay_t<IOps>...>::build(std::move(opTuple));
+        }
+        template <typename... IOps>
+        FK_HOST_FUSE decltype(auto) build(const NewOperationTuple<IOps...>& opTuple) {
+            return NewFusedOperation_<void, IOps...>::build(opTuple);
+        }
+    };
+
+    template <typename... IOps>
+    using FusedOperation = NewFusedOperation_<void, IOps...>;
     // END FusedOperation
 } // namespace fk
 

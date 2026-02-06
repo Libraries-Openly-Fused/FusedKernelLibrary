@@ -19,7 +19,7 @@
 #include <fused_kernel/core/execution_model/operation_model/operation_data.h>
 
 namespace fk {
-    template <typename Enabler, typename... Operations>
+   /*template <typename Enabler, typename... Operations>
     struct OperationTuple_;
 
     template <typename Operation_t, typename... Operations>
@@ -202,7 +202,7 @@ namespace fk {
         FK_HOST_DEVICE_FUSE bool complies() {
             return HasOperation<Type>::value;
         }
-    };
+    };*/
 
     struct NotIsUnaryRestriction {
         template <typename Type>
@@ -298,6 +298,25 @@ namespace fk {
             using IdxType = typename NewOperationTuple<std::decay_t<IOps>...>::Indexes;
             return make_new_operation_tuple_helper(IdxType{}, iOps...);
         }
+    }
+
+    namespace detail {
+        template <size_t... Idx1, size_t... Idx2,
+                  typename... IOps1, typename... IOps2>
+        FK_HOST_DEVICE_CNST decltype(auto) cat_helper(const std::index_sequence<Idx1...>&,
+                                               const std::index_sequence<Idx2...>&,
+                                               const NewOperationTuple<IOps1...>& opTup1,
+                                               const NewOperationTuple<IOps2...>& opTup2) {
+            return make_new_operation_tuple(get<Idx1>(opTup1)..., get<Idx2>(opTup2)...);
+        }
+    } // namespace detail
+
+    template <typename... IOps1, typename... IOps2>
+    FK_HOST_DEVICE_CNST decltype(auto) cat(const NewOperationTuple<IOps1...>& opTup1,
+                                           const NewOperationTuple<IOps2...>& opTup2) {
+        return detail::cat_helper(std::make_index_sequence<NewOperationTuple<IOps1...>::size>{},
+                          std::make_index_sequence<NewOperationTuple<IOps2...>::size>{},
+                          opTup1, opTup2);
     }
 } // namespace fk
 
