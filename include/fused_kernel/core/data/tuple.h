@@ -120,12 +120,12 @@ namespace fk {
 
         // Accessor for the main Tuple
         template <size_t I, typename... Ts>
-        FK_HOST_DEVICE_FUSE auto &get(Tuple<Ts...> &t) {
+        FK_HOST_DEVICE_FUSE auto& get(Tuple<Ts...>& t) {
             return get_leaf_value<I>(t);
         }
 
         template <size_t I, typename... Ts>
-        FK_HOST_DEVICE_FUSE const auto &get(const Tuple<Ts...> &t) {
+        FK_HOST_DEVICE_FUSE const auto& get(const Tuple<Ts...>& t) {
             return get_leaf_value<I>(t);
         }
 

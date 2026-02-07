@@ -441,7 +441,7 @@ struct TestCaseBuilder<Operation, std::enable_if_t<fk::IsUnaryType<Operation>::v
 };
 
 template <typename Operation>
-struct TestCaseBuilder<Operation, std::enable_if_t<fk::IsReadType<Operation>::value || fk::IsReadBackType<Operation>::value, void>> {
+struct TestCaseBuilder<Operation, std::enable_if_t<fk::OpIs<fk::ReadType, Operation>::value || fk::IsReadBackType<Operation>::value, void>> {
     template <fk::ND D, size_t N, typename BuildParams>
     static inline void addTest(std::map<std::string, std::function<bool()>>& testCases,
                                fk::Stream& stream,

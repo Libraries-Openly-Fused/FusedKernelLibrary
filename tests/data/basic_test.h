@@ -101,7 +101,13 @@ int launch() {
     fk::Write<fk::PerThreadWrite<fk::ND::_2D, uint>> write { {output} };
 
     auto fusedDF = fk::fuse(read, cast, fk::Binary<fk::Mul<uint>>{4});
-    constexpr auto params1 = fk::get<0>(fusedDF.params).params;
+    constexpr bool correct = std::is_same_v<std::decay_t<decltype(fusedDF.params)>,
+                       fk::NewOperationTuple_<void, fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar>>,
+                                              fk::Unary<fk::SaturateCast<uchar, uint>>, fk::Binary<fk::Mul<uint>>>>;
+    static_assert(correct, "Unexpected type for fusedDF.params");
+    constexpr bool correct2 =
+        std::is_same_v<std::decay_t<decltype(fk::get_opt<0>(fusedDF.params))>, fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar>>>;
+    static_assert(correct2, "Unexpected type for get<0>(fusedDF.params)");
     static_assert(std::is_same_v<std::decay_t<decltype(params1)>, fk::RawPtr<fk::ND::_2D, uchar>>,
                   "Unexpected type for params");
     //fusedDF.params.next.instance.params; // Should not compile

@@ -268,7 +268,7 @@ namespace fk {
     // As observed in get<>(Tuple<...>), returning a const& as auto,
     // may lead to local memory accesses in the GPU
     template <size_t Idx, typename... Operations>
-    FK_HOST_DEVICE_CNST decltype(auto) get(const NewOperationTuple<Operations...>& opTuple){
+    FK_HOST_DEVICE_CNST decltype(auto) get_opt(const NewOperationTuple<Operations...>& opTuple){
         if constexpr (isUnaryType<TypeAt_t<Idx, TypeList<Operations...>>>) {
             return typename TypeAt_t<Idx, TypeList<Operations...>>::Operation::InstantiableType{};
         } else {
@@ -307,7 +307,7 @@ namespace fk {
                                                const std::index_sequence<Idx2...>&,
                                                const NewOperationTuple<IOps1...>& opTup1,
                                                const NewOperationTuple<IOps2...>& opTup2) {
-            return make_new_operation_tuple(get<Idx1>(opTup1)..., get<Idx2>(opTup2)...);
+            return make_new_operation_tuple(get_opt<Idx1>(opTup1)..., get_opt<Idx2>(opTup2)...);
         }
     } // namespace detail
 

@@ -38,7 +38,7 @@ using TInterpFloat = fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR
 // Write
 using WPerThrFloat = fk::PerThreadWrite<fk::ND::_2D, float>;
 // MidWrite
-using FusedPerThrFloat = fk::FusedOperation<WPerThrFloat, BAddFloat>;
+using FusedPerThrFloat = fk::FusedOperation<fk::MidWrite<WPerThrFloat>, fk::Binary<BAddFloat>>;
 
 // Test combination type lists
 template <typename... Types>
@@ -73,16 +73,16 @@ using NoAnyWrite = ITB<ITB<TLC<TLC<ITB<TL<RPerThrFloat>, RBResize>, Unaries>, Bi
 using AllCompute = ITB<TLC<Unaries, Binaries>, TInterpFloat>;
 
 template <typename TypeList>
-struct IsReadType;
+struct ContainsReadType;
 template <typename... Types>
-struct IsReadType<fk::TypeList<Types...>> {
+struct ContainsReadType<fk::TypeList<Types...>> {
     static constexpr bool value = fk::or_v<fk::isReadType<Types>...>;
 };
 
 template <typename TypeList>
-struct IsReadBackType;
+struct ContainsReadBackType;
 template <typename... Types>
-struct IsReadBackType<fk::TypeList<Types...>> {
+struct ContainsReadBackType<fk::TypeList<Types...>> {
     static constexpr bool value = fk::or_v<fk::isReadBackType<Types>...>;
 };
 
@@ -163,12 +163,12 @@ constexpr bool test_notAllUnaryTypes() {
 
 int launch() {
     // isReadType
-    constexpr bool noneRead = !IsReadType<NoRead>::value;
+    constexpr bool noneRead = !ContainsReadType<NoRead>::value;
     constexpr bool isRead = fk::isReadType<RPerThrFloat>;
     static_assert(noneRead && isRead, "Something wrong with isReadType");
 
     // isReadBackType
-    constexpr bool noneReadBack = !IsReadBackType<NoReadBack>::value;
+    constexpr bool noneReadBack = !ContainsReadBackType<NoReadBack>::value;
     constexpr bool isReadBack = fk::isReadBackType<RBResize>;
     static_assert(noneReadBack && isReadBack, "Something wrong with isReadType");
 

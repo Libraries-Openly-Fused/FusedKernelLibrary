@@ -74,9 +74,9 @@ bool testNewOperationTuple() {
 
     // Some unary
     constexpr auto opTuple1 = make_new_operation_tuple(op1, op2, op3);
-    constexpr auto gotOp1 = get<0>(opTuple1);
-    constexpr auto gotOp2 = get<1>(opTuple1);
-    constexpr auto gotOp3 = get<2>(opTuple1);
+    constexpr auto gotOp1 = get_opt<0>(opTuple1);
+    constexpr auto gotOp2 = get_opt<1>(opTuple1);
+    constexpr auto gotOp3 = get_opt<2>(opTuple1);
 
     static_assert(opTuple1.instances.size == 2, "Wrong Tuple size in OperationTuple");
     static_assert(gotOp1.params == 1u, "Wrong value in op1");
@@ -85,17 +85,17 @@ bool testNewOperationTuple() {
 
     // All unary
     constexpr auto opTuple2 = make_new_operation_tuple(op2, op4);
-    constexpr auto gotT2Op2 = get<0>(opTuple2);
-    constexpr auto gotT2Op4 = get<1>(opTuple2);
+    constexpr auto gotT2Op2 = get_opt<0>(opTuple2);
+    constexpr auto gotT2Op4 = get_opt<1>(opTuple2);
 
     static_assert(isUnaryType<std::decay_t<decltype(gotT2Op2)>>, "Op2 must be Unary");
     static_assert(isUnaryType<std::decay_t<decltype(gotT2Op4)>>, "Op4 must be Unary");
 
     // None unary
     constexpr auto opTuple3 = make_new_operation_tuple(op5, op6, op7);
-    constexpr auto gotT3Op5 = get<0>(opTuple3);
-    constexpr auto gotT3Op6 = get<1>(opTuple3);
-    constexpr auto gotT3Op7 = get<2>(opTuple3);
+    constexpr auto gotT3Op5 = get_opt<0>(opTuple3);
+    constexpr auto gotT3Op6 = get_opt<1>(opTuple3);
+    constexpr auto gotT3Op7 = get_opt<2>(opTuple3);
 
     static_assert(gotT3Op5.params == 0.5f, "Wrong value in op5");
     static_assert(gotT3Op6.params == 0.6f, "Wrong value in op6");
@@ -122,7 +122,7 @@ int launch() {
 
     static_assert(OpTuple2Type::size == 2, "Wrong operation tuple size");
     static_assert(fk::isBinaryType<fk::TypeAt_t<1, typename OpTuple2Type::Operations>>, "Wrong Operation Type");
-    static_assert(fk::get<1>(opTuple2).params == 3, "Wrong value");
+    static_assert(fk::get_opt<1>(opTuple2).params == 3, "Wrong value");
 
     constexpr auto opTuple3 = fk::make_new_operation_tuple(fk::Add<int, int, int, fk::UnaryType>::build(),
     fk::Cast<int, float>::build(), fk::Cast<float, int>::build());

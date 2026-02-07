@@ -272,11 +272,11 @@ DECLARE_READ_PARENT_DEVICE_BASIC
   FK_HOST_FUSE auto build(const ParamsType &params) { return Parent::build(params); }
 
     template <typename I, typename P, typename O, typename ChildImplementation, bool IS_FUSED = false>
-    struct FusedOperationParent {
+    struct OpenOperationParent {
     private:
-        using SelfType = FusedOperationParent<I, P, O, ChildImplementation, IS_FUSED>;
+        using SelfType = OpenOperationParent<I, P, O, ChildImplementation, IS_FUSED>;
     public:
-        FK_STATIC_STRUCT(FusedOperationParent, SelfType)
+        FK_STATIC_STRUCT(OpenOperationParent, SelfType)
         using Child = ChildImplementation;
         using ParamsType = P;
         using InputType = I;

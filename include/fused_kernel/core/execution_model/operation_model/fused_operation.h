@@ -417,14 +417,15 @@ namespace fk {
     struct NewFusedOperation_;
 
     template <typename FirstOp, typename... RemOps>
-    struct NewFusedOperation_<std::enable_if_t<!isAnyReadType<FirstOp>>, FirstOp, RemOps...> {
+    struct NewFusedOperation_<std::enable_if_t<!isAnyReadType<FirstOp> && !isWriteType<LastType_t<FirstOp, RemOps...>>>,
+                              FirstOp, RemOps...> {
     private:
         using SelfType = NewFusedOperation_<std::enable_if_t<!isAnyReadType<FirstOp>>, FirstOp, RemOps...>;
     public:
         FK_STATIC_STRUCT(NewFusedOperation_, SelfType)
-            using Parent =
-            FusedOperationParent<typename FirstOp::InputType, NewOperationTuple<FirstOp, RemOps...>,
-            typename LastType_t<RemOps...>::OutputType, SelfType, true>;
+        using Parent =
+            OpenOperationParent<typename FirstOp::Operation::InputType, NewOperationTuple<FirstOp, RemOps...>,
+            typename LastType_t<RemOps...>::Operation::OutputType, SelfType, true>;
         DECLARE_FUSED_PARENT
 
         FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const InputType& input, const ParamsType& params) {
@@ -436,12 +437,15 @@ namespace fk {
                                                    const Point& thread,
                                                    const InputType& input,
                                                    const ParamsType& params) {
-            return (InputFoldType<InputType>{thread, input} | ... | get<Idx>(params));
+            return (InputFoldType<InputType>{thread, input} | ... | get_opt<Idx>(params));
         }
     };
 
     template <typename FirstOp, typename... RemOps>
-    struct NewFusedOperation_<std::enable_if_t<isAnyReadType<FirstOp>>, FirstOp, RemOps...> {
+    struct NewFusedOperation_<
+        std::enable_if_t<isAnyReadType<FirstOp> &&
+                         !isWriteType<LastType_t<FirstOp, RemOps...>>>,
+        FirstOp, RemOps...> {
     private:
       using SelfType = NewFusedOperation_<std::enable_if_t<isAnyReadType<FirstOp>>, FirstOp, RemOps...>;
       // 1. Resolve the type of the last operation in the sequence.
@@ -469,17 +473,17 @@ namespace fk {
 
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread,
                                              const OperationDataType& opData) {
-            return FirstOp::Operation::num_elems_x(thread, get<0>(opData.params));
+            return FirstOp::Operation::num_elems_x(thread, get_opt<0>(opData.params));
         }
 
         FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread,
                                              const OperationDataType& opData) {
-            return FirstOp::Operation::num_elems_y(thread, get<0>(opData.params));
+            return FirstOp::Operation::num_elems_y(thread, get_opt<0>(opData.params));
         }
 
         FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread,
                                              const OperationDataType& opData) {
-            return FirstOp::Operation::num_elems_z(thread, get<0>(opData.params));
+            return FirstOp::Operation::num_elems_z(thread, get_opt<0>(opData.params));
         }
 
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
@@ -491,7 +495,7 @@ namespace fk {
         FK_HOST_DEVICE_FUSE OutputType exec_helper(const std::index_sequence<Idx...>&,
                                                    const Point& thread,
                                                    const ParamsType& params) {
-            return (thread | ... | get<Idx>(params));
+            return (thread | ... | get_opt<Idx>(params));
         }
     };
 
