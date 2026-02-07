@@ -20,15 +20,61 @@
 #include <fused_kernel/core/utils/type_lists.h>
 
 namespace fk {
-    struct ReadType; // Reads from DRAM and returns the value on registers
-    struct ReadBackType; // Same as ReadType, but part of the read process is implemented by other preceding operations.
-    struct IncompleteReadBackType; // RB without the exec function. Can store parameters and define build methods.
-    struct UnaryType; // Gets an input on registers, processes it and returns the result on registers.
-    struct BinaryType; // Gets an input + additional params, returns on registers
-    struct TernaryType; // Gets an input + additional params + another IOp, returns results on registers
-    struct MidWriteType; // Returns the input value as is, but stores it somewhere in DRAM
-    struct FusedType; // Gets a thread idx, an input and additional params, computes an output and returns it on registers
-    struct WriteType; // Gets a thread idx, an input and additional params, and stores input in DRAM
+    /* Operation types are linked to the exec() function definition in the Operation. 
+    *  The elements that can change accross Operation types are:
+    *   - OutputType: wether the exec function returns a value or not, and which type it is. The value resides on registers.
+    *   - ElementIdx (using the type Point): wether the exec function gets the thread idx as input or not.
+    *     It is used to compute DRAM or Shared Memory addresses to read from or write into.
+    *   - InputType: wether the exec function gets an input value or not. This value resides on registers.
+    *   - ParamsType: wether the exec function gets an any additional data that is not computed inside the kernel
+    *     and that is needed for the execution of the operation.
+    *   - BackIOp: wether the exec function gets an additional IOp as input, that is executed as part of the operation
+    *     implementation.
+    * 
+    *    An example of the exec function with all the types would be:
+    *    OutputType exec(Point, InputType, ParamsType, BackIOp)
+
+         +------------------------+----------+----------+----------+----------+----------+
+         |                        |   Out    |   EIdx   |    In    |   Par    |   BIOp   |
+         +------------------------+----------+----------+----------+----------+----------+
+         | ReadType               |    X     |    X     |          |    X     |          |  OutputType exec(Point, ParamsType)
+         +------------------------+----------+----------+----------+----------+----------+
+         | WriteType              |          |    X     |    X     |    X     |          |  void exec(Point, InputType, ParamsType)
+         +------------------------+----------+----------+----------+----------+----------+
+         | UnaryType              |    X     |          |    X     |          |          |  OutputType exec(InputType)
+         +------------------------+----------+----------+----------+----------+----------+
+         | BinaryType             |    X     |          |    X     |    X     |          |  OutputType exec(InputType, ParamsType)
+         +------------------------+----------+----------+----------+----------+----------+
+         | ReadBackType           |    X     |    X     |          |    X     |    X     |  OutputType exec(Point, ParamsType, BackIOp)
+         +------------------------+----------+----------+----------+----------+----------+
+         | IncompleteReadBackType |          |          |          |          |          |  no exec function present
+         +------------------------+----------+----------+----------+----------+----------+
+         | TernaryType            |    X     |          |    X     |    X     |    X     |  OutputType exec(InputType, ParamsType, BackIOp)
+         +------------------------+----------+----------+----------+----------+----------+
+         | IncompleteTernaryType  |          |          |          |          |          |  no exec function present
+         +------------------------+----------+----------+----------+----------+----------+
+         | MidWriteType *         |    X     |    X     |    X     |    X     |          |  InputType exec(Point, InputType, ParamsType)
+         +------------------------+----------+----------+----------+----------+----------+
+         | OpenType **            |    X     |    X     |    X     |    X     |          |  OutputType exec(Point, InputType, ParamsType)
+         +------------------------+----------+----------+----------+----------+----------+
+         | ClosedType **          |          |    X     |          |    X     |          |  void exec(Point, ParamsType)
+         +------------------------+----------+----------+----------+----------+----------+
+
+         * Aplicable only to Instantiapble Operations. In and Out must be the same type and value. Operation must be of WriteType.
+         ** OpenType and ClosedType are only applicable to FusedOperations. FusedOperations can also be ReadType or WriteType.
+    */
+
+    struct ReadType;
+    struct WriteType;
+    struct UnaryType;
+    struct BinaryType;
+    struct ReadBackType;
+    struct IncompleteReadBackType;
+    struct TernaryType;
+    struct IncompleteTernaryType;
+    struct MidWriteType;
+    struct OpenType;
+    struct ClosedType;
 
     template <typename T, typename = void>
     struct HasInstanceType : std::false_type {};
@@ -85,11 +131,11 @@ namespace fk {
     struct IsMidWriteType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, MidWriteType>, void>> : std::true_type {};
 
     template <typename T, typename = void>
-    struct IsFusedType : std::false_type {};
+    struct IsOpenType : std::false_type {};
     template <typename T>
-    struct IsFusedType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, FusedType>, void>> : std::false_type {};
+    struct IsOpenType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, OpenType>, void>> : std::false_type {};
     template <typename T>
-    struct IsFusedType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, FusedType>, void>> : std::true_type {};
+    struct IsOpenType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, OpenType>, void>> : std::true_type {};
 
     template <typename T, typename = void>
     struct IsWriteType : std::false_type {};
@@ -126,7 +172,7 @@ namespace fk {
     constexpr bool isTernaryType = IsTernaryType<OpORIOp>::value;
 
     template <typename OpORIOp>
-    constexpr bool isFusedType = IsFusedType<OpORIOp>::value;
+    constexpr bool isOpenType = IsOpenType<OpORIOp>::value;
 
     template <typename OpORIOp>
     constexpr bool isWriteType = IsWriteType<OpORIOp>::value;

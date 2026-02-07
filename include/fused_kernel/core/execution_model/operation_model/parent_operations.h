@@ -281,9 +281,9 @@ DECLARE_READ_PARENT_DEVICE_BASIC
         using ParamsType = P;
         using InputType = I;
         using OutputType = O;
-        using InstanceType = FusedType;
+        using InstanceType = OpenType;
         using OperationDataType = OperationData<Child>;
-        using InstantiableType = Fused<Child>;
+        using InstantiableType = Open<Child>;
         static constexpr bool IS_FUSED_OP = IS_FUSED;
 
         FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread,

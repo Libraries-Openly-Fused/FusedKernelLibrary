@@ -224,16 +224,14 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     };
 
     /**
-    * @brief FusedInstantiableOperation: represents a IOp that takes the result of the previous IOp as input
-    * (which will reside on GPU registers) and an OperationTuple.
-    * It computes each of the IOps in the OperationTuple, passing the input to the first one, and returns
-    * the result on registers.
+    * @brief OpenInstantiableOperation: represents a IOp that takes the result of the previous IOp as input
+    * (which will reside on GPU registers) and ParamsType, plus a Point thread.
     */
     template <typename Operation_t>
-    struct FusedInstantiableOperation final : public OperationData<Operation_t> {
-        INSTANTIABLE_OPERATION_DETAILS_IS(FusedType)
-            static_assert(std::is_same_v<typename Operation::InstanceType, FusedType> ||
-                std::is_same_v<typename Operation::InstanceType, FusedType>,
+    struct OpenInstantiableOperation final : public OperationData<Operation_t> {
+        INSTANTIABLE_OPERATION_DETAILS_IS(OpenType)
+            static_assert(std::is_same_v<typename Operation::InstanceType, OpenType> ||
+                std::is_same_v<typename Operation::InstanceType, OpenType>,
                 "Operation is not FusedType");
 
         INSTANTIABLE_OPERATION_THEN
@@ -244,7 +242,7 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
         }
 
         template <typename PreviousIOp, typename Fuser_t = Fuser>
-        FK_HOST_CNST friend auto operator&(PreviousIOp&& prevIOp, const FusedInstantiableOperation<Operation_t>& self) {
+        FK_HOST_CNST friend auto operator&(PreviousIOp&& prevIOp, const OpenInstantiableOperation<Operation_t>& self) {
             return Fuser_t::fuse(std::forward<PreviousIOp>(prevIOp), self);
         }
     };
@@ -288,7 +286,7 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     template <typename Operation>
     using Ternary = TernaryInstantiableOperation<Operation>;
     template <typename Operation>
-    using Fused = FusedInstantiableOperation<Operation>;
+    using Open = OpenInstantiableOperation<Operation>;
     template <typename Operation>
     using MidWrite = MidWriteInstantiableOperation<Operation>;
     template <typename Operation>

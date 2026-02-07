@@ -101,14 +101,18 @@ int launch() {
     fk::Write<fk::PerThreadWrite<fk::ND::_2D, uint>> write { {output} };
 
     auto fusedDF = fk::fuse(read, cast, fk::Binary<fk::Mul<uint>>{4});
-    static_assert(std::is_same_v<decltype(fusedDF.params.instance.params), fk::RawPtr<fk::ND::_2D, uchar>>, "Unexpected type for params");
+    constexpr auto params1 = fk::get<0>(fusedDF.params).params;
+    static_assert(std::is_same_v<std::decay_t<decltype(params1)>, fk::RawPtr<fk::ND::_2D, uchar>>,
+                  "Unexpected type for params");
     //fusedDF.params.next.instance.params; // Should not compile
-    static_assert(std::is_same_v<decltype(fusedDF.params.next.next.instance.params), uint>, "Unexpected type for params");
+    constexpr auto params2 = fk::get<2>(fusedDF.params).params;
+    static_assert(
+        std::is_same_v<std::decay_t<decltype(params2)>, fk::RawPtr<fk::ND::_2D, uint>>, "Unexpected type for params");
 
     fk::executeOperations<fk::TransformDPP<>>(stream, fusedDF, write);
     stream.sync();
 
-    fk::OperationTuple<fk::PerThreadRead<fk::ND::_2D, uchar>, fk::SaturateCast<uchar, uint>, fk::PerThreadWrite<fk::ND::_2D, uint>> myTup{};
+    fk::NewOperationTuple<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar>>, fk::Unary<fk::SaturateCast<uchar, uint>>, fk::Write<fk::PerThreadWrite<fk::ND::_2D, uint>>> myTup{};
 
     fk::get<2>(myTup);
     constexpr bool test1 = std::is_same_v<fk::get_type_t<0, decltype(myTup)>, fk::PerThreadRead<fk::ND::_2D, uchar>>;

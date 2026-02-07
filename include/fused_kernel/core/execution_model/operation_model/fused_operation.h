@@ -443,12 +443,24 @@ namespace fk {
     template <typename FirstOp, typename... RemOps>
     struct NewFusedOperation_<std::enable_if_t<isAnyReadType<FirstOp>>, FirstOp, RemOps...> {
     private:
-        using SelfType = NewFusedOperation_<std::enable_if_t<isAnyReadType<FirstOp>>, FirstOp, RemOps...>;
+      using SelfType = NewFusedOperation_<std::enable_if_t<isAnyReadType<FirstOp>>, FirstOp, RemOps...>;
+      // 1. Resolve the type of the last operation in the sequence.
+      //    We separate this to isolate the 'RemOps...' expansion from the Parent definition.
+      using LastOpResolved = typename LastType_t<std::decay_t<FirstOp>, std::decay_t<RemOps>...>;
+
+      // 2. Extract the output type from that resolved last operation.
+      using FinalOutputType = typename LastOpResolved::Operation::OutputType;
+
+      // 3. Define the tuple of operations separately.
+      using OpTupleType = NewOperationTuple<FirstOp, RemOps...>;
+
+      // 4. Extract the read data type from the first operation.
+      using FirstReadDataType = typename std::decay_t<FirstOp>::Operation::ReadDataType;
+      // 5. Finally, assemble Parent using these pre-calculated, clean types.
+      //    Note: No '...' expansions happen inside this specific statement anymore.
+      using Parent = ReadOperation<FirstReadDataType, OpTupleType, FinalOutputType, TF::DISABLED, SelfType, true>;
     public:
         FK_STATIC_STRUCT(NewFusedOperation_, SelfType)
-            using Parent =
-            ReadOperation<typename FirstOp::Operation::ReadDataType, NewOperationTuple<FirstOp, RemOps...>,
-            typename LastType_t<RemOps...>::Operation::OutputType, TF::DISABLED, SelfType, true>;
         DECLARE_READ_PARENT
 
         FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params) {
@@ -485,14 +497,55 @@ namespace fk {
 
     template <>
     struct NewFusedOperation_<void> {
+      private:
+        template <typename T>
+        struct FuseProxy {
+            T value;
+
+            template <typename IOp1, typename IOp2>
+            FK_HOST_FUSE decltype(auto) fuse(IOp1 &&iOp1, IOp2 &&iOp2) {
+                constexpr bool iOp1Fused = std::decay_t<IOp1>::Operation::IS_FUSED_OP;
+                constexpr bool iOp2Fused = std::decay_t<IOp2>::Operation::IS_FUSED_OP;
+                if constexpr (iOp1Fused && iOp2Fused) {
+                    return NewFusedOperation_<void>::build(
+                        cat(std::forward<IOp1>(iOp1).params, std::forward<IOp2>(iOp2).params));
+                } else if constexpr (iOp1Fused) {
+                    return NewFusedOperation_<void>::build(
+                        cat(std::forward<IOp1>(iOp1).params, make_new_operation_tuple(std::forward<IOp2>(iOp2))));
+                } else if constexpr (iOp2Fused) {
+                    return NewFusedOperation_<void>::build(
+                        cat(make_new_operation_tuple(std::forward<IOp1>(iOp1)), std::forward<IOp2>(iOp2).params));
+                } else {
+                    return NewFusedOperation_<void>::build(make_new_operation_tuple(std::forward<IOp1>(iOp1), std::forward<IOp2>(iOp2)));
+                }
+            }
+
+            // The friend operator is found via ADL even if the struct is private
+            template <typename LeftIOp>
+            FK_HOST_CNST friend auto operator&&(const FuseProxy<LeftIOp>& left, const FuseProxy<T>& right) {
+                // Call your global 'fuse' function
+                auto fused = FuseProxy<T>::fuse(left.value, right.value);
+
+                return FuseProxy<decltype(fused)>{std::move(fused)};
+            }
+        };
+
+        template <typename... IOps>
+        FK_HOST_FUSE decltype(auto) build_helper(const NewOperationTuple_<void, IOps...>& opTup) {
+            return NewFusedOperation_<void, IOps...>::build(opTup);
+        }
+
+
+      public:
         template <typename... IOps>
         FK_HOST_FUSE decltype(auto) build(IOps&&... iOps) {
-            auto opTuple = make_new_operation_tuple(std::forward<IOps>(iOps)...);
-            return NewFusedOperation_<void, std::decay_t<IOps>...>::build(std::move(opTuple));
-        }
-        template <typename... IOps>
-        FK_HOST_FUSE decltype(auto) build(const NewOperationTuple<IOps...>& opTuple) {
-            return NewFusedOperation_<void, IOps...>::build(opTuple);
+            if constexpr (and_v<isOperation<std::decay_t<IOps>>...>) {
+                return (... && FuseProxy<std::decay_t<IOps>>{std::forward<IOps>(iOps)}).value;
+            } else { // Assuming it's a NewOperationTuple
+                static_assert(sizeof...(IOps) == 1,
+                              "If the argument is not an operation, it should be a single OperationTuple");
+                return build_helper(iOps...);
+            }
         }
     };
 

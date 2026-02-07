@@ -98,7 +98,7 @@ struct NoneFusedType;
 
 template <typename... Types>
 struct NoneFusedType<fk::TypeList<Types...>> {
-    static constexpr bool value = !fk::or_v<fk::isFusedType<Types>...>;
+    static constexpr bool value = !fk::or_v<fk::isOpenType<Types>...>;
 };
 
 template <typename TypeList_t>

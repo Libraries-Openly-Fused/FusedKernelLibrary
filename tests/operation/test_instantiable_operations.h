@@ -186,15 +186,15 @@ int launch() {
     static_assert(is_fused_operation<typename ResType::Operation>::value);
     using ResOperationTuple = typename ResType::Operation::ParamsType;
     constexpr bool noIntermediateFusedOperation =
-        and_v<!is_fused_operation<ResOperationTuple::Operation>::value,
-        !is_fused_operation<ResOperationTuple::Next::Operation>::value,
-        !is_fused_operation<ResOperationTuple::Next::Next::Operation>::value,
-        !is_fused_operation<ResOperationTuple::Next::Next::Next::Operation>::value,
-        !is_fused_operation<ResOperationTuple::Next::Next::Next::Next::Operation>::value>;
+        and_v<!is_fused_operation<TypeAt_t<0, typename ResOperationTuple::Operations>>::value,
+              !is_fused_operation<TypeAt_t<1, typename ResOperationTuple::Operations>>::value,
+              !is_fused_operation<TypeAt_t<2, typename ResOperationTuple::Operations>>::value,
+              !is_fused_operation<TypeAt_t<3, typename ResOperationTuple::Operations>>::value,
+              !is_fused_operation<TypeAt_t<4, typename ResOperationTuple::Operations>>::value>;
     static_assert(noIntermediateFusedOperation);
 
     // All Unary
-    constexpr auto func = Instantiable<UFloatInt>{}.then(Instantiable<UIntFloat>{}).then(Instantiable<UFloatInt>{});
+    constexpr auto func = UFloatInt::build().then(UIntFloat::build()).then(UFloatInt::build());
 
     using Operations = decltype(func)::Operation::Operations;
     static_assert(Operations::size == 3);

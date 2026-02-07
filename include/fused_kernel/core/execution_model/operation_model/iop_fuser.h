@@ -22,6 +22,7 @@ namespace fk {
     struct Fuser {
         template <typename SelfType, typename ContinuationIOp>
         FK_HOST_FUSE auto fuse(const SelfType& selfIOp, const ContinuationIOp& cIOp) {
+            static_assert(isOperation<SelfType> && isOperation<ContinuationIOp>, "SelfType and ContinuationIOp should be IOps");
             using Operation = typename SelfType::Operation;
             if constexpr (isBatchOperation<Operation> && isBatchOperation<typename ContinuationIOp::Operation>) {
                 static_assert(Operation::BATCH == ContinuationIOp::Operation::BATCH,
@@ -102,26 +103,11 @@ namespace fk {
                     using BuilderType = typename ContinuationIOp::Operation;
                     return BuilderType::build(selfIOp, cIOp);
                 } else {
-                    return fuseIOps(selfIOp, cIOp);
+                    return FusedOperation<>::build(selfIOp, cIOp);
                 }
             }
         }
         private:
-        template <typename IOp1, typename IOp2>
-        FK_HOST_FUSE decltype(auto) fuseIOps(IOp1&& iOp1, IOp2&& iOp2) {
-            constexpr bool iOp1Fused = std::decay_t<IOp1>::Operation::IS_FUSED_OP;
-            constexpr bool iOp2Fused = std::decay_t<IOp2>::Operation::IS_FUSED_OP;
-            if constexpr (iOp1Fused && iOp2Fused) {
-                return FusedOperation<>::build(cat(std::forward<IOp1>(iOp1).params, std::forward<IOp2>(iOp2).params));
-            } else if constexpr (iOp1Fused) {
-                return FusedOperation<>::build(cat(std::forward<IOp1>(iOp1).params, make_new_operation_tuple(std::forward<IOp2>(iOp2))));
-            } else if constexpr (iOp2Fused) {
-                return FusedOperation<>::build(cat(make_new_operation_tuple(std::forward<IOp1>(iOp1)), std::forward<IOp2>(iOp2).params));
-            } else {
-                return FusedOperation<>::build(std::forward<IOp1>(iOp1), std::forward<IOp2>(iOp2));
-            }
-        }
-
         template <size_t BATCH, typename ThisIOp, typename ForwardIOp>
         FK_HOST_FUSE auto make_fusedArray(const std::array<ThisIOp, BATCH>& thisArray,
                                           const std::array<ForwardIOp, BATCH>& fwdArray) {
@@ -134,10 +120,10 @@ namespace fk {
                 }
                 return resultArray;
             } else {
-                using ResultingType = decltype(fuseIOps(std::declval<ThisIOp>(), std::declval<ForwardIOp>()));
+                using ResultingType = decltype(FusedOperation<>::build(std::declval<ThisIOp>(), std::declval<ForwardIOp>()));
                 std::array<ResultingType, BATCH> resultArray{};
                 for (size_t i = 0; i < BATCH; ++i) {
-                    resultArray[i] = fuseIOps(thisArray[i], fwdArray[i]);
+                    resultArray[i] = FusedOperation<>::build(thisArray[i], fwdArray[i]);
                 }
                 return resultArray;
             }
@@ -168,7 +154,7 @@ namespace fk {
         }
 
         template <typename T, size_t... Is>
-        FK_HOST_FUSE auto get_head(T&& t, const std::index_sequence<Is...>&) {
+        FK_HOST_FUSE decltype(auto) get_head(T&& t, const std::index_sequence<Is...>&) {
             // Forward the specific elements to your function
             return fuse(get<Is>(std::forward<T>(t))...);
         }
@@ -176,14 +162,14 @@ namespace fk {
         // Helper to unpack the Tail (indices split_idx to End)
         // Creates a new tuple starting from Offset
         template <size_t Offset, typename T, size_t... Is>
-        FK_HOST_FUSE auto get_tail(T&& t, const std::index_sequence<Is...>&) {
+        FK_HOST_FUSE decltype(auto) get_tail(T&& t, const std::index_sequence<Is...>&) {
             // Apply Offset to grab the correct elements from the end of the tuple
             return make_tuple(get<Offset + Is>(std::forward<T>(t))...);
         }
 
       public:
         template <typename... IOps>
-        FK_HOST_FUSE auto fuse_back(IOps&&... iOps) {
+        FK_HOST_FUSE decltype(auto) fuse_back(IOps&&... iOps) {
             // 1. Calculate the split point at compile time
             constexpr size_t split_idx = idxFirstNonBack<std::decay_t<IOps>...>();
             if constexpr (split_idx < 2) {

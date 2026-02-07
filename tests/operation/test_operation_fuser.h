@@ -21,9 +21,10 @@ using namespace fk;
 
 using ComplexType =
 Read<FusedOperation<
-    ReadBack<Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR,
-    ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>>,
-    Binary<Mul<float3, float3, float3>>>>;
+    ReadBack<ResizeComplete<AspectRatio::PRESERVE_AR,
+                    Ternary<InterpolateComplete<
+                        InterpolationType::INTER_LINEAR, ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>>>>,
+             Binary<Mul<float3, float3, float3>>>>;
 
 // Operation types
 // Read

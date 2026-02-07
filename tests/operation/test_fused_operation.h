@@ -47,10 +47,10 @@ constexpr bool test_fuseDFResultingTypes() {
     constexpr auto resizeReadWithMul = resizeRead.then(Mul<float>::build(3.f));
 
     constexpr auto resizeReadWithDiv = resizeReadWithMul.then(Div<float>::build(4.3f));
-    static_assert(resizeReadWithDiv.params.next.next.instance.params == 4.3f, "Unexpected value after resizeRead");
+    static_assert(get<2>(resizeReadWithDiv.params).params == 4.3f, "Unexpected value after resizeRead");
 
-    static_assert(std::is_same_v<typename decltype(fused1)::Operation,
-        fk::FusedOperation<fk::PerThreadRead<fk::ND::_2D, float>, fk::Add<float>, fk::Cast<float, int>>>, "Unexpected type after fuseIOps");
+    static_assert(std::is_same_v<typename std::decay_t<decltype(fused1)>::Operation,
+        fk::FusedOperation<fk::Read<fk::PerThreadRead<fk::ND::_2D, float>>, fk::Binary<fk::Add<float>>, fk::Unary<fk::Cast<float, int>>>>, "Unexpected type after fuseIOps");
 
     constexpr bool result1 = fk::is_fused_operation<fk::FusedOperation<fk::PerThreadRead<fk::ND::_2D, float>, fk::Add<float>, fk::Cast<float, int>>>::value;
 
@@ -59,8 +59,9 @@ constexpr bool test_fuseDFResultingTypes() {
     static_assert(result1 && result2, "is_fused_operation does not work properly");
 
     constexpr auto fused2 = fk::fuse(readOp, addOp, writeOp);
-    static_assert(std::is_same_v<typename decltype(fused2)::Operation,
-        fk::FusedOperation<fk::PerThreadRead<fk::ND::_2D, float>, fk::Add<float>, fk::PerThreadWrite<fk::ND::_2D, float>>>, "Unexpected type after fuseIOps");
+    static_assert(std::is_same_v<typename std::decay_t<decltype(fused2)>::Operation,
+        fk::FusedOperation<fk::Read<fk::PerThreadRead<fk::ND::_2D, float>>, fk::Binary<fk::Add<float>>, fk::Write<fk::PerThreadWrite<fk::ND::_2D, float>>>>,
+        "Unexpected type after fuseIOps");
 
     return result1 && result2;
 }
@@ -77,23 +78,20 @@ constexpr bool test_fuseFusedOperations() {
 }
 
 int launch() {
-    constexpr auto opTuple1 = fk::make_operation_tuple_<fk::Add<int, int, int, fk::UnaryType>>();
+    constexpr auto opTuple1 = fk::make_new_operation_tuple(fk::Add<int, int, int, fk::UnaryType>::build());
 
-    using OpTuple1Type = decltype(opTuple1);
+    using OpTuple1Type = std::decay_t<decltype(opTuple1)>;
 
     static_assert(OpTuple1Type::size == 1, "Wrong operation tuple size");
-    static_assert(fk::isUnaryType<typename OpTuple1Type::Operation>, "Wrong Operation Type");
 
-    constexpr auto opTuple2 =
-        fk::make_operation_tuple_<fk::Add<int, int, int, fk::UnaryType>, fk::Add<int>>
-        (fk::OperationData<fk::Add<int>>{3});
+    constexpr auto opTuple2 = fk::make_new_operation_tuple(fk::Add<int, int, int, fk::UnaryType> ::build(), fk::Add<int>::build(3));
 
     using OpTuple2Type = decltype(opTuple2);
 
     constexpr auto df2 = fk::Add<int, int, int, fk::UnaryType>::build().then(fk::Add<int >::build(3));
-    static_assert(df2.params.next.instance.params == 3, "");
+    static_assert(get<1>(df2.params).params == 3, "");
 
-    constexpr auto result1 = decltype(df2)::Operation::exec(fk::Tuple<int, int>{4, 4}, df2);
+    constexpr auto result1 = std::decay_t<decltype(get<0>(df2.params))>::Operation::exec(fk::Tuple<int, int>{4, 4}, df2);
 
     static_assert(result1 == 11, "Wrong result1");
 
