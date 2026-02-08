@@ -198,9 +198,9 @@ int launch() {
 
     using Operations = decltype(func)::Operation::Operations;
     static_assert(Operations::size == 3);
-    static_assert(std::is_same_v<TypeAt_t<0,Operations>, UFloatInt>);
-    static_assert(std::is_same_v<TypeAt_t<1, Operations>, UIntFloat>);
-    static_assert(std::is_same_v<TypeAt_t<2, Operations>, UFloatInt>);
+    static_assert(std::is_same_v<TypeAt_t<0,Operations>, Unary<UFloatInt>>);
+    static_assert(std::is_same_v<TypeAt_t<1, Operations>, Unary<UIntFloat>>);
+    static_assert(std::is_same_v<TypeAt_t<2, Operations>, Unary<UFloatInt>>);
     static_assert(decltype(func)::Operation::exec(5.5f) == 5);
 
     constexpr auto op = BAddInt::build(45);
@@ -216,10 +216,10 @@ int launch() {
     constexpr auto someReadOp =
         PerThreadRead<ND::_2D, uchar3>::build(input).then(Cast<uchar3, float3>::build()).then(Resize<InterpolationType::INTER_LINEAR>::build(dstSize));
     static_assert(isReadBackType<decltype(someReadOp)>, "Unexpected Operation Type for someReadOp");
-    static_assert(std::is_same_v<decltype(someReadOp.backIOp.backIOp.params), OperationTuple<PerThreadRead<ND::_2D, uchar3>, Cast<uchar3, float3>>>, "Unexpected type for params");
+    static_assert(std::is_same_v<decltype(someReadOp.backIOp.backIOp.params), NewOperationTuple<Read<PerThreadRead<ND::_2D, uchar3>>, Unary<Cast<uchar3, float3>>>>, "Unexpected type for params");
 
     constexpr bool correct =
-        std::is_same_v<OperationTuple<PerThreadRead<ND::_2D, uchar3>, Cast<uchar3, float3>>, decltype(someReadOp.backIOp.backIOp.params)>;
+        std::is_same_v<NewOperationTuple<Read<PerThreadRead<ND::_2D, uchar3>>, Unary<Cast<uchar3, float3>>>, decltype(someReadOp.backIOp.backIOp.params)>;
     static_assert(correct, "Unexpected resulting type");
 
     constexpr auto finalOp = someReadOp.then(Mul<float3>::build(make_<float3>(3.f, 1.f, 32.f)));

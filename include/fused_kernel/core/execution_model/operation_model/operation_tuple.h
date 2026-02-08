@@ -231,7 +231,10 @@ namespace fk {
         using Indexes = filtered_index_sequence_t<NotIsUnaryRestriction, Operations>;
         using InstancesType = FilteredOperations<Operations_...>;
         static constexpr size_t size{sizeof...(Operations_)};
-        InstancesType instances;
+        InstancesType instances{};
+        FK_HOST_DEVICE_CNST NewOperationTuple_() {}
+        FK_HOST_DEVICE_CNST NewOperationTuple_(const InstancesType &instances) : instances(instances) {}
+
     };
 
     template <typename... Operations_>
@@ -239,6 +242,7 @@ namespace fk {
         using Operations = TypeList<std::decay_t<Operations_>...>;
         using Indexes = filtered_index_sequence_t<NotIsUnaryRestriction, Operations>;
         static constexpr size_t size{ sizeof...(Operations_) };
+        FK_HOST_DEVICE_CNST NewOperationTuple_() {}
     };
 
     template <typename... Operations>

@@ -155,7 +155,7 @@ namespace fk { // namespace FusedKernel
                     } else if (iamlastActiveThread) {
                         const int initialX = thread.x * TFI::elems_per_thread;
                         using ReadOp = typename FirstType_t<IOps...>::Operation;
-                        const int finalX = ReadOp::num_elems_x(thread, get<0>(iOps...));
+                        const int finalX = ReadOp::num_elems_x(thread, get_arg<0>(iOps...));
                         int currentX = initialX;
                         while (currentX < finalX) {
                             const Point currentThread{ currentX , thread.y, thread.z };
@@ -257,7 +257,7 @@ namespace fk { // namespace FusedKernel
 #endif
             const Point thread{ x, y, z };
 
-            const ActiveThreads activeThreads = getActiveThreads(details, get<0>(iOps...));
+            const ActiveThreads activeThreads = getActiveThreads(details, get_arg<0>(iOps...));
 
             if (x < activeThreads.x && y < activeThreads.y) {
                 Parent::execute_thread(thread, activeThreads, iOps...);
@@ -282,7 +282,7 @@ namespace fk { // namespace FusedKernel
         template <typename... IOps>
         FK_HOST_FUSE void exec(const Details& details, const IOps&... iOps) {
             using TFI = typename Details::TFI;
-            const ActiveThreads activeThreads = getActiveThreads(details, get<0>(iOps...));
+            const ActiveThreads activeThreads = getActiveThreads(details, get_arg<0>(iOps...));
 
             for (int z = 0; z < activeThreads.z; ++z) {
                 for (int y = 0; y < activeThreads.y; ++y) {

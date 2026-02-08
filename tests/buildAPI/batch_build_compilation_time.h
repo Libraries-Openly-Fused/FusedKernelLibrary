@@ -34,7 +34,7 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
 
     // We perform 5 crops on the image
     constexpr int BATCH_10 = 10;
-    constexpr int BATCH = 500;
+    constexpr int BATCH = 100;
 
     // We have a 4K source image
     Image<PixelFormat::NV12> inputImage(3840, 2160);

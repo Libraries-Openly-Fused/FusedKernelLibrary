@@ -106,7 +106,7 @@ int launch() {
 
     constexpr auto df3 = fk::Add<int, int, int, fk::UnaryType>::build().then(fk::Cast<int, float>::build()).then(fk::Cast<float, int>::build());
 
-    constexpr auto result3 = TypeAt_t<0, typename decltype(df3)::Operation::ParamsType::Operations>::Operation::exec(fk::Tuple<int, int>{5,20});
+    constexpr auto result3 = TypeAt_t<0, typename decltype(df3)::Operation::Operations>::Operation::exec(fk::Tuple<int, int>{5,20});
     static_assert(result3 == 25, "Wrong result3");
 
     static_assert(OpTuple3Type::size == 3, "Wrong operation tuple size");

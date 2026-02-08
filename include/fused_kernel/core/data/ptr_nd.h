@@ -139,10 +139,10 @@ namespace fk {
         static constexpr ND nd = D;
     protected:
         RefPtr* ref{ nullptr };
-        RawPtr<D, T> ptr_a;
-        RawPtr<D, T> ptr_pinned;
-        MemType type;
-        int deviceID;
+        RawPtr<D, T> ptr_a{};
+        RawPtr<D, T> ptr_pinned{};
+        MemType type{defaultMemType};
+        int deviceID{0};
 
         inline constexpr Ptr(const RawPtr<D, T>& ptr_a_, RefPtr* ref_, const MemType& type_, const int& devID) :
             ref(ref_), ptr_a(ptr_a_), ptr_pinned(ptr_a_), type(type_), deviceID(devID) {

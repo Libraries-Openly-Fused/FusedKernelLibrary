@@ -40,12 +40,11 @@ struct SimpleTransformDPPBaseValue {
 
         const auto& writeDF = ppLast(iOps...);
 
-        const auto tempI = ReadIOp::Operation::exec(thread, readDF);
         if constexpr (sizeof...(iOps) > 1) {
-            const auto tempO = ((thread | tempI) | ... | iOps);
+            const auto tempO = ((thread | readDF) | ... | iOps).input;
             WriteOperation::exec(thread, tempO, writeDF);
         } else {
-            WriteOperation::exec(thread, tempI, writeDF);
+            WriteOperation::exec(thread, ReadIOp::Operation::exec(thread, readDF), writeDF);
         }
     }
 
@@ -64,12 +63,11 @@ struct SimpleTransformDPPBaseReference {
 
         const auto& writeDF = ppLast(iOps...);
 
-        const auto tempI = ReadIOp::Operation::exec(thread, readDF);
         if constexpr (sizeof...(iOps) > 1) {
-            const auto tempO = ((thread | tempI) | ... | iOps);
+            const auto tempO = ((thread | readDF) | ... | iOps).input;
             WriteOperation::exec(thread, tempO, writeDF);
         } else {
-            WriteOperation::exec(thread, tempI, writeDF);
+            WriteOperation::exec(thread, ReadIOp::Operation::exec(thread, readDF), writeDF);
         }
     }
 
@@ -121,7 +119,7 @@ struct SimpleTransformDPPValue<ParArch::GPU_NVIDIA> {
 
         const Point thread{x, y, z};
 
-        const ActiveThreads activeThreads = getActiveThreads(get<0>(iOps...));
+        const ActiveThreads activeThreads = getActiveThreads(get_arg<0>(iOps...));
 
         if (x < activeThreads.x && y < activeThreads.y) {
             Parent::execute_thread(thread, iOps...);
@@ -153,7 +151,7 @@ struct SimpleTransformDPPReference<ParArch::GPU_NVIDIA> {
 
         const Point thread{x, y, z};
 
-        const ActiveThreads activeThreads = getActiveThreads(get<0>(iOps...));
+        const ActiveThreads activeThreads = getActiveThreads(get_arg<0>(iOps...));
 
         if (x < activeThreads.x && y < activeThreads.y) {
             Parent::execute_thread(thread, iOps...);
@@ -180,7 +178,7 @@ struct SimpleTransformDPPReferenceFoldExpr<ParArch::GPU_NVIDIA> {
 
         const Point thread{x, y, z};
 
-        const ActiveThreads activeThreads = getActiveThreads(get<0>(iOps...));
+        const ActiveThreads activeThreads = getActiveThreads(get_arg<0>(iOps...));
 
         if (x < activeThreads.x && y < activeThreads.y) {
             Parent::execute_thread(thread, iOps...);
@@ -354,7 +352,7 @@ struct Executor<SimpleTransformDPPValue<ParArch::GPU_NVIDIA>> {
     FK_HOST_FUSE void executeOperations_helper(Stream_<ParArch::GPU_NVIDIA> &stream_, const IOps &...iOps) {
         const cudaStream_t stream = stream_.getCUDAStream();
         
-        const auto readOp = get<0>(iOps...);
+        const auto readOp = get_arg<0>(iOps...);
 
         const ActiveThreads activeThreads = readOp.getActiveThreads();
 
@@ -383,7 +381,7 @@ struct Executor<SimpleTransformDPPValueLessCallDepth<ParArch::GPU_NVIDIA>> {
     FK_HOST_FUSE void executeOperations_helper(Stream_<ParArch::GPU_NVIDIA> &stream_, const IOps &...iOps) {
         const cudaStream_t stream = stream_.getCUDAStream();
 
-        const auto& readOp = get<0>(iOps...);
+        const auto& readOp = get_arg<0>(iOps...);
 
         const ActiveThreads activeThreads = readOp.getActiveThreads();
 
@@ -411,7 +409,7 @@ struct Executor<SimpleTransformDPPReference<ParArch::GPU_NVIDIA>> {
     FK_HOST_FUSE void executeOperations_helper(Stream_<ParArch::GPU_NVIDIA> &stream_, const IOps &...iOps) {
         const cudaStream_t stream = stream_.getCUDAStream();
 
-        const auto readOp = get<0>(iOps...);
+        const auto readOp = get_arg<0>(iOps...);
 
         const ActiveThreads activeThreads = readOp.getActiveThreads();
 
@@ -439,7 +437,7 @@ struct Executor<SimpleTransformDPPReferenceFoldExpr<ParArch::GPU_NVIDIA>> {
     FK_HOST_FUSE void executeOperations_helper(Stream_<ParArch::GPU_NVIDIA> &stream_, const IOps &...iOps) {
         const cudaStream_t stream = stream_.getCUDAStream();
 
-        const auto readOp = get<0>(iOps...);
+        const auto readOp = get_arg<0>(iOps...);
 
         const ActiveThreads activeThreads = readOp.getActiveThreads();
 
@@ -462,10 +460,10 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     Stream stream;
 
     // We set all outputs to the same size
-    const Size outputSize(60, 60);
+    const Size outputSize(128, 128);
 
     // We perform 5 crops on the image
-    constexpr int BATCH = 10;
+    constexpr int BATCH = 200;
 
     // We have a 4K source image
     Ptr2D<uchar3> inputImage(3840, 2160);
@@ -475,10 +473,14 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     Tensor<float3> output(outputSize.width, outputSize.height, BATCH);
 
     // Crops can be of different sizes
-    std::array<Rect, BATCH> crops{Rect(0, 0, 34, 25),      Rect(40, 40, 70, 15),     Rect(100, 200, 60, 59),
+    std::array<Rect, 10> crops10{Rect(0, 0, 34, 25),      Rect(40, 40, 70, 15),     Rect(100, 200, 60, 59),
                                   Rect(300, 1000, 20, 23), Rect(3000, 2000, 12, 11), Rect(0, 0, 34, 25),
                                   Rect(40, 40, 70, 15),    Rect(100, 200, 60, 59),   Rect(300, 1000, 20, 23),
                                   Rect(3000, 2000, 12, 11)};
+    std::array<Rect, BATCH> crops{};
+    for (int i = 0; i < BATCH; ++i) {
+        crops[i] = crops10[i % 10];
+    }
 
     // initImageValues(inputImage);
     const float3 backgroundColor{0.f, 0.f, 0.f};

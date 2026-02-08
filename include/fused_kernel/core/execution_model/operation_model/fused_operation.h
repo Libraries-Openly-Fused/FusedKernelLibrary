@@ -417,17 +417,16 @@ namespace fk {
     struct NewFusedOperation_;
 
     template <typename FirstOp, typename... RemOps>
-    struct NewFusedOperation_<std::enable_if_t<!isAnyReadType<FirstOp> && !isWriteType<LastType_t<FirstOp, RemOps...>>>,
+    struct NewFusedOperation_<std::enable_if_t<!isAnyReadType<FirstOp> && !isWriteType<LastType_t<FirstOp, RemOps...>> && !allUnaryTypes<FirstOp, RemOps...>>,
                               FirstOp, RemOps...> {
     private:
         using SelfType = NewFusedOperation_<std::enable_if_t<!isAnyReadType<FirstOp>>, FirstOp, RemOps...>;
+        using Parent = OpenOperationParent<typename FirstOp::Operation::InputType, NewOperationTuple<FirstOp, RemOps...>,
+                                         typename LastType_t<RemOps...>::Operation::OutputType, SelfType, true>;
     public:
         FK_STATIC_STRUCT(NewFusedOperation_, SelfType)
-        using Parent =
-            OpenOperationParent<typename FirstOp::Operation::InputType, NewOperationTuple<FirstOp, RemOps...>,
-            typename LastType_t<RemOps...>::Operation::OutputType, SelfType, true>;
-        DECLARE_FUSED_PARENT
-
+        DECLARE_OPEN_PARENT
+        using Operations = TypeList<FirstOp, RemOps...>;
         FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const InputType& input, const ParamsType& params) {
             return exec_helper(std::make_index_sequence<ParamsType::size>{}, thread, input, params);
         }
@@ -437,7 +436,7 @@ namespace fk {
                                                    const Point& thread,
                                                    const InputType& input,
                                                    const ParamsType& params) {
-            return (InputFoldType<InputType>{thread, input} | ... | get_opt<Idx>(params));
+            return (InputFoldType<InputType>{thread, input} | ... | get_opt<Idx>(params)).input;
         }
     };
 
@@ -466,7 +465,7 @@ namespace fk {
     public:
         FK_STATIC_STRUCT(NewFusedOperation_, SelfType)
         DECLARE_READ_PARENT
-
+        using Operations = TypeList<FirstOp, RemOps...>;
         FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params) {
             return exec_helper(std::make_index_sequence<ParamsType::size>{}, thread, params);
         }
@@ -495,7 +494,53 @@ namespace fk {
         FK_HOST_DEVICE_FUSE OutputType exec_helper(const std::index_sequence<Idx...>&,
                                                    const Point& thread,
                                                    const ParamsType& params) {
-            return (thread | ... | get_opt<Idx>(params));
+            return (thread | ... | get_opt<Idx>(params)).input;
+        }
+    };
+
+    template <typename... IOps>
+    struct NewFusedOperation_<std::enable_if_t<allUnaryTypes<IOps...>>, IOps...> {
+      private:
+        using SelfType = NewFusedOperation_<std::enable_if_t<allUnaryTypes<IOps...>>, IOps...>;
+        using Parent = UnaryOperation<typename FirstType_t<IOps...>::Operation::InputType,
+                                     typename LastType_t<IOps...>::Operation::OutputType, SelfType, true>;
+      public:
+        FK_STATIC_STRUCT(NewFusedOperation_, SelfType)
+        DECLARE_UNARY_PARENT
+        using Operations = TypeList<IOps...>;
+        FK_HOST_DEVICE_FUSE OutputType exec(InputType &&input) {
+            return exec_helper(std::make_index_sequence<NewOperationTuple<IOps...>::size>{}, std::forward<InputType>(input));
+        }
+
+      private:
+        template <size_t... Idx>
+        FK_HOST_DEVICE_FUSE OutputType exec_helper(const std::index_sequence<Idx...> &, InputType &&input) {
+            constexpr NewOperationTuple<IOps...> poTup{};
+            return (input | ... | get_opt<Idx>(poTup));
+        }
+    };
+
+    template <typename... IOps>
+    struct NewFusedOperation_<std::enable_if_t<isReadType<FirstType_t<IOps...>> && isWriteType<LastType_t<IOps...>>>,
+                          IOps...> {
+      private:
+        using SelfType =
+            NewFusedOperation_<std::enable_if_t<isReadType<FirstType_t<IOps...>> && isWriteType<LastType_t<IOps...>>>, IOps...>;
+        using Parent = ClosedOperation<NewOperationTuple<IOps...>, SelfType, true>;
+
+      public:
+        FK_STATIC_STRUCT(NewFusedOperation_, SelfType)
+        DECLARE_CLOSED_PARENT
+        using Operations = TypeList<IOps...>;
+        FK_HOST_DEVICE_FUSE void exec(const Point &thread, const ParamsType &params) {
+            exec_helper(std::make_index_sequence<ParamsType::size>{}, thread, params);
+        }
+
+      private:
+        template <size_t... Idx>
+        FK_HOST_DEVICE_FUSE void exec_helper(const std::index_sequence<Idx...> &, const Point &thread,
+                                              const ParamsType &params) {
+            (thread | ... | get_opt<Idx>(params));
         }
     };
 
@@ -506,19 +551,23 @@ namespace fk {
         struct FuseProxy {
             T value;
 
+            template <typename U>
+            FK_HOST_CNST FuseProxy(U &&u) : value(std::forward<U>(u)) {}
+
             template <typename IOp1, typename IOp2>
             FK_HOST_FUSE decltype(auto) fuse(IOp1 &&iOp1, IOp2 &&iOp2) {
                 constexpr bool iOp1Fused = std::decay_t<IOp1>::Operation::IS_FUSED_OP;
                 constexpr bool iOp2Fused = std::decay_t<IOp2>::Operation::IS_FUSED_OP;
+                // Missing taking into account the unary case of FusedOperation
                 if constexpr (iOp1Fused && iOp2Fused) {
                     return NewFusedOperation_<void>::build(
-                        cat(std::forward<IOp1>(iOp1).params, std::forward<IOp2>(iOp2).params));
+                        cat(get_params(std::forward<IOp1>(iOp1)), get_params(std::forward<IOp2>(iOp2))));
                 } else if constexpr (iOp1Fused) {
                     return NewFusedOperation_<void>::build(
-                        cat(std::forward<IOp1>(iOp1).params, make_new_operation_tuple(std::forward<IOp2>(iOp2))));
+                        cat(get_params(std::forward<IOp1>(iOp1)), make_new_operation_tuple(std::forward<IOp2>(iOp2))));
                 } else if constexpr (iOp2Fused) {
                     return NewFusedOperation_<void>::build(
-                        cat(make_new_operation_tuple(std::forward<IOp1>(iOp1)), std::forward<IOp2>(iOp2).params));
+                        cat(make_new_operation_tuple(std::forward<IOp1>(iOp1)), get_params(std::forward<IOp2>(iOp2))));
                 } else {
                     return NewFusedOperation_<void>::build(make_new_operation_tuple(std::forward<IOp1>(iOp1), std::forward<IOp2>(iOp2)));
                 }
@@ -526,17 +575,34 @@ namespace fk {
 
             // The friend operator is found via ADL even if the struct is private
             template <typename LeftIOp>
-            FK_HOST_CNST friend auto operator&&(const FuseProxy<LeftIOp>& left, const FuseProxy<T>& right) {
+            FK_HOST_CNST friend decltype(auto) operator&&(const FuseProxy<LeftIOp>& left, const FuseProxy<T>& right) {
                 // Call your global 'fuse' function
-                auto fused = FuseProxy<T>::fuse(left.value, right.value);
+                using ReturnType = decltype(FuseProxy<T>::fuse(std::declval<decltype(left.value)>(), std::declval<decltype(right.value)>()));
+                return FuseProxy<ReturnType>{FuseProxy<T>::fuse(left.value, right.value)};
+            }
 
-                return FuseProxy<decltype(fused)>{std::move(fused)};
+            private:
+            template <typename... IOps>
+            FK_HOST_FUSE decltype(auto) get_unary_params(const Unary<NewFusedOperation_<void, IOps...>>&) {
+                return NewOperationTuple<IOps...>{};
+            }
+            template <typename IOp>
+            FK_HOST_FUSE decltype(auto) get_params(IOp&& iOp) {
+                if constexpr (isUnaryType<std::decay_t<IOp>>) {
+                    return get_unary_params(std::forward<IOp>(iOp));
+                } else {
+                    return std::forward<IOp>(iOp).params;
+                }
             }
         };
 
         template <typename... IOps>
         FK_HOST_FUSE decltype(auto) build_helper(const NewOperationTuple_<void, IOps...>& opTup) {
-            return NewFusedOperation_<void, IOps...>::build(opTup);
+            if constexpr (allUnaryTypes<IOps...>) {
+                return Unary<NewFusedOperation_<void, IOps...>>{};
+            } else {
+                return NewFusedOperation_<void, IOps...>::build(opTup);
+            }
         }
 
 

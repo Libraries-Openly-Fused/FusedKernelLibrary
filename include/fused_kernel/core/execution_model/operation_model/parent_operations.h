@@ -295,7 +295,7 @@ DECLARE_READ_PARENT_DEVICE_BASIC
         FK_HOST_FUSE auto build(const ParamsType& params) { return InstantiableType{ {params} }; }
     };
 
-#define DECLARE_FUSED_PARENT                                                                             \
+#define DECLARE_OPEN_PARENT                                                                             \
   using ParamsType = typename Parent::ParamsType;                                                        \
   using InputType = typename Parent::InputType;                                                          \
   using OutputType = typename Parent::OutputType;                                                        \
@@ -310,6 +310,39 @@ DECLARE_READ_PARENT_DEVICE_BASIC
   }                                                                                                      \
   FK_HOST_FUSE auto build(const OperationDataType &opData) { return Parent::build(opData); }             \
   FK_HOST_FUSE auto build(const ParamsType &params) { return Parent::build(params); }
+
+template <typename P, typename ChildImplementation, bool IS_FUSED = false>
+struct ClosedOperation {
+    private:
+    using SelfType = ClosedOperation<P, ChildImplementation, IS_FUSED>;
+
+    public:
+    FK_STATIC_STRUCT(ClosedOperation, SelfType)
+    using Child = ChildImplementation;
+    using ParamsType = P;
+    using InstanceType = ClosedType;
+    using OperationDataType = OperationData<Child>;
+    using InstantiableType = Closed<Child>;
+    static constexpr bool IS_FUSED_OP = IS_FUSED;
+
+    FK_HOST_DEVICE_FUSE void exec(const Point &thread, const OperationDataType &opData) {
+        Child::exec(thread, opData.params);
+    }
+    FK_HOST_FUSE auto build(const OperationDataType &opData) { return InstantiableType{opData}; }
+    FK_HOST_FUSE auto build(const ParamsType &params) { return InstantiableType{{params}}; }
+};
+
+#define DECLARE_CLOSED_PARENT                                                                                          \
+        using ParamsType = typename Parent::ParamsType;                                                                \
+        using InstanceType = typename Parent::InstanceType;                                                            \
+        using OperationDataType = typename Parent::OperationDataType;                                                  \
+        using InstantiableType = typename Parent::InstantiableType;                                                    \
+        static constexpr bool IS_FUSED_OP = Parent::IS_FUSED_OP;                                                       \
+        FK_HOST_DEVICE_FUSE void exec(const Point &thread, const OperationDataType &opData) {                          \
+            Parent::exec(thread, opData);                                                                              \
+        }                                                                                                              \
+        FK_HOST_FUSE auto build(const OperationDataType &opData) { return Parent::build(opData); }                     \
+        FK_HOST_FUSE auto build(const ParamsType &params) { return Parent::build(params); }
 
     template <typename RT, typename P, typename B, typename O, typename ChildImplementation>
     struct ReadBackOperation {

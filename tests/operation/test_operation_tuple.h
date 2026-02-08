@@ -42,7 +42,7 @@ bool test_OTInitialization() {
     const auto ot1 = fk::make_new_operation_tuple(read);
     constexpr auto ot2 = fk::make_new_operation_tuple(cast);
 
-    const auto test4 = fk::make_new_operation_tuple(fk::get<0>(ot1));
+    const auto test4 = fk::make_new_operation_tuple(fk::get_opt<0>(ot1));
 
     constexpr auto filtered1 =
         fk::filtered_integer_sequence_t<int, fk::NotIsUnaryRestriction, fk::TypeList<typename IOp::InstanceType>>{};

@@ -284,7 +284,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                     gpuErrchk(cudaGetLastError());
                 }
             } else {
-                const auto readOp = get<0>(iOps...);
+                const auto readOp = get_arg<0>(iOps...);
 
                 const ActiveThreads activeThreads = readOp.getActiveThreads();
 
