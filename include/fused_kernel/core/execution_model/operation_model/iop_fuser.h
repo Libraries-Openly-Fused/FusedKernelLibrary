@@ -43,7 +43,6 @@ namespace fk {
                     static_assert((Operation::PP == PlanePolicy::CONDITIONAL_WITH_DEFAULT && ContinuationIOp::Operation::PP == PlanePolicy::PROCESS_ALL), "We should not be here");
                     using BackType = std::decay_t<decltype(backOpArray)>;
                     using ForType = std::decay_t<decltype(forwardOpArray)>;
-                    constexpr size_t BATCH = static_cast<size_t>(ContinuationIOp::Operation::BATCH);
                     using FusedType = typename decltype(make_fusedArray(std::declval<BackType>(), std::declval<ForType>()))::value_type;
                     using DefaultValueType = typename FusedType::Operation::OutputType;
                     if constexpr (std::is_same_v<typename Operation::OutputType, DefaultValueType>) {
