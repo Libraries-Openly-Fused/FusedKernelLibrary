@@ -36,7 +36,7 @@ jobs:
         else
             export CUDACXX="${cpp_compiler[1]}"
         fi
-        cmake -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_CXX_COMPILER="${cpp_compiler[0]}"  -DENABLE_BENCHMARK=ON -DCMAKE_CUDA_COMPILER=${CUDACXX} -DCUDAToolkit_ROOT="/usr/local/cuda-${cpp_compiler[2]}" -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}       
+        cmake -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_CXX_COMPILER="${cpp_compiler[0]}" -DCMAKE_CUDA_COMPILER=${CUDACXX} -DCUDAToolkit_ROOT="/usr/local/cuda-${cpp_compiler[2]}" -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}       
  
     - name: Build
       # Build your program with the given configuration. Note that --config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).      
