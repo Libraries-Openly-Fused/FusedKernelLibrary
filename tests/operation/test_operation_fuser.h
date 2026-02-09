@@ -58,6 +58,5 @@ constexpr bool test_InstantiableFusedOperationToOperationTuple() {
 }
 
 int launch() {
-    constexpr ComplexType complexVar{};
     return test_InstantiableFusedOperationToOperationTuple() ? 0 : -1;
 }
