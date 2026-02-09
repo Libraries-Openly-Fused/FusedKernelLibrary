@@ -83,13 +83,13 @@ namespace fk {
     using FloatingTypes = TypeList<float, double>;
     using IntegralTypes = TypeList<uchar, char, schar, ushort, short, uint, int, ulong, long, ulonglong, longlong>;
     using IntegralBaseTypes = TypeList<uchar, schar, ushort, short, uint, int, ulong, long, ulonglong, longlong>;
-    using StandardTypes = TypeListCat_t<TypeListCat_t<TypeList<bool>, IntegralTypes>, FloatingTypes>;
-    using BaseTypes = TypeListCat_t<TypeListCat_t<TypeList<bool>, IntegralBaseTypes>, FloatingTypes>;
+    using StandardTypes = TypeListCat_t<TypeList<bool>, IntegralTypes, FloatingTypes>;
+    using BaseTypes = TypeListCat_t<TypeList<bool>, IntegralBaseTypes, FloatingTypes>;
     using VOne = TypeList<bool1, uchar1, char1, ushort1, short1, uint1, int1, ulong1, long1, ulonglong1, longlong1, float1, double1>;
     using VTwo = VectorTypeList<2>;
     using VThree = VectorTypeList<3>;
     using VFour = VectorTypeList<4>;
-    using VAll = typename TypeList<VOne, VTwo, VThree, VFour>::type;
+    using VAll = TypeListCat_t<VOne, VTwo, VThree, VFour>;
 
     template <typename T>
     constexpr bool validCUDAVec = one_of<T, VAll>::value;
@@ -107,6 +107,8 @@ namespace fk {
             return 3;
         } else if constexpr (one_of_v<T, VFour>) {
             return 4;
+        } else {
+            return 0; // This should never happen due to the static_assert in validCUDAVec, but we need it to compile
         }
     }
 
@@ -299,25 +301,26 @@ namespace fk {
     struct BothIntegrals : public std::false_type {};
 
     template <typename I1, typename I2>
-    struct BothIntegrals<I1, I2, std::enable_if_t<std::is_integral_v<fk::VBase<I1>>&& std::is_integral_v<fk::VBase<I2>>, void>> : public std::true_type {};
+    struct BothIntegrals<I1, I2, std::enable_if_t<std::is_integral_v<fk::VBase<I1>> && std::is_integral_v<fk::VBase<I2>>, void>> : public std::true_type {};
 
     template <typename I1, typename I2, typename = void>
     struct AreVVEqCN : public std::false_type {};
 
     template <typename I1, typename I2>
-    struct AreVVEqCN<I1, I2, std::enable_if_t<fk::validCUDAVec<I1>&& fk::validCUDAVec<I2> && (fk::cn<I1> == fk::cn<I2>), void>> : public std::true_type {};
+        struct AreVVEqCN<I1, I2, std::enable_if_t<fk::validCUDAVec<I1> && fk::validCUDAVec<I2>>>
+        : public std::bool_constant<(fk::cn<I1> == fk::cn<I2>)> {};
 
     template <typename I1, typename I2, typename = void>
     struct AreSV : public std::false_type {};
 
     template <typename I1, typename I2>
-    struct AreSV<I1, I2, std::enable_if_t<std::is_fundamental_v<I1>&& fk::validCUDAVec<I2>, void>> : public std::true_type {};
+    struct AreSV<I1, I2, std::enable_if_t<std::is_fundamental_v<I1> && fk::validCUDAVec<I2>, void>> : public std::true_type {};
 
     template <typename I1, typename I2, typename = void>
     struct AreVS : public std::false_type {};
 
     template <typename I1, typename I2>
-    struct AreVS<I1, I2, std::enable_if_t<fk::validCUDAVec<I1>&& std::is_fundamental_v<I2>, void>> : public std::true_type {};
+    struct AreVS<I1, I2, std::enable_if_t<fk::validCUDAVec<I1> && std::is_fundamental_v<I2>, void>> : public std::true_type {};
 
     template <typename I1, typename I2, typename = void>
     struct AreSS : public std::false_type {};

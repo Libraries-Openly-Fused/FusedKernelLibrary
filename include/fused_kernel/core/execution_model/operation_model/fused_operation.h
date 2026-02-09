@@ -19,6 +19,16 @@
 #include <fused_kernel/core/execution_model/operation_model/operation_tuple.h>
 
 namespace fk {
+ /*
+ * FusedOperation can be of the follwing types:
+ * - ReadType: if the first Op is ReadType and the last one is not WriteType.
+ * - WriteType: if the last Op is WriteType and the first one is not ReadType nor ReadBackType.
+ * - UnaryType: if all Ops are UnaryType.
+ * - BinaryType: if there is no ReadType, ReadBackType, WriteType nor MidWriteType, and not all Ops are UnaryType.
+ * - OpenType: if there is at least one MidWriteType, and no ReadType, ReadBackType nor WriteType.
+ * - ClosedType: if the first Op is ReadType or ReadBackType and the last Op is WriteType.
+ */
+
     // FusedOperation
     template <typename Enabler, typename... Operations>
     struct FusedOperation_;
@@ -51,24 +61,14 @@ namespace fk {
     struct FusedOperation_<
         std::enable_if_t<isAnyReadType<FirstOp> &&
                          !isWriteType<LastType_t<FirstOp, RemOps...>>>,
-        FirstOp, RemOps...> {
+                         FirstOp, RemOps...> {
     private:
       using SelfType = FusedOperation_<std::enable_if_t<isAnyReadType<FirstOp>>, FirstOp, RemOps...>;
-      // 1. Resolve the type of the last operation in the sequence.
-      //    We separate this to isolate the 'RemOps...' expansion from the Parent definition.
-      using LastOpResolved = typename LastType_t<std::decay_t<FirstOp>, std::decay_t<RemOps>...>;
+      using FusedReadDataType = typename std::decay_t<FirstOp>::Operation::ReadDataType;
+      using FusedOutputType =
+          typename LastType_t<std::decay_t<FirstOp>, std::decay_t<RemOps>...>::Operation::OutputType;
 
-      // 2. Extract the output type from that resolved last operation.
-      using FinalOutputType = typename LastOpResolved::Operation::OutputType;
-
-      // 3. Define the tuple of operations separately.
-      using OpTupleType = OperationTuple<FirstOp, RemOps...>;
-
-      // 4. Extract the read data type from the first operation.
-      using FirstReadDataType = typename std::decay_t<FirstOp>::Operation::ReadDataType;
-      // 5. Finally, assemble Parent using these pre-calculated, clean types.
-      //    Note: No '...' expansions happen inside this specific statement anymore.
-      using Parent = ReadOperation<FirstReadDataType, OpTupleType, FinalOutputType, TF::DISABLED, SelfType, true>;
+      using Parent = ReadOperation<FusedReadDataType, OperationTuple<FirstOp, RemOps...>, FusedOutputType, TF::DISABLED, SelfType, true>;
     public:
         FK_STATIC_STRUCT(FusedOperation_, SelfType)
         DECLARE_READ_PARENT

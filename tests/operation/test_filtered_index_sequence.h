@@ -19,10 +19,18 @@
 #include <fused_kernel/algorithms/image_processing/resize.h>
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 
-template <typename Restriction, typename... ListTypes>
-constexpr bool allInstantiableOperationsComplieWith(const fk::TypeList<ListTypes...>& tl) {
-    return fk::and_v<(Restriction::template complies<typename ListTypes::InstanceType>())...>;
-}
+template <typename Restriction, typename T>
+struct CheckCompliance {
+    static constexpr bool value = Restriction::template complies<T>();
+};
+
+template <typename Restriction, typename TypeList_> 
+struct AllIOpsComply;
+
+template <typename Restriction, typename... Types>
+struct AllIOpsComply<Restriction, fk::TypeList<Types...>> {
+    static constexpr bool value = fk::and_v<(CheckCompliance<Restriction, typename Types::InstanceType>::value)...>;
+};
 
 int launch() {
     using ReadDummy = fk::PerThreadRead<fk::ND::_2D, int>;
@@ -36,7 +44,7 @@ int launch() {
                    fk::Binary<BinaryDummy>, fk::Ternary<TernaryDummy>,
                    fk::MidWrite<WriteDummy>, fk::Write<WriteDummy>>;
 
-    constexpr bool correctDFRestrict = allInstantiableOperationsComplieWith<fk::NotIsUnaryRestriction>(DFList{});
+    constexpr bool correctDFRestrict = AllIOpsComply<fk::NotIsUnaryRestriction, DFList>::value;
     static_assert(correctDFRestrict, "The list of operations does not comply with the restriction");
 
     using ListToCheck =
