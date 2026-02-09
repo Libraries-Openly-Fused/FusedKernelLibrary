@@ -116,15 +116,29 @@ int launch() {
     fk::OperationTuple<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar>>, fk::Unary<fk::SaturateCast<uchar, uint>>, fk::Write<fk::PerThreadWrite<fk::ND::_2D, uint>>> myTup{};
 
     fk::get_opt<2>(myTup);
-    constexpr bool test1 = std::is_same_v<fk::get_type_t<0, decltype(myTup)>, fk::PerThreadRead<fk::ND::_2D, uchar>>;
-    constexpr bool test2 = std::is_same_v<fk::get_type_t<1, decltype(myTup)>, fk::SaturateCast<uchar, uint>>;
-    constexpr bool test3 = std::is_same_v<fk::get_type_t<2, decltype(myTup)>, fk::PerThreadWrite<fk::ND::_2D, uint>>;
+    constexpr bool test1 = std::is_same_v<fk::TypeAt_t<0, typename decltype(myTup)::Operations>, fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar>>>;
+    constexpr bool test2 =
+        std::is_same_v<fk::TypeAt_t<1, typename decltype(myTup)::Operations>, fk::Unary<fk::SaturateCast<uchar, uint>>>;
+    constexpr bool test3 =
+        std::is_same_v<fk::TypeAt_t<2, typename decltype(myTup)::Operations>, fk::Write<fk::PerThreadWrite<fk::ND::_2D, uint>>>;
 
     if (test2Dpassed && fk::and_v<test1, test2, test3>) {
         std::cout << "cuda_transform executed!!" << std::endl;
         return 0;
     } else {
         std::cout << "cuda_transform failed!!" << std::endl;
+        if (!test2Dpassed) {
+            std::cout << "Especifically testPtr_2D failed!!" << std::endl;
+        }
+        if (!test1) {
+            std::cout << "Especifically test1 failed!!" << std::endl;
+        }
+        if (!test2) {
+            std::cout << "Especifically test2 failed!!" << std::endl;
+        }
+        if (!test3) {
+            std::cout << "Especifically test3 failed!!" << std::endl;
+        }
         return -1;
     }
 }
