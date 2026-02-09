@@ -16,7 +16,7 @@ jobs:
       matrix:         
       #host compiler, version, cuda compiler, cuda version,
       #disabling ,"llvm,21.1.0,llvm,12.1", not working on windows yet
-        toolset: ["cl,14.16,nvcc,11.8","cl,14.44,nvcc,13.0","llvm,21.1.0,nvcc,12.9"]
+        toolset: ["cl,14.44,nvcc,13.0","llvm,21.1.0,nvcc,12.9"]
  
 
     steps:
@@ -57,7 +57,7 @@ jobs:
         Import-Module (Get-ChildItem $vsInstallationPath -Recurse -File -Filter Microsoft.VisualStudio.DevShell.dll).FullName           
         Enter-VsDevShell -VsInstallPath $vsInstallationPath -SkipAutomaticLocation -DevCmdArguments $devargs      
         
-        cmake -G "Ninja"  -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_CUDA_COMPILER="$env:CUDACXX" -DCMAKE_BUILD_TYPE=Release -S ${{github.workspace}};        
+        cmake -G "Ninja"  -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_CUDA_COMPILER="$env:CUDACXX" -DENABLE_BENCHMARK=ON -DCMAKE_BUILD_TYPE=Release -S ${{github.workspace}};        
         #worksaround for rules.ninja generating empty path
         if  ($y[2].contains("nvcc"))  {
         (Get-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja) -replace "\\nvcc\\bin\\nvcc.exe", "$env:CUDACXX" | Set-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja
