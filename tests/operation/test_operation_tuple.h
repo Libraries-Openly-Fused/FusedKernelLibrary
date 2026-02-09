@@ -31,7 +31,7 @@ bool test_OTInitialization() {
     using IOp = typename fk::PerThreadRead<fk::ND::_2D, uchar>::InstantiableType;
     const IOp read{ {input} };
 
-    [[maybe_unused]] const fk::NewOperationTuple<IOp> testing{ {read} };
+    [[maybe_unused]] const fk::OperationTuple<IOp> testing{ {read} };
 
     const auto test2 = fk::make_new_operation_tuple(read);
     //const fk::Read<fk::FusedOperation<Op>> test3 = fk::fuse(read); //Should not compile

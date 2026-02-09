@@ -102,7 +102,7 @@ int launch() {
 
     auto fusedDF = fk::fuse(read, cast, fk::Binary<fk::Mul<uint>>{4u});
     constexpr bool correct = std::is_same_v<std::decay_t<decltype(fusedDF.params)>,
-                       fk::NewOperationTuple_<void, fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar>>,
+                       fk::OperationTuple_<void, fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar>>,
                                               fk::Unary<fk::SaturateCast<uchar, uint>>, fk::Binary<fk::Mul<uint>>>>;
     static_assert(correct, "Unexpected type for fusedDF.params");
     constexpr bool correct2 =
@@ -115,7 +115,7 @@ int launch() {
     fk::executeOperations<fk::TransformDPP<>>(stream, fusedDF, write);
     stream.sync();
 
-    fk::NewOperationTuple<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar>>, fk::Unary<fk::SaturateCast<uchar, uint>>, fk::Write<fk::PerThreadWrite<fk::ND::_2D, uint>>> myTup{};
+    fk::OperationTuple<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar>>, fk::Unary<fk::SaturateCast<uchar, uint>>, fk::Write<fk::PerThreadWrite<fk::ND::_2D, uint>>> myTup{};
 
     fk::get_opt<2>(myTup);
     constexpr bool test1 = std::is_same_v<fk::get_type_t<0, decltype(myTup)>, fk::PerThreadRead<fk::ND::_2D, uchar>>;
