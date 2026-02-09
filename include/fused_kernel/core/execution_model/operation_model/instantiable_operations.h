@@ -145,6 +145,10 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
             return InputFoldType<>::build(std::forward<Input>(input).thread,
                                           Operation::exec(std::forward<Input>(input).input, opData));
         }
+        FK_HOST_DEVICE_CNST friend decltype(auto) operator|(const typename Operation::InputType &input,
+                                                            const BinaryInstantiableOperation<Operation_t> &opData) {
+            return Operation::exec(input, opData.params);
+        }
 
         template <typename PreviousIOp, typename Fuser_t = Fuser>
         FK_HOST_CNST friend auto operator&(PreviousIOp&& prevIOp, const BinaryInstantiableOperation<Operation_t>& self) {
@@ -167,9 +171,13 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
         INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT_THEN(TernaryType)
 
         template <typename Input>
-        FK_HOST_DEVICE_CNST friend auto operator|(Input&& input, const OperationData<Operation_t>& opData) {
+        FK_HOST_DEVICE_CNST friend decltype(auto) operator|(Input&& input, const OperationData<Operation_t>& opData) {
             return InputFoldType<>::build(std::forward<Input>(input).thread,
                                           Operation::exec(std::forward<Input>(input).input, opData));
+        }
+        FK_HOST_DEVICE_CNST friend decltype(auto) operator|(const typename Operation::InputType &input,
+                                                            const TernaryInstantiableOperation<Operation_t> &opData) {
+            return Operation::exec(input, opData.params, opData.backIOp);
         }
 
         template <typename PreviousIOp, typename Fuser_t = Fuser>

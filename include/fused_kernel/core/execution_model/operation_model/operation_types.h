@@ -211,6 +211,12 @@ namespace fk {
     template <typename... OpsOrIOps>
     constexpr bool allUnaryTypes = and_v<isUnaryType<OpsOrIOps>...>;
 
+    template <typename... OpsOrIOps>
+    constexpr bool allComputeTypes = and_v<isComputeType<OpsOrIOps>...>;
+
+    template <typename... OpsOrIOps>
+    constexpr bool atLeastOneMidWriteType = or_v<isMidWriteType<OpsOrIOps>...>;
+
     template <typename = void, typename... OpsOrIOps>
     struct NotAllUnary final : public std::false_type {};
 

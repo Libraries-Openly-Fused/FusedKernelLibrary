@@ -34,7 +34,7 @@ namespace fk {
     struct FusedOperation_;
 
     template <typename FirstOp, typename... RemOps>
-    struct FusedOperation_<std::enable_if_t<!isAnyReadType<FirstOp> && !isWriteType<LastType_t<FirstOp, RemOps...>> && !allUnaryTypes<FirstOp, RemOps...>>,
+    struct FusedOperation_<std::enable_if_t<!isAnyReadType<FirstOp> && !isWriteType<LastType_t<FirstOp, RemOps...>> && atLeastOneMidWriteType<FirstOp, RemOps...>>,
                               FirstOp, RemOps...> {
     private:
         using SelfType = FusedOperation_<std::enable_if_t<!isAnyReadType<FirstOp>>, FirstOp, RemOps...>;
@@ -128,11 +128,11 @@ namespace fk {
     };
 
     template <typename... IOps>
-    struct FusedOperation_<std::enable_if_t<isReadType<FirstType_t<IOps...>> && isWriteType<LastType_t<IOps...>>>,
+    struct FusedOperation_<std::enable_if_t<isAnyReadType<FirstType_t<IOps...>> && isWriteType<LastType_t<IOps...>>>,
                           IOps...> {
       private:
         using SelfType =
-            FusedOperation_<std::enable_if_t<isReadType<FirstType_t<IOps...>> && isWriteType<LastType_t<IOps...>>>, IOps...>;
+            FusedOperation_<std::enable_if_t<isAnyReadType<FirstType_t<IOps...>> && isWriteType<LastType_t<IOps...>>>, IOps...>;
         using Parent = ClosedOperation<OperationTuple<IOps...>, SelfType, true>;
 
       public:
@@ -148,6 +148,58 @@ namespace fk {
         FK_HOST_DEVICE_FUSE void exec_helper(const std::index_sequence<Idx...> &, const Point &thread,
                                               const ParamsType &params) {
             (thread | ... | get_opt<Idx>(params));
+        }
+    };
+
+    template <typename... IOps>
+    struct FusedOperation_<std::enable_if_t<!isAnyReadType<FirstType_t<IOps...>> && isWriteType<LastType_t<IOps...>>>,
+                           IOps...> {
+      private:
+        using SelfType =
+            FusedOperation_<std::enable_if_t<!isAnyReadType<FirstType_t<IOps...>> && isWriteType<LastType_t<IOps...>>>,
+                            IOps...>;
+        using FusedInputType = typename FirstType_t<IOps...>::Operation::InputType;
+        using FusedWriteDataType = typename LastType_t<IOps...>::Operation::WriteDataType;
+        using Parent = WriteOperation<FusedInputType,
+            OperationTuple<IOps...>, FusedWriteDataType, TF::DISABLED, SelfType, true>;
+
+      public:
+        FK_STATIC_STRUCT(FusedOperation_, SelfType)
+        DECLARE_WRITE_PARENT
+        using Operations = TypeList<IOps...>;
+        FK_HOST_DEVICE_FUSE void exec(const Point &thread, const InputType& input, const ParamsType &params) {
+            exec_helper(std::make_index_sequence<ParamsType::size>{}, thread, input, params);
+        }
+
+      private:
+        template <size_t... Idx>
+        FK_HOST_DEVICE_FUSE void exec_helper(const std::index_sequence<Idx...> &, const Point &thread,
+                                             const InputType& input, const ParamsType &params) {
+            (InputFoldType<>::build(thread, input) | ... | get_opt<Idx>(params));
+        }
+    };
+
+    template <typename... IOps>
+    struct FusedOperation_<std::enable_if_t<allComputeTypes<IOps...> && !allUnaryTypes<IOps...>>, IOps...> {
+      private:
+        using SelfType =
+            FusedOperation_<std::enable_if_t<allComputeTypes<IOps...> && !allUnaryTypes<IOps...>>, IOps...>;
+        using FusedInputType = typename FirstType_t<IOps...>::Operation::InputType;
+        using FusedOutputType = typename LastType_t<IOps...>::Operation::OutputType;
+        using Parent = BinaryOperation<FusedInputType, OperationTuple<IOps...>, FusedOutputType, SelfType, true>;
+
+      public:
+        FK_STATIC_STRUCT(FusedOperation_, SelfType)
+        DECLARE_BINARY_PARENT
+        using Operations = TypeList<IOps...>;
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType &input, const ParamsType &params) {
+            return exec_helper(std::make_index_sequence<ParamsType::size>{}, input, params);
+        }
+
+      private:
+        template <size_t... Idx>
+        FK_HOST_DEVICE_FUSE OutputType exec_helper(const std::index_sequence<Idx...>&, const InputType &input, const ParamsType &params) {
+            return (input | ... | get_opt<Idx>(params));
         }
     };
 
