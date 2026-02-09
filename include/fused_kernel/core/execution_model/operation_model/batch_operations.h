@@ -92,7 +92,7 @@ namespace fk {
 
     template <size_t BATCH, typename Operation, typename DefaultType>
     struct BatchReadParams<BATCH, PlanePolicy::CONDITIONAL_WITH_DEFAULT, Operation, DefaultType> {
-        OperationData<Operation> opData[BATCH];
+        Array<OperationData<Operation>, BATCH> opData;
         int usedPlanes;
         DefaultType default_value;
         ActiveThreads activeThreads;
@@ -100,51 +100,53 @@ namespace fk {
 
     template <size_t BATCH, typename Operation>
     struct BatchReadParams<BATCH, PlanePolicy::PROCESS_ALL, Operation, NullType> {
-        OperationData<Operation> opData[BATCH];
+        Array<OperationData<Operation>, BATCH> opData;
         ActiveThreads activeThreads;
     };
 
     struct BatchUtils {
         FK_STATIC_STRUCT(BatchUtils, BatchUtils)
-#ifndef NVRTC_COMPILER
-            template <typename InstantiableType>
-        FK_HOST_FUSE auto toArray(const InstantiableType& batchIOp) {
-            static_assert(isBatchOperation<typename InstantiableType::Operation>,
+
+        template <typename InstantiableType>
+        FK_HOST_FUSE auto toArray(InstantiableType&& batchIOp) {
+            using IOpType = std::decay_t<InstantiableType>;
+            static_assert(isBatchOperation<typename IOpType::Operation>,
                 "The IOp passed as parameter is not a batch operation");
-            constexpr size_t BATCH = InstantiableType::Operation::BATCH;
-            return toArray_helper(std::make_index_sequence<BATCH>{}, batchIOp);
-        }
-        template <typename Operation, size_t BATCH_N, typename FirstType, typename... ArrayTypes>
-        FK_HOST_FUSE auto build_batch(const std::array<FirstType, BATCH_N>& firstInstance, const ArrayTypes &...arrays) {
-            static_assert(allArraysSameSize_v<BATCH_N, ArrayTypes...>, "Not all arrays have the same size as BATCH");
-            return build_helper_generic<Operation>(std::make_index_sequence<BATCH_N>(), firstInstance, arrays...);
-        }
-    private:
-        template <typename InstantiableType, size_t... Idx>
-        FK_HOST_FUSE auto toArray_helper(const std::index_sequence<Idx...>&, const InstantiableType& batchIOp) {
-            using Operation = typename InstantiableType::Operation::Operation;
-            using OutputArrayType = std::array<Instantiable<Operation>, sizeof...(Idx)>;
-            if constexpr (InstantiableType::template is<ReadType>) {
-                return OutputArrayType{ Operation::build(batchIOp.params.opData[Idx])... };
-            } else {
-                static_assert(InstantiableType::template is<WriteType>, "InstantiableType is not a ReadType or WriteType. It means it is not a batch operation");
-                return OutputArrayType{ Operation::build(batchIOp.params[Idx])... };
+            using Operation = typename IOpType::Operation::Operation;
+            using OutputArrayType = std::array<Instantiable<Operation>, IOpType::Operation::BATCH>;
+            OutputArrayType resultingArray{};
+            for (int i = 0; i < IOpType::Operation::BATCH; i++) {
+                if constexpr (IOpType::template is<ReadType>) {
+                    resultingArray[i] = Operation::build(std::forward<InstantiableType>(batchIOp).params.opData[i]);
+                } else {
+                    static_assert(IOpType::template is<WriteType>, "IOpType must be ReadType or WriteType");
+                    resultingArray[i] = Operation::build(std::forward<InstantiableType>(batchIOp).params[i]);
+                }
             }
+            return resultingArray;
         }
-        template <size_t Idx, typename Array>
-        FK_HOST_FUSE auto get_element_at_index(const Array& paramArray) -> decltype(paramArray[Idx]) {
-            return paramArray[Idx];
+
+        template <typename Operation, size_t BATCH, typename ArrayType, typename... Arrays>
+        FK_HOST_FUSE auto build_batch(const std::array<ArrayType, BATCH>& firstArray, Arrays&&...arrays) {
+            static_assert(allArraysSameSize_v<BATCH, std::decay_t<Arrays>...>,
+                "Not all arrays have the same size as BATCH");
+
+            // Determine return type based on the first element
+            using OutputArrayType = decltype(Operation::build(
+                std::declval<ArrayType>(),
+                std::declval<std::decay_t<Arrays>>()[0]...
+            ));
+
+            std::array<OutputArrayType, BATCH> resultArray{};
+
+            // One simple loop handles both 0 and N extra arrays
+            for (int i = 0; i < BATCH; i++) {
+                // If 'arrays' is empty, this expands to just build(firstArray[i])
+                resultArray[i] = Operation::build(firstArray[i], std::forward<Arrays>(arrays)[i]...);
+            }
+
+            return resultArray;
         }
-        template <typename Operation, size_t Idx, typename... Arrays>
-        FK_HOST_FUSE auto call_build_at_index(const Arrays &...arrays) {
-            return Operation::build(get_element_at_index<Idx>(arrays)...);
-        }
-        template <typename Operation, size_t... Idx, typename... Arrays>
-        FK_HOST_FUSE auto build_helper_generic(const std::index_sequence<Idx...>&, const Arrays &...arrays) {
-            using OutputArrayType = decltype(call_build_at_index<Operation, 0>(std::declval<Arrays>()...));
-            return std::array<OutputArrayType, sizeof...(Idx)>{call_build_at_index<Operation, Idx>(arrays...)...};
-        }
-#endif // NVRTC_COMPILER
     };
 
     template <PlanePolicy PP = PlanePolicy::PROCESS_ALL, size_t BATCH = 1, typename Operation = TypeList<void>>
@@ -398,31 +400,27 @@ namespace fk {
         FK_STATIC_STRUCT(BatchRead, SelfType)
         template <typename IOp, size_t BATCH>
         FK_HOST_FUSE auto build(const std::array<IOp, BATCH>& iOps) {
-            return build_helper(iOps, std::make_index_sequence<BATCH>{});
-        }
-    private:
-        template <typename IOp, size_t BATCH, size_t... Idx>
-        FK_HOST_FUSE auto build_helper(const std::array<IOp, BATCH>& iOps,
-                                       const std::index_sequence<Idx...>&) {
             using NewOperation = typename IOp::Operation;
-#ifdef NDEBUG
-            // Release mode. Use const variables and variadic template recursion for best performance
-            const uint max_width = cxp::max::f(NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[Idx])...);
-            const uint max_height = cxp::max::f(NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[Idx])...);
-#else
+
             // Debug mode. Loop to avoid stack overflow
-            uint max_width = NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[0]);
-            uint max_height = NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[0]);
-            for (int i = 1; i < BATCH; ++i) {
+            uint max_width{ 0 };
+            uint max_height{ 0 };
+            for (int i = 0; i < BATCH; ++i) {
                 max_width = cxp::max::f(max_width, NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[i]));
                 max_height = cxp::max::f(max_height, NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[i]));
             }
-#endif
             using BatchReadType = std::conditional_t<isCompleteOperation<NewOperation>,
-                                                        BatchRead<PlanePolicy::PROCESS_ALL, BATCH, NewOperation>,
-                                                        BatchRead<PlanePolicy::PROCESS_ALL, BATCH, TypeList<NewOperation>>>;
-            return BatchReadType::build( { {iOps[Idx]...},
-                                           ActiveThreads{ max_width, max_height, static_cast<uint>(BATCH) }});
+                BatchRead<PlanePolicy::PROCESS_ALL, BATCH, NewOperation>,
+                BatchRead<PlanePolicy::PROCESS_ALL, BATCH, TypeList<NewOperation>>>;
+            using ParamsStoreType = typename BatchReadType::ParamsType;
+
+            ParamsStoreType paramsStore{ {}, ActiveThreads{ max_width, max_height, static_cast<uint>(BATCH) } };
+
+            for (int i = 0; i < BATCH; ++i) {
+                paramsStore.opData[i] = iOps[i];
+            }
+
+            return BatchReadType::build(paramsStore);
         }
     };
 
@@ -434,23 +432,28 @@ namespace fk {
         FK_STATIC_STRUCT(BatchRead, SelfType)
         template <typename IOp, size_t BATCH, typename DefaultType, typename... ArrayTypes>
         FK_HOST_FUSE auto build(const std::array<IOp, BATCH>& iOps, const int& usedPlanes, const DefaultType& defaultValue) {
-            return build_helper(iOps, usedPlanes, defaultValue, std::make_index_sequence<BATCH>{});
-        }
-    private:
-        template <typename IOp, size_t BATCH, typename DefaultType, size_t... Idx>
-        FK_HOST_FUSE auto build_helper(const std::array<IOp, BATCH>& iOps,
-                                       const int& usedPlanes, const DefaultType& defaultValue,
-                                       const std::index_sequence<Idx...>&) {
             using NewOperation = typename IOp::Operation;
-            const uint max_width = cxp::max::f(NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[Idx])...);
-            const uint max_height = cxp::max::f(NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[Idx])...);
+
+            uint max_width{0};
+            uint max_height{0};
+            for (int i=0; i < BATCH; ++i) {
+                max_width = cxp::max::f(max_width, NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[i]));
+                max_height = cxp::max::f(max_height, NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[i]));
+            }
 
             using NewOutputType = std::conditional_t<std::is_same_v<typename NewOperation::OutputType, NullType>, DefaultType, typename NewOperation::OutputType>;
             using BatchReadType = std::conditional_t<isCompleteOperation<NewOperation>,
-                                                        BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH, NewOperation>,
-                                                        BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH, TypeList<NewOperation, NewOutputType>>>;
-            return BatchReadType::build( { {iOps[Idx]...}, usedPlanes, cxp::cast<NewOutputType>::f(defaultValue),
-                                           ActiveThreads{ max_width, max_height, static_cast<uint>(BATCH) }});
+                BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH, NewOperation>,
+                BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH, TypeList<NewOperation, NewOutputType>>>;
+            using ParamsStoreType = typename BatchReadType::ParamsType;
+            ParamsStoreType paramsStore{ {}, usedPlanes, cxp::cast<NewOutputType>::f(defaultValue),
+                                         ActiveThreads{max_width, max_height, static_cast<uint>(BATCH)} };
+
+            for (int i = 0; i < BATCH; ++i) {
+                paramsStore.opData[i] = iOps[i];
+            }
+
+            return BatchReadType::build(paramsStore);
         }
     };
     // ##################### END BATCH_READ #####################
@@ -486,13 +489,13 @@ namespace fk {
         }
         // Build WriteBatch from array of IOps
         FK_HOST_FUSE InstantiableType build(const std::array<Instantiable<Operation>, BATCH>& iOps) {
-            return build_helper(iOps, std::make_index_sequence<BATCH>{});
-        }
-    private:
-        template <size_t... Idx>
-        FK_HOST_FUSE InstantiableType build_helper(const std::array<Instantiable<Operation>, BATCH>& iOps,
-                                                   const std::index_sequence<Idx...>&) {
-            return { {{(iOps[Idx].params)...}} };
+            InstantiableType iOp{};
+
+            for (int i = 0; i < BATCH; ++i) {
+                iOp.params[i] = iOps[i].params;
+            }
+
+            return iOp;
         }
     };
 
@@ -512,7 +515,7 @@ namespace fk {
 
 // BATCH BUILDERS FOR READ AND READBACK OPERATIONS
 #define DECLARE_PARENT_BATCH_BUILDER                                                                                   \
-   template <size_t B, typename... ArrayTypes>                                                                         \
+    template <size_t B, typename... ArrayTypes>                                                                         \
     FK_HOST_FUSE auto build_batch(const std::array<ArrayTypes, B>&... arrays) {                                        \
         return BatchUtils::template build_batch<typename Parent::Child>(arrays...);                                    \
     }
@@ -559,7 +562,7 @@ namespace fk {
   DECLARE_READBACK_PARENT_BASIC                                                                                        \
   DECLARE_PARENT_READBATCH_BUILDERS
 
-#define DECLARE_INCOMPLETEREADBACK_PARENT                                                                \
+#define DECLARE_INCOMPLETEREADBACK_PARENT                                                                              \
   DECLARE_INCOMPLETEREADBACK_PARENT_BASIC                                                                              \
   DECLARE_PARENT_READBATCH_BUILDERS
 

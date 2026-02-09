@@ -18,24 +18,65 @@
 #include <fused_kernel/core/utils/type_lists.h>
 #include <fused_kernel/core/utils/vector_utils.h>
 #include <array>
+#include <type_traits>
+#include <utility>
 
 namespace fk {
-    // Generic Tuple
-    template <typename... Types>
-    struct Tuple {};
+    // 1. The Leaf Node
+    // Holds exactly one value.
+    template <size_t I, typename T>
+    struct TupleLeaf {
+        T value;
 
-    template <typename T>
-    struct Tuple<T> {
-        T instance;
-        enum { size = 1 };
+        FK_HOST_DEVICE_CNST TupleLeaf() {};
+
+        // FIX: Use a forwarding constructor that is constrained 
+        // to NOT match the TupleLeaf itself (prevent copy-ctor ambiguity)
+        template <typename U,
+            typename = std::enable_if_t<!std::is_same_v<std::decay_t<U>, TupleLeaf>>>
+        FK_HOST_DEVICE_CNST TupleLeaf(U&& v) : value(std::forward<U>(v)) {}
     };
 
-    template <typename T, typename... Types>
-    struct Tuple<T, Types...> {
-        T instance;
-        Tuple<Types...> next;
-        enum { size = sizeof...(Types) + 1 };
+    // 2. The Implementation Wrapper
+    template <typename IndxSeq, typename... Ts>
+    struct TupleImpl;
+
+    template <size_t... Is, typename... Ts>
+    struct TupleImpl<std::index_sequence<Is...>, Ts...> : TupleLeaf<Is, Ts>...
+    {
+        FK_HOST_DEVICE_CNST TupleImpl() {};
+
+        // FIX: Explicitly forward arguments to the base classes.
+        // The brace initialization {std::forward<Us>(args)...} ensures 
+        // that the pack expansion happens in order.
+        template <typename... Us>
+        FK_HOST_DEVICE_CNST TupleImpl(Us&&... args)
+            : TupleLeaf<Is, Ts>(std::forward<Us>(args))...
+        {}
     };
+
+    // 3. The User-Facing Tuple
+    template <typename... Ts>
+    struct Tuple : TupleImpl<std::make_index_sequence<sizeof...(Ts)>, Ts...> {
+        using Base = TupleImpl<std::make_index_sequence<sizeof...(Ts)>, Ts...>;
+
+        static constexpr size_t size = sizeof...(Ts);
+
+        FK_HOST_DEVICE_CNST Tuple() {};
+
+        // FIX: Use Universal References (U&&...) and std::forward
+        // This handles:
+        // 1. Tuple<int>(10)         -> moves 10
+        // 2. Tuple<int&>(x)         -> references x
+        // 3. Tuple<int&&>(std::move(x)) -> moves x
+        template <typename... Us,
+            typename = std::enable_if_t<sizeof...(Us) == sizeof...(Ts)>>
+            FK_HOST_DEVICE_CNST Tuple(Us&&... args)
+            : Base(std::forward<Us>(args)...) {}
+    };
+
+    // Deduction hint
+    template <typename... Types> Tuple(Types...) -> Tuple<Types...>;
 
     // Primary template: defaults to false
     template <typename T>
@@ -48,92 +89,206 @@ namespace fk {
     template <typename TypeToTest>
     constexpr bool isTuple_v = isTuple<std::decay_t<TypeToTest>>::value;
 
+    // Assuming FK_HOST_DEVICE_FUSE expands to:
+    // __host__ __device__ __forceinline__ static constexpr
+
     struct TupleUtil {
-        template <typename Tuple1, typename Tuple2, int... I1, int... I2>
-        FK_HOST_DEVICE_FUSE auto cat_impl(const Tuple1& t1, std::integer_sequence<int, I1...>,
-                                          const Tuple2& t2, std::integer_sequence<int, I2...>) {
-            return make_tuple(get<I1>(t1)..., get<I2>(t2)...);
+        // ==========================================
+        // 1. Get Helpers (unchanged, strictly typed)
+        // ==========================================
+
+        // The compiler deduces 'T' by upcasting 'leaf' to the specific base class TupleLeaf<I, T>
+        template <size_t I, typename T>
+        FK_HOST_DEVICE_FUSE T& get_leaf_value(TupleLeaf<I, T> &leaf) {
+            return leaf.value;
         }
 
-        template <int INDEX, typename... InstanceTypes>
-        FK_HOST_DEVICE_FUSE auto& get(Tuple<InstanceTypes...>& instances) {
-            constexpr int numberOfInstances = Tuple<InstanceTypes...>::size;
-            static_assert(INDEX < numberOfInstances,
-                "Index out of range. There are not so many instances in the tuple.");
-            if constexpr (INDEX > 0) {
-                return get<INDEX - 1>(instances.next);
-            } else if constexpr (INDEX == -1) {
-                if constexpr (numberOfInstances > 0) {
-                    return get<numberOfInstances - 1>(instances.next);
-                } else {
-                    return instances.instance;
-                }
-            } else {
-                return instances.instance;
-            }
+        template <size_t I, typename T>
+        FK_HOST_DEVICE_FUSE const T& get_leaf_value(const TupleLeaf<I, T> &leaf) {
+            return leaf.value;
         }
 
-        template <int INDEX, typename... InstanceTypes>
-        FK_HOST_DEVICE_FUSE auto get(const Tuple<InstanceTypes...>& instances) {
-            constexpr int numberOfInstances = Tuple<InstanceTypes...>::size;
-            static_assert(INDEX < numberOfInstances,
-                "Index out of range. There are not so many instances in the tuple.");
-            if constexpr (INDEX > 0) {
-                return get<INDEX - 1>(instances.next);
-            } else if constexpr (INDEX == -1) {
-                if constexpr (numberOfInstances > 0) {
-                    return get<numberOfInstances - 1>(instances);
-                } else {
-                    return instances.instance;
-                }
-            } else {
-                return instances.instance;
-            }
+        template <size_t I, typename T>
+        FK_HOST_DEVICE_FUSE T&& get_leaf_value(TupleLeaf<I, T>&& leaf) {
+            return static_cast<T&&>(leaf.value);
+        }
+
+        template <size_t I, typename T>
+        FK_HOST_DEVICE_FUSE const T&& get_leaf_value(const TupleLeaf<I, T>&& leaf) {
+            return static_cast<T&&>(leaf.value);;
+        }
+
+        // Accessor for the main Tuple
+        template <size_t I, typename... Ts>
+        FK_HOST_DEVICE_FUSE auto &get(Tuple<Ts...> &t) {
+            return get_leaf_value<I>(t);
+        }
+
+        template <size_t I, typename... Ts>
+        FK_HOST_DEVICE_FUSE const auto &get(const Tuple<Ts...> &t) {
+            return get_leaf_value<I>(t);
+        }
+
+        template <size_t I, typename... Ts>
+        FK_HOST_DEVICE_FUSE auto&& get(Tuple<Ts...>&& t) {
+            return get_leaf_value<I>(std::forward<Tuple<Ts...>>(t));
+        }
+
+        template <size_t I, typename... Ts>
+        FK_HOST_DEVICE_FUSE const auto&& get(const Tuple<Ts...>&& t) {
+            return get_leaf_value<I>(std::move(t));
+        }
+
+        // ==========================================
+        // 2. Concatenation (Flat Expansion)
+        // ==========================================
+        // Helper to extract and concatenate generic parameter packs
+        template <typename T1, typename T2>
+        struct TupleCatTraits;
+
+        // Specialization for two Tuples
+        template <typename... Ts, typename... Us>
+        struct TupleCatTraits<Tuple<Ts...>, Tuple<Us...>> {
+            using type = Tuple<Ts..., Us...>;
+        };
+
+        // Convenience alias
+        template <typename T1, typename T2>
+        using TupleCatResult_t = typename TupleCatTraits<std::decay_t<T1>, std::decay_t<T2>>::type;
+
+        template <typename Tuple1, typename Tuple2, size_t... I1, size_t... I2>
+        FK_HOST_DEVICE_FUSE auto cat_impl(Tuple1&& t1, Tuple2&& t2,
+            std::index_sequence<I1...>,
+            std::index_sequence<I2...>) {
+            // 1. Calculate the exact Result Type (e.g., Tuple<int, float&, double>)
+            using ResultTuple = TupleCatResult_t<Tuple1, Tuple2>;
+
+            // 2. Construct explicitly. 
+            //    We use std::forward to invoke the correct 'get' (move vs copy).
+            //    The ResultTuple constructor will accept the results of get.
+            return ResultTuple(
+                get<I1>(std::forward<Tuple1>(t1))...,
+                get<I2>(std::forward<Tuple2>(t2))...
+            );
         }
 
         template <typename Tuple1, typename Tuple2>
-        FK_HOST_DEVICE_FUSE auto cat(Tuple1& t1, Tuple2& t2) {
-            return cat_impl(t1, std::make_integer_sequence<int, Tuple1::size>(),
-                            t2, std::make_integer_sequence<int, Tuple2::size>());
+        FK_HOST_DEVICE_FUSE auto cat(Tuple1&& t1, Tuple2&& t2) {
+            using T1 = std::decay_t<Tuple1>;
+            using T2 = std::decay_t<Tuple2>;
+
+            return cat_impl(
+                std::forward<Tuple1>(t1),
+                std::forward<Tuple2>(t2),
+                std::make_index_sequence<T1::size>(),
+                std::make_index_sequence<T2::size>()
+            );
         }
 
-        template <typename Tuple1, typename Tuple2>
-        FK_HOST_DEVICE_FUSE auto cat(const Tuple1& t1, const Tuple2& t2) {
-            return cat_impl(t1, std::make_integer_sequence<int, Tuple1::size>(),
-                            t2, std::make_integer_sequence<int, Tuple2::size>());
+        // ==========================================
+        // 3. Make, forward and tie
+        // ==========================================
+
+        template <typename... Types>
+        FK_HOST_DEVICE_FUSE auto make_tuple(Types&&... args) {
+            // Forwarding references allow move semantics if 'instances' are temporary
+            // Store all velues in a new Tuple, effectively making a copy
+            return Tuple<std::decay_t<Types>...>(std::forward<Types>(args)...);
         }
 
         template <typename... Types>
-        FK_HOST_DEVICE_FUSE auto make_tuple(const Types&... instances) {
-            return Tuple<Types...>{instances...};
+        FK_HOST_DEVICE_FUSE auto forward_as_tuple(Types&&... args) {
+            // Constructs Tuple<T&&...> preserving exact value category (L-value vs R-value)
+            // This is essentially a "view" of the arguments.
+            return Tuple<Types&&...>(std::forward<Types>(args)...);
         }
 
-        template <int INDEX, typename T, typename Tuple_>
-        FK_HOST_DEVICE_FUSE auto tuple_insert(const T& instance, const Tuple_& tuple) {
-            constexpr int numberOfInstances = Tuple_::size;
-            static_assert(INDEX <= numberOfInstances,
-                "Index out of range. There are not so many instances in the tuple.");
-            if constexpr (INDEX == 0) {
-                return TupleUtil::cat(make_tuple(instance), tuple);
-            } else {
-                if constexpr (Tuple_::size > 1) {
-                    const auto [head, tail] = tuple;
-                    return TupleUtil::cat(make_tuple(head), tuple_insert<INDEX - 1>(instance, tail));
-                } else {
-                    return TupleUtil::cat(tuple, make_tuple(instance));
-                }
-            }
+        template <typename... Types>
+        FK_HOST_DEVICE_FUSE auto tie(Types&... args) {
+            // Constructs Tuple<T&...>
+            // Only accepts L-values (variables), refuses temporaries.
+            return Tuple<Types&...>(args...);
+        }
+
+        // ==========================================
+        // 4. Insert (Fully Flattened)
+        // ==========================================
+
+        template <size_t InsertIdx, typename T, typename TupleT, size_t... PreIdx, size_t... PostIdx>
+        FK_HOST_DEVICE_FUSE auto insert_impl(T&& val, TupleT&& t,
+            std::index_sequence<PreIdx...>,
+            std::index_sequence<PostIdx...>) {
+            // FIX: Remove explicit template arguments <decltype(...)>.
+            // rely on the Tuple(args...) deduction guide to decay types (int& -> int).
+            // This creates safe storage.
+            return Tuple(
+                // 1. Elements before
+                get<PreIdx>(std::forward<TupleT>(t))...,
+
+                // 2. The new element
+                std::forward<T>(val),
+
+                // 3. Elements after (shifted by InsertIdx)
+                get<PostIdx + InsertIdx>(std::forward<TupleT>(t))...
+            );
+        }
+
+        template <size_t INDEX, typename T, typename TupleT>
+        FK_HOST_DEVICE_FUSE auto tuple_insert(T&& instance, TupleT&& tuple) {
+            using BareTuple = std::decay_t<TupleT>;
+            constexpr size_t N = BareTuple::size;
+
+            static_assert(INDEX <= N, "Index out of range.");
+
+            // Split indices: [0, INDEX) and [INDEX, N)
+            // Note: The second sequence length is (N - INDEX)
+            return insert_impl<INDEX>(
+                std::forward<T>(instance),
+                std::forward<TupleT>(tuple),
+                std::make_index_sequence<INDEX>{},
+                std::make_index_sequence<N - INDEX>{}
+            );
         }
     };
 
-    template <int INDEX, typename... Types>
-    FK_HOST_DEVICE_CNST auto get(const Tuple<Types...>& tuple) {
-        return TupleUtil::get<INDEX>(tuple);
+    template <size_t Idx, typename... Types>
+    FK_HOST_DEVICE_CNST const auto& get(const Tuple<Types...>& tuple) {
+        return TupleUtil::get<Idx>(tuple);
     }
 
-    template <int INDEX, typename... Types>
+    template <size_t Idx, typename... Types>
     FK_HOST_DEVICE_CNST auto& get(Tuple<Types...>& tuple) {
-        return TupleUtil::get<INDEX>(tuple);
+        return TupleUtil::get<Idx>(tuple);
+    }
+
+    template <size_t Idx, typename... Types>
+    FK_HOST_DEVICE_CNST auto&& get(Tuple<Types...>&& tuple) {
+        return TupleUtil::get<Idx>(std::forward<Tuple<Types...>>(tuple));
+    }
+
+    template <size_t Idx, typename... Types>
+    FK_HOST_DEVICE_CNST const auto&& get(const Tuple<Types...>&& tuple) {
+        return TupleUtil::get<Idx>(std::move(tuple));
+    }
+
+    template <typename... Types>
+    FK_HOST_DEVICE_CNST auto make_tuple(Types&&... args) {
+        // Store all values in a new Tuple, effectively making a copy
+        return TupleUtil::make_tuple(std::forward<Types>(args)...);
+    }
+
+    template <typename... Types>
+    FK_HOST_DEVICE_CNST auto forward_as_tuple(Types&&... args) {
+        // Constructs Tuple<T&&...> preserving exact value category (L-value vs R-value)
+        // This is essentially a "view" of the arguments.
+        return TupleUtil::forward_as_tuple(std::forward<Types>(args)...);
+    }
+
+    template <typename... Types>
+    FK_HOST_DEVICE_CNST auto tie(Types&... args) {
+        // Constructs Tuple<T&...>
+        // Only accepts L-values (variables), refuses temporaries.
+        return TupleUtil::tie(args...);
     }
 
     template <typename TupleType>
@@ -151,23 +306,18 @@ namespace fk {
     using get_t = TypeAt_t<INDEX, ToTypeList<TupleType>>;
 
     template <int INDEX, typename T, typename TupleLike>
-    FK_HOST_DEVICE_CNST auto tuple_insert(const T& element, const TupleLike& tuple) {
-        return TupleUtil::tuple_insert<INDEX,T>(element, tuple);
+    FK_HOST_DEVICE_CNST auto tuple_insert(T&& element, TupleLike&& tuple) {
+        return TupleUtil::tuple_insert<INDEX, T>(std::forward<T>(element), std::forward<TupleLike>(tuple));
     }
 
     template <typename T, typename TupleLike>
-    FK_HOST_DEVICE_CNST auto tuple_insert_back(const TupleLike& tuple, const T& element) {
-        return TupleUtil::tuple_insert<TupleLike::size, T>(element, tuple);
+    FK_HOST_DEVICE_CNST auto tuple_insert_back(TupleLike&& tuple, T&& element) {
+        return TupleUtil::tuple_insert<std::decay_t<TupleLike>::size, T>(std::forward<T>(element), std::forward<TupleLike>(tuple));
     }
 
     template <typename Tuple1, typename Tuple2>
-    FK_HOST_DEVICE_CNST auto cat(const Tuple1& t1, const Tuple2& t2) {
-        return TupleUtil::cat(t1, t2);
-    }
-
-    template <typename... Types>
-    FK_HOST_DEVICE_CNST auto make_tuple(const Types&... instances) {
-        return TupleUtil::make_tuple(instances...);
+    FK_HOST_DEVICE_CNST auto tuple_cat(Tuple1&& t1, Tuple2&& t2) {
+        return TupleUtil::cat(std::forward<Tuple1>(t1), std::forward<Tuple2>(t2));
     }
 
     template <int INDEX, typename TupleLike>
@@ -181,18 +331,28 @@ namespace fk {
     template <int INDEX, typename TupleLike>
     using get_type_t = typename GetType<INDEX, TupleLike>::type;
 
-    template <typename F, typename Tuple, size_t... I>
-    FK_HOST_DEVICE_CNST auto apply_impl(F&& f, Tuple& t, std::index_sequence<I...>)
-        -> decltype(std::forward<F>(f)(get<I>(std::forward<Tuple>(t))...)) {
-        return std::forward<F>(f)(get<I>(std::forward<Tuple>(t))...);
+    // ==========================================
+    // The apply Implementation (Now with Return Values)
+    // ==========================================
+
+    namespace detail {
+        template <typename F, typename TupleT, size_t... Is>
+        // decltype(auto) lets the compiler figure out the return type
+        FK_HOST_DEVICE_CNST decltype(auto) apply_impl(F &&f, TupleT &&t, std::index_sequence<Is...>) {
+
+            // We simply return the result of the function call.
+            return std::forward<F>(f)(get<Is>(std::forward<TupleT>(t))...);
+        }
+    } // namespace detail
+
+    template <typename F, typename... Ts>
+    FK_HOST_DEVICE_CNST decltype(auto) apply(F &&f, Tuple<Ts...> &t) {
+        return detail::apply_impl(std::forward<F>(f), t, std::make_index_sequence<sizeof...(Ts)>{});
     }
 
-    template <typename F, typename Tuple>
-    FK_HOST_DEVICE_CNST auto apply(F&& f, Tuple& t)
-        -> decltype(apply_impl(std::forward<F>(f), std::forward<Tuple>(t),
-            std::make_index_sequence<Tuple::size>())) {
-        return apply_impl(std::forward<F>(f), std::forward<Tuple>(t),
-            std::make_index_sequence<Tuple::size>());
+    template <typename F, typename... Ts>
+    FK_HOST_DEVICE_CNST decltype(auto) apply(F &&f, const Tuple<Ts...> &t) {
+        return detail::apply_impl(std::forward<F>(f), t, std::make_index_sequence<sizeof...(Ts)>{});
     }
 
     // Struct to hold a parameter pack, and be able to pass it arround
@@ -228,21 +388,6 @@ namespace fk {
         return tuple_insert<sizeof...(Args) - 1>(t, Tuple<Args...>{args...});
     }
 
-    /*template <typename TranslateType, typename SourceType, size_t NElems, int... Idx, typename... ExtraParams>
-    constexpr inline std::array<typename TranslateType::OutputType, NElems>
-        static_translate_helper(const int& usedPlanes,
-            const std::array<SourceType, NElems>& srcArray,
-            const std::integer_sequence<int, Idx...>&,
-            const ExtraParams&... extParams) {
-        return { (TranslateType::template translate<Idx>(usedPlanes, srcArray[Idx], extParams...))... };
-    }
-
-    template <typename TranslateType, typename SourceType, size_t NElems, typename... ExtraParams>
-    constexpr inline std::array<typename TranslateType::OutputType, NElems>
-        static_translate(const int& usedPlanes, const std::array<SourceType, NElems>& srcArray, const ExtraParams&... extParams) {
-        return static_translate_helper<TranslateType>(usedPlanes, srcArray, std::make_integer_sequence<int, NElems>{}, extParams...);
-    }*/
-
     template <typename FirstType, typename SecondType>
     struct GetFirst {
         using OutputType = FirstType;
@@ -260,18 +405,6 @@ namespace fk {
             return a_pair.second;
         }
     };
-
-    /*template <typename FT, typename ST, size_t NElems>
-    constexpr inline std::array<FT, NElems>
-        static_translate_get_first(const std::array<std::pair<FT, ST>, NElems>& srcArray) {
-        return static_translate_helper<GetFirst<FT, ST>>(NElems, srcArray, std::make_integer_sequence<int, NElems>{});
-    }
-
-    template <typename FT, typename ST, size_t NElems>
-    constexpr inline std::array<ST, NElems>
-        static_translate_get_second(const std::array<std::pair<FT, ST>, NElems>& srcArray) {
-        return static_translate_helper<GetSecond<FT, ST>>(NElems, srcArray, std::make_integer_sequence<int, NElems>{});
-    }*/
 
     template <typename T>
     FK_HOST_DEVICE_CNST auto cudaVectorToTuple(const T& cudaVectType) {
