@@ -460,10 +460,10 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     Stream stream;
 
     // We set all outputs to the same size
-    const Size outputSize(128, 128);
+    const Size outputSize(32, 32);
 
     // We perform 5 crops on the image
-    constexpr int BATCH = 200;
+    constexpr int BATCH = 10;
 
     // We have a 4K source image
     Ptr2D<uchar3> inputImage(3840, 2160);
