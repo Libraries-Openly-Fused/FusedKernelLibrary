@@ -15,7 +15,7 @@
 #include <tests/main.h>
 
 #include <fused_kernel/algorithms/algorithms.h>
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/core/execution_model/executors.h>
 #include <iostream>
 

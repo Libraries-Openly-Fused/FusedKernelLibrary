@@ -16,7 +16,7 @@
 #include <tests/main.h>
 
 #include <fused_kernel/algorithms/basic_ops/basic_ops.h>
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/image_processing/image_processing.h>
 
 using namespace fk;

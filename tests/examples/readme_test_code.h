@@ -14,7 +14,7 @@
 
 #include <tests/main.h>
 
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/core/utils/utils.h>
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/image_processing/crop.h>

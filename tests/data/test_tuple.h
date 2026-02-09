@@ -18,7 +18,7 @@
 
 #include <fused_kernel/core/execution_model/operation_model/operation_tuple.h>
 #include <fused_kernel/algorithms/basic_ops/vector_ops.h>
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #ifdef __NVCC__
 // Condition 1: we are compiling with MSVC + nvcc OR other compilers + nvcc versions lower than 12.4.99
 #if (NVCC_VERSION_CALCULATED < NVCC_VERSION_12_4_99)

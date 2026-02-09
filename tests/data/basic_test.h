@@ -19,13 +19,11 @@
 #include <fused_kernel/core/data/ptr_nd.h>
 #include <fused_kernel/core/data/ptr_utils.h>
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/image_processing/saturate.h>
 #include <fused_kernel/fused_kernel.h>
-#include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/core/utils/template_operations.h>
-#include <fused_kernel/algorithms/image_processing/saturate.h>
 #include <fused_kernel/core/execution_model/stream.h>
 #include <fused_kernel/algorithms/basic_ops/vector_ops.h>
 

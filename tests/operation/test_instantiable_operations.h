@@ -17,7 +17,7 @@
 
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/basic_ops/cast.h>
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/image_processing/resize.h>
 #include <fused_kernel/core/utils/type_lists.h>
 #include <fused_kernel/algorithms/basic_ops/set.h>

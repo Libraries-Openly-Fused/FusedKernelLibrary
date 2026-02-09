@@ -19,7 +19,7 @@
 #include <fused_kernel/algorithms/image_processing/saturate.h>
 #include <fused_kernel/algorithms/basic_ops/cast.h>
 #include <fused_kernel/core/data/array.h>
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 
 namespace fk {
