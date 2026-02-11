@@ -260,8 +260,6 @@ namespace fk {
 
 #if defined(__NVCC__) || CLANG_HOST_DEVICE
 #include <vector_types.h>
-#elif defined(NVRTC_COMPILER)
-// Nothing to include here
 #else
 using char1 = fk::Char1;
 using uchar1 = fk::Uchar1;

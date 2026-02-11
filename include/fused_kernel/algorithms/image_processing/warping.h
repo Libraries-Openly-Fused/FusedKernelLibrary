@@ -77,7 +77,7 @@ namespace fk {
         using Parent = ReadBackOperation<typename BackIOp_::Operation::ReadDataType,
                                          WarpingParameters<WT>,
                                          BackIOp_,
-                                         VectorType_t<float, cn<typename BackIOp_::Operation::ReadDataType>>,
+                                         float_<cn<typename BackIOp_::Operation::ReadDataType>>,
                                          Warping<WT, BackIOp_>>;
         DECLARE_READBACK_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {

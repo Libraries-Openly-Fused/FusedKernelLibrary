@@ -75,7 +75,7 @@ namespace fk {
         using SelfType = ResizeComplete<AR, BackIOp_>;
     public:
         FK_STATIC_STRUCT(ResizeComplete, SelfType)
-        using DefaultType = VectorType_t<float, cn<typename BackIOp_::Operation::OutputType>>;
+        using DefaultType = float_<cn<typename BackIOp_::Operation::OutputType>>;
         using Parent = ReadBackOperation<typename BackIOp_::Operation::OutputType,
                                          ResizeParams<AR, DefaultType>,
                                          BackIOp_,
@@ -89,8 +89,7 @@ namespace fk {
             } else {
                 if (thread.x >= params.x1 && thread.x <= params.x2 &&
                     thread.y >= params.y1 && thread.y <= params.y2) {
-                    const Point roiThread(thread.x - params.x1, thread.y - params.y1, thread.z);
-                    return exec_resize(roiThread, params, backIOp);
+                    return exec_resize(Point(thread.x - params.x1, thread.y - params.y1), params, backIOp);
                 } else {
                     return params.defaultValue;
                 }
@@ -114,16 +113,13 @@ namespace fk {
         }
 
     private:
-        FK_HOST_DEVICE_FUSE OutputType exec_resize(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
-            const float fx = params.src_conv_factors.x;
-            const float fy = params.src_conv_factors.y;
-
-            const float src_x = thread.x * fx;
-            const float src_y = thread.y * fy;
-            const float2 rezisePoint = { src_x, src_y };
+        FK_HOST_DEVICE_FUSE decltype(auto) exec_resize(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
+            const float src_x = thread.x * params.src_conv_factors.x;
+            const float src_y = thread.y * params.src_conv_factors.y;
 
             // Assuming BackIOp is a TernaryType
-            return BackIOp::Operation::exec(rezisePoint, backIOp);
+            static_assert(isTernaryType<BackIOp>, "BackIOp must be a ternary type for this specialization");
+            return BackIOp::Operation::exec({ src_x, src_y }, backIOp);
         }
     };
 
@@ -155,7 +151,7 @@ namespace fk {
         template <typename NewBackIOp>
         FK_HOST_FUSE auto build(const NewBackIOp& backIOp, const InstantiableType& iOp) {
             static_assert(isCompleteOperation<NewBackIOp>, "NewBackIOp must be a complete IOp");
-            using NewDefaultType = VectorType_t<float, cn<typename NewBackIOp::Operation::OutputType>>;
+            using NewDefaultType = float_<cn<typename NewBackIOp::Operation::OutputType>>;
             static_assert(std::is_same_v<NewDefaultType, DefaultType>, "Default value type and Op::OutputType must be the same.");
             return build(backIOp, iOp.params.dstSize, iOp.params.defaultValue);
         }
@@ -175,7 +171,7 @@ namespace fk {
             const double cfx = static_cast<double>(targetSize.width) / srcSize.width;
             const double cfy = static_cast<double>(targetSize.height) / srcSize.height;
 
-            using NewOutputType = VectorType_t<float, cn<typename NewBackIOp::Operation::OutputType>>;
+            using NewOutputType = float_<cn<typename NewBackIOp::Operation::OutputType>>;
 
             if constexpr (AR == AspectRatio::PRESERVE_AR_LEFT) {
                 const int x1 = 0; // Always 0 to make sure the image is adjusted to the left

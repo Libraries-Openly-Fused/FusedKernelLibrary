@@ -23,7 +23,7 @@ namespace cxp {
         template <typename T>
         FK_HOST_DEVICE_FUSE bool f(const T& value) {
             if constexpr (fk::validCUDAVec<T>) {
-                using VecBoolType = fk::VectorType_t<bool, fk::cn<T>>;
+                using VecBoolType = fk::bool_<fk::cn<T>>;
                 const auto valBool = cast<VecBoolType>::f(value);
                 if constexpr (fk::cn<T> == 1) {
                     return valBool.x;

@@ -47,7 +47,7 @@ namespace fk {
         using Parent = ReadBackOperation<typename BackIOp_::Operation::OutputType,
                                          DeinterlaceParameters<DType>,
                                          BackIOp_,
-                                         VectorType_t<float, cn<typename BackIOp_::Operation::OutputType>>,
+                                         float_<cn<typename BackIOp_::Operation::OutputType>>,
                                          Deinterlace<DType, BackIOp_>>;
         DECLARE_READBACK_PARENT
 

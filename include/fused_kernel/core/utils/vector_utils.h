@@ -72,13 +72,23 @@ namespace fk {
     template <typename BaseType, int Channels>
     using VectorType_t = typename VectorType<BaseType, Channels>::type;
 
-    template <uint CHANNELS>
-    using VectorTypeList = TypeList<VectorType_t<bool, CHANNELS>, VectorType_t<uchar, CHANNELS>, VectorType_t<schar, CHANNELS>,
-                                    VectorType_t<ushort, CHANNELS>, VectorType_t<short, CHANNELS>,
-                                    VectorType_t<uint, CHANNELS>, VectorType_t<int, CHANNELS>,
-                                    VectorType_t<ulong, CHANNELS>, VectorType_t<long, CHANNELS>,
-                                    VectorType_t<ulonglong, CHANNELS>, VectorType_t<longlong, CHANNELS>,
-                                    VectorType_t<float, CHANNELS>, VectorType_t<double, CHANNELS>>;
+    template <size_t CN> using bool_ = VectorType_t<bool, CN>;
+    template <size_t CN> using uchar_ = VectorType_t<uchar, CN>;
+    template <size_t CN> using char_ = VectorType_t<schar, CN>;
+    template <size_t CN> using ushort_ = VectorType_t<ushort, CN>;
+    template <size_t CN> using short_ = VectorType_t<short, CN>;
+    template <size_t CN> using uint_ = VectorType_t<uint, CN>;
+    template <size_t CN> using int_ = VectorType_t<int, CN>;
+    template <size_t CN> using ulong_ = VectorType_t<ulong, CN>;
+    template <size_t CN> using long_ = VectorType_t<long, CN>;
+    template <size_t CN> using ulonglong_ = VectorType_t<ulonglong, CN>;
+    template <size_t CN> using longlong_ = VectorType_t<longlong, CN>;
+    template <size_t CN> using float_ = VectorType_t<float, CN>;
+    template <size_t CN> using double_ = VectorType_t<double, CN>;
+
+    template <uint CN>
+    using VectorTypeList = TypeList<bool_<CN>, uchar_<CN>, char_<CN>, ushort_<CN>, short_<CN>, uint_<CN>, int_<CN>,
+                                    ulong_<CN>, long_<CN>, ulonglong_<CN>, longlong_<CN>, float_<CN>, double_<CN>>;
 
     using FloatingTypes = TypeList<float, double>;
     using IntegralTypes = TypeList<uchar, char, schar, ushort, short, uint, int, ulong, long, ulonglong, longlong>;

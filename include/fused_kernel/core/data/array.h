@@ -31,10 +31,10 @@ namespace fk {
             }
         }
         FK_HOST_DEVICE_CNST Array() {}
-        FK_HOST_DEVICE_CNST T operator[](const size_t& index) const {
+        FK_HOST_DEVICE_CNST const T& operator[](const int index) const {
             return values[index];
         }
-        FK_HOST_DEVICE_CNST T& operator[](const size_t& index) {
+        FK_HOST_DEVICE_CNST T& operator[](const int index) {
             return values[index];
         }
     };

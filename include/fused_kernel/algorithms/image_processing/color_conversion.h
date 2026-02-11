@@ -190,7 +190,7 @@ namespace fk {
         using SelfType = DenormalizePixel<O, CD>;
     public:
         FK_STATIC_STRUCT(DenormalizePixel, SelfType)
-        using Parent = UnaryOperation<VectorType_t<float, cn<O>>, O, DenormalizePixel<O, CD>>;
+        using Parent = UnaryOperation<float_<cn<O>>, O, DenormalizePixel<O, CD>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
             constexpr auto maxDepth = maxDepthValue<CD>;
@@ -204,7 +204,7 @@ namespace fk {
         using SelfType = NormalizePixel<I, CD>;
     public:
         FK_STATIC_STRUCT(NormalizePixel, SelfType)
-        using Parent = UnaryOperation<I, VectorType_t<float, cn<I>>, NormalizePixel<I, CD>>;
+        using Parent = UnaryOperation<I, float_<cn<I>>, NormalizePixel<I, CD>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
             return input / static_cast<float>(maxDepthValue<CD>);

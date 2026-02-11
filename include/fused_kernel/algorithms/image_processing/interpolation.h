@@ -51,7 +51,7 @@ namespace fk {
     public:
         FK_STATIC_STRUCT(InterpolateComplete, SelfType)
         using Parent = TernaryOperation<float2, InterpolationParameters<InterpolationType::INTER_LINEAR>,
-                                        BackIOp_, VectorType_t<float, cn<BackIOpOutputType>>,
+                                        BackIOp_, float_<cn<BackIOpOutputType>>,
                                         SelfType>;
         DECLARE_TERNARY_PARENT
 
