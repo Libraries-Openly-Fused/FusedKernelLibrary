@@ -24,13 +24,7 @@ namespace fk {
     template <typename T, size_t SIZE>
     struct Array {
         static constexpr size_t size{ SIZE };
-        T values[SIZE]{};
-        FK_HOST_DEVICE_CNST Array(const T& initValue) {
-            for (int i = 0; i < SIZE; i++) {
-                values[i] = initValue;
-            }
-        }
-        FK_HOST_DEVICE_CNST Array() {}
+        T values[SIZE];
         FK_HOST_DEVICE_CNST const T& operator[](const int index) const {
             return values[index];
         }
