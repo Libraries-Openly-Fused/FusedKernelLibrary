@@ -60,7 +60,7 @@ namespace fk {
         FK_HOST_CNST Image<PF> crop(const Point& p, const uint& newWidth, const uint& newHeight) {
             const uint newDataWidth = newWidth * PixelFormatTraits<PF>::rf.width_f;
             const uint newDataHeight = newHeight * PixelFormatTraits<PF>::rf.height_f;
-            const Point dataPoint(p.x * PixelFormatTraits<PF>::rf.width_f, p.y * PixelFormatTraits<PF>::rf.height_f);
+            const Point dataPoint{p.x * PixelFormatTraits<PF>::rf.width_f, p.y * PixelFormatTraits<PF>::rf.height_f, 0};
             PtrDims<ND::_2D> newDataDims{ newDataWidth, newDataHeight, data.dims().pitch };
             return Image<PF>(data.crop(dataPoint, newDataDims), newWidth, newHeight);
         }

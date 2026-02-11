@@ -106,7 +106,7 @@ namespace fk {
         using ResultType = OperationTuple<std::decay_t<IOps>...>;
 
         // Note: We use fk::get (the one that takes a Tuple) here, not the pack one.
-        return ResultType{{get<Idx>(std::move(args_tuple))...}};
+        return ResultType{{get<Idx>(args_tuple)...}};
     }
 
     template <typename... IOps>

@@ -298,7 +298,7 @@ namespace test_case_builder::detail {
         fk::Ptr1D<I> inputPtr(N);
         fk::Ptr1D<O> outputPtr(N);
         for (size_t i = 0; i < N; ++i) {
-            inputPtr.at(fk::Point(i)) = inputElems[i];
+            inputPtr.at(fk::Point{static_cast<int>(i), 0, 0}) = inputElems[i];
         }
         std::cout << "Running test for " << "\033[1;33m" <<testName << "\033[1;33m" << ": ";
         inputPtr.upload(stream);
@@ -323,7 +323,7 @@ namespace test_case_builder::detail {
             fk::transformArray(inputElems, [](const BuildParams& input) {
                 const auto iROp = Operation::build(input);
                 using ROp = typename std::decay_t<decltype(iROp)>::Operation;
-                const fk::Point point(0, 0, 0);
+                const fk::Point point{0, 0, 0};
                 const uint num_elems_x = ROp::num_elems_x(point, iROp);
                 if constexpr (D == fk::ND::_1D) {
                     return fk::Ptr<D, OutputType>(num_elems_x);
@@ -372,7 +372,7 @@ struct TestCaseBuilder<Operation, std::enable_if_t<fk::IsUnaryType<Operation>::v
             const auto outputPtr = test_case_builder::detail::launchUnary<Operation>(testName, inputElems);
             bool result{ true };
             for (size_t i = 0; i < N; ++i) {
-                const auto generated = outputPtr.at(fk::Point(i));
+                const auto generated = outputPtr.at(fk::Point{static_cast<int>(i),0,0});
                 static_assert(std::is_same_v<std::decay_t<decltype(generated)>, std::decay_t<decltype(expectedElems[i])>>, "Output and Expected types are not the same");
                 const auto resultV = generated == expectedElems[i];
                 if (!resultV) {
@@ -407,7 +407,7 @@ struct TestCaseBuilder<Operation, std::enable_if_t<fk::IsUnaryType<Operation>::v
             const auto outputPtr = test_case_builder::detail::launchUnary<Operation>(testName, inputElems);
             bool result{ true };
             for (size_t i = 0; i < N; ++i) {
-                const auto generated = outputPtr.at(fk::Point(i));
+                const auto generated = outputPtr.at(fk::Point{static_cast<int>(i), 0, 0});
                 static_assert(std::is_same_v<std::decay_t<decltype(generated)>, std::decay_t<decltype(expectedElems[i])>>, "Output and Expected types are not the same");
                 const auto resultV = generated == expectedElems[i];
                 const auto arrayGenerated = fk::toArray(generated);

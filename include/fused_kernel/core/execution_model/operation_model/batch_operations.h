@@ -406,8 +406,8 @@ namespace fk {
             uint max_width{ 0 };
             uint max_height{ 0 };
             for (int i = 0; i < BATCH; ++i) {
-                max_width = cxp::max::f(max_width, NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[i]));
-                max_height = cxp::max::f(max_height, NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[i]));
+                max_width = cxp::max::f(max_width, NewOperation::num_elems_x(Point{0, 0, 0}, iOps[i]));
+                max_height = cxp::max::f(max_height, NewOperation::num_elems_y(Point{0, 0, 0}, iOps[i]));
             }
             using BatchReadType = std::conditional_t<isCompleteOperation<NewOperation>,
                 BatchRead<PlanePolicy::PROCESS_ALL, BATCH, NewOperation>,
@@ -437,8 +437,8 @@ namespace fk {
             uint max_width{0};
             uint max_height{0};
             for (int i=0; i < BATCH; ++i) {
-                max_width = cxp::max::f(max_width, NewOperation::num_elems_x(Point(0u, 0u, 0u), iOps[i]));
-                max_height = cxp::max::f(max_height, NewOperation::num_elems_y(Point(0u, 0u, 0u), iOps[i]));
+                max_width = cxp::max::f(max_width, NewOperation::num_elems_x(Point{0, 0, 0}, iOps[i]));
+                max_height = cxp::max::f(max_height, NewOperation::num_elems_y(Point{0, 0, 0}, iOps[i]));
             }
 
             using NewOutputType = std::conditional_t<std::is_same_v<typename NewOperation::OutputType, NullType>, DefaultType, typename NewOperation::OutputType>;

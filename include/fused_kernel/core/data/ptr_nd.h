@@ -566,7 +566,7 @@ namespace fk {
 #endif // defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED)
 #endif // defined(NVRTC_COMPILER)
 
-        inline T at(const Point& p) const {
+        inline T at(const Point p) const {
             if (type != MemType::Device) {
                 return *At::cr_point(p, ptr_pinned);
             } else {
@@ -575,23 +575,23 @@ namespace fk {
             }
         }
 
-        inline T at(const uint& x) const {
-            return at(Point(x, 0, 0));
+        inline T at(const int x) const {
+            return at(Point{x, 0, 0});
         }
 
         template <ND Dims = D>
         inline std::enable_if_t<(Dims == ND::_2D), T>
-        at(const uint& x, const uint& y) const {
-            return at(Point(x, y, 0));
+        at(const int x, const int y) const {
+            return at(Point{x, y, 0});
         }
 
         template <ND Dims = D>
         inline std::enable_if_t<(Dims == ND::_3D), T>
-        at(const uint& x, const uint& y, const uint& z) const {
-            return at(Point(x, y, z));
+        at(const int x, const int y, const int z) const {
+            return at(Point{x, y, z});
         }
 
-        inline T& at(const Point& p) {
+        inline T& at(const Point p) {
             if (type != MemType::Device) {
                 return *At::point(p, ptr_pinned);
             } else {
@@ -600,22 +600,22 @@ namespace fk {
             }
         }
 
-        inline T& at(const uint& x) {
-            T& val = at(Point(x, 0, 0));
+        inline T& at(const int x) {
+            T& val = at(Point{x, 0, 0});
             return val;
         }
 
         template <ND Dims = D>
         inline std::enable_if_t<(Dims == ND::_2D), T&>
-            at(const uint& x, const uint& y) {
-            T& val = at(Point(x, y, 0));
+            at(const int x, const int y) {
+            T& val = at(Point{x, y, 0});
             return val;
         }
 
         template <ND Dims = D>
         inline std::enable_if_t<(Dims == ND::_3D), T&>
-            at(const uint& x, const uint& y, const uint& z) {
-            T& val = at(Point(x, y, z));
+            at(const int x, const int y, const int z) {
+            T& val = at(Point{x, y, z});
             return val;
         }
 

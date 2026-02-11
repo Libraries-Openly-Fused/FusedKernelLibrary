@@ -18,7 +18,7 @@
 
 int launch() {
 
-    constexpr fk::Rect test(fk::Point(16, 32), fk::Size(32, 64));
+    constexpr fk::Rect test(fk::Point{16, 32, 0}, fk::Size(32, 64));
     static_assert(test.x == 16, "Something wrong");
     static_assert(test.y == 32, "Something wrong");
     static_assert(test.width == 32, "Something wrong");

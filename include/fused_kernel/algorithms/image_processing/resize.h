@@ -89,7 +89,7 @@ namespace fk {
             } else {
                 if (thread.x >= params.x1 && thread.x <= params.x2 &&
                     thread.y >= params.y1 && thread.y <= params.y2) {
-                    return exec_resize(Point(thread.x - params.x1, thread.y - params.y1), params, backIOp);
+                    return exec_resize(Point{thread.x - params.x1, thread.y - params.y1, 0}, params, backIOp);
                 } else {
                     return params.defaultValue;
                 }
@@ -109,7 +109,7 @@ namespace fk {
         }
 
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
-            return { num_elems_x(Point(), opData), num_elems_y(Point(), opData), num_elems_z(Point(), opData) };
+            return { num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
         }
 
     private:
@@ -165,7 +165,7 @@ namespace fk {
         FK_HOST_FUSE auto build(const NewBackIOp& backIOp, const Size& dstSize,
                                 const VectorType_t<float, cn<typename NewBackIOp::Operation::OutputType>>& backgroundValue) {
             static_assert(isCompleteOperation<NewBackIOp>, "NewBackIOp must be a complete IOp");
-            const Size srcSize = NumElems::size(Point(), backIOp);
+            const Size srcSize = NumElems::size(Point{0,0,0}, backIOp);
             const Size targetSize = compute_target_size(srcSize, dstSize);
 
             const double cfx = static_cast<double>(targetSize.width) / srcSize.width;
@@ -266,7 +266,7 @@ namespace fk {
         template <typename NewBackIOp>
         FK_HOST_FUSE auto build(const NewBackIOp& backIOp, const Size& dstSize) {
             static_assert(isCompleteOperation<NewBackIOp>, "NewBackIOp must be a complete IOp");
-            const Size srcSize = NumElems::size(Point(), backIOp);
+            const Size srcSize = NumElems::size(Point{0,0,0}, backIOp);
             const double cfx = static_cast<double>(dstSize.width) / static_cast<double>(srcSize.width);
             const double cfy = static_cast<double>(dstSize.height) / static_cast<double>(srcSize.height);
             const typename NewInstantiableType<NewBackIOp>::ParamsType resizeParams{

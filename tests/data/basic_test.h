@@ -34,7 +34,7 @@ bool testPtr_2D() {
     constexpr size_t width_crop = 300;
     constexpr size_t height_crop = 200;
 
-    fk::Point startPoint = {100, 200};
+    fk::Point startPoint = {100, 200, 0};
 
     fk::Stream stream;
 

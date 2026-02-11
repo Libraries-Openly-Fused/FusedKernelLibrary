@@ -460,10 +460,10 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     Stream stream;
 
     // We set all outputs to the same size
-    const Size outputSize(32, 32);
+    const Size outputSize(60, 60);
 
     // We perform 5 crops on the image
-    constexpr int BATCH = 10;
+    constexpr int BATCH = 100;
 
     // We have a 4K source image
     Ptr2D<uchar3> inputImage(3840, 2160);
@@ -519,7 +519,10 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
 
     // Fourth, test the fold expression solution to expand the IOp parameter pack
     executeOperations<SimpleTransformDPPReferenceFoldExpr<>>(stream, readIOp, cropIOp, resizeIOp, mulIOp, subIOp,
-                                                               divIOp, colorIOp, tensorWriteIOp);
+                                                                     divIOp, colorIOp, tensorWriteIOp);
+
+    executeOperations<TransformDPP<>>(stream, readIOp, cropIOp, resizeIOp, mulIOp, subIOp,
+                                              divIOp, colorIOp, tensorWriteIOp);
 
     // Fifth, test (partial) pass by value, with less device function call depth
     /* const auto dummyIOp = DummyOp<uchar3, float3, float3>::build(make_set<float3>(2.f));

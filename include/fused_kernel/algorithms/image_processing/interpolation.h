@@ -81,14 +81,14 @@ namespace fk {
             const int x2 = x1 + 1;
             const int y2 = y1 + 1;
 
-            const Size srcSize = NumElems::size(Point(), backIOp);
+            const Size srcSize = NumElems::size(Point{0,0,0}, backIOp);
             const int x2_read = cxp::min::f(x2, srcSize.width - 1);
             const int y2_read = cxp::min::f(y2, srcSize.height - 1);
 
-            const Slice2x2<Point> readPoints{ Point(x1, y1),
-                                              Point(x2_read, y1),
-                                              Point(x1, y2_read),
-                                              Point(x2_read, y2_read) };
+            const Slice2x2<Point> readPoints{ {x1, y1, 0},
+                                              {x2_read, y1, 0},
+                                              {x1, y2_read, 0},
+                                              {x2_read, y2_read, 0} };
 
             // Read the 4 pixels from backIOp Read or ReadBack Operation
             const auto src_reg0x0 = BackIOp::Operation::exec(readPoints._0x0, backIOp);

@@ -151,8 +151,8 @@ namespace fk {
             const auto& writeOp = ppLast(iOps...);
             using ReadOperation = typename FirstType_t<IOpTypes...>::Operation;
             using WriteOperation = typename LastType_t<IOpTypes...>::Operation;
-            const uint readRow = ReadOperation::num_elems_x(Point(0, 0, 0), { readOp.params });
-            const uint writeRow = WriteOperation::num_elems_x(Point(0, 0, 0), { writeOp.params });
+            const uint readRow = ReadOperation::num_elems_x(Point{0, 0, 0}, { readOp.params });
+            const uint writeRow = WriteOperation::num_elems_x(Point{0, 0, 0}, { writeOp.params });
             return (readRow % elems_per_thread == 0) && (writeRow % elems_per_thread == 0);
         } else {
             return true;

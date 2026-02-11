@@ -65,7 +65,7 @@ namespace fk {
     union ArrayVector<T, 1> {
         static_assert(std::is_fundamental_v<T>, "ArrayVector<T, 1> can only be used with fundamental types");
         enum { size = 1 };
-        T at[size];
+        T at[1];
         struct {
             T x;
         };
@@ -90,7 +90,7 @@ namespace fk {
     union ArrayVector<T, 2> {
         static_assert(std::is_fundamental_v<T>, "ArrayVector<T, 2> can only be used with fundamental types");
         enum { size = 2 };
-        T at[size];
+        T at[2];
         struct {
             T x, y;
         };
@@ -124,7 +124,7 @@ namespace fk {
     union ArrayVector<T, 3> {
         static_assert(std::is_fundamental_v<T>, "ArrayVector<T, 3> can only be used with fundamental types");
         enum { size = 3 };
-        T at[size];
+        T at[3];
         struct {
             T x, y, z;
         };
@@ -159,7 +159,7 @@ namespace fk {
     union ArrayVector<T, 4> {
         static_assert(std::is_fundamental_v<T>, "ArrayVector<T, 4> can only be used with fundamental types");
         enum { size = 4 };
-        T at[size];
+        T at[4];
         struct {
             T x, y, z, w;
         };
