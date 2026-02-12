@@ -21,7 +21,7 @@
 #include <fused_kernel/core/utils/type_lists.h>
 #include <fused_kernel/core/utils/template_operations.h>
 #include <fused_kernel/core/data/vector_types.h>
-#include <fused_kernel/core/utils/static_get.h>
+#include <fused_kernel/core/utils/utils.h>
 
 namespace fk {
     template <typename BaseType, int Channels>
@@ -158,11 +158,9 @@ namespace fk {
     template <typename T>
     using VBase = typename VectorTraits<T>::base;
 
-    template <size_t Idx>
-    template <typename VT>
-    FK_HOST_DEVICE_CNST auto static_get<Idx>::f(const VT& v)
-        -> std::enable_if_t<IsCudaVector<VT>::value,
-                            typename VectorTraits<VT>::base> {
+    template <size_t Idx, typename VT>
+    FK_HOST_DEVICE_CNST auto static_get(const VT& v) {
+        static_assert(IsCudaVector<VT>::value, "Invalid type for static_get");
         static_assert((Idx < cn<VT>), "Index out of bounds.");
         if constexpr (Idx == 0) {
             return v.x;

@@ -101,7 +101,7 @@ constexpr inline bool equalInstances(const T& instance1, const T& instance2) {
         const auto i1 = fk::toArray(instance1);
         const auto i2 = fk::toArray(instance2);
         constexpr size_t N = static_cast<size_t>(fk::cn<T>);
-        const fk::Array<bool, N> equalArray = fk::transformArray(fk::makeIndexArray<N>(),
+        const fk::ArrayVector<bool, N> equalArray = fk::transformArray(fk::makeIndexArray<N>(),
             [&] (const size_t& idx) constexpr {
                 return equalValues(i1[idx], i2[idx]);
             }

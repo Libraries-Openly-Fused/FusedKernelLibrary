@@ -74,6 +74,21 @@ namespace fk {
         }
     };
 
+    struct ReadOp {
+        template <typename PtrType>
+        FK_HOST_FUSE auto build(const PtrType& ptr) {
+            constexpr ND D = PtrType::nd;
+            using PtrDataType = typename PtrType::Type;
+            return PerThreadRead<D, PtrDataType>::build(ptr);
+        }
+        template <typename PtrType, size_t N>
+        FK_HOST_FUSE auto build(const std::array<PtrType, N>& ptrs) {
+            constexpr ND D = PtrType::nd;
+            using PtrDataType = typename PtrType::Type;
+            return PerThreadRead<D, PtrDataType>::build(ptrs);
+        }
+    };
+
     template <enum ND D, typename T>
     struct PerThreadWrite {
     private:
@@ -96,6 +111,21 @@ namespace fk {
         }
         FK_HOST_FUSE InstantiableType build(const Ptr<D, T>& ptr) {
             return InstantiableType{ {ptr.ptr()} };
+        }
+    };
+
+    struct WriteOp {
+        template <typename PtrType>
+        FK_HOST_FUSE auto build(const PtrType& ptr) {
+            constexpr ND D = PtrType::nd;
+            using PtrDataType = typename PtrType::Type;
+            return PerThreadWrite<D, PtrDataType>::build(ptr);
+        }
+        template <typename PtrType, size_t N>
+        FK_HOST_FUSE auto build(const std::array<PtrType, N>& ptrs) {
+            constexpr ND D = PtrType::nd;
+            using PtrDataType = typename PtrType::Type;
+            return PerThreadWrite<D, PtrDataType>::build(ptrs);
         }
     };
 

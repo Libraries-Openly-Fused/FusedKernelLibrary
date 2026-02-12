@@ -19,7 +19,7 @@
 #include <cooperative_groups.h>
 namespace cooperative_groups {};
 namespace cg = cooperative_groups;
-#endif // defined(__NVCC__) || defined(__HIP__) || defined(__NVRTC__) || defined(NVRTC_COMPILER)
+#endif
 
 #include <fused_kernel/core/utils/parameter_pack_utils.h>
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
@@ -72,20 +72,9 @@ namespace fk { // namespace FusedKernel
     private:
         using Details = DPPDetails;
 
-        template <typename T, typename IOp, typename... IOpTypes>
-        FK_HOST_DEVICE_FUSE auto operate(const Point& thread, const T& i_data, const IOp& iOp, const IOpTypes&... iOpInstances) {
-            static_assert(!isIncompleteReadBackType<IOp>, "Trying to execute an incomplete IOp");
-            if constexpr (IOp::template is<WriteType>) {
-                return i_data;
-                // MidWriteOperation with continuations, based on FusedOperation
-            } else if constexpr (IOp::template is<MidWriteType> && isMidWriteType<typename IOp::Operation>) {
-                return IOp::Operation::exec(thread, i_data, iOp);
-            } else if constexpr (IOp::template is<MidWriteType> && !isMidWriteType<typename IOp::Operation>) {
-                IOp::Operation::exec(thread, i_data, iOp);
-                return i_data;
-            } else {
-                return operate(thread, compute(i_data, iOp), iOpInstances...);
-            }
+        template <typename T, typename... IOpTypes>
+        FK_HOST_DEVICE_FUSE auto operate(const Point& thread, const T& i_data, const IOpTypes&... iOpInstances) {
+            return (InputFoldType(thread, i_data) | ... | iOpInstances).input;
         }
 
         template <uint IDX, typename TFI, typename InputType, typename... IOpTypes>
