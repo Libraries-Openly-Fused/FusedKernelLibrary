@@ -118,8 +118,7 @@ namespace fk {
         } else if constexpr (one_of_v<T, VFour>) {
             return 4;
         } else {
-            static_assert(one_of_v<T, VOne> || one_of_v<T, VTwo> || one_of_v<T, VThree> || one_of_v<T, VFour>,
-                          "Type T must be a valid CUDA vector type");
+            static_assert(!sizeof(T), "Type T must be a valid CUDA vector type (1, 2, 3, or 4 channels)");
             return 0; // Unreachable, but required for compilation
         }
     }
