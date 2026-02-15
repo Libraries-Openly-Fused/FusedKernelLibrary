@@ -114,11 +114,10 @@ namespace fk {
 
     private:
         FK_HOST_DEVICE_FUSE decltype(auto) exec_resize(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
+            static_assert(isTernaryType<BackIOp>, "BackIOp must be a ternary type for this specialization");
+            
             const float src_x = thread.x * params.src_conv_factors.x;
             const float src_y = thread.y * params.src_conv_factors.y;
-
-            // Assuming BackIOp is a TernaryType
-            static_assert(isTernaryType<BackIOp>, "BackIOp must be a ternary type for this specialization");
             return BackIOp::Operation::exec({ src_x, src_y }, backIOp);
         }
     };
