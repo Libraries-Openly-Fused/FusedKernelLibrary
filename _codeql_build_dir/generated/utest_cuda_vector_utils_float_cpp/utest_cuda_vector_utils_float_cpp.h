@@ -1,0 +1,28 @@
+﻿/* Copyright 2025 Oscar Amoros Huguet
+   Copyright 2025 Albert Andaluz
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License. */
+
+#define __ONLY_CPU__
+
+#ifndef FK_UTEST_CUDA_VECTOR_UTILS_FLOAT_H
+#define FK_UTEST_CUDA_VECTOR_UTILS_FLOAT_H
+
+#include "utest_cuda_vector_utils_float_cpp_export.h"
+
+namespace fk::utest_cuda_vector_utils_float_cpp {
+
+    int UTEST_CUDA_VECTOR_UTILS_FLOAT_CPP_EXPORT launch();
+
+#endif // FK_UTEST_CUDA_VECTOR_UTILS_FLOAT_H
+} // namespace fk::test
