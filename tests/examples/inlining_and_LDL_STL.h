@@ -528,7 +528,7 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     /* const auto dummyIOp = DummyOp<uchar3, float3, float3>::build(make_set<float3>(2.f));
     using DummyOpType = typename std::decay_t<decltype(dummyIOp)>::Operation;
     static_assert(std::is_same_v<typename DummyOpType::OutputType, float3>, "Not float3");
-    auto result = (Point(0, 0, 0) | readIOp.then(cropIOp) | dummyIOp);
+    auto result = (Point{0, 0, 0} | readIOp.then(cropIOp) | dummyIOp);
     using ResultType = decltype(result.input);
     static_assert(std::is_same_v<ResultType, float3>, "Not float3");
     executeOperations<SimpleTransformDPPValueLessCallDepth<>>(stream, readIOp.then(cropIOp), Cast<uchar3, float3>::build(), mulIOp,
