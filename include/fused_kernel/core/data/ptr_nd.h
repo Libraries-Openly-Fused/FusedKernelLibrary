@@ -564,7 +564,7 @@ namespace fk {
         inline void download(Stream& stream) {}
 #endif // defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED)
 
-        inline T at(const Point p) const {
+        inline T at(const Point& p) const {
             if (type != MemType::Device) {
                 return *At::cr_point(p, ptr_pinned);
             } else {
