@@ -171,7 +171,7 @@ namespace fk { // namespace FusedKernel
         }
 
         template <typename FirstIOp>
-        FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const Details& details,
+        FK_HOST_DEVICE_FUSE decltype(auto) getActiveThreads(const Details& details,
                                                            const FirstIOp& iOp) {
             if constexpr (Details::TFI::ENABLED) {
                 return details.activeThreads;
@@ -185,7 +185,7 @@ namespace fk { // namespace FusedKernel
     struct TransformDPP<PA, TFEN, void, true, void> {
         static constexpr ParArch PAR_ARCH = PA;
         template <typename FirstIOp, typename... IOps>
-        FK_HOST_FUSE auto build_details(const FirstIOp& firstIOp, const IOps&... iOps) {
+        FK_HOST_FUSE decltype(auto) build_details(const FirstIOp& firstIOp, const IOps&... iOps) {
             using Details = TransformDPPDetails<static_cast<bool>(TFEN), FirstIOp, IOps...>;
             using TFI = typename Details::TFI;
 
@@ -202,7 +202,7 @@ namespace fk { // namespace FusedKernel
             }
         }
         template <typename FirstIOp, typename... IOps>
-        FK_DEVICE_FUSE auto build_details(const ActiveThreads& activeThreads, const uint& readRow, const uint& writeRow) {
+        FK_DEVICE_FUSE decltype(auto) build_details(const ActiveThreads& activeThreads, const uint& readRow, const uint& writeRow) {
             using Details = TransformDPPDetails<static_cast<bool>(TFEN), FirstIOp, IOps...>;
             using TFI = typename Details::TFI;
             if constexpr (TFI::ENABLED) {
@@ -236,14 +236,14 @@ namespace fk { // namespace FusedKernel
     public:
         static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
         template <typename FirstIOp>
-        FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const Details& details,
-                                                           const FirstIOp& iOp) {
+        FK_HOST_DEVICE_FUSE decltype(auto) getActiveThreads(const Details& details,
+                                                            const FirstIOp& iOp) {
             return Parent::getActiveThreads(details, iOp);
         }
 
         template <typename... IOps>
         FK_DEVICE_FUSE void exec(const Details& details, const IOps&... iOps) {
-#if VS2017_COMPILER || CLANG_HOST_DEVICE
+#if CLANG_HOST_DEVICE
             const int x = (blockDim.x * blockIdx.x) + threadIdx.x;
             const int y = (blockDim.y * blockIdx.y) + threadIdx.y;
             const int z = blockIdx.z; // So far we only consider the option of using the z dimension to specify n (x*y) thread planes
@@ -264,7 +264,7 @@ namespace fk { // namespace FusedKernel
             }
         }
     };
-#endif // defined(__NVCC__) || defined(__HIPCC__) || defined(__NVRTC__) || defined(NVRTC_COMPILER)
+#endif // defined(__NVCC__) || CLANG_HOST_DEVICE
 
     template <enum TF TFEN, typename DPPDetails, bool THREAD_DIVISIBLE>
     struct TransformDPP<ParArch::CPU, TFEN, DPPDetails, THREAD_DIVISIBLE, std::enable_if_t<!std::is_same_v<DPPDetails, void>, void>> {
@@ -274,8 +274,8 @@ namespace fk { // namespace FusedKernel
     public:
         static constexpr ParArch PAR_ARCH = ParArch::CPU;
         template <typename FirstIOp>
-        FK_HOST_FUSE ActiveThreads getActiveThreads(const Details& details,
-                                                    const FirstIOp& iOp) {
+        FK_HOST_FUSE decltype(auto) getActiveThreads(const Details& details,
+                                                     const FirstIOp& iOp) {
             return Parent::getActiveThreads(details, iOp);
         }
 
@@ -341,7 +341,7 @@ namespace fk { // namespace FusedKernel
         static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
         template <typename... IOpSequenceTypes>
         FK_DEVICE_FUSE void exec(const DPPDetails&, const IOpSequenceTypes&... iOpSequences) {
-#if VS2017_COMPILER || CLANG_HOST_DEVICE
+#if CLANG_HOST_DEVICE
             const uint z = blockIdx.z;
 #else
             const cg::thread_block g = cg::this_thread_block();
