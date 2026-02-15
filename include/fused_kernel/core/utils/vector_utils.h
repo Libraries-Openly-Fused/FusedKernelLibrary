@@ -118,7 +118,9 @@ namespace fk {
         } else if constexpr (one_of_v<T, VFour>) {
             return 4;
         } else {
-            return 0; // This should never happen due to the static_assert in validCUDAVec, but we need it to compile
+            static_assert(one_of_v<T, VOne> || one_of_v<T, VTwo> || one_of_v<T, VThree> || one_of_v<T, VFour>,
+                          "Type T must be a valid CUDA vector type");
+            return 0; // Unreachable, but required for compilation
         }
     }
 
