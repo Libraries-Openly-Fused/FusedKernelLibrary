@@ -510,7 +510,6 @@ namespace fk {
             return *this;
         }
 
-#if !defined(NVRTC_COMPILER)
 #if defined(__NVCC__) || CLANG_HOST_DEVICE
         inline void uploadTo(Ptr<D, T>& other, cudaStream_t stream = 0) {
             constexpr cudaMemcpyKind kind = cudaMemcpyHostToDevice;
@@ -564,7 +563,6 @@ namespace fk {
         inline void upload(Stream& stream) {}
         inline void download(Stream& stream) {}
 #endif // defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED)
-#endif // defined(NVRTC_COMPILER)
 
         inline T at(const Point p) const {
             if (type != MemType::Device) {
