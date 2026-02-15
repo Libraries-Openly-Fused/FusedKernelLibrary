@@ -270,10 +270,7 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
      */
     template <typename Operation_t>
     struct ClosedInstantiableOperation final : public OperationData<Operation_t> {
-        INSTANTIABLE_OPERATION_DETAILS_IS(ClosedType)
-        static_assert(std::is_same_v<typename Operation::InstanceType, ClosedType> ||
-                          std::is_same_v<typename Operation::InstanceType, ClosedType>,
-                      "Operation is not FusedType");
+        INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT(ClosedType)
 
         FK_HOST_DEVICE_CNST friend void operator|(const Point& thread, const OperationData<Operation_t>& opData) {
             Operation::exec(thread, opData);
