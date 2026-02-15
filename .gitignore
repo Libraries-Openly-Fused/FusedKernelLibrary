@@ -12,5 +12,4 @@ CMakeFiles/
 cmake_install.cmake
 Makefile
 CTestTestfile.cmake
-Testing/_codeql_build_dir/
-_codeql*
+Testing/
