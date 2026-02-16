@@ -393,7 +393,7 @@ namespace fk {
     /* The following code has the following copy right
 
        Copyright 2024-2026 Oscar Amoros Huguet
-       Copyright 2023 Grup Mediapro S.L.U. (Oscar Amoros Huget)
+       Copyright 2023 Grup Mediapro S.L.U. (Oscar Amoros Huguet)
        Copyright 2023 Grup Mediapro S.L.U. (Guillermo Oyarzun Altamirano)
 
        Licensed under the Apache License, Version 2.0 (the "License");
