@@ -296,12 +296,12 @@ int launch() {
             "Mixed compute chain should be BinaryType when not all are Unary");
     }
 
-    // Test 15: Verify complex existing SomeFusedOp is still valid
+    // Test 13: Verify complex existing SomeFusedOp is still valid
     // This ensures backward compatibility with existing complex operations
     static_assert(std::is_same_v<typename SomeFusedOp::InstanceType, fk::ReadType>,
         "Complex SomeFusedOp should be ReadType (starts with ReadBack, no Write at end)");
 
-    // Test 16: Verify operation fusion with .then() for deep chains
+    // Test 14: Verify operation fusion with .then() for deep chains
     {
         constexpr auto chain1 = fk::Add<int, int, int, fk::UnaryType>::build()
             .then(fk::Cast<int, float>::build())
@@ -314,7 +314,7 @@ int launch() {
             "Deep .then() chain should have 5 operations");
     }
 
-    // Test 17: Verify FusedOperation can be fused again (nesting FusedOperations)
+    // Test 15: Verify FusedOperation can be fused again (nesting FusedOperations)
     {
         constexpr auto inner = fk::fuse(
             fk::Add<int, int, int, fk::UnaryType>::build(),
@@ -327,14 +327,14 @@ int launch() {
         // This should compile without errors
     }
 
-    // Test 18: Edge case - Single operation wrapped in FusedOperation
+    // Test 16: Edge case - Single operation wrapped in FusedOperation
     {
         using SingleOpFused = fk::FusedOperation<fk::Unary<fk::Cast<int, float>>>;
         static_assert(std::is_same_v<typename SingleOpFused::InstanceType, fk::UnaryType>,
             "Single Unary operation should be UnaryType");
     }
 
-    // Test 19: Edge case - Two operations (minimum for meaningful fusion)
+    // Test 17: Edge case - Two operations (minimum for meaningful fusion)
     {
         using TwoOpFused = fk::FusedOperation<
             fk::Binary<fk::Add<float>>,
@@ -344,7 +344,7 @@ int launch() {
             "Two mixed compute ops should be BinaryType");
     }
 
-    // Test 20: Maximum stress test - 15+ operations deeply nested
+    // Test 18: Maximum stress test - 15+ operations deeply nested
     {
         using MaxStressTest = fk::FusedOperation<
             fk::Read<fk::PerThreadRead<fk::ND::_2D, float>>,
