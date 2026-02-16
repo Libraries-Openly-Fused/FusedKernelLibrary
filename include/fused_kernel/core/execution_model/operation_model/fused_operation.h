@@ -188,7 +188,7 @@ namespace fk {
         DECLARE_WRITE_PARENT
         using Operations = TypeList<IOps...>;
         FK_HOST_DEVICE_FUSE void exec(const Point &thread, const InputType& input, const ParamsType &params) {
-            exec_helper(std::make_index_sequence<ParamsType::size>{}, thread, input, params);
+            exec_helper(std::make_index_sequence<ParamsType::size - 1>{}, thread, input, params);
         }
 
       private:
@@ -196,8 +196,8 @@ namespace fk {
         FK_HOST_DEVICE_FUSE void exec_helper(const std::index_sequence<Idx...> &, const Point &thread,
                                              const InputType& input, const ParamsType &params) {
             LastType_t<typename ParamsType::Operations>::Operation::exec(
-                thread, (InputFoldType<>::build(thread, input) | ... | get_opt<Idx>(params)),
-                get_opt<sizeof...(Idx) - 1>(params));
+                thread, (InputFoldType<>::build(thread, input) | ... | get_opt<Idx>(params)).input,
+                get_opt<ParamsType::size - 1>(params));
         }
     };
 
