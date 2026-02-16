@@ -115,11 +115,9 @@ namespace fk {
             return 2;
         } else if constexpr (one_of_v<T, VThree>) {
             return 3;
-        } else if constexpr (one_of_v<T, VFour>) {
-            return 4;
         } else {
-            static_assert(!sizeof(T), "Type T must be a valid CUDA vector type (1, 2, 3, or 4 channels)");
-            return 0; // Unreachable, but required for compilation
+            static_assert(one_of_v<T, VFour>, "Type T must be a valid CUDA vector type (1, 2, 3, or 4 channels)");
+            return 4;
         }
     }
 
