@@ -128,16 +128,16 @@ int launch() {
     } else {
         std::cout << "cuda_transform failed!!" << std::endl;
         if (!test2Dpassed) {
-            std::cout << "Especifically testPtr_2D failed!!" << std::endl;
+            std::cout << "Specifically testPtr_2D failed!!" << std::endl;
         }
         if (!test1) {
-            std::cout << "Especifically test1 failed!!" << std::endl;
+            std::cout << "Specifically test1 failed!!" << std::endl;
         }
         if (!test2) {
-            std::cout << "Especifically test2 failed!!" << std::endl;
+            std::cout << "Specifically test2 failed!!" << std::endl;
         }
         if (!test3) {
-            std::cout << "Especifically test3 failed!!" << std::endl;
+            std::cout << "Specifically test3 failed!!" << std::endl;
         }
         return -1;
     }
