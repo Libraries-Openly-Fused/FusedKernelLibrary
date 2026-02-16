@@ -21,16 +21,19 @@
 #include <utility>
 #include <fused_kernel/core/utils/utils.h>
 
-#if __cplusplus < 202002L
-namespace std {
-template <typename T>
-struct type_identity {
-    using type = T;
-};
-} // namespace std
-#endif
-
 namespace fk { // namespace fused kernel
+
+    // Type identity implementation that avoids adding to namespace std
+    // Uses std::type_identity when available (C++20+), otherwise provides our own
+#if __cplusplus >= 202002L && defined(__cpp_lib_type_identity)
+    template <typename T>
+    using type_identity = std::type_identity<T>;
+#else
+    template <typename T>
+    struct type_identity {
+        using type = T;
+    };
+#endif
 
     template <size_t I, typename T>
     struct TypeLeaf {
@@ -42,7 +45,7 @@ namespace fk { // namespace fused kernel
         // We rely on the compiler matching the specific base class TypeLeaf<I, T>
         // to the explicitly provided index 'I'.
         template <size_t I, typename T>
-        std::type_identity<T> getter(const TypeLeaf<I, T> &);
+        fk::type_identity<T> getter(const TypeLeaf<I, T> &);
     } // namespace detail
 
     template <typename IndxSeq, typename... Ts>
