@@ -22,13 +22,13 @@
 namespace fk {
     /* Operation types are linked to the exec() function definition in the Operation. 
     *  The elements that can change accross Operation types are:
-    *   - OutputType: wether the exec function returns a value or not, and which type it is. The value resides on registers.
-    *   - ElementIdx (using the type Point): wether the exec function gets the thread idx as input or not.
+    *   - OutputType: whether the exec function returns a value or not, and which type it is. The value resides on registers.
+    *   - ElementIdx (using the type Point): whether the exec function gets the thread idx as input or not.
     *     It is used to compute DRAM or Shared Memory addresses to read from or write into.
-    *   - InputType: wether the exec function gets an input value or not. This value resides on registers.
-    *   - ParamsType: wether the exec function gets an any additional data that is not computed inside the kernel
+    *   - InputType: whether the exec function gets an input value or not. This value resides on registers.
+    *   - ParamsType: whether the exec function gets an any additional data that is not computed inside the kernel
     *     and that is needed for the execution of the operation.
-    *   - BackIOp: wether the exec function gets an additional IOp as input, that is executed as part of the operation
+    *   - BackIOp: whether the exec function gets an additional IOp as input, that is executed as part of the operation
     *     implementation.
     * 
     *    An example of the exec function with all the types would be:
