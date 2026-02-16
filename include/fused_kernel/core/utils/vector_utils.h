@@ -118,7 +118,8 @@ namespace fk {
         } else if constexpr (one_of_v<T, VFour>) {
             return 4;
         } else {
-            return 0; // This should never happen due to the static_assert in validCUDAVec, but we need it to compile
+            static_assert(!sizeof(T), "Type T must be a valid CUDA vector type (1, 2, 3, or 4 channels)");
+            return 0; // Unreachable, but required for compilation
         }
     }
 
