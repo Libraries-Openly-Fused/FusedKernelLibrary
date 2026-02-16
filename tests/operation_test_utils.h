@@ -1,4 +1,4 @@
-﻿/* Copyright 2026 Oscar Amoros Huguet
+﻿/* Copyright 2025-2026 Oscar Amoros Huguet
    Copyright 2025 Albert Andaluz
    Copyright 2025 Grup Mediapro S.L.U
 
