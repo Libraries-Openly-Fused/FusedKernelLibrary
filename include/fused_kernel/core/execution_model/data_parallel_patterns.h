@@ -73,23 +73,23 @@ namespace fk { // namespace FusedKernel
         using Details = DPPDetails;
 
         template <typename T, typename... IOpTypes>
-        FK_HOST_DEVICE_FUSE decltype(auto) operate(const Point& thread, const T& i_data, const IOpTypes&... iOpInstances) {
+        FK_HOST_DEVICE_FUSE auto operate(const Point& thread, const T& i_data, const IOpTypes&... iOpInstances) {
             return (InputFoldType(thread, i_data) | ... | iOpInstances).input;
         }
 
         template <uint IDX, typename TFI, typename InputType, typename... IOpTypes>
-        FK_HOST_DEVICE_FUSE decltype(auto) operate_idx(const Point& thread, const InputType& input, const IOpTypes&... instantiableOperationInstances) {
+        FK_HOST_DEVICE_FUSE auto operate_idx(const Point& thread, const InputType& input, const IOpTypes&... instantiableOperationInstances) {
             return operate(thread, TFI::template get<IDX>(input), instantiableOperationInstances...);
         }
 
         template <typename TFI, typename InputType, uint... IDX, typename... IOpTypes>
-        FK_HOST_DEVICE_FUSE decltype(auto) operate_thread_fusion_impl(std::integer_sequence<uint, IDX...> idx, const Point& thread,
+        FK_HOST_DEVICE_FUSE auto operate_thread_fusion_impl(std::integer_sequence<uint, IDX...> idx, const Point& thread,
             const InputType& input, const IOpTypes&... instantiableOperationInstances) {
             return TFI::make(operate_idx<IDX, TFI>(thread, input, instantiableOperationInstances...)...);
         }
 
         template <typename TFI, typename InputType, typename... IOpTypes>
-        FK_HOST_DEVICE_FUSE decltype(auto) operate_thread_fusion(const Point& thread, const InputType& input, const IOpTypes&... instantiableOperationInstances) {
+        FK_HOST_DEVICE_FUSE auto operate_thread_fusion(const Point& thread, const InputType& input, const IOpTypes&... instantiableOperationInstances) {
             if constexpr (TFI::elems_per_thread == 1) {
                 return operate(thread, input, instantiableOperationInstances...);
             } else {
@@ -98,7 +98,7 @@ namespace fk { // namespace FusedKernel
         }
         // We pass TFI as a template parameter because sometimes we need to disable the TF
         template <typename TFI, typename ReadIOp>
-        FK_HOST_DEVICE_FUSE decltype(auto) read(const Point& thread, const ReadIOp& readDF) {
+        FK_HOST_DEVICE_FUSE auto read(const Point& thread, const ReadIOp& readDF) {
             if constexpr (TFI::ENABLED) {
                 static_assert(isAnyReadType<ReadIOp>, "ReadIOp is not ReadType or ReadBackType");
                 return ReadIOp::Operation::template exec<TFI::elems_per_thread>(thread, readDF);
@@ -171,7 +171,7 @@ namespace fk { // namespace FusedKernel
         }
 
         template <typename FirstIOp>
-        FK_HOST_DEVICE_FUSE decltype(auto) getActiveThreads(const Details& details,
+        FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const Details& details,
                                                            const FirstIOp& iOp) {
             if constexpr (Details::TFI::ENABLED) {
                 return details.activeThreads;
@@ -185,7 +185,7 @@ namespace fk { // namespace FusedKernel
     struct TransformDPP<PA, TFEN, void, true, void> {
         static constexpr ParArch PAR_ARCH = PA;
         template <typename FirstIOp, typename... IOps>
-        FK_HOST_FUSE decltype(auto) build_details(const FirstIOp& firstIOp, const IOps&... iOps) {
+        FK_HOST_FUSE auto build_details(const FirstIOp& firstIOp, const IOps&... iOps) {
             using Details = TransformDPPDetails<static_cast<bool>(TFEN), FirstIOp, IOps...>;
             using TFI = typename Details::TFI;
 
@@ -202,7 +202,7 @@ namespace fk { // namespace FusedKernel
             }
         }
         template <typename FirstIOp, typename... IOps>
-        FK_DEVICE_FUSE decltype(auto) build_details(const ActiveThreads& activeThreads, const uint& readRow, const uint& writeRow) {
+        FK_DEVICE_FUSE auto build_details(const ActiveThreads& activeThreads, const uint& readRow, const uint& writeRow) {
             using Details = TransformDPPDetails<static_cast<bool>(TFEN), FirstIOp, IOps...>;
             using TFI = typename Details::TFI;
             if constexpr (TFI::ENABLED) {
@@ -236,7 +236,7 @@ namespace fk { // namespace FusedKernel
     public:
         static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
         template <typename FirstIOp>
-        FK_HOST_DEVICE_FUSE decltype(auto) getActiveThreads(const Details& details,
+        FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const Details& details,
                                                             const FirstIOp& iOp) {
             return Parent::getActiveThreads(details, iOp);
         }
@@ -274,7 +274,7 @@ namespace fk { // namespace FusedKernel
     public:
         static constexpr ParArch PAR_ARCH = ParArch::CPU;
         template <typename FirstIOp>
-        FK_HOST_FUSE decltype(auto) getActiveThreads(const Details& details,
+        FK_HOST_FUSE ActiveThreads getActiveThreads(const Details& details,
                                                      const FirstIOp& iOp) {
             return Parent::getActiveThreads(details, iOp);
         }

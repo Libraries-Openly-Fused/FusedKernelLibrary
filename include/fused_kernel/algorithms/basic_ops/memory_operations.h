@@ -32,36 +32,36 @@ namespace fk {
         FK_STATIC_STRUCT(PerThreadRead, SelfType)
         DECLARE_READ_PARENT
         template <uint ELEMS_PER_THREAD=1>
-        FK_HOST_DEVICE_FUSE decltype(auto) exec(const Point& thread, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params) {
             return *PtrAccessor<D>::template cr_point<T, ThreadFusionType<ReadDataType, ELEMS_PER_THREAD, OutputType>>(thread, params);
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.width;
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
             if constexpr (D == ND::_1D) {
-                return uint{1};
+                return 1;
             } else {
                 return opData.params.dims.height;
             }
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
             if constexpr (D == ND::_1D || D == ND::_2D) {
-                return uint{1};
+                return 1;
             } else {
                 return opData.params.dims.planes;
             }
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) pitch(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.pitch;
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) getActiveThreads(const OperationDataType& opData) {
-            return ActiveThreads{ num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
+        FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
+            return { num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
         }
     };
 
@@ -94,14 +94,14 @@ namespace fk {
                                       const ParamsType& params) {
             *PtrAccessor<D>::template point<T, ThreadFusionType<T, ELEMS_PER_THREAD, T>>(thread, params) = input;
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.width;
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) pitch(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.pitch;
         }
-        FK_HOST_FUSE decltype(auto) build(const Ptr<D, T>& ptr) {
-            return InstantiableType{ {ptr.ptr()} };
+        FK_HOST_FUSE InstantiableType build(const Ptr<D, T>& ptr) {
+            return { {ptr.ptr()} };
         }
     };
 
@@ -130,27 +130,28 @@ namespace fk {
         DECLARE_READ_PARENT
 
         template <uint ELEMS_PER_THREAD = 1>
-        FK_HOST_DEVICE_FUSE decltype(auto) exec(const Point& thread, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE auto exec(const Point& thread, const ParamsType& params) 
+            -> ThreadFusionType<ReadDataType, ELEMS_PER_THREAD, OutputType> {
             return *PtrAccessor<ND::_3D>::template cr_point<T, ThreadFusionType<ReadDataType, ELEMS_PER_THREAD, OutputType>>(thread, params);
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.width;
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.height;
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.planes;
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) pitch(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.pitch;
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) getActiveThreads(const OperationDataType& opData) {
-            return ActiveThreads{ num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
+        FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
+            return { num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
         }
     };
 
@@ -167,11 +168,11 @@ namespace fk {
             *PtrAccessor<ND::_3D>::template point<T, ThreadFusionType<InputType, ELEMS_PER_THREAD, InputType>>(thread, params) = input;
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.width;
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) pitch(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.pitch;
         }
     };
@@ -201,10 +202,10 @@ namespace fk {
                 *(work_plane + (planePixels * 3)) = input.w;
             }
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.width;
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) pitch(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.pitch;
         }
     };
@@ -230,10 +231,10 @@ namespace fk {
                 *PtrAccessor<ND::T3D>::point(thread, params, 3) = input.w;
             }
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.width;
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) pitch(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.pitch;
         }
     };
@@ -266,24 +267,24 @@ namespace fk {
             }
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.width;
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.height;
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.planes;
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) pitch(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.pitch;
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) getActiveThreads(const OperationDataType& opData) {
-            return ActiveThreads{ num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
+        FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
+            return { num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
         }
     };
 
@@ -314,20 +315,20 @@ namespace fk {
                 return make_<OutputType>(x, y, z, w);
             }
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.width;
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.height;
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.planes;
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) pitch(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opData) {
             return opData.params.dims.pitch;
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) getActiveThreads(const OperationDataType& opData) {
-            return ActiveThreads{ num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
+        FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
+            return { num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
         }
     };
 
@@ -371,21 +372,21 @@ namespace fk {
             if constexpr (cn<InputType> >= 3) *PtrAccessor<D>::point(thread, params.z) = input.z;
             if constexpr (cn<InputType> == 4) *PtrAccessor<D>::point(thread, params.w) = input.w;
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
             return opData.params.x.dims.width;
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) pitch(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opData) {
             return opData.params.x.dims.pitch;
         }
 
-        FK_HOST_FUSE decltype(auto) build(const std::vector<Ptr2D<VBase<T>>>& output) {
+        FK_HOST_FUSE InstantiableType build(const std::vector<Ptr2D<VBase<T>>>& output) {
             static_assert(cn<T> >= 2, "Split operations can only be used with types of 2, 3 or 4 channels.");
             if constexpr (cn<T> == 2) {
-                return InstantiableType{ {{output.at(0).ptr(), output.at(1).ptr()}} };
+                return { {{output.at(0).ptr(), output.at(1).ptr()}} };
             } else if constexpr (cn<T> == 3) {
-                return InstantiableType{ {{output.at(0).ptr(), output.at(1).ptr(), output.at(2).ptr()}} };
+                return { {{output.at(0).ptr(), output.at(1).ptr(), output.at(2).ptr()}} };
             } else {
-                return InstantiableType{ {{output.at(0).ptr(), output.at(1).ptr(), output.at(2).ptr(), output.at(3).ptr()}} };
+                return { {{output.at(0).ptr(), output.at(1).ptr(), output.at(2).ptr(), output.at(3).ptr()}} };
             }
         }
     };
@@ -418,13 +419,13 @@ namespace fk {
 
     namespace circular_batch_internal {
         template <CircularDirection direction, int BATCH>
-        FK_HOST_DEVICE_CNST decltype(auto) computeCircularThreadIdx(const Point& currentIdx, const int& fst) {
+        FK_HOST_DEVICE_CNST Point computeCircularThreadIdx(const Point& currentIdx, const int& fst) {
             if constexpr (direction == CircularDirection::Ascendent) {
                 const int z = currentIdx.z + fst;
-                return Point{ currentIdx.x, currentIdx.y, z >= BATCH ? z - BATCH : z };
+                return { currentIdx.x, currentIdx.y, z >= BATCH ? z - BATCH : z };
             } else {
                 const int z = fst - currentIdx.z;
-                return Point{ currentIdx.x, currentIdx.y, z < 0 ? static_cast<int>(BATCH + z) : static_cast<int>(z) };
+                return { currentIdx.x, currentIdx.y, z < 0 ? static_cast<int>(BATCH + z) : static_cast<int>(z) };
             }
         }
     } // namespace circular_batch_internal
@@ -442,7 +443,7 @@ namespace fk {
         FK_STATIC_STRUCT(CircularBatchRead, SelfType)
         DECLARE_READ_PARENT
         template <uint ELEMS_PER_THREAD = 1>
-        FK_HOST_DEVICE_FUSE decltype(auto) exec(const Point& thread, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE auto exec(const Point& thread, const ParamsType& params) {
             const Point newThreadIdx = circular_batch_internal::computeCircularThreadIdx<direction, BATCH>(thread, params.first);
             if constexpr (THREAD_FUSION) {
                 return Operation::template exec<ELEMS_PER_THREAD>(newThreadIdx, params.opData[newThreadIdx.z]);
@@ -450,24 +451,24 @@ namespace fk {
                 return Operation::exec(newThreadIdx, params.opData[newThreadIdx.z]);
             }
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData[thread.z]);
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
             return Operation::num_elems_y(thread, opData.params.opData[thread.z]);
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
             return BATCH;
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) pitch(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opData) {
             return Operation::pitch(thread, opData.params.opData[thread.z]);
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) getActiveThreads(const OperationDataType& opData) {
-            return ActiveThreads{ num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
+        FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
+            return { num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
         }
     };
 
@@ -492,10 +493,10 @@ namespace fk {
                 Operation::exec(newThreadIdx, input, params.opData[newThreadIdx.z]);
             }
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_x(const Point& thread, const OperationDataType& opBatch) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opBatch) {
             return Operation::num_elems_x(thread, opBatch.params.opData[thread.z]);
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) pitch(const Point& thread, const OperationDataType& opBatch) {
+        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opBatch) {
             return Operation::pitch(thread, opBatch.params.opData[thread.z]);
         }
     };
@@ -513,7 +514,7 @@ namespace fk {
         FK_STATIC_STRUCT(CircularTensorRead, SelfType)
         DECLARE_READ_PARENT
         template <uint ELEMS_PER_THREAD = 1>
-        FK_HOST_DEVICE_FUSE decltype(auto) exec(const Point& thread, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE auto exec(const Point& thread, const ParamsType& params) {
             const Point newThreadIdx = circular_batch_internal::computeCircularThreadIdx<direction, BATCH>(thread, params.first);
             if constexpr (THREAD_FUSION) {
                 return Operation::template exec<ELEMS_PER_THREAD>(newThreadIdx, params.opData);
@@ -521,24 +522,24 @@ namespace fk {
                 return Operation::exec(newThreadIdx, params.opData);
             }
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData);
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
             return Operation::num_elems_y(thread, opData.params.opData);
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
             return BATCH;
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) pitch(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opData) {
             return Operation::pitch(thread, opData.params.opData);
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) getActiveThreads(const OperationDataType& opData) {
-            return ActiveThreads{ num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
+        FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
+            return { num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
         }
     };
 
@@ -565,10 +566,10 @@ namespace fk {
                 Operation::exec(newThreadIdx, input, params.opData);
             }
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData);
         }
-        FK_HOST_DEVICE_FUSE decltype(auto) pitch(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opData) {
             return Operation::pitch(thread, opData.params.opData);
         }
     };
