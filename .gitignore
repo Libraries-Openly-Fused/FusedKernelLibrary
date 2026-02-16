@@ -12,4 +12,5 @@ CMakeFiles/
 cmake_install.cmake
 Makefile
 CTestTestfile.cmake
-Testing/
+Testing/_codeql_build_dir/
+_codeql_detected_source_root
