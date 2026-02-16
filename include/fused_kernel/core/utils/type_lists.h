@@ -30,16 +30,6 @@ namespace fk { // namespace fused kernel
         struct type_identity {
             using type = T;
         };
-
-#if __cplusplus >= 202002L
-        // For C++20 and later, alias to std::type_identity
-        template <typename T>
-        using type_identity_t = std::type_identity<T>;
-#else
-        // For C++17, use our internal implementation
-        template <typename T>
-        using type_identity_t = type_identity<T>;
-#endif
     } // namespace detail
 
     template <size_t I, typename T>
