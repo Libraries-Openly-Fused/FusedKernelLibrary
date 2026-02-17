@@ -21,7 +21,7 @@
 
 namespace fk {
     /* Operation types are linked to the exec() function definition in the Operation. 
-    *  The elements that can change accross Operation types are:
+    *  The elements that can change across Operation types are:
     *   - OutputType: whether the exec function returns a value or not, and which type it is. The value resides on registers.
     *   - ElementIdx (using the type Point): whether the exec function gets the thread idx as input or not.
     *     It is used to compute DRAM or Shared Memory addresses to read from or write into.
@@ -60,7 +60,7 @@ namespace fk {
          | ClosedType **          |          |    X     |          |    X     |          |  void exec(Point, ParamsType)
          +------------------------+----------+----------+----------+----------+----------+
 
-         * Aplicable only to Instantiapble Operations. In and Out must be the same type and value. Operation must be of WriteType.
+         * Applicable only to Instantiapble Operations. In and Out must be the same type and value. Operation must be of WriteType.
          ** OpenType and ClosedType are only applicable to FusedOperations. FusedOperations can also be ReadType or WriteType.
     */
 
