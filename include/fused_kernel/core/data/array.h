@@ -31,6 +31,12 @@ namespace fk {
         FK_HOST_DEVICE_CNST T& operator[](const int index) {
             return values[index];
         }
+        FK_HOST_DEVICE_CNST const T& operator[](const size_t index) const {
+            return values[index];
+        }
+        FK_HOST_DEVICE_CNST T& operator[](const size_t index) {
+            return values[index];
+        }
     };
 
     template <typename T, size_t SIZE>
