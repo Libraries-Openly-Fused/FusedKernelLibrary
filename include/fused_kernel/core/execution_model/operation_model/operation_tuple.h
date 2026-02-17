@@ -91,7 +91,7 @@ namespace fk {
     }
 
     template <size_t... Idx, typename... IOps>
-    FK_HOST_DEVICE_CNST auto make_new_operation_tuple_helper(const std::index_sequence<Idx...>&, const IOps&... iOps) {
+    FK_HOST_CNST auto make_new_operation_tuple_helper(const std::index_sequence<Idx...>&, const IOps&... iOps) {
         // 1. Pack arguments into a tuple ONCE.
         auto args_tuple = forward_as_tuple(iOps...);
 
@@ -103,7 +103,7 @@ namespace fk {
     }
 
     template <typename... IOps>
-    FK_HOST_DEVICE_CNST auto make_new_operation_tuple(const IOps&... iOps) {
+    FK_HOST_CNST auto make_new_operation_tuple(const IOps&... iOps) {
         if constexpr (allUnaryTypes<IOps...>) {
             return OperationTuple<std::decay_t<IOps>...>{};
         } else {
@@ -116,7 +116,7 @@ namespace fk {
     namespace detail {
         template <size_t... Idx1, size_t... Idx2,
                   typename... IOps1, typename... IOps2>
-        FK_HOST_DEVICE_CNST auto cat_helper(const std::index_sequence<Idx1...>&,
+        FK_HOST_CNST auto cat_helper(const std::index_sequence<Idx1...>&,
                                                const std::index_sequence<Idx2...>&,
                                                const OperationTuple<IOps1...>& opTup1,
                                                const OperationTuple<IOps2...>& opTup2) {
@@ -125,7 +125,7 @@ namespace fk {
     } // namespace detail
 
     template <typename... IOps1, typename... IOps2>
-    FK_HOST_DEVICE_CNST auto cat(const OperationTuple<IOps1...>& opTup1,
+    FK_HOST_CNST auto cat(const OperationTuple<IOps1...>& opTup1,
                                            const OperationTuple<IOps2...>& opTup2) {
         return detail::cat_helper(std::make_index_sequence<OperationTuple<IOps1...>::size>{},
                           std::make_index_sequence<OperationTuple<IOps2...>::size>{},
