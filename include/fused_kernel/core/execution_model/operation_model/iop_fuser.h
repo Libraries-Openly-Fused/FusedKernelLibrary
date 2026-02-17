@@ -153,7 +153,7 @@ namespace fk {
         }
 
         template <typename T, size_t... Is>
-        FK_HOST_FUSE decltype(auto) get_head(T&& t, const std::index_sequence<Is...>&) {
+        FK_HOST_FUSE auto get_head(T&& t, const std::index_sequence<Is...>&) {
             // Forward the specific elements to your function
             return fuse(get<Is>(std::forward<T>(t))...);
         }
@@ -161,14 +161,14 @@ namespace fk {
         // Helper to unpack the Tail (indices split_idx to End)
         // Creates a new tuple starting from Offset
         template <size_t Offset, typename T, size_t... Is>
-        FK_HOST_FUSE decltype(auto) get_tail(T&& t, const std::index_sequence<Is...>&) {
+        FK_HOST_FUSE auto get_tail(T&& t, const std::index_sequence<Is...>&) {
             // Apply Offset to grab the correct elements from the end of the tuple
             return make_tuple(get<Offset + Is>(std::forward<T>(t))...);
         }
 
       public:
         template <typename... IOps>
-        FK_HOST_FUSE decltype(auto) fuse_back(IOps&&... iOps) {
+        FK_HOST_FUSE auto fuse_back(IOps&&... iOps) {
             // 1. Calculate the split point at compile time
             constexpr size_t split_idx = idxFirstNonBack<std::decay_t<IOps>...>();
             if constexpr (split_idx < 2) {
