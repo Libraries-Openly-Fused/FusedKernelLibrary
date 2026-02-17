@@ -60,10 +60,10 @@ namespace fk {
         }
     private:
         template <size_t... Idx>
-        FK_HOST_DEVICE_FUSE decltype(auto) exec_helper(const std::index_sequence<Idx...>&,
-                                                       const Point& thread,
-                                                       const InputType& input,
-                                                       const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec_helper(const std::index_sequence<Idx...>&,
+                                                   const Point& thread,
+                                                   const InputType& input,
+                                                   const ParamsType& params) {
             return (InputFoldType<InputType>{thread, input} | ... | get_opt<Idx>(params)).input;
         }
     };
@@ -93,17 +93,17 @@ namespace fk {
         }
 
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread,
-                                                       const OperationDataType& opData) {
+                                             const OperationDataType& opData) {
             return FirstType_t<IOps...>::Operation::num_elems_x(thread, get_opt<0>(opData.params));
         }
 
         FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread,
-                                                       const OperationDataType& opData) {
+                                             const OperationDataType& opData) {
             return FirstType_t<IOps...>::Operation::num_elems_y(thread, get_opt<0>(opData.params));
         }
 
         FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread,
-                                                       const OperationDataType& opData) {
+                                             const OperationDataType& opData) {
             return FirstType_t<IOps...>::Operation::num_elems_z(thread, get_opt<0>(opData.params));
         }
 
@@ -113,9 +113,9 @@ namespace fk {
 
     private:
         template <size_t... Idx>
-        FK_HOST_DEVICE_FUSE decltype(auto) exec_helper(const std::index_sequence<Idx...>&,
-                                                       const Point& thread,
-                                                       const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec_helper(const std::index_sequence<Idx...>&,
+                                                   const Point& thread,
+                                                   const ParamsType& params) {
             return (thread | ... | get_opt<Idx>(params)).input;
         }
     };
@@ -137,8 +137,10 @@ namespace fk {
 
       private:
         template <size_t... Idx>
-        FK_HOST_DEVICE_FUSE decltype(auto) exec_helper(const std::index_sequence<Idx...>&, const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec_helper(const std::index_sequence<Idx...>&, const InputType& input) {
             constexpr OperationTuple<IOps...> poTup{};
+            // Optimization, we use a version of operator| that does not use InputTypeFold,
+            // thus it does not propagate Point thread, because it is not needed.
             return (input | ... | get_opt<Idx>(poTup));
         }
     };
@@ -162,10 +164,10 @@ namespace fk {
 
       private:
         template <size_t... Idx>
-        FK_HOST_DEVICE_FUSE void exec_helper(const std::index_sequence<Idx...> &, const Point &thread,
+        FK_HOST_DEVICE_FUSE void exec_helper(const std::index_sequence<Idx...>&, const Point &thread,
                                              const ParamsType &params) {
             LastType_t<typename ParamsType::Operations>::Operation::exec(thread,
-                (thread | ... | get_opt<Idx>(params)),
+                (thread | ... | get_opt<Idx>(params)).input,
                 get_opt<sizeof...(Idx) - 1>(params));
         }
     };
@@ -221,8 +223,10 @@ namespace fk {
 
       private:
         template <size_t... Idx>
-        FK_HOST_DEVICE_FUSE decltype(auto) exec_helper(const std::index_sequence<Idx...>&,
-                                                       const InputType &input, const ParamsType &params) {
+        FK_HOST_DEVICE_FUSE OutputType exec_helper(const std::index_sequence<Idx...>&,
+                                                   const InputType& input, const ParamsType& params) {
+            // Optimization, we use a version of operator| that does not use InputTypeFold,
+            // thus it does not propagate Point thread, because it is not needed.
             return (input | ... | get_opt<Idx>(params));
         }
     };
@@ -233,10 +237,10 @@ namespace fk {
       private:
         template <typename T>
         struct FuseProxy {
-            T value;
+            T iOp;
 
             template <typename U>
-            FK_HOST_CNST FuseProxy(U &&u) : value(std::forward<U>(u)) {}
+            FK_HOST_CNST FuseProxy(U &&u) : iOp(std::forward<U>(u)) {}
 
             template <typename IOp1, typename IOp2>
             FK_HOST_FUSE auto fuse(IOp1 &&iOp1, IOp2 &&iOp2) {
@@ -260,13 +264,14 @@ namespace fk {
             template <typename LeftIOp>
             FK_HOST_CNST friend auto operator&&(const FuseProxy<LeftIOp>& left, const FuseProxy<T>& right) {
                 return FuseProxy<decltype(FuseProxy<T>::fuse(std::declval<LeftIOp>(), std::declval<T>()))>{
-                    FuseProxy<T>::fuse(left.value, right.value)
+                    FuseProxy<T>::fuse(left.iOp, right.iOp)
                 };
             }
 
             private:
             template <typename... IOps>
-            FK_HOST_FUSE auto get_unary_params(const Unary<FusedOperation_<void, IOps...>>&) {
+            FK_HOST_FUSE auto get_unary_params(const Unary<FusedOperation_<void, IOps...>>&)
+                -> OperationTuple<IOps...> {
                 return OperationTuple<IOps...>{};
             }
             template <typename IOp>
@@ -284,7 +289,6 @@ namespace fk {
             if constexpr (allUnaryTypes<IOps...>) {
                 return Unary<FusedOperation_<void, IOps...>>{};
             } else {
-                // IMPORTANT: This call will now unambiguously find the correct specialization above
                 return FusedOperation_<void, IOps...>::build(opTup);
             }
         }
@@ -293,7 +297,7 @@ namespace fk {
         template <typename... IOps>
         FK_HOST_FUSE auto build(IOps&&... iOps) {
             if constexpr (and_v<isOperation<std::decay_t<IOps>>...>) {
-                return (... && FuseProxy<std::decay_t<IOps>>{std::forward<IOps>(iOps)}).value;
+                return (... && FuseProxy<std::decay_t<IOps>>{std::forward<IOps>(iOps)}).iOp;
             } else { 
                 static_assert(sizeof...(IOps) == 1,
                               "If the argument is not an operation, it should be a single OperationTuple");
