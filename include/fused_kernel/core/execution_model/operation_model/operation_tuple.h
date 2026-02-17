@@ -79,7 +79,6 @@ namespace fk {
         static constexpr size_t value = GetIndexHelper<std::index_sequence<Idx...>, decltype(std::make_index_sequence<sizeof...(Idx)>()), IdxValue>::value;
     };
 
-    // We need to return auto instead of auto& because we may be returning temporaries
     // As observed in get<>(Tuple<...>), returning a const& as auto,
     // may lead to local memory accesses in the GPU
     template <size_t Idx, typename... Operations>
@@ -92,21 +91,19 @@ namespace fk {
     }
 
     template <size_t... Idx, typename... IOps>
-    FK_HOST_DEVICE_CNST decltype(auto) make_new_operation_tuple_helper(const std::index_sequence<Idx...>&, const IOps&... iOps) {
+    FK_HOST_DEVICE_CNST auto make_new_operation_tuple_helper(const std::index_sequence<Idx...>&, const IOps&... iOps) {
         // 1. Pack arguments into a tuple ONCE.
-        //    Using forward_as_tuple preserves references (Op1&, Op2&...)
         auto args_tuple = forward_as_tuple(iOps...);
 
-        // 2. Expand using the tuple-based 'get'.
-        //    We move(args_tuple) to ensure we forward the r-valueness if needed.
+        // 2. Capture elements as value (std::decay_t)
         using ResultType = OperationTuple<std::decay_t<IOps>...>;
 
-        // Note: We use fk::get (the one that takes a Tuple) here, not the pack one.
+        // 3. Expand a single tuple using fk::get
         return ResultType{{get<Idx>(args_tuple)...}};
     }
 
     template <typename... IOps>
-    FK_HOST_DEVICE_CNST decltype(auto) make_new_operation_tuple(const IOps&... iOps) {
+    FK_HOST_DEVICE_CNST auto make_new_operation_tuple(const IOps&... iOps) {
         if constexpr (allUnaryTypes<IOps...>) {
             return OperationTuple<std::decay_t<IOps>...>{};
         } else {
@@ -115,10 +112,11 @@ namespace fk {
         }
     }
 
+    // cat and cat_helper must return auto, since they are creating a new OperationTuple 
     namespace detail {
         template <size_t... Idx1, size_t... Idx2,
                   typename... IOps1, typename... IOps2>
-        FK_HOST_DEVICE_CNST decltype(auto) cat_helper(const std::index_sequence<Idx1...>&,
+        FK_HOST_DEVICE_CNST auto cat_helper(const std::index_sequence<Idx1...>&,
                                                const std::index_sequence<Idx2...>&,
                                                const OperationTuple<IOps1...>& opTup1,
                                                const OperationTuple<IOps2...>& opTup2) {
@@ -127,7 +125,7 @@ namespace fk {
     } // namespace detail
 
     template <typename... IOps1, typename... IOps2>
-    FK_HOST_DEVICE_CNST decltype(auto) cat(const OperationTuple<IOps1...>& opTup1,
+    FK_HOST_DEVICE_CNST auto cat(const OperationTuple<IOps1...>& opTup1,
                                            const OperationTuple<IOps2...>& opTup2) {
         return detail::cat_helper(std::make_index_sequence<OperationTuple<IOps1...>::size>{},
                           std::make_index_sequence<OperationTuple<IOps2...>::size>{},
