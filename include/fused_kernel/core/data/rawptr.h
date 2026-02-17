@@ -1,4 +1,4 @@
-/* Copyright 2023-2025 Oscar Amoros Huguet
+/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -127,7 +127,7 @@ namespace fk {
     template <typename T>
     struct RawPtr<ND::_1D, T> {
         T* data{nullptr};
-        PtrDims<ND::_1D> dims;
+        PtrDims<ND::_1D> dims{};
         using type = T;
         enum { NDim = static_cast<int>(ND::_1D) };
     };
@@ -135,7 +135,7 @@ namespace fk {
     template <typename T>
     struct RawPtr<ND::_2D, T> {
         T* data{nullptr};
-        PtrDims<ND::_2D> dims;
+        PtrDims<ND::_2D> dims{};
         using type = T;
         enum { NDim = static_cast<int>(ND::_2D) };
     };
@@ -143,7 +143,7 @@ namespace fk {
     template <typename T>
     struct RawPtr<ND::_3D, T> {
         T* data{nullptr};
-        PtrDims<ND::_3D> dims;
+        PtrDims<ND::_3D> dims{};
         using type = T;
         enum { NDim = static_cast<int>(ND::_3D) };
     };
@@ -151,7 +151,7 @@ namespace fk {
     template <typename T>
     struct RawPtr<ND::T3D, T> {
         T* data{nullptr};
-        PtrDims<ND::T3D> dims;
+        PtrDims<ND::T3D> dims{};
         using type = T;
         enum { NDim = static_cast<int>(ND::T3D) };
     };

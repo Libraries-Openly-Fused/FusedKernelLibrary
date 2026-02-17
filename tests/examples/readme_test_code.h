@@ -1,4 +1,4 @@
-/* Copyright 2025 Oscar Amoros Huguet
+/* Copyright 2025-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 
 #include <tests/main.h>
 
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/core/utils/utils.h>
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/image_processing/crop.h>
@@ -28,7 +28,7 @@ int launch() {
     Stream stream;
 
     // We set all outputs to the same size
-    const Size outputSize(60, 60);
+    constexpr Size outputSize(60, 60);
     // We perform 5 crops on the image
     constexpr int BATCH = 5;
 
@@ -39,7 +39,7 @@ int launch() {
     Tensor<float3> output(outputSize.width, outputSize.height, BATCH);
 
     // Crops can be of different sizes
-    std::array<Rect, BATCH> crops{
+    constexpr std::array<Rect, BATCH> crops{
         Rect(0, 0, 34, 25),
         Rect(10, 10, 70, 15),
         Rect(20, 20, 60, 59),
@@ -48,11 +48,11 @@ int launch() {
     };
 
     //initImageValues(inputImage);
-    const float3 backgroundColor{ 0.f, 0.f, 0.f };
+    constexpr float3 backgroundColor{ 0.f, 0.f, 0.f };
 
-    const float3 mulValue = make_set<float3>(1.4f);
-    const float3 subValue = make_set<float3>(0.5f);
-    const float3 divValue = make_set<float3>(255.f);
+    constexpr float3 mulValue = make_set<float3>(1.4f);
+    constexpr float3 subValue = make_set<float3>(0.5f);
+    constexpr float3 divValue = make_set<float3>(255.f);
 
     // Create a fused operation that reads the input image,
     // crops it, resizes it, and applies arithmetic operations

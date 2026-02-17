@@ -179,7 +179,7 @@ FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataTyp
 FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params, const BackIOp& backIOp) { \
     const int last_col = BackIOp::Operation::num_elems_x(thread, backIOp) - 1; \
     const int last_row = BackIOp::Operation::num_elems_y(thread, backIOp) - 1; \
-    const Point new_thread(idx_col(thread.x, last_col), idx_row(thread.y, last_row), thread.z); \
+    const Point new_thread{idx_col(thread.x, last_col), idx_row(thread.y, last_row), thread.z}; \
     return BackIOp::Operation::exec(new_thread, backIOp); \
 }
 
@@ -277,7 +277,7 @@ FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& param
         FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
             const int width = BackIOp::Operation::num_elems_x(thread, backIOp);
             const int height = BackIOp::Operation::num_elems_y(thread, backIOp);
-            const Point new_thread(idx_col(thread.x, width), idx_row(thread.y, height), thread.z);
+            const Point new_thread{idx_col(thread.x, width), idx_row(thread.y, height), thread.z};
             return BackIOp::Operation::exec(new_thread, backIOp);
         }
     private:

@@ -1,4 +1,4 @@
-/* Copyright 2023-2025 Oscar Amoros Huguet
+/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -190,7 +190,7 @@ namespace fk {
         using SelfType = DenormalizePixel<O, CD>;
     public:
         FK_STATIC_STRUCT(DenormalizePixel, SelfType)
-        using Parent = UnaryOperation<VectorType_t<float, cn<O>>, O, DenormalizePixel<O, CD>>;
+        using Parent = UnaryOperation<float_<cn<O>>, O, DenormalizePixel<O, CD>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
             constexpr auto maxDepth = maxDepthValue<CD>;
@@ -204,7 +204,7 @@ namespace fk {
         using SelfType = NormalizePixel<I, CD>;
     public:
         FK_STATIC_STRUCT(NormalizePixel, SelfType)
-        using Parent = UnaryOperation<I, VectorType_t<float, cn<I>>, NormalizePixel<I, CD>>;
+        using Parent = UnaryOperation<I, float_<cn<I>>, NormalizePixel<I, CD>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
             return input / static_cast<float>(maxDepthValue<CD>);
@@ -395,7 +395,7 @@ namespace fk {
         }
 
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
-            return { num_elems_x(Point(), opData), num_elems_y(Point(), opData), num_elems_z(Point(), opData) };
+            return { num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
         }
 
         FK_HOST_FUSE InstantiableType build(const Image<PF>& data) {
@@ -507,7 +507,7 @@ namespace fk {
         }
 
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
-            return { num_elems_x(Point(), opData), num_elems_y(Point(), opData), num_elems_z(Point(), opData) };
+            return { num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
         }
 
         FK_HOST_FUSE InstantiableType build(const Image<PF>& data) {

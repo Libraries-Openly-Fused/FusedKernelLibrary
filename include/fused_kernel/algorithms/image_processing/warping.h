@@ -1,4 +1,4 @@
-/* Copyright 2025 Oscar Amoros Huguet
+/* Copyright 2025-2026 Oscar Amoros Huguet
    Copyright 2025 Grup Mediapro S.L.U
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -77,7 +77,7 @@ namespace fk {
         using Parent = ReadBackOperation<typename BackIOp_::Operation::ReadDataType,
                                          WarpingParameters<WT>,
                                          BackIOp_,
-                                         VectorType_t<float, cn<typename BackIOp_::Operation::ReadDataType>>,
+                                         float_<cn<typename BackIOp_::Operation::ReadDataType>>,
                                          Warping<WT, BackIOp_>>;
         DECLARE_READBACK_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
@@ -104,7 +104,7 @@ namespace fk {
         }
 
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
-            return { num_elems_x(Point(), opData), num_elems_y(Point(), opData), num_elems_z(Point(), opData) };
+            return { num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
         }
     };
 

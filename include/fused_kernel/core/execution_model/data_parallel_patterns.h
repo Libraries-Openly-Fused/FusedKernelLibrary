@@ -1,4 +1,4 @@
-/* Copyright 2023-2025 Oscar Amoros Huguet
+/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -114,7 +114,7 @@ namespace fk { // namespace FusedKernel
             using ReadOperation = typename ReadIOp::Operation;
             using WriteOperation = typename LastType_t<IOps...>::Operation;
 
-            const auto writeDF = ppLast(iOps...);
+            const auto& writeDF = ppLast(iOps...);
 
             if constexpr (TFI::ENABLED) {
                 const auto tempI = read<TFI, ReadIOp>(thread, readDF);
@@ -155,7 +155,7 @@ namespace fk { // namespace FusedKernel
                     } else if (iamlastActiveThread) {
                         const int initialX = thread.x * TFI::elems_per_thread;
                         using ReadOp = typename FirstType_t<IOps...>::Operation;
-                        const int finalX = ReadOp::num_elems_x(thread, get<0>(iOps...));
+                        const int finalX = ReadOp::num_elems_x(thread, get_arg<0>(iOps...));
                         int currentX = initialX;
                         while (currentX < finalX) {
                             const Point currentThread{ currentX , thread.y, thread.z };
@@ -237,13 +237,13 @@ namespace fk { // namespace FusedKernel
         static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
         template <typename FirstIOp>
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const Details& details,
-                                                           const FirstIOp& iOp) {
+                                                            const FirstIOp& iOp) {
             return Parent::getActiveThreads(details, iOp);
         }
 
         template <typename... IOps>
         FK_DEVICE_FUSE void exec(const Details& details, const IOps&... iOps) {
-#if VS2017_COMPILER || CLANG_HOST_DEVICE
+#if CLANG_HOST_DEVICE
             const int x = (blockDim.x * blockIdx.x) + threadIdx.x;
             const int y = (blockDim.y * blockIdx.y) + threadIdx.y;
             const int z = blockIdx.z; // So far we only consider the option of using the z dimension to specify n (x*y) thread planes
@@ -257,14 +257,14 @@ namespace fk { // namespace FusedKernel
 #endif
             const Point thread{ x, y, z };
 
-            const ActiveThreads activeThreads = getActiveThreads(details, get<0>(iOps...));
+            const ActiveThreads activeThreads = getActiveThreads(details, get_arg<0>(iOps...));
 
             if (x < activeThreads.x && y < activeThreads.y) {
                 Parent::execute_thread(thread, activeThreads, iOps...);
             }
         }
     };
-#endif // defined(__NVCC__) || defined(__HIPCC__) || defined(__NVRTC__) || defined(NVRTC_COMPILER)
+#endif // defined(__NVCC__) || CLANG_HOST_DEVICE
 
     template <enum TF TFEN, typename DPPDetails, bool THREAD_DIVISIBLE>
     struct TransformDPP<ParArch::CPU, TFEN, DPPDetails, THREAD_DIVISIBLE, std::enable_if_t<!std::is_same_v<DPPDetails, void>, void>> {
@@ -275,14 +275,14 @@ namespace fk { // namespace FusedKernel
         static constexpr ParArch PAR_ARCH = ParArch::CPU;
         template <typename FirstIOp>
         FK_HOST_FUSE ActiveThreads getActiveThreads(const Details& details,
-                                                    const FirstIOp& iOp) {
+                                                     const FirstIOp& iOp) {
             return Parent::getActiveThreads(details, iOp);
         }
 
         template <typename... IOps>
         FK_HOST_FUSE void exec(const Details& details, const IOps&... iOps) {
             using TFI = typename Details::TFI;
-            const ActiveThreads activeThreads = getActiveThreads(details, get<0>(iOps...));
+            const ActiveThreads activeThreads = getActiveThreads(details, get_arg<0>(iOps...));
 
             for (int z = 0; z < activeThreads.z; ++z) {
                 for (int y = 0; y < activeThreads.y; ++y) {
@@ -341,7 +341,7 @@ namespace fk { // namespace FusedKernel
         static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
         template <typename... IOpSequenceTypes>
         FK_DEVICE_FUSE void exec(const DPPDetails&, const IOpSequenceTypes&... iOpSequences) {
-#if VS2017_COMPILER || CLANG_HOST_DEVICE
+#if CLANG_HOST_DEVICE
             const uint z = blockIdx.z;
 #else
             const cg::thread_block g = cg::this_thread_block();

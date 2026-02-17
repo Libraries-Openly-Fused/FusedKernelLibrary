@@ -1,4 +1,4 @@
-/* Copyright 2025 Oscar Amoros Huguet
+/* Copyright 2025-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@ namespace fk {
                                          Crop<BackIOp_>>;
         DECLARE_READBACK_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
-            const Point newThread(thread.x + params.x, thread.y + params.y);
+            const Point newThread{thread.x + static_cast<int>(params.x), thread.y + static_cast<int>(params.y)};
             return BackIOp::Operation::exec(newThread, backIOp);
         }
 
@@ -51,7 +51,7 @@ namespace fk {
         }
 
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
-            return { num_elems_x(Point(), opData), num_elems_y(Point(), opData), num_elems_z(Point(), opData) };
+            return { num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
         }
 
         FK_HOST_FUSE InstantiableType build(const BackIOp& backIOp, const Rect& rect) {

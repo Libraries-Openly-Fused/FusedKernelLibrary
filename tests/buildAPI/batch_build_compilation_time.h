@@ -1,4 +1,4 @@
-/* Copyright 2025 Oscar Amoros Huguet
+/* Copyright 2025-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 
 #include <tests/main.h>
 
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/core/utils/utils.h>
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/image_processing/crop.h>
@@ -43,7 +43,7 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     Ptr2D<float3> rgbImg(3840, 2160);
 
     // Crops can be of different sizes
-    constexpr std::array<Rect, BATCH_10> crops_10{ Rect(0, 0, 34, 25),      Rect(40, 40, 70, 15),     Rect(100, 200, 60, 59),
+    constexpr std::array<Rect, BATCH_10> crops_10{Rect(0, 0, 34, 25),      Rect(40, 40, 70, 15),     Rect(100, 200, 60, 59),
                                          Rect(300, 1000, 20, 23), Rect(3000, 2000, 12, 11), Rect(0, 0, 34, 25),
                                          Rect(40, 40, 70, 15),    Rect(100, 200, 60, 59),   Rect(300, 1000, 20, 23),
                                          Rect(3000, 2000, 12, 11) };

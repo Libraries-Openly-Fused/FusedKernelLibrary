@@ -1,4 +1,5 @@
 /* Copyright 2025 Grup Mediapro S.L.U (Oscar Amoros Huguet)
+   Copyright 2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -18,7 +19,7 @@
 
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 #include <fused_kernel/core/execution_model/data_parallel_patterns.h>
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/basic_ops/set.h>
 #include <fused_kernel/core/execution_model/stream.h>
 
@@ -284,7 +285,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                     gpuErrchk(cudaGetLastError());
                 }
             } else {
-                const auto readOp = get<0>(iOps...);
+                const auto readOp = get_arg<0>(iOps...);
 
                 const ActiveThreads activeThreads = readOp.getActiveThreads();
 

@@ -1,4 +1,4 @@
-/* Copyright 2023-2025 Oscar Amoros Huguet
+/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -61,7 +61,7 @@ namespace fk {
         using SelfType = VectorReorderRT<T>;
     public:
         FK_STATIC_STRUCT(VectorReorderRT, SelfType)
-        using Parent = BinaryOperation<T, VectorType_t<int, cn<T>>, T, VectorReorderRT<T>>;
+        using Parent = BinaryOperation<T, int_<cn<T>>, T, VectorReorderRT<T>>;
         DECLARE_BINARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
             static_assert(validCUDAVec<T>, "Non valid CUDA vetor type");

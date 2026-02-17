@@ -1,4 +1,4 @@
-/* Copyright 2023-2025 Oscar Amoros Huguet
+/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@
 #include <fused_kernel/algorithms/image_processing/saturate.h>
 #include <fused_kernel/algorithms/basic_ops/cast.h>
 #include <fused_kernel/core/data/array.h>
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 
 namespace fk {
@@ -70,12 +70,12 @@ namespace fk {
 
     template <AspectRatio AR, typename BackIOp_>
     struct ResizeComplete {
-        static_assert(isTernaryType<BackIOp_>, "BackIOp must be a ternary type for this specialization");
+        static_assert(opIs<TernaryType, BackIOp_>, "BackIOp must be a ternary type for this specialization");
     private:
         using SelfType = ResizeComplete<AR, BackIOp_>;
     public:
         FK_STATIC_STRUCT(ResizeComplete, SelfType)
-        using DefaultType = VectorType_t<float, cn<typename BackIOp_::Operation::OutputType>>;
+        using DefaultType = float_<cn<typename BackIOp_::Operation::OutputType>>;
         using Parent = ReadBackOperation<typename BackIOp_::Operation::OutputType,
                                          ResizeParams<AR, DefaultType>,
                                          BackIOp_,
@@ -89,8 +89,8 @@ namespace fk {
             } else {
                 if (thread.x >= params.x1 && thread.x <= params.x2 &&
                     thread.y >= params.y1 && thread.y <= params.y2) {
-                    const Point roiThread(thread.x - params.x1, thread.y - params.y1, thread.z);
-                    return exec_resize(roiThread, params, backIOp);
+                    // z is 0 because we do not use it going forward, and batch is handled before calling this exec
+                    return exec_resize(Point{thread.x - params.x1, thread.y - params.y1, 0}, params, backIOp);
                 } else {
                     return params.defaultValue;
                 }
@@ -110,20 +110,16 @@ namespace fk {
         }
 
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
-            return { num_elems_x(Point(), opData), num_elems_y(Point(), opData), num_elems_z(Point(), opData) };
+            return { num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
         }
 
     private:
-        FK_HOST_DEVICE_FUSE OutputType exec_resize(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
-            const float fx = params.src_conv_factors.x;
-            const float fy = params.src_conv_factors.y;
-
-            const float src_x = thread.x * fx;
-            const float src_y = thread.y * fy;
-            const float2 rezisePoint = { src_x, src_y };
-
-            // Assuming BackIOp is a TernaryType
-            return BackIOp::Operation::exec(rezisePoint, backIOp);
+        FK_HOST_DEVICE_FUSE auto exec_resize(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
+            static_assert(opIs<TernaryType, BackIOp>, "BackIOp must be a ternary type for this specialization");
+            
+            const float src_x = thread.x * params.src_conv_factors.x;
+            const float src_y = thread.y * params.src_conv_factors.y;
+            return BackIOp::Operation::exec({ src_x, src_y }, backIOp);
         }
     };
 
@@ -155,7 +151,7 @@ namespace fk {
         template <typename NewBackIOp>
         FK_HOST_FUSE auto build(const NewBackIOp& backIOp, const InstantiableType& iOp) {
             static_assert(isCompleteOperation<NewBackIOp>, "NewBackIOp must be a complete IOp");
-            using NewDefaultType = VectorType_t<float, cn<typename NewBackIOp::Operation::OutputType>>;
+            using NewDefaultType = float_<cn<typename NewBackIOp::Operation::OutputType>>;
             static_assert(std::is_same_v<NewDefaultType, DefaultType>, "Default value type and Op::OutputType must be the same.");
             return build(backIOp, iOp.params.dstSize, iOp.params.defaultValue);
         }
@@ -169,13 +165,13 @@ namespace fk {
         FK_HOST_FUSE auto build(const NewBackIOp& backIOp, const Size& dstSize,
                                 const VectorType_t<float, cn<typename NewBackIOp::Operation::OutputType>>& backgroundValue) {
             static_assert(isCompleteOperation<NewBackIOp>, "NewBackIOp must be a complete IOp");
-            const Size srcSize = NumElems::size(Point(), backIOp);
+            const Size srcSize = NumElems::size(Point{0,0,0}, backIOp);
             const Size targetSize = compute_target_size(srcSize, dstSize);
 
             const double cfx = static_cast<double>(targetSize.width) / srcSize.width;
             const double cfy = static_cast<double>(targetSize.height) / srcSize.height;
 
-            using NewOutputType = VectorType_t<float, cn<typename NewBackIOp::Operation::OutputType>>;
+            using NewOutputType = float_<cn<typename NewBackIOp::Operation::OutputType>>;
 
             if constexpr (AR == AspectRatio::PRESERVE_AR_LEFT) {
                 const int x1 = 0; // Always 0 to make sure the image is adjusted to the left
@@ -270,7 +266,7 @@ namespace fk {
         template <typename NewBackIOp>
         FK_HOST_FUSE auto build(const NewBackIOp& backIOp, const Size& dstSize) {
             static_assert(isCompleteOperation<NewBackIOp>, "NewBackIOp must be a complete IOp");
-            const Size srcSize = NumElems::size(Point(), backIOp);
+            const Size srcSize = NumElems::size(Point{0,0,0}, backIOp);
             const double cfx = static_cast<double>(dstSize.width) / static_cast<double>(srcSize.width);
             const double cfy = static_cast<double>(dstSize.height) / static_cast<double>(srcSize.height);
             const typename NewInstantiableType<NewBackIOp>::ParamsType resizeParams{

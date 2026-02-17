@@ -1,4 +1,4 @@
-/* Copyright 2023-2025 Oscar Amoros Huguet
+/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -139,10 +139,10 @@ namespace fk {
         static constexpr ND nd = D;
     protected:
         RefPtr* ref{ nullptr };
-        RawPtr<D, T> ptr_a;
-        RawPtr<D, T> ptr_pinned;
-        MemType type;
-        int deviceID;
+        RawPtr<D, T> ptr_a{};
+        RawPtr<D, T> ptr_pinned{};
+        MemType type{defaultMemType};
+        int deviceID{0};
 
         inline constexpr Ptr(const RawPtr<D, T>& ptr_a_, RefPtr* ref_, const MemType& type_, const int& devID) :
             ref(ref_), ptr_a(ptr_a_), ptr_pinned(ptr_a_), type(type_), deviceID(devID) {
@@ -510,7 +510,6 @@ namespace fk {
             return *this;
         }
 
-#if !defined(NVRTC_COMPILER)
 #if defined(__NVCC__) || CLANG_HOST_DEVICE
         inline void uploadTo(Ptr<D, T>& other, cudaStream_t stream = 0) {
             constexpr cudaMemcpyKind kind = cudaMemcpyHostToDevice;
@@ -564,7 +563,6 @@ namespace fk {
         inline void upload(Stream& stream) {}
         inline void download(Stream& stream) {}
 #endif // defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED)
-#endif // defined(NVRTC_COMPILER)
 
         inline T at(const Point& p) const {
             if (type != MemType::Device) {
@@ -575,23 +573,23 @@ namespace fk {
             }
         }
 
-        inline T at(const uint& x) const {
-            return at(Point(x, 0, 0));
+        inline T at(const int x) const {
+            return at(Point{x, 0, 0});
         }
 
         template <ND Dims = D>
         inline std::enable_if_t<(Dims == ND::_2D), T>
-        at(const uint& x, const uint& y) const {
-            return at(Point(x, y, 0));
+        at(const int x, const int y) const {
+            return at(Point{x, y, 0});
         }
 
         template <ND Dims = D>
         inline std::enable_if_t<(Dims == ND::_3D), T>
-        at(const uint& x, const uint& y, const uint& z) const {
-            return at(Point(x, y, z));
+        at(const int x, const int y, const int z) const {
+            return at(Point{x, y, z});
         }
 
-        inline T& at(const Point& p) {
+        inline T& at(const Point p) {
             if (type != MemType::Device) {
                 return *At::point(p, ptr_pinned);
             } else {
@@ -600,22 +598,22 @@ namespace fk {
             }
         }
 
-        inline T& at(const uint& x) {
-            T& val = at(Point(x, 0, 0));
+        inline T& at(const int x) {
+            T& val = at(Point{x, 0, 0});
             return val;
         }
 
         template <ND Dims = D>
         inline std::enable_if_t<(Dims == ND::_2D), T&>
-            at(const uint& x, const uint& y) {
-            T& val = at(Point(x, y, 0));
+            at(const int x, const int y) {
+            T& val = at(Point{x, y, 0});
             return val;
         }
 
         template <ND Dims = D>
         inline std::enable_if_t<(Dims == ND::_3D), T&>
-            at(const uint& x, const uint& y, const uint& z) {
-            T& val = at(Point(x, y, z));
+            at(const int x, const int y, const int z) {
+            T& val = at(Point{x, y, z});
             return val;
         }
 

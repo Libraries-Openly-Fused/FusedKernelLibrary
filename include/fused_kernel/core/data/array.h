@@ -1,4 +1,4 @@
-/* Copyright 2024 Oscar Amoros Huguet
+/* Copyright 2024-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -24,17 +24,17 @@ namespace fk {
     template <typename T, size_t SIZE>
     struct Array {
         static constexpr size_t size{ SIZE };
-        T values[SIZE]{};
-        FK_HOST_DEVICE_CNST Array(const T& initValue) {
-            for (int i = 0; i < SIZE; i++) {
-                values[i] = initValue;
-            }
-        }
-        FK_HOST_DEVICE_CNST Array() {}
-        FK_HOST_DEVICE_CNST T operator[](const size_t& index) const {
+        T values[SIZE];
+        FK_HOST_DEVICE_CNST const T& operator[](const int index) const {
             return values[index];
         }
-        FK_HOST_DEVICE_CNST T& operator[](const size_t& index) {
+        FK_HOST_DEVICE_CNST T& operator[](const int index) {
+            return values[index];
+        }
+        FK_HOST_DEVICE_CNST const T& operator[](const size_t index) const {
+            return values[index];
+        }
+        FK_HOST_DEVICE_CNST T& operator[](const size_t index) {
             return values[index];
         }
     };
@@ -71,7 +71,7 @@ namespace fk {
     union ArrayVector<T, 1> {
         static_assert(std::is_fundamental_v<T>, "ArrayVector<T, 1> can only be used with fundamental types");
         enum { size = 1 };
-        T at[size];
+        T at[1];
         struct {
             T x;
         };
@@ -96,7 +96,7 @@ namespace fk {
     union ArrayVector<T, 2> {
         static_assert(std::is_fundamental_v<T>, "ArrayVector<T, 2> can only be used with fundamental types");
         enum { size = 2 };
-        T at[size];
+        T at[2];
         struct {
             T x, y;
         };
@@ -130,7 +130,7 @@ namespace fk {
     union ArrayVector<T, 3> {
         static_assert(std::is_fundamental_v<T>, "ArrayVector<T, 3> can only be used with fundamental types");
         enum { size = 3 };
-        T at[size];
+        T at[3];
         struct {
             T x, y, z;
         };
@@ -165,7 +165,7 @@ namespace fk {
     union ArrayVector<T, 4> {
         static_assert(std::is_fundamental_v<T>, "ArrayVector<T, 4> can only be used with fundamental types");
         enum { size = 4 };
-        T at[size];
+        T at[4];
         struct {
             T x, y, z, w;
         };
