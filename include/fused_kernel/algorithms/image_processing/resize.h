@@ -89,6 +89,7 @@ namespace fk {
             } else {
                 if (thread.x >= params.x1 && thread.x <= params.x2 &&
                     thread.y >= params.y1 && thread.y <= params.y2) {
+                    // z is 0 because we do not use it going forward, and batch is handled before calling this exec
                     return exec_resize(Point{thread.x - params.x1, thread.y - params.y1, 0}, params, backIOp);
                 } else {
                     return params.defaultValue;
@@ -113,7 +114,7 @@ namespace fk {
         }
 
     private:
-        FK_HOST_DEVICE_FUSE decltype(auto) exec_resize(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
+        FK_HOST_DEVICE_FUSE auto exec_resize(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
             static_assert(isTernaryType<BackIOp>, "BackIOp must be a ternary type for this specialization");
             
             const float src_x = thread.x * params.src_conv_factors.x;
