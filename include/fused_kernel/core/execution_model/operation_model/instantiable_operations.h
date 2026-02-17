@@ -252,10 +252,7 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     */
     template <typename Operation_t>
     struct OpenInstantiableOperation final : public OperationData<Operation_t> {
-        INSTANTIABLE_OPERATION_DETAILS_IS(OpenType)
-            static_assert(std::is_same_v<typename Operation::InstanceType, OpenType>,
-                "Operation is not OpenType");
-
+        INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT(OpenType)
         INSTANTIABLE_OPERATION_THEN
 
         template <typename Input>
