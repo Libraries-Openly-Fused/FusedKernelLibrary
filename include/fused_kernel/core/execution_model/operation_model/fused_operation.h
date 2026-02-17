@@ -92,23 +92,23 @@ namespace fk {
             return exec_helper(std::make_index_sequence<ParamsType::size>{}, thread, params);
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_x(const Point& thread,
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread,
                                                        const OperationDataType& opData) {
             return FirstType_t<IOps...>::Operation::num_elems_x(thread, get_opt<0>(opData.params));
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_y(const Point& thread,
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread,
                                                        const OperationDataType& opData) {
             return FirstType_t<IOps...>::Operation::num_elems_y(thread, get_opt<0>(opData.params));
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) num_elems_z(const Point& thread,
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread,
                                                        const OperationDataType& opData) {
             return FirstType_t<IOps...>::Operation::num_elems_z(thread, get_opt<0>(opData.params));
         }
 
-        FK_HOST_DEVICE_FUSE decltype(auto) getActiveThreads(const OperationDataType& opData) {
-            return ActiveThreads{ num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
+        FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
+            return { num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
         }
 
     private:
@@ -239,7 +239,7 @@ namespace fk {
             FK_HOST_CNST FuseProxy(U &&u) : value(std::forward<U>(u)) {}
 
             template <typename IOp1, typename IOp2>
-            FK_HOST_FUSE decltype(auto) fuse(IOp1 &&iOp1, IOp2 &&iOp2) {
+            FK_HOST_FUSE auto fuse(IOp1 &&iOp1, IOp2 &&iOp2) {
                 constexpr bool iOp1Fused = std::decay_t<IOp1>::Operation::IS_FUSED_OP;
                 constexpr bool iOp2Fused = std::decay_t<IOp2>::Operation::IS_FUSED_OP;
                 
@@ -258,15 +258,15 @@ namespace fk {
             }
 
             template <typename LeftIOp>
-            FK_HOST_CNST friend decltype(auto) operator&&(const FuseProxy<LeftIOp>& left, const FuseProxy<T>& right) {
-                return FuseProxy<decltype(FuseProxy<T>::fuse(left.value, right.value))>{
+            FK_HOST_CNST friend auto operator&&(const FuseProxy<LeftIOp>& left, const FuseProxy<T>& right) {
+                return FuseProxy<decltype(FuseProxy<T>::fuse(std::declval<LeftIOp>(), std::declval<T>()))>{
                     FuseProxy<T>::fuse(left.value, right.value)
                 };
             }
 
             private:
             template <typename... IOps>
-            FK_HOST_FUSE decltype(auto) get_unary_params(const Unary<FusedOperation_<void, IOps...>>&) {
+            FK_HOST_FUSE auto get_unary_params(const Unary<FusedOperation_<void, IOps...>>&) {
                 return OperationTuple<IOps...>{};
             }
             template <typename IOp>
@@ -280,7 +280,7 @@ namespace fk {
         };
 
         template <typename... IOps>
-        FK_HOST_FUSE decltype(auto) build_helper(const OperationTuple_<void, IOps...>& opTup) {
+        FK_HOST_FUSE auto build_helper(const OperationTuple_<void, IOps...>& opTup) {
             if constexpr (allUnaryTypes<IOps...>) {
                 return Unary<FusedOperation_<void, IOps...>>{};
             } else {
@@ -289,10 +289,9 @@ namespace fk {
             }
         }
 
-
       public:
         template <typename... IOps>
-        FK_HOST_FUSE decltype(auto) build(IOps&&... iOps) {
+        FK_HOST_FUSE auto build(IOps&&... iOps) {
             if constexpr (and_v<isOperation<std::decay_t<IOps>>...>) {
                 return (... && FuseProxy<std::decay_t<IOps>>{std::forward<IOps>(iOps)}).value;
             } else { 
