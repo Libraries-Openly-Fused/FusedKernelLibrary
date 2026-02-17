@@ -32,7 +32,8 @@ namespace fk {
         FK_STATIC_STRUCT(PerThreadRead, SelfType)
         DECLARE_READ_PARENT
         template <uint ELEMS_PER_THREAD=1>
-        FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE auto exec(const Point& thread, const ParamsType& params) 
+            -> ThreadFusionType<ReadDataType, ELEMS_PER_THREAD, OutputType> {
             return *PtrAccessor<D>::template cr_point<T, ThreadFusionType<ReadDataType, ELEMS_PER_THREAD, OutputType>>(thread, params);
         }
 
@@ -67,10 +68,10 @@ namespace fk {
 
     struct ReadOp {
         template <typename PtrType>
-        FK_HOST_FUSE decltype(auto) build(const PtrType& ptr) {
-            constexpr ND D = PtrType::nd;
-            using PtrDataType = typename PtrType::Type;
-            return PerThreadRead<D, PtrDataType>::build(ptr);
+        FK_HOST_FUSE decltype(auto) build(PtrType&& ptr) {
+            constexpr ND D = std::decay_t<PtrType>::nd;
+            using PtrDataType = typename std::decay_t<PtrType>::Type;
+            return PerThreadRead<D, PtrDataType>::build(std::forward<PtrType>(ptr));
         }
         template <typename PtrType, size_t N>
         FK_HOST_FUSE decltype(auto) build(const std::array<PtrType, N>& ptrs) {
@@ -107,10 +108,10 @@ namespace fk {
 
     struct WriteOp {
         template <typename PtrType>
-        FK_HOST_FUSE decltype(auto) build(const PtrType& ptr) {
-            constexpr ND D = PtrType::nd;
-            using PtrDataType = typename PtrType::Type;
-            return PerThreadWrite<D, PtrDataType>::build(ptr);
+        FK_HOST_FUSE decltype(auto) build(PtrType&& ptr) {
+            constexpr ND D = std::decay_t<PtrType>::nd;
+            using PtrDataType = typename std::decay_t<PtrType>::Type;
+            return PerThreadWrite<D, PtrDataType>::build(std::forward<PtrType>(ptr));
         }
         template <typename PtrType, size_t N>
         FK_HOST_FUSE decltype(auto) build(const std::array<PtrType, N>& ptrs) {
@@ -443,7 +444,7 @@ namespace fk {
         FK_STATIC_STRUCT(CircularBatchRead, SelfType)
         DECLARE_READ_PARENT
         template <uint ELEMS_PER_THREAD = 1>
-        FK_HOST_DEVICE_FUSE auto exec(const Point& thread, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE ThreadFusionType<ReadDataType, ELEMS_PER_THREAD, OutputType> exec(const Point& thread, const ParamsType& params) {
             const Point newThreadIdx = circular_batch_internal::computeCircularThreadIdx<direction, BATCH>(thread, params.first);
             if constexpr (THREAD_FUSION) {
                 return Operation::template exec<ELEMS_PER_THREAD>(newThreadIdx, params.opData[newThreadIdx.z]);
@@ -514,7 +515,7 @@ namespace fk {
         FK_STATIC_STRUCT(CircularTensorRead, SelfType)
         DECLARE_READ_PARENT
         template <uint ELEMS_PER_THREAD = 1>
-        FK_HOST_DEVICE_FUSE auto exec(const Point& thread, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE ThreadFusionType<ReadDataType, ELEMS_PER_THREAD, OutputType> exec(const Point& thread, const ParamsType& params) {
             const Point newThreadIdx = circular_batch_internal::computeCircularThreadIdx<direction, BATCH>(thread, params.first);
             if constexpr (THREAD_FUSION) {
                 return Operation::template exec<ELEMS_PER_THREAD>(newThreadIdx, params.opData);
