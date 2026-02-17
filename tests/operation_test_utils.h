@@ -360,7 +360,7 @@ namespace test_case_builder::detail {
 }
 
 template <typename Operation>
-struct TestCaseBuilder<Operation, std::enable_if_t<fk::IsUnaryType<Operation>::value &&
+struct TestCaseBuilder<Operation, std::enable_if_t<fk::OpIs<fk::UnaryType, Operation>::value &&
                                     std::is_fundamental_v<typename Operation::InputType> &&
                                     std::is_fundamental_v<typename Operation::OutputType>, void>> {
     template <size_t N>
@@ -395,7 +395,7 @@ struct TestCaseBuilder<Operation, std::enable_if_t<fk::IsUnaryType<Operation>::v
 };
 
 template <typename Operation>
-struct TestCaseBuilder<Operation, std::enable_if_t<fk::IsUnaryType<Operation>::value &&
+struct TestCaseBuilder<Operation, std::enable_if_t<fk::OpIs<fk::UnaryType, Operation>::value &&
                                     (fk::validCUDAVec<typename Operation::InputType> ||
                                      fk::validCUDAVec<typename Operation::OutputType>), void>> {
     template <size_t N>
@@ -441,7 +441,7 @@ struct TestCaseBuilder<Operation, std::enable_if_t<fk::IsUnaryType<Operation>::v
 };
 
 template <typename Operation>
-struct TestCaseBuilder<Operation, std::enable_if_t<fk::OpIs<fk::ReadType, Operation>::value || fk::IsReadBackType<Operation>::value, void>> {
+struct TestCaseBuilder<Operation, std::enable_if_t<fk::OpIs<fk::ReadType, Operation>::value || fk::OpIs<fk::ReadBackType, Operation>::value, void>> {
     template <fk::ND D, size_t N, typename BuildParams>
     static inline void addTest(std::map<std::string, std::function<bool()>>& testCases,
                                fk::Stream& stream,

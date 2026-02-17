@@ -81,62 +81,6 @@ namespace fk {
     template <typename T>
     struct HasInstanceType<T, std::void_t<typename T::InstanceType>> : std::true_type {};
 
-    template <typename T, typename = void>
-    struct IsReadBackType : std::false_type {};
-    template <typename T>
-    struct IsReadBackType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, ReadBackType>, void>> : std::false_type {};
-    template <typename T>
-    struct IsReadBackType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, ReadBackType>, void>> : std::true_type {};
-
-    template <typename T, typename = void>
-    struct IsIncompleteReadBackType : std::false_type {};
-    template <typename T>
-    struct IsIncompleteReadBackType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, IncompleteReadBackType>, void>> : std::false_type {};
-    template <typename T>
-    struct IsIncompleteReadBackType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, IncompleteReadBackType>, void>> : std::true_type {};
-
-    template <typename T, typename = void>
-    struct IsUnaryType : std::false_type {};
-    template <typename T>
-    struct IsUnaryType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, UnaryType>, void>> : std::false_type {};
-    template <typename T>
-    struct IsUnaryType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, UnaryType>, void>> : std::true_type {};
-
-    template <typename T, typename = void>
-    struct IsBinaryType : std::false_type {};
-    template <typename T>
-    struct IsBinaryType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, BinaryType>, void>> : std::false_type {};
-    template <typename T>
-    struct IsBinaryType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, BinaryType>, void>> : std::true_type {};
-
-    template <typename T, typename = void>
-    struct IsTernaryType : std::false_type {};
-    template <typename T>
-    struct IsTernaryType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, TernaryType>, void>> : std::false_type {};
-    template <typename T>
-    struct IsTernaryType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, TernaryType>, void>> : std::true_type {};
-
-    template <typename T, typename = void>
-    struct IsMidWriteType : std::false_type {};
-    template <typename T>
-    struct IsMidWriteType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, MidWriteType>, void>> : std::false_type {};
-    template <typename T>
-    struct IsMidWriteType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, MidWriteType>, void>> : std::true_type {};
-
-    template <typename T, typename = void>
-    struct IsOpenType : std::false_type {};
-    template <typename T>
-    struct IsOpenType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, OpenType>, void>> : std::false_type {};
-    template <typename T>
-    struct IsOpenType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, OpenType>, void>> : std::true_type {};
-
-    template <typename T, typename = void>
-    struct IsWriteType : std::false_type {};
-    template <typename T>
-    struct IsWriteType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, WriteType>, void>> : std::false_type {};
-    template <typename T>
-    struct IsWriteType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, WriteType>, void>> : std::true_type {};
-
     template <typename OperationType, typename OpOrIOp, typename = void>
     struct OpIs : std::false_type {};
     template <typename OperationType, typename OpOrIOp>
