@@ -50,7 +50,7 @@ namespace fk { // namespace fused kernel
 
     template <size_t idx, size_t... iseq>
     constexpr inline size_t get_index_f(const std::index_sequence<iseq...>&) {
-        return get_arg<static_cast<int>(idx)>(iseq...);
+        return get_arg<idx>(iseq...);
     }
 
     template <size_t idx, typename ISeq>
