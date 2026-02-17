@@ -22,7 +22,7 @@ namespace fk {
     struct NotIsUnaryRestriction {
         template <typename Type>
         FK_HOST_DEVICE_FUSE bool complies() {
-            return !isUnaryType<Type>;
+            return !opIs<UnaryType, Type>;
         }
     };
 
@@ -83,7 +83,7 @@ namespace fk {
     // may lead to local memory accesses in the GPU
     template <size_t Idx, typename... Operations>
     FK_HOST_DEVICE_CNST decltype(auto) get_opt(const OperationTuple<Operations...>& opTuple){
-        if constexpr (isUnaryType<TypeAt_t<Idx, TypeList<Operations...>>>) {
+        if constexpr (opIs<UnaryType, TypeAt_t<Idx, TypeList<Operations...>>>) {
             return typename TypeAt_t<Idx, TypeList<Operations...>>::Operation::InstantiableType{};
         } else {
             return get<GetIndex<typename OperationTuple<Operations...>::Indexes, Idx>::value>(opTuple.instances);

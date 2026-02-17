@@ -80,7 +80,7 @@ bool testNewOperationTuple() {
 
     static_assert(opTuple1.instances.size == 2, "Wrong Tuple size in OperationTuple");
     static_assert(gotOp1.params == 1u, "Wrong value in op1");
-    static_assert(isUnaryType<std::decay_t<decltype(gotOp2)>>, "Op2 must be Unary");
+    static_assert(opIs<UnaryType, std::decay_t<decltype(gotOp2)>>, "Op2 must be Unary");
     static_assert(gotOp3.params == 5u, "Wrong value in op3");
 
     // All unary
@@ -88,8 +88,8 @@ bool testNewOperationTuple() {
     constexpr auto gotT2Op2 = get_opt<0>(opTuple2);
     constexpr auto gotT2Op4 = get_opt<1>(opTuple2);
 
-    static_assert(isUnaryType<std::decay_t<decltype(gotT2Op2)>>, "Op2 must be Unary");
-    static_assert(isUnaryType<std::decay_t<decltype(gotT2Op4)>>, "Op4 must be Unary");
+    static_assert(opIs<UnaryType, std::decay_t<decltype(gotT2Op2)>>, "Op2 must be Unary");
+    static_assert(opIs<UnaryType, std::decay_t<decltype(gotT2Op4)>>, "Op4 must be Unary");
 
     // None unary
     constexpr auto opTuple3 = make_new_operation_tuple(op5, op6, op7);
@@ -110,7 +110,7 @@ int launch() {
     using OpTuple1Type = std::decay_t<decltype(opTuple1)>;
 
     static_assert(OpTuple1Type::size == 1, "Wrong operation tuple size");
-    static_assert(fk::isUnaryType<fk::TypeAt_t<0, typename OpTuple1Type::Operations>>, "Wrong Operation Type");
+    static_assert(fk::opIs<fk::UnaryType, fk::TypeAt_t<0, typename OpTuple1Type::Operations>>, "Wrong Operation Type");
 
     constexpr fk::OperationData<fk::Add<int>> data{ 3 };
     static_assert(data.params == 3, "Wrong value");
@@ -121,7 +121,7 @@ int launch() {
     using OpTuple2Type = decltype(opTuple2);
 
     static_assert(OpTuple2Type::size == 2, "Wrong operation tuple size");
-    static_assert(fk::isBinaryType<fk::TypeAt_t<1, typename OpTuple2Type::Operations>>, "Wrong Operation Type");
+    static_assert(fk::opIs<fk::BinaryType, fk::TypeAt_t<1, typename OpTuple2Type::Operations>>, "Wrong Operation Type");
     static_assert(fk::get_opt<1>(opTuple2).params == 3, "Wrong value");
 
     constexpr auto opTuple3 = fk::make_new_operation_tuple(fk::Add<int, int, int, fk::UnaryType>::build(),
@@ -131,7 +131,7 @@ int launch() {
 
     static_assert(OpTuple3Type::size == 3, "Wrong operation tuple size");
     //opTuple3.next; must not compile
-    static_assert(fk::isUnaryType<fk::TypeAt_t<0, typename OpTuple3Type::Operations>>, "Wrong Operation Type");
+    static_assert(fk::opIs<fk::UnaryType, fk::TypeAt_t<0, typename OpTuple3Type::Operations>>, "Wrong Operation Type");
    
     if (!test_OTInitialization() || !testNewOperationTuple()) {
         return -1;

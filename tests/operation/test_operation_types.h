@@ -76,14 +76,14 @@ template <typename TypeList>
 struct ContainsReadType;
 template <typename... Types>
 struct ContainsReadType<fk::TypeList<Types...>> {
-    static constexpr bool value = fk::or_v<fk::isReadType<Types>...>;
+    static constexpr bool value = fk::or_v<fk::opIs<fk::ReadType, Types>...>;
 };
 
 template <typename TypeList>
 struct ContainsReadBackType;
 template <typename... Types>
 struct ContainsReadBackType<fk::TypeList<Types...>> {
-    static constexpr bool value = fk::or_v<fk::isReadBackType<Types>...>;
+    static constexpr bool value = fk::or_v<fk::opIs<fk::ReadBackType, Types>...>;
 };
 
 template <typename TypeList>
@@ -98,7 +98,7 @@ struct NoneFusedType;
 
 template <typename... Types>
 struct NoneFusedType<fk::TypeList<Types...>> {
-    static constexpr bool value = !fk::or_v<fk::isOpenType<Types>...>;
+    static constexpr bool value = !fk::or_v<fk::opIs<fk::OpenType, Types>...>;
 };
 
 template <typename TypeList_t>
@@ -164,12 +164,12 @@ constexpr bool test_notAllUnaryTypes() {
 int launch() {
     // isReadType
     constexpr bool noneRead = !ContainsReadType<NoRead>::value;
-    constexpr bool isRead = fk::isReadType<RPerThrFloat>;
+    constexpr bool isRead = fk::opIs<fk::ReadType, RPerThrFloat>;
     static_assert(noneRead && isRead, "Something wrong with isReadType");
 
     // isReadBackType
     constexpr bool noneReadBack = !ContainsReadBackType<NoReadBack>::value;
-    constexpr bool isReadBack = fk::isReadBackType<RBResize>;
+    constexpr bool isReadBack = fk::opIs<fk::ReadBackType, RBResize>;
     static_assert(noneReadBack && isReadBack, "Something wrong with isReadType");
 
     // noneAnyWriteType

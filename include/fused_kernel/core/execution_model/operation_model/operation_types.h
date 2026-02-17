@@ -94,45 +94,18 @@ namespace fk {
     constexpr bool isOperation = HasInstanceType<T>::value;
 
     template <typename OpORIOp>
-    constexpr bool isReadType = opIs<ReadType, OpORIOp>;
+    constexpr bool isAnyReadType = opIs<ReadType, OpORIOp> || opIs<ReadBackType, OpORIOp> || opIs<IncompleteReadBackType, OpORIOp>;
 
     template <typename OpORIOp>
-    constexpr bool isReadBackType = opIs<ReadBackType, OpORIOp>;
+    constexpr bool isAnyCompleteReadType = opIs<ReadType, OpORIOp> || opIs<ReadBackType, OpORIOp>;
 
     template <typename OpORIOp>
-    constexpr bool isIncompleteReadBackType = opIs<IncompleteReadBackType, OpORIOp>;
-
-    template <typename OpORIOp>
-    constexpr bool isAnyReadType = isReadType<OpORIOp> || isReadBackType<OpORIOp> || isIncompleteReadBackType<OpORIOp>;
-
-    template <typename OpORIOp>
-    constexpr bool isAnyCompleteReadType = isReadType<OpORIOp> || isReadBackType<OpORIOp>;
-
-    template <typename OpORIOp>
-    constexpr bool isUnaryType = opIs<UnaryType, OpORIOp>;
-
-    template <typename OpORIOp>
-    constexpr bool isBinaryType = opIs<BinaryType, OpORIOp>;
-
-    template <typename OpORIOp>
-    constexpr bool isTernaryType = opIs<TernaryType, OpORIOp>;
-
-    template <typename OpORIOp>
-    constexpr bool isOpenType = opIs<OpenType, OpORIOp>;
-
-    template <typename OpORIOp>
-    constexpr bool isWriteType = opIs<WriteType, OpORIOp>;
-
-    template <typename OpORIOp>
-    constexpr bool isMidWriteType = opIs<MidWriteType, OpORIOp>;
-
-    template <typename OpORIOp>
-    constexpr bool isComputeType = isUnaryType<OpORIOp> || isBinaryType<OpORIOp> || isTernaryType<OpORIOp>;
+    constexpr bool isComputeType = opIs<UnaryType, OpORIOp> || opIs<BinaryType, OpORIOp> || opIs<TernaryType, OpORIOp>;
 
     using WriteTypeList = TypeList<WriteType, MidWriteType>;
 
     template <typename OpORIOp>
-    constexpr bool isAnyWriteType = isWriteType<OpORIOp> || isMidWriteType<OpORIOp>;
+    constexpr bool isAnyWriteType = opIs<WriteType, OpORIOp> || opIs<MidWriteType, OpORIOp>;
 
     template <typename IOp>
     using GetInputType_t = typename IOp::Operation::InputType;
@@ -145,7 +118,7 @@ namespace fk {
                                                      const IOp& instantiableOperation) {
         static_assert(isComputeType<IOp>,
             "Function compute only works with IOp InstanceTypes UnaryType, BinaryType and TernaryType");
-        if constexpr (isUnaryType<IOp>) {
+        if constexpr (opIs<UnaryType, IOp>) {
             return IOp::Operation::exec(input);
         } else {
             return IOp::Operation::exec(input, instantiableOperation);
@@ -153,13 +126,12 @@ namespace fk {
     }
 
     template <typename... OpsOrIOps>
-    constexpr bool allUnaryTypes = and_v<isUnaryType<OpsOrIOps>...>;
-
+    constexpr bool allUnaryTypes = and_v<opIs<UnaryType, OpsOrIOps>...>;
     template <typename... OpsOrIOps>
     constexpr bool allComputeTypes = and_v<isComputeType<OpsOrIOps>...>;
 
     template <typename... OpsOrIOps>
-    constexpr bool atLeastOneMidWriteType = or_v<isMidWriteType<OpsOrIOps>...>;
+    constexpr bool atLeastOneMidWriteType = or_v<opIs<MidWriteType, OpsOrIOps>...>;
 
     template <typename = void, typename... OpsOrIOps>
     struct NotAllUnary final : public std::false_type {};
@@ -182,22 +154,22 @@ namespace fk {
                                OperationsOrInstantiableOperations...> : std::true_type {};
 
     template <typename... OperationORInstantiableOperation>
-    constexpr bool noneWriteType = and_v<(!isWriteType<OperationORInstantiableOperation>)...>;
+    constexpr bool noneWriteType = and_v<(!opIs<WriteType, OperationORInstantiableOperation>)...>;
 
     template <typename... OperationORInstantiableOperation>
-    constexpr bool noneMidWriteType = and_v<(!isMidWriteType<OperationORInstantiableOperation>)...>;
+    constexpr bool noneMidWriteType = and_v<(!opIs<MidWriteType, OperationORInstantiableOperation>)...>;
 
     template <typename... OperationORInstantiableOperation>
     constexpr bool noneAnyWriteType = and_v<(!isAnyWriteType<OperationORInstantiableOperation>)...>;
 
     template <typename... OperationORInstantiableOperation>
-    constexpr bool noneReadType = and_v<(!isReadType<OperationORInstantiableOperation>)...>;
+    constexpr bool noneReadType = and_v<(!opIs<ReadType, OperationORInstantiableOperation>)...>;
 
     template <typename... OperationORInstantiableOperation>
-    constexpr bool noneReadBackType = and_v<(!isReadBackType<OperationORInstantiableOperation>)...>;
+    constexpr bool noneReadBackType = and_v<(!opIs<ReadBackType, OperationORInstantiableOperation>)...>;
 
     template <typename... OperationORInstantiableOperation>
-    constexpr bool noneIncompleteReadBackType = and_v<(!isIncompleteReadBackType<OperationORInstantiableOperation>)...>;
+    constexpr bool noneIncompleteReadBackType = and_v<(!opIs<IncompleteReadBackType, OperationORInstantiableOperation>)...>;
 
     template <typename... OperationORInstantiableOperation>
     constexpr bool noneAnyReadType = and_v<(!isAnyReadType<OperationORInstantiableOperation>)...>;
@@ -206,7 +178,7 @@ namespace fk {
     struct IsCompleteOperation : std::false_type {};
 
     template <typename T>
-    struct IsCompleteOperation<T, std::enable_if_t<isOperation<T> && !isIncompleteReadBackType<T>>> : std::true_type {};
+    struct IsCompleteOperation<T, std::enable_if_t<isOperation<T> && !opIs<IncompleteReadBackType, T>>> : std::true_type {};
 
     template <typename T>
     constexpr bool isCompleteOperation = IsCompleteOperation<T>::value;

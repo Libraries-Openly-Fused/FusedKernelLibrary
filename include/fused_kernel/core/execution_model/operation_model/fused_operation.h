@@ -37,12 +37,12 @@ namespace fk {
     // Changed to use IOps... for consistency
     template <typename... IOps>
     struct FusedOperation_<std::enable_if_t<!isAnyReadType<FirstType_t<IOps...>> && 
-                                            !isWriteType<LastType_t<IOps...>> && 
+                                            !opIs<WriteType, LastType_t<IOps...>> && 
                                             atLeastOneMidWriteType<IOps...>>,
                            IOps...> {
     private:
         using SelfType = FusedOperation_<std::enable_if_t<!isAnyReadType<FirstType_t<IOps...>> && 
-                                                          !isWriteType<LastType_t<IOps...>> && 
+                                                          !opIs<WriteType, LastType_t<IOps...>> && 
                                                           atLeastOneMidWriteType<IOps...>>,
                                          IOps...>;
         
@@ -72,11 +72,11 @@ namespace fk {
     // Changed to use IOps... for consistency
     template <typename... IOps>
     struct FusedOperation_<
-        std::enable_if_t<isAnyReadType<FirstType_t<IOps...>> && !(isWriteType<LastType_t<IOps...>>)>,
+        std::enable_if_t<isAnyReadType<FirstType_t<IOps...>> && !(opIs<WriteType, LastType_t<IOps...>>)>,
         IOps...> {
     private:
       using SelfType = FusedOperation_<
-        std::enable_if_t<isAnyReadType<FirstType_t<IOps...>> && !(isWriteType<LastType_t<IOps...>>)>,
+        std::enable_if_t<isAnyReadType<FirstType_t<IOps...>> && !(opIs<WriteType, LastType_t<IOps...>>)>,
         IOps...>;
       
       using FusedReadDataType = typename std::decay_t<FirstType_t<IOps...>>::Operation::ReadDataType;
@@ -147,11 +147,11 @@ namespace fk {
 
     // 4. ClosedType Specialization
     template <typename... IOps>
-    struct FusedOperation_<std::enable_if_t<isAnyReadType<FirstType_t<IOps...>> && isWriteType<LastType_t<IOps...>>>,
+    struct FusedOperation_<std::enable_if_t<isAnyReadType<FirstType_t<IOps...>> && opIs<WriteType, LastType_t<IOps...>>>,
                            IOps...> {
       private:
         using SelfType =
-            FusedOperation_<std::enable_if_t<isAnyReadType<FirstType_t<IOps...>> && isWriteType<LastType_t<IOps...>>>, IOps...>;
+            FusedOperation_<std::enable_if_t<isAnyReadType<FirstType_t<IOps...>> && opIs<WriteType, LastType_t<IOps...>>>, IOps...>;
         using Parent = ClosedOperation<OperationTuple<IOps...>, SelfType, true>;
 
       public:
@@ -174,11 +174,11 @@ namespace fk {
 
     // 5. WriteType Specialization
     template <typename... IOps>
-    struct FusedOperation_<std::enable_if_t<!isAnyReadType<FirstType_t<IOps...>> && isWriteType<LastType_t<IOps...>>>,
+    struct FusedOperation_<std::enable_if_t<!isAnyReadType<FirstType_t<IOps...>> && opIs<WriteType, LastType_t<IOps...>>>,
                            IOps...> {
       private:
         using SelfType =
-            FusedOperation_<std::enable_if_t<!isAnyReadType<FirstType_t<IOps...>> && isWriteType<LastType_t<IOps...>>>,
+            FusedOperation_<std::enable_if_t<!isAnyReadType<FirstType_t<IOps...>> && opIs<WriteType, LastType_t<IOps...>>>,
                             IOps...>;
         using FusedInputType = typename FirstType_t<IOps...>::Operation::InputType;
         using FusedWriteDataType = typename LastType_t<IOps...>::Operation::WriteDataType;
@@ -276,7 +276,7 @@ namespace fk {
             }
             template <typename IOp>
             FK_HOST_FUSE decltype(auto) get_params(IOp&& iOp) {
-                if constexpr (isUnaryType<std::decay_t<IOp>>) {
+                if constexpr (opIs<UnaryType, std::decay_t<IOp>>) {
                     return get_unary_params(std::forward<IOp>(iOp));
                 } else {
                     return std::forward<IOp>(iOp).params;

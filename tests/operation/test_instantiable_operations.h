@@ -69,9 +69,9 @@ constexpr inline bool test_read_then_batch() {
     static_assert(std::is_same_v<ResultingType_, ResultingType2>);
     static_assert(fusedBatchIOp.params.usedPlanes == 2);
     static_assert(fusedBatchIOp.params.default_value == 3.f);
-    static_assert(isReadType<ResultingType2>);
-    static_assert(isReadBackType<typename ResultingType2::Operation::Operation>);
-    static_assert(isTernaryType<typename ResultingType2::Operation::Operation::BackIOp>);
+    static_assert(opIs<ReadType, ResultingType2>);
+    static_assert(opIs<ReadBackType, typename ResultingType2::Operation::Operation>);
+    static_assert(opIs<TernaryType, typename ResultingType2::Operation::Operation::BackIOp>);
 
     return true;
 }
@@ -126,7 +126,7 @@ constexpr inline bool test_read_then_readback() {
     constexpr auto readIOp = RPerThrFloat::build(input);
 
     constexpr auto fusedOp = readIOp.then(Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>::build(Size(16,32), 0.5f));
-    static_assert(isReadBackType<decltype(fusedOp)>, "The IOp should be a ReadBack type");
+    static_assert(opIs<ReadBackType, decltype(fusedOp)>, "The IOp should be a ReadBack type");
 
     return true;
 }
@@ -215,7 +215,7 @@ int launch() {
 
     constexpr auto someReadOp =
         PerThreadRead<ND::_2D, uchar3>::build(input).then(Cast<uchar3, float3>::build()).then(Resize<InterpolationType::INTER_LINEAR>::build(dstSize));
-    static_assert(isReadBackType<decltype(someReadOp)>, "Unexpected Operation Type for someReadOp");
+    static_assert(opIs<ReadBackType, decltype(someReadOp)>, "Unexpected Operation Type for someReadOp");
     static_assert(std::is_same_v<decltype(someReadOp.backIOp.backIOp.params), OperationTuple<Read<PerThreadRead<ND::_2D, uchar3>>, Unary<Cast<uchar3, float3>>>>, "Unexpected type for params");
 
     constexpr bool correct =
@@ -223,7 +223,7 @@ int launch() {
     static_assert(correct, "Unexpected resulting type");
 
     constexpr auto finalOp = someReadOp.then(Mul<float3>::build(make_<float3>(3.f, 1.f, 32.f)));
-    static_assert(!isReadBackType<std::decay_t<decltype(finalOp)>>, "Unexpected type for finalOp");
+    static_assert(!opIs<ReadBackType, std::decay_t<decltype(finalOp)>>, "Unexpected type for finalOp");
 
     constexpr auto inputAlt = ReadSet<uchar3>::build({ { { 0,0,0 }, {128,128,1} } });
 

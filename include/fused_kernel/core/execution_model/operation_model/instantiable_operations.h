@@ -336,37 +336,37 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
 
     // Single Operation cases
     template <typename Operation>
-    struct InstantiableOperationType<Operation, std::enable_if_t<isReadType<Operation>>> {
+    struct InstantiableOperationType<Operation, std::enable_if_t<opIs<ReadType, Operation>>> {
         using type = Read<Operation>;
     };
 
     template <typename Operation>
-    struct InstantiableOperationType<Operation, std::enable_if_t<isReadBackType<Operation>>> {
+    struct InstantiableOperationType<Operation, std::enable_if_t<opIs<ReadBackType, Operation>>> {
         using type = ReadBack<Operation>;
     };
 
     template <typename Operation>
-    struct InstantiableOperationType<Operation, std::enable_if_t<isIncompleteReadBackType<Operation>>> {
+    struct InstantiableOperationType<Operation, std::enable_if_t<opIs<IncompleteReadBackType, Operation>>> {
         using type = IncompleteReadBack<Operation>;
     };
 
     template <typename Operation>
-    struct InstantiableOperationType<Operation, std::enable_if_t<isUnaryType<Operation>>> {
+    struct InstantiableOperationType<Operation, std::enable_if_t<opIs<UnaryType, Operation>>> {
         using type = Unary<Operation>;
     };
 
     template <typename Operation>
-    struct InstantiableOperationType<Operation, std::enable_if_t<isBinaryType<Operation>>> {
+    struct InstantiableOperationType<Operation, std::enable_if_t<opIs<BinaryType, Operation>>> {
         using type = Binary<Operation>;
     };
 
     template <typename Operation>
-    struct InstantiableOperationType<Operation, std::enable_if_t<isTernaryType<Operation>>> {
+    struct InstantiableOperationType<Operation, std::enable_if_t<opIs<TernaryType, Operation>>> {
         using type = Ternary<Operation>;
     };
 
     template <typename Operation>
-    struct InstantiableOperationType<Operation, std::enable_if_t<isWriteType<Operation>>> {
+    struct InstantiableOperationType<Operation, std::enable_if_t<opIs<WriteType, Operation>>> {
         using type = Write<Operation>;
     };
 

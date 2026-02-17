@@ -70,7 +70,7 @@ namespace fk {
 
     template <AspectRatio AR, typename BackIOp_>
     struct ResizeComplete {
-        static_assert(isTernaryType<BackIOp_>, "BackIOp must be a ternary type for this specialization");
+        static_assert(opIs<TernaryType, BackIOp_>, "BackIOp must be a ternary type for this specialization");
     private:
         using SelfType = ResizeComplete<AR, BackIOp_>;
     public:
@@ -115,7 +115,7 @@ namespace fk {
 
     private:
         FK_HOST_DEVICE_FUSE auto exec_resize(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
-            static_assert(isTernaryType<BackIOp>, "BackIOp must be a ternary type for this specialization");
+            static_assert(opIs<TernaryType, BackIOp>, "BackIOp must be a ternary type for this specialization");
             
             const float src_x = thread.x * params.src_conv_factors.x;
             const float src_y = thread.y * params.src_conv_factors.y;
