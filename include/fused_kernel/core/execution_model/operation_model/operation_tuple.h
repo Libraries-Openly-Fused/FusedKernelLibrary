@@ -79,14 +79,51 @@ namespace fk {
         static constexpr size_t value = GetIndexHelper<std::index_sequence<Idx...>, decltype(std::make_index_sequence<sizeof...(Idx)>()), IdxValue>::value;
     };
 
-    // As observed in get<>(Tuple<...>), returning a const& as auto,
-    // may lead to local memory accesses in the GPU
+    // 1. Mutable L-value (Allows modification: get_opt<0>(tup) = x;)
     template <size_t Idx, typename... Operations>
-    FK_HOST_DEVICE_CNST decltype(auto) get_opt(const OperationTuple<Operations...>& opTuple){
+    FK_HOST_DEVICE_CNST decltype(auto) get_opt(OperationTuple<Operations...>& opTuple) {
+        if constexpr (opIs<UnaryType, TypeAt_t<Idx, TypeList<Operations...>>>) {
+            // Unary types are stateless, return a new temporary by value.
+            // decltype(auto) deduces this as 'T' (Value).
+            return typename TypeAt_t<Idx, TypeList<Operations...>>::Operation::InstantiableType{};
+        } else {
+            // Stored types return a reference to the data.
+            // get(...) returns 'auto&', so decltype(auto) returns 'T&'.
+            return get<GetIndex<typename OperationTuple<Operations...>::Indexes, Idx>::value>(opTuple.instances);
+        }
+    }
+
+    // 2. Const L-value (Read-only access: safe for const objects)
+    template <size_t Idx, typename... Operations>
+    FK_HOST_DEVICE_CNST decltype(auto) get_opt(const OperationTuple<Operations...>& opTuple) {
         if constexpr (opIs<UnaryType, TypeAt_t<Idx, TypeList<Operations...>>>) {
             return typename TypeAt_t<Idx, TypeList<Operations...>>::Operation::InstantiableType{};
         } else {
+            // get(...) returns 'const auto&', so decltype(auto) returns 'const T&'.
             return get<GetIndex<typename OperationTuple<Operations...>::Indexes, Idx>::value>(opTuple.instances);
+        }
+    }
+
+    // 3. Mutable R-value (Move semantics: allows stealing resources)
+    template <size_t Idx, typename... Operations>
+    FK_HOST_DEVICE_CNST decltype(auto) get_opt(OperationTuple<Operations...>&& opTuple) {
+        if constexpr (opIs<UnaryType, TypeAt_t<Idx, TypeList<Operations...>>>) {
+            return typename TypeAt_t<Idx, TypeList<Operations...>>::Operation::InstantiableType{};
+        } else {
+            // We must std::move the internal tuple member to propagate the r-value nature.
+            // get(...) returns 'auto&&', so decltype(auto) returns 'T&&'.
+            return get<GetIndex<typename OperationTuple<Operations...>::Indexes, Idx>::value>(std::move(opTuple.instances));
+        }
+    }
+
+    // 4. Const R-value (Rare, but technically correct for completeness)
+    template <size_t Idx, typename... Operations>
+    FK_HOST_DEVICE_CNST decltype(auto) get_opt(const OperationTuple<Operations...>&& opTuple) {
+        if constexpr (opIs<UnaryType, TypeAt_t<Idx, TypeList<Operations...>>>) {
+            return typename TypeAt_t<Idx, TypeList<Operations...>>::Operation::InstantiableType{};
+        } else {
+            // get(...) returns 'const auto&&'.
+            return get<GetIndex<typename OperationTuple<Operations...>::Indexes, Idx>::value>(std::move(opTuple.instances));
         }
     }
 
