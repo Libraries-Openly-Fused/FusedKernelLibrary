@@ -1,4 +1,4 @@
-﻿/* Copyright 2024 Oscar Amoros Huguet
+﻿/* Copyright 2024-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@
 #include <fused_kernel/algorithms/basic_ops/cast.h>
 #include <fused_kernel/algorithms/image_processing/resize.h>
 #include <fused_kernel/algorithms/image_processing/crop.h>
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 
 // Operation types
 // Read
@@ -38,7 +38,7 @@ using TInterpFloat = fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR
 // Write
 using WPerThrFloat = fk::PerThreadWrite<fk::ND::_2D, float>;
 // MidWrite
-using MWPerThrFloat = fk::FusedOperation<WPerThrFloat, BAddFloat>;
+using FusedPerThrFloat = fk::FusedOperation<fk::MidWrite<WPerThrFloat>, fk::Binary<BAddFloat>>;
 
 // Test combination type lists
 template <typename... Types>
@@ -54,36 +54,36 @@ template <typename T, typename TL>
 using ITF = fk::InsertTypeFront_t<T, TL>;
 
 // No Read
-using NoRead = ITB<ITB<ITB<TLC<TLC<TL<RBResize>, Unaries>, Binaries>, TInterpFloat>, WPerThrFloat>, MWPerThrFloat>;
+using NoRead = ITB<ITB<ITB<TLC<TLC<TL<RBResize>, Unaries>, Binaries>, TInterpFloat>, WPerThrFloat>, FusedPerThrFloat>;
 // No ReadBack
-using NoReadBack = ITB<ITB<ITB<TLC<TLC<TL<RPerThrFloat>, Unaries>, Binaries>, TInterpFloat>, WPerThrFloat>, MWPerThrFloat>;
+using NoReadBack = ITB<ITB<ITB<TLC<TLC<TL<RPerThrFloat>, Unaries>, Binaries>, TInterpFloat>, WPerThrFloat>, FusedPerThrFloat>;
 // No Unary
-using NoUnary = ITB<ITB<ITB<TLC<TLC<TL<RPerThrFloat>, TL<RBResize>>, Binaries>, TInterpFloat>, WPerThrFloat>, MWPerThrFloat>;
+using NoUnary = ITB<ITB<ITB<TLC<TLC<TL<RPerThrFloat>, TL<RBResize>>, Binaries>, TInterpFloat>, WPerThrFloat>, FusedPerThrFloat>;
 // No Binary
-using NoBinary = ITB<ITB<ITB<TLC<TLC<TL<RPerThrFloat>, TL<RBResize>>, Unaries>, TInterpFloat>, WPerThrFloat>, MWPerThrFloat>;
+using NoBinary = ITB<ITB<ITB<TLC<TLC<TL<RPerThrFloat>, TL<RBResize>>, Unaries>, TInterpFloat>, WPerThrFloat>, FusedPerThrFloat>;
 // No Ternary
-using NoTernary = ITB<ITB<TLC<TLC<TLC<TL<RPerThrFloat>, TL<RBResize>>, Unaries>, Binaries>, WPerThrFloat>, MWPerThrFloat>;
+using NoTernary = ITB<ITB<TLC<TLC<TLC<TL<RPerThrFloat>, TL<RBResize>>, Unaries>, Binaries>, WPerThrFloat>, FusedPerThrFloat>;
 // No Write
-using NoWrite = ITB<ITB<TLC<TLC<TLC<TL<RPerThrFloat>, TL<RBResize>>, Unaries>, Binaries>, TInterpFloat>, MWPerThrFloat>;
+using NoWrite = ITB<ITB<TLC<TLC<TLC<TL<RPerThrFloat>, TL<RBResize>>, Unaries>, Binaries>, TInterpFloat>, FusedPerThrFloat>;
 // No Midwrite
-using NoMidWrite = ITB<ITB<TLC<TLC<TLC<TL<RPerThrFloat>, TL<RBResize>>, Unaries>, Binaries>, TInterpFloat>, WPerThrFloat>;
+using NoFused = ITB<ITB<TLC<TLC<TLC<TL<RPerThrFloat>, TL<RBResize>>, Unaries>, Binaries>, TInterpFloat>, WPerThrFloat>;
 // No AnyWrite
-using NoAnyWrite = ITB<TLC<TLC<ITB<TL<RPerThrFloat>, RBResize>, Unaries>, Binaries>, TInterpFloat>;
+using NoAnyWrite = ITB<ITB<TLC<TLC<ITB<TL<RPerThrFloat>, RBResize>, Unaries>, Binaries>, TInterpFloat>, FusedPerThrFloat>;
 // All Compute
 using AllCompute = ITB<TLC<Unaries, Binaries>, TInterpFloat>;
 
 template <typename TypeList>
-struct IsReadType;
+struct ContainsReadType;
 template <typename... Types>
-struct IsReadType<fk::TypeList<Types...>> {
-    static constexpr bool value = fk::or_v<fk::isReadType<Types>...>;
+struct ContainsReadType<fk::TypeList<Types...>> {
+    static constexpr bool value = fk::or_v<fk::opIs<fk::ReadType, Types>...>;
 };
 
 template <typename TypeList>
-struct IsReadBackType;
+struct ContainsReadBackType;
 template <typename... Types>
-struct IsReadBackType<fk::TypeList<Types...>> {
-    static constexpr bool value = fk::or_v<fk::isReadBackType<Types>...>;
+struct ContainsReadBackType<fk::TypeList<Types...>> {
+    static constexpr bool value = fk::or_v<fk::opIs<fk::ReadBackType, Types>...>;
 };
 
 template <typename TypeList>
@@ -91,6 +91,14 @@ struct NoneAnyWriteType;
 template <typename... Types>
 struct NoneAnyWriteType<fk::TypeList<Types...>> {
     static constexpr bool value = fk::noneAnyWriteType<Types...>;
+};
+
+template <typename TypeList>
+struct NoneFusedType;
+
+template <typename... Types>
+struct NoneFusedType<fk::TypeList<Types...>> {
+    static constexpr bool value = !fk::or_v<fk::opIs<fk::OpenType, Types>...>;
 };
 
 template <typename TypeList_t>
@@ -109,16 +117,15 @@ constexpr bool test_allUnaryTypes() {
     constexpr bool mustFalse4 = Test_allUnaryTypes<NoAnyWrite>::value;
     constexpr bool mustFalse5 = Test_allUnaryTypes<NoBinary>::value;
     using ComplexType =
-    fk::Read<fk::FusedOperation_<void,
-                                 fk::ResizeComplete<fk::AspectRatio::PRESERVE_AR,
-                                            fk::Ternary<fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>>>,
-                                 fk::Mul<float3, float3, float3>>>;
+    fk::Read<fk::FusedOperation<typename fk::ResizeComplete<fk::AspectRatio::PRESERVE_AR,
+                                fk::Ternary<fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>>>::InstantiableType,
+                                typename fk::Mul<float3, float3, float3>::InstantiableType>>;
     constexpr bool mustFalse6 = fk::allUnaryTypes<ComplexType>;
 
-    using ComplexType2 = fk::Read<fk::FusedOperation_<void,
-                                                      fk::ResizeComplete<fk::AspectRatio::PRESERVE_AR,
-        fk::Ternary<fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>>>,
-                                                          fk::Mul<float3, float3, float3>>>;
+    using ComplexType2 =
+        fk::Read<fk::FusedOperation<typename fk::ResizeComplete<fk::AspectRatio::PRESERVE_AR,
+                                    fk::Ternary<fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>>>::InstantiableType,
+                                    typename fk::Mul<float3, float3, float3>::InstantiableType>>;
     constexpr bool mustFalse7 = Test_allUnaryTypes<fk::TypeList<ComplexType2>>::value;
 
     return mustTrue && !fk::or_v<mustFalse1, mustFalse2, mustFalse3, mustFalse4, mustFalse5, mustFalse6, mustFalse7>;
@@ -141,15 +148,14 @@ constexpr bool test_notAllUnaryTypes() {
     constexpr bool mustTrue5 = Test_notAllUnaryTypes<NoBinary>::value;
 
     using ComplexType =
-        fk::Read<fk::FusedOperation_<void,
-        fk::ResizeComplete<fk::AspectRatio::PRESERVE_AR,
-        fk::Ternary<fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>>>,
-        fk::Mul<float3, float3, float3>>>;
+        fk::Read<fk::FusedOperation<typename fk::ResizeComplete<fk::AspectRatio::PRESERVE_AR,
+                                    fk::Ternary<fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>>>::InstantiableType,
+                                    typename fk::Mul<float3, float3, float3>::InstantiableType>>;
     constexpr bool mustTrue6 = fk::notAllUnaryTypes<ComplexType>;
 
-    using ComplexType2 = fk::Read<fk::FusedOperation_<void,
-        fk::ResizeComplete<fk::AspectRatio::PRESERVE_AR, fk::Ternary<fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>>>,
-        fk::Mul<float3, float3, float3>>>;
+    using ComplexType2 = fk::Read<fk::FusedOperation<typename fk::ResizeComplete<fk::AspectRatio::PRESERVE_AR,
+                                                     fk::Ternary<fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>>>::InstantiableType,
+                                                     typename fk::Mul<float3, float3, float3>::InstantiableType>>;
     constexpr bool mustTrue7 = Test_notAllUnaryTypes<fk::TypeList<ComplexType2>>::value;
 
     return !mustFalse && fk::and_v<mustTrue1, mustTrue2, mustTrue3, mustTrue4, mustTrue5, mustTrue6, mustTrue7>;
@@ -157,20 +163,18 @@ constexpr bool test_notAllUnaryTypes() {
 
 int launch() {
     // isReadType
-    constexpr bool noneRead = !IsReadType<NoRead>::value;
-    constexpr bool isRead = fk::isReadType<RPerThrFloat>;
+    constexpr bool noneRead = !ContainsReadType<NoRead>::value;
+    constexpr bool isRead = fk::opIs<fk::ReadType, RPerThrFloat>;
     static_assert(noneRead && isRead, "Something wrong with isReadType");
 
     // isReadBackType
-    constexpr bool noneReadBack = !IsReadBackType<NoReadBack>::value;
-    constexpr bool isReadBack = fk::isReadBackType<RBResize>;
+    constexpr bool noneReadBack = !ContainsReadBackType<NoReadBack>::value;
+    constexpr bool isReadBack = fk::opIs<fk::ReadBackType, RBResize>;
     static_assert(noneReadBack && isReadBack, "Something wrong with isReadType");
 
     // noneAnyWriteType
-    constexpr bool noneAnyWriteType_v = NoneAnyWriteType<NoAnyWrite>::value;
-    constexpr bool oneIsMidWrite = !NoneAnyWriteType<NoWrite>::value;
-    constexpr bool oneIsWrite = !NoneAnyWriteType<NoMidWrite>::value;
-    static_assert(fk::and_v<noneAnyWriteType_v, oneIsMidWrite, oneIsWrite>, "Something wrong with isReadType");
+    constexpr bool noneAnyWriteType_ = NoneAnyWriteType<NoAnyWrite>::value;
+    static_assert(fk::and_v<noneAnyWriteType_>, "Something wrong with isReadType");
 
     // allUnaryTypes
     constexpr bool allUnaryTypes_v = test_allUnaryTypes();

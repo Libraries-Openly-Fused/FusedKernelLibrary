@@ -1,4 +1,4 @@
-﻿/* Copyright 2025 Oscar Amoros Huguet
+﻿/* Copyright 2025-2026 Oscar Amoros Huguet
    Copyright 2025 Albert Andaluz
    Copyright 2025 Grup Mediapro S.L.U
 
@@ -101,7 +101,7 @@ constexpr inline bool equalInstances(const T& instance1, const T& instance2) {
         const auto i1 = fk::toArray(instance1);
         const auto i2 = fk::toArray(instance2);
         constexpr size_t N = static_cast<size_t>(fk::cn<T>);
-        const fk::Array<bool, N> equalArray = fk::transformArray(fk::makeIndexArray<N>(),
+        const fk::ArrayVector<bool, N> equalArray = fk::transformArray(fk::makeIndexArray<N>(),
             [&] (const size_t& idx) constexpr {
                 return equalValues(i1[idx], i2[idx]);
             }
@@ -298,7 +298,7 @@ namespace test_case_builder::detail {
         fk::Ptr1D<I> inputPtr(N);
         fk::Ptr1D<O> outputPtr(N);
         for (size_t i = 0; i < N; ++i) {
-            inputPtr.at(fk::Point(i)) = inputElems[i];
+            inputPtr.at(fk::Point{static_cast<int>(i), 0, 0}) = inputElems[i];
         }
         std::cout << "Running test for " << "\033[1;33m" <<testName << "\033[1;33m" << ": ";
         inputPtr.upload(stream);
@@ -323,7 +323,7 @@ namespace test_case_builder::detail {
             fk::transformArray(inputElems, [](const BuildParams& input) {
                 const auto iROp = Operation::build(input);
                 using ROp = typename std::decay_t<decltype(iROp)>::Operation;
-                const fk::Point point(0, 0, 0);
+                const fk::Point point{0, 0, 0};
                 const uint num_elems_x = ROp::num_elems_x(point, iROp);
                 if constexpr (D == fk::ND::_1D) {
                     return fk::Ptr<D, OutputType>(num_elems_x);
@@ -360,7 +360,7 @@ namespace test_case_builder::detail {
 }
 
 template <typename Operation>
-struct TestCaseBuilder<Operation, std::enable_if_t<fk::IsUnaryType<Operation>::value &&
+struct TestCaseBuilder<Operation, std::enable_if_t<fk::OpIs<fk::UnaryType, Operation>::value &&
                                     std::is_fundamental_v<typename Operation::InputType> &&
                                     std::is_fundamental_v<typename Operation::OutputType>, void>> {
     template <size_t N>
@@ -372,7 +372,7 @@ struct TestCaseBuilder<Operation, std::enable_if_t<fk::IsUnaryType<Operation>::v
             const auto outputPtr = test_case_builder::detail::launchUnary<Operation>(testName, inputElems);
             bool result{ true };
             for (size_t i = 0; i < N; ++i) {
-                const auto generated = outputPtr.at(fk::Point(i));
+                const auto generated = outputPtr.at(fk::Point{static_cast<int>(i),0,0});
                 static_assert(std::is_same_v<std::decay_t<decltype(generated)>, std::decay_t<decltype(expectedElems[i])>>, "Output and Expected types are not the same");
                 const auto resultV = generated == expectedElems[i];
                 if (!resultV) {
@@ -395,7 +395,7 @@ struct TestCaseBuilder<Operation, std::enable_if_t<fk::IsUnaryType<Operation>::v
 };
 
 template <typename Operation>
-struct TestCaseBuilder<Operation, std::enable_if_t<fk::IsUnaryType<Operation>::value &&
+struct TestCaseBuilder<Operation, std::enable_if_t<fk::OpIs<fk::UnaryType, Operation>::value &&
                                     (fk::validCUDAVec<typename Operation::InputType> ||
                                      fk::validCUDAVec<typename Operation::OutputType>), void>> {
     template <size_t N>
@@ -407,7 +407,7 @@ struct TestCaseBuilder<Operation, std::enable_if_t<fk::IsUnaryType<Operation>::v
             const auto outputPtr = test_case_builder::detail::launchUnary<Operation>(testName, inputElems);
             bool result{ true };
             for (size_t i = 0; i < N; ++i) {
-                const auto generated = outputPtr.at(fk::Point(i));
+                const auto generated = outputPtr.at(fk::Point{static_cast<int>(i), 0, 0});
                 static_assert(std::is_same_v<std::decay_t<decltype(generated)>, std::decay_t<decltype(expectedElems[i])>>, "Output and Expected types are not the same");
                 const auto resultV = generated == expectedElems[i];
                 const auto arrayGenerated = fk::toArray(generated);
@@ -441,7 +441,7 @@ struct TestCaseBuilder<Operation, std::enable_if_t<fk::IsUnaryType<Operation>::v
 };
 
 template <typename Operation>
-struct TestCaseBuilder<Operation, std::enable_if_t<fk::IsReadType<Operation>::value || fk::IsReadBackType<Operation>::value, void>> {
+struct TestCaseBuilder<Operation, std::enable_if_t<fk::OpIs<fk::ReadType, Operation>::value || fk::OpIs<fk::ReadBackType, Operation>::value, void>> {
     template <fk::ND D, size_t N, typename BuildParams>
     static inline void addTest(std::map<std::string, std::function<bool()>>& testCases,
                                fk::Stream& stream,

@@ -1,4 +1,4 @@
-/* Copyright 2023-2025 Oscar Amoros Huguet
+/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -25,14 +25,12 @@ namespace fk {
     template <typename T>
     struct Point_<T, ND::_1D> {
         T x;
-        FK_HOST_DEVICE_CNST Point_(const T x_ = 0) : x(x_) {}
     };
 
     template <typename T>
     struct Point_<T, ND::_2D> {
         T x;
         T y;
-        FK_HOST_DEVICE_CNST Point_(const T x_ = 0, const T y_ = 0) : x(x_), y(y_) {}
     };
 
     template <typename T>
@@ -40,7 +38,6 @@ namespace fk {
         T x;
         T y;
         T z;
-        FK_HOST_DEVICE_CNST Point_(const T x_ = 0, const T y_ = 0, const T z_ = 0) : x(x_), y(y_), z(z_) {}
     };
 
     using Point = Point_<int, ND::_3D>;

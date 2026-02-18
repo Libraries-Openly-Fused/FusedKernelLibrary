@@ -1,4 +1,4 @@
-/* Copyright 2023-2025 Oscar Amoros Huguet
+/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -47,7 +47,7 @@ namespace fk {
     Times bigger can be: 1, 2, 4
     */
 
-    using TFSourceTypes = typename TypeList<TypeListCat_t<BaseTypes, VOne>, VTwo, VThree, VFour>::type;
+    using TFSourceTypes = TypeListCat_t<BaseTypes, VOne, VTwo, VThree, VFour>;
     using TFBiggerTypes = TypeList<bool4, uchar4,  char4,  ushort2,  short2,  uint2, int2, ulong,  long,  ulonglong,  longlong,  float2, double,
                                    bool4, uchar4,  char4,  ushort2,  short2,  uint2, int2, ulong,  long,  ulonglong,  longlong,  float2, double,
                                    bool4, uchar4,  char4,  ushort2,  short2,  uint2, int2, ulong2, long2, ulonglong2, longlong2, float2, double2,
@@ -84,7 +84,7 @@ namespace fk {
         public:
             static constexpr bool ENABLED = ENABLED_ && isValidChannelNumber<(cn<TFBiggerType_t<ReadType>> / cn<ReadType>) * cn<WriteType>>;
             using BiggerReadType = std::conditional_t<ENABLED, TFBiggerType_t<ReadType>, ReadType>;
-            static constexpr uint elems_per_thread{ cn<BiggerReadType> / cn<ReadType> };
+            static constexpr uint elems_per_thread{ static_cast<uint>(cn<BiggerReadType> / cn<ReadType>) };
             using BiggerWriteType = VectorType_t<VBase<WriteType>, elems_per_thread * cn<WriteType>>;
 
             template <int IDX>
@@ -151,8 +151,8 @@ namespace fk {
             const auto& writeOp = ppLast(iOps...);
             using ReadOperation = typename FirstType_t<IOpTypes...>::Operation;
             using WriteOperation = typename LastType_t<IOpTypes...>::Operation;
-            const uint readRow = ReadOperation::num_elems_x(Point(0, 0, 0), { readOp.params });
-            const uint writeRow = WriteOperation::num_elems_x(Point(0, 0, 0), { writeOp.params });
+            const uint readRow = ReadOperation::num_elems_x(Point{0, 0, 0}, { readOp.params });
+            const uint writeRow = WriteOperation::num_elems_x(Point{0, 0, 0}, { writeOp.params });
             return (readRow % elems_per_thread == 0) && (writeRow % elems_per_thread == 0);
         } else {
             return true;

@@ -30,7 +30,7 @@ namespace fk {
         FK_STATIC_STRUCT(Add, SelfType)
         using Parent = BinaryOperation<I, P, O, Add<I, P, O, BinaryType>>;
         DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params) {
             return input + params;
         }
     };
@@ -43,7 +43,7 @@ namespace fk {
         FK_STATIC_STRUCT(Add, SelfType)
         using Parent = UnaryOperation<Tuple<I1, I2>, O, Add<I1, I2, O, UnaryType>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             return get<0>(input) + get<1>(input);
         }
     };
@@ -56,7 +56,7 @@ namespace fk {
         FK_STATIC_STRUCT(Sub, SelfType)
         using Parent = BinaryOperation<I, P, O, Sub<I, P, O>>;
         DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params) {
             return input - params;
         }
     };
@@ -69,7 +69,7 @@ namespace fk {
         FK_STATIC_STRUCT(Mul, SelfType)
         using Parent = BinaryOperation<I, P, O, Mul<I, P, O>>;
         DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params) {
             return input * params;
         }
     };
@@ -82,7 +82,7 @@ namespace fk {
         FK_STATIC_STRUCT(Div, SelfType)
         using Parent = BinaryOperation<I, P, O, Div<I, P, O>>;
         DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params) {
             return input / params;
         }
     };

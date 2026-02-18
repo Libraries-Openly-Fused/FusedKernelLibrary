@@ -56,9 +56,9 @@ bool benchmark_Horizontal_Fusion(const size_t& NUM_ELEMS_X, const size_t& NUM_EL
 
         std::array<fk::Ptr2D<InputType>, BATCH> crops;
         for (int crop_i = 0; crop_i < BATCH; crop_i++) {
-            crops[crop_i] = d_input.crop(fk::Point(crop_i, crop_i), fk::PtrDims<fk::ND::_2D>{static_cast<uint>(cropSize.width),
-                                                                                         static_cast<uint>(cropSize.height), 
-                                                                                         static_cast<uint>(d_input.dims().pitch)});
+            crops[crop_i] = d_input.crop(fk::Point{ crop_i, crop_i, 0 }, fk::PtrDims<fk::ND::_2D>{static_cast<uint>(cropSize.width),
+                                                                                                  static_cast<uint>(cropSize.height), 
+                                                                                                  static_cast<uint>(d_input.dims().pitch)});
             d_output_cv[crop_i].Alloc(cropSize);
         }
 
@@ -143,9 +143,9 @@ bool benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD(const size_t& NUM_ELEMS_X, cons
 
         std::array<fk::Ptr2D<InputType>, BATCH> crops;
         for (int crop_i = 0; crop_i < BATCH; crop_i++) {
-            crops[crop_i] = d_input.crop(fk::Point(crop_i, crop_i), fk::PtrDims<fk::ND::_2D>{static_cast<uint>(cropSize.width),
-                                                                                         static_cast<uint>(cropSize.height), 
-                                                                                         static_cast<uint>(d_input.dims().pitch)});
+            crops[crop_i] = d_input.crop(fk::Point{ crop_i, crop_i, 0 }, fk::PtrDims<fk::ND::_2D>{static_cast<uint>(cropSize.width),
+                                                                                                  static_cast<uint>(cropSize.height), 
+                                                                                                  static_cast<uint>(d_input.dims().pitch)});
             d_output_cv[crop_i].Alloc(cropSize);
         }
 
@@ -235,9 +235,9 @@ bool benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD_CUDAGraphs(const size_t& NUM_EL
 
         std::array<fk::Ptr2D<InputType>, BATCH> crops;
         for (int crop_i = 0; crop_i < BATCH; crop_i++) {
-            crops[crop_i] = d_input.crop(fk::Point(crop_i, crop_i), fk::PtrDims<fk::ND::_2D>{static_cast<uint>(cropSize.width),
-                                                                                         static_cast<uint>(cropSize.height), 
-                                                                                         static_cast<uint>(d_input.dims().pitch)});
+            crops[crop_i] = d_input.crop(fk::Point{ crop_i, crop_i, 0 }, fk::PtrDims<fk::ND::_2D>{static_cast<uint>(cropSize.width),
+                                                                                                  static_cast<uint>(cropSize.height), 
+                                                                                                  static_cast<uint>(d_input.dims().pitch)});
             d_output_cv[crop_i].Alloc(cropSize);
         }
 
