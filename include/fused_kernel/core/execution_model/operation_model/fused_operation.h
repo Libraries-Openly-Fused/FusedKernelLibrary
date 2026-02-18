@@ -55,14 +55,14 @@ namespace fk {
         DECLARE_OPEN_PARENT
         using Operations = TypeList<IOps...>;
         
-        FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const InputType& input, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const Point thread, const InputType input, const ParamsType& params) {
             return exec_helper(std::make_index_sequence<ParamsType::size>{}, thread, input, params);
         }
     private:
         template <size_t... Idx>
         FK_HOST_DEVICE_FUSE OutputType exec_helper(const std::index_sequence<Idx...>&,
-                                                   const Point& thread,
-                                                   const InputType& input,
+                                                   const Point thread,
+                                                   const InputType input,
                                                    const ParamsType& params) {
             return (InputFoldType<InputType>{thread, input} | ... | get_opt<Idx>(params)).input;
         }
@@ -88,21 +88,21 @@ namespace fk {
         DECLARE_READ_PARENT
         using Operations = TypeList<IOps...>;
         
-        FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const Point thread, const ParamsType& params) {
             return exec_helper(std::make_index_sequence<ParamsType::size>{}, thread, params);
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread,
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread,
                                              const OperationDataType& opData) {
             return FirstType_t<IOps...>::Operation::num_elems_x(thread, get_opt<0>(opData.params));
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread,
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread,
                                              const OperationDataType& opData) {
             return FirstType_t<IOps...>::Operation::num_elems_y(thread, get_opt<0>(opData.params));
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread,
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread,
                                              const OperationDataType& opData) {
             return FirstType_t<IOps...>::Operation::num_elems_z(thread, get_opt<0>(opData.params));
         }
@@ -114,7 +114,7 @@ namespace fk {
     private:
         template <size_t... Idx>
         FK_HOST_DEVICE_FUSE OutputType exec_helper(const std::index_sequence<Idx...>&,
-                                                   const Point& thread,
+                                                   const Point thread,
                                                    const ParamsType& params) {
             return (thread | ... | get_opt<Idx>(params)).input;
         }
@@ -131,13 +131,13 @@ namespace fk {
         FK_STATIC_STRUCT(FusedOperation_, SelfType)
         DECLARE_UNARY_PARENT
         using Operations = TypeList<IOps...>;
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType &input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             return exec_helper(std::make_index_sequence<OperationTuple<IOps...>::size>{}, input);
         }
 
       private:
         template <size_t... Idx>
-        FK_HOST_DEVICE_FUSE OutputType exec_helper(const std::index_sequence<Idx...>&, const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec_helper(const std::index_sequence<Idx...>&, const InputType input) {
             constexpr OperationTuple<IOps...> poTup{};
             // Optimization, we use a version of operator| that does not use InputTypeFold,
             // thus it does not propagate Point thread, because it is not needed.
@@ -158,13 +158,13 @@ namespace fk {
         FK_STATIC_STRUCT(FusedOperation_, SelfType)
         DECLARE_CLOSED_PARENT
         using Operations = TypeList<IOps...>;
-        FK_HOST_DEVICE_FUSE void exec(const Point &thread, const ParamsType &params) {
+        FK_HOST_DEVICE_FUSE void exec(const Point thread, const ParamsType &params) {
             exec_helper(std::make_index_sequence<ParamsType::size>{}, thread, params);
         }
 
       private:
         template <size_t... Idx>
-        FK_HOST_DEVICE_FUSE void exec_helper(const std::index_sequence<Idx...>&, const Point &thread,
+        FK_HOST_DEVICE_FUSE void exec_helper(const std::index_sequence<Idx...>&, const Point thread,
                                              const ParamsType &params) {
             LastType_t<typename ParamsType::Operations>::Operation::exec(thread,
                 (thread | ... | get_opt<Idx>(params)).input,
@@ -189,14 +189,14 @@ namespace fk {
         FK_STATIC_STRUCT(FusedOperation_, SelfType)
         DECLARE_WRITE_PARENT
         using Operations = TypeList<IOps...>;
-        FK_HOST_DEVICE_FUSE void exec(const Point &thread, const InputType& input, const ParamsType &params) {
+        FK_HOST_DEVICE_FUSE void exec(const Point thread, const InputType input, const ParamsType &params) {
             exec_helper(std::make_index_sequence<ParamsType::size - 1>{}, thread, input, params);
         }
 
       private:
         template <size_t... Idx>
-        FK_HOST_DEVICE_FUSE void exec_helper(const std::index_sequence<Idx...> &, const Point &thread,
-                                             const InputType& input, const ParamsType &params) {
+        FK_HOST_DEVICE_FUSE void exec_helper(const std::index_sequence<Idx...> &, const Point thread,
+                                             const InputType input, const ParamsType &params) {
             LastType_t<typename ParamsType::Operations>::Operation::exec(
                 thread, (InputFoldType<>::build(thread, input) | ... | get_opt<Idx>(params)).input,
                 get_opt<ParamsType::size - 1>(params));
@@ -217,14 +217,14 @@ namespace fk {
         FK_STATIC_STRUCT(FusedOperation_, SelfType)
         DECLARE_BINARY_PARENT
         using Operations = TypeList<IOps...>;
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType &input, const ParamsType &params) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType &params) {
             return exec_helper(std::make_index_sequence<ParamsType::size>{}, input, params);
         }
 
       private:
         template <size_t... Idx>
         FK_HOST_DEVICE_FUSE OutputType exec_helper(const std::index_sequence<Idx...>&,
-                                                   const InputType& input, const ParamsType& params) {
+                                                   const InputType input, const ParamsType& params) {
             // Optimization, we use a version of operator| that does not use InputTypeFold,
             // thus it does not propagate Point thread, because it is not needed.
             return (input | ... | get_opt<Idx>(params));

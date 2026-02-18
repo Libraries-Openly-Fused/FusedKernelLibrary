@@ -189,12 +189,12 @@ namespace fk {
     template <>
     struct PtrAccessor<ND::_1D> {
         template <typename T, typename BiggerType = T>
-        FK_HOST_DEVICE_FUSE const BiggerType* cr_point(const Point& p, const RawPtr<ND::_1D, T>& ptr) {
+        FK_HOST_DEVICE_FUSE const BiggerType* cr_point(const Point p, const RawPtr<ND::_1D, T>& ptr) {
             return ((const BiggerType*)ptr.data) + p.x;
         }
 
         template <typename T, typename BiggerType = T>
-        FK_HOST_DEVICE_STATIC BiggerType* point(const Point& p, const RawPtr<ND::_1D, T>& ptr) {
+        FK_HOST_DEVICE_STATIC BiggerType* point(const Point p, const RawPtr<ND::_1D, T>& ptr) {
             return (BiggerType*)ptr.data + p.x;
         }
     };
@@ -202,12 +202,12 @@ namespace fk {
     template <>
     struct PtrAccessor<ND::_2D> {
         template <typename T, typename BiggerType = T>
-        FK_HOST_DEVICE_FUSE const BiggerType* cr_point(const Point& p, const RawPtr<ND::_2D, T>& ptr) {
+        FK_HOST_DEVICE_FUSE const BiggerType* cr_point(const Point p, const RawPtr<ND::_2D, T>& ptr) {
             return (const BiggerType*)((const char*)ptr.data + (p.y * ptr.dims.pitch)) + p.x;
         }
 
         template <typename T, typename BiggerType = T>
-        FK_HOST_DEVICE_STATIC BiggerType* point(const Point& p, const RawPtr<ND::_2D, T>& ptr) {
+        FK_HOST_DEVICE_STATIC BiggerType* point(const Point p, const RawPtr<ND::_2D, T>& ptr) {
             return (BiggerType*)((char*)ptr.data + (p.y * ptr.dims.pitch)) + p.x;
         }
     };
@@ -215,12 +215,12 @@ namespace fk {
     template <>
     struct PtrAccessor<ND::_3D> {
         template <typename T, typename BiggerType = T>
-        FK_HOST_DEVICE_FUSE const BiggerType* cr_point(const Point& p, const RawPtr<ND::_3D, T>& ptr) {
+        FK_HOST_DEVICE_FUSE const BiggerType* cr_point(const Point p, const RawPtr<ND::_3D, T>& ptr) {
             return (const BiggerType*)((const char*)ptr.data + (ptr.dims.plane_pitch * ptr.dims.color_planes * p.z) + (p.y * ptr.dims.pitch)) + p.x;
         }
 
         template <typename T, typename BiggerType = T>
-        FK_HOST_DEVICE_STATIC BiggerType* point(const Point& p, const RawPtr<ND::_3D, T>& ptr) {
+        FK_HOST_DEVICE_STATIC BiggerType* point(const Point p, const RawPtr<ND::_3D, T>& ptr) {
             return (BiggerType*)((char*)ptr.data + (ptr.dims.plane_pitch * ptr.dims.color_planes * p.z) + (p.y * ptr.dims.pitch)) + p.x;
         }
     };
@@ -228,12 +228,12 @@ namespace fk {
     template <>
     struct PtrAccessor<ND::T3D> {
         template <typename T, typename BiggerType = T>
-        FK_HOST_DEVICE_FUSE const BiggerType* cr_point(const Point& p, const RawPtr<ND::T3D, T>& ptr, const uint& color_plane = 0) {
+        FK_HOST_DEVICE_FUSE const BiggerType* cr_point(const Point p, const RawPtr<ND::T3D, T>& ptr, const uint color_plane = 0) {
             return (const BiggerType*)((const char*)ptr.data + (color_plane * ptr.dims.color_planes_pitch) + (ptr.dims.plane_pitch * p.z) + (ptr.dims.pitch * p.y)) + p.x;
         }
 
         template <typename T, typename BiggerType = T>
-        FK_HOST_DEVICE_STATIC BiggerType* point(const Point& p, const RawPtr<ND::T3D, T>& ptr, const uint& color_plane = 0) {
+        FK_HOST_DEVICE_STATIC BiggerType* point(const Point p, const RawPtr<ND::T3D, T>& ptr, const uint color_plane = 0) {
             return (BiggerType*)((char*)ptr.data + (color_plane * ptr.dims.color_planes_pitch) + (ptr.dims.plane_pitch * p.z) + (ptr.dims.pitch * p.y)) + p.x;
         }
     };
@@ -244,12 +244,12 @@ namespace fk {
     template<>
     struct StaticPtrAccessor<ND::_1D> {
         template <int W, typename T>
-        FK_HOST_DEVICE_FUSE T read(const Point& p, const StaticRawPtr<StaticPtrDims1D<W>, T>& ptr) {
+        FK_HOST_DEVICE_FUSE T read(const Point p, const StaticRawPtr<StaticPtrDims1D<W>, T>& ptr) {
             return ptr.data[p.x];
         }
 
         template <int W, typename T>
-        FK_HOST_DEVICE_FUSE void write(const Point& p, StaticRawPtr<StaticPtrDims1D<W>, T>& ptr, const T& value) {
+        FK_HOST_DEVICE_FUSE void write(const Point p, StaticRawPtr<StaticPtrDims1D<W>, T>& ptr, const T value) {
             ptr.data[p.x] = value;
         }
     };
@@ -257,12 +257,12 @@ namespace fk {
     template<>
     struct StaticPtrAccessor<ND::_2D> {
         template <int W, int H, typename T>
-        FK_HOST_DEVICE_FUSE T read(const Point& p, const StaticRawPtr<StaticPtrDims2D<W, H>, T>& ptr) {
+        FK_HOST_DEVICE_FUSE T read(const Point p, const StaticRawPtr<StaticPtrDims2D<W, H>, T>& ptr) {
             return ptr.data[p.y][p.x];
         }
 
         template <int W, int H, typename T>
-        FK_HOST_DEVICE_FUSE void write(const Point& p, StaticRawPtr<StaticPtrDims2D<W, H>, T>& ptr, const T& value) {
+        FK_HOST_DEVICE_FUSE void write(const Point p, StaticRawPtr<StaticPtrDims2D<W, H>, T>& ptr, const T value) {
             ptr.data[p.y][p.x] = value;
         }
     };
@@ -270,12 +270,12 @@ namespace fk {
     template<>
     struct StaticPtrAccessor<ND::_3D> {
         template <int W, int H, int P, typename T>
-        FK_HOST_DEVICE_FUSE T read(const Point& p, const StaticRawPtr<StaticPtrDims3D<W, H, P>, T>& ptr) {
+        FK_HOST_DEVICE_FUSE T read(const Point p, const StaticRawPtr<StaticPtrDims3D<W, H, P>, T>& ptr) {
             return ptr.data[p.z][p.y][p.x];
         }
 
         template <int W, int H, int P, typename T>
-        FK_HOST_DEVICE_FUSE void write(const Point& p, StaticRawPtr<StaticPtrDims3D<W, H, P>, T>& ptr, const T& value) {
+        FK_HOST_DEVICE_FUSE void write(const Point p, StaticRawPtr<StaticPtrDims3D<W, H, P>, T>& ptr, const T value) {
             ptr.data[p.z][p.y][p.x] = value;
         }
     };

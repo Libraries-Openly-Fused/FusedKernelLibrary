@@ -34,7 +34,7 @@ namespace fk {
         FK_STATIC_STRUCT(StaticAddAlpha, SelfType)
         using Parent = UnaryOperation<I, VOneMore<I>, StaticAddAlpha<I, alpha>>;
         DECLARE_UNARY_PARENT
-        FK_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_DEVICE_FUSE OutputType exec(const InputType input) {
             return AddLast<InputType, OutputType>::exec(input, { alpha });
         }
     };
@@ -52,7 +52,7 @@ namespace fk {
         FK_STATIC_STRUCT(RGB2Gray, SelfType)
         using Parent = UnaryOperation<I, O, RGB2Gray<I, O, GrayFormula::CCIR_601>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             // 0.299*R + 0.587*G + 0.114*B
             if constexpr (std::is_unsigned_v<OutputType>) {
 #ifdef __CUDA_ARCH__
@@ -71,7 +71,7 @@ namespace fk {
             }
         }
     private:
-        FK_HOST_DEVICE_FUSE float compute_luminance(const InputType& input) {
+        FK_HOST_DEVICE_FUSE float compute_luminance(const InputType input) {
             return (input.x * 0.299f) + (input.y * 0.587f) + (input.z * 0.114f);
         }
     };
@@ -110,7 +110,7 @@ namespace fk {
         FK_STATIC_STRUCT(AddOpaqueAlpha, SelfType)
         using Parent = UnaryOperation<I, VOneMore<I>, AddOpaqueAlpha<I, CD>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             constexpr auto alpha = maxDepthValue<CD>;
             return AddLast<InputType, OutputType>::exec(input, { alpha });
         }
@@ -124,7 +124,7 @@ namespace fk {
         FK_STATIC_STRUCT(SaturateDepth, SelfType)
         using Parent = UnaryOperation<T, T, SaturateDepth<T, CD>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             return Saturate<float>::exec(input, { { 0.f, static_cast<float>(maxDepthValue<CD>) } });
         }
     };
@@ -192,7 +192,7 @@ namespace fk {
         FK_STATIC_STRUCT(DenormalizePixel, SelfType)
         using Parent = UnaryOperation<float_<cn<O>>, O, DenormalizePixel<O, CD>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             constexpr auto maxDepth = maxDepthValue<CD>;
             return cxp::cast<OutputType>::f(input * maxDepth);
         }
@@ -206,7 +206,7 @@ namespace fk {
         FK_STATIC_STRUCT(NormalizePixel, SelfType)
         using Parent = UnaryOperation<I, float_<cn<I>>, NormalizePixel<I, CD>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             return input / static_cast<float>(maxDepthValue<CD>);
         }
     };
@@ -219,7 +219,7 @@ namespace fk {
         FK_STATIC_STRUCT(SaturateDenormalizePixel, SelfType)
         using Parent = UnaryOperation<I, O, SaturateDenormalizePixel<I, O, CD>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             static_assert(std::is_same_v<VBase<I>, float>, "SaturateDenormalizePixel only works with float base types.");
             const InputType saturatedFloat = SaturateFloat<InputType>::exec(input);
             return DenormalizePixel<OutputType, CD>::exec(saturatedFloat);
@@ -235,7 +235,7 @@ namespace fk {
         using Parent = UnaryOperation<T, T, NormalizeColorRangeDepth<T, CD>>;
         DECLARE_UNARY_PARENT
         using Base = typename VectorTraits<T>::base;
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             static_assert(std::is_floating_point_v<VBase<T>>, "NormalizeColorRangeDepth only works for floating point values");
             // The nvcc compiler will only be able to use the global constexpr floatShiftFactor<CD> variable if it is stored in 
             // a local variable.
@@ -262,7 +262,7 @@ namespace fk {
         // Y     -> input.x
         // Cb(U) -> input.y
         // Cr(V) -> input.z
-        FK_HOST_DEVICE_FUSE float3 computeRGB(const InputType& pixel) {
+        FK_HOST_DEVICE_FUSE float3 computeRGB(const InputType pixel) {
             constexpr M3x3Float coefficients = ccMatrix<CR, CP, ColorConversionDir::YCbCr2RGB>;
             constexpr float CSub = subCoefficients<CD>.chroma;
             if constexpr (CP == ColorPrimitives::bt601) {
@@ -273,7 +273,7 @@ namespace fk {
             }
         }
 
-        FK_HOST_DEVICE_FUSE OutputType computePixel(const InputType& pixel) {
+        FK_HOST_DEVICE_FUSE OutputType computePixel(const InputType pixel) {
             const float3 pixelRGBFloat = computeRGB(pixel);
             if constexpr (std::is_same_v<VBase<OutputType>, float>) {
                 if constexpr (ALPHA) {
@@ -293,7 +293,7 @@ namespace fk {
         }
 
         public:
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             // Pixel data shifted to the right to it's color depth numerical range
             constexpr auto shiftFactorLocal = shiftFactor<CD>;
             const InputType shiftedPixel = input >> shiftFactorLocal;
@@ -326,7 +326,7 @@ namespace fk {
                                      TF::DISABLED,
                                      ReadYUV<PF>>;
         DECLARE_READ_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const Point thread, const ParamsType& params) {
             const auto rawPtr = params.data;
             if constexpr (PF == PixelFormat::NV12 || PF == PixelFormat::P010 ||
                           PF == PixelFormat::P016 || PF == PixelFormat::P210 ||
@@ -382,15 +382,15 @@ namespace fk {
             }
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return opData.params.width;
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return opData.params.height;
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
@@ -416,7 +416,7 @@ namespace fk {
                                       TF::DISABLED,
                                       WriteYUV<PF>>;
         DECLARE_WRITE_PARENT
-        FK_HOST_DEVICE_FUSE void exec(const Point& thread, const InputType& input, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE void exec(const Point thread, const InputType input, const ParamsType& params) {
             const auto rawPtr = params.data;
             if constexpr (PF == PixelFormat::NV12 || PF == PixelFormat::P010 ||
                           PF == PixelFormat::P016 || PF == PixelFormat::P210 ||
@@ -494,15 +494,15 @@ namespace fk {
             }
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return opData.params.width;
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return opData.params.height;
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 

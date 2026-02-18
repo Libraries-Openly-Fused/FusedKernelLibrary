@@ -55,19 +55,19 @@ namespace fk {
                                         SelfType>;
         DECLARE_TERNARY_PARENT
 
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return BackIOp::Operation::num_elems_x(thread, opData.backIOp);
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return BackIOp::Operation::num_elems_y(thread, opData.backIOp);
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params, const BackIOp& backIOp) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params, const BackIOp& backIOp) {
             const float src_x = input.x;
             const float src_y = input.y;
 
