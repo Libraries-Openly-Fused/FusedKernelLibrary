@@ -1,4 +1,4 @@
-/* Copyright 2025 Oscar Amoros Huguet
+/* Copyright 2025-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ namespace cxp {
         template <typename T>
         FK_HOST_DEVICE_FUSE bool f(const T& value) {
             if constexpr (fk::validCUDAVec<T>) {
-                using VecBoolType = fk::VectorType_t<bool, fk::cn<T>>;
+                using VecBoolType = fk::bool_<fk::cn<T>>;
                 const auto valBool = cast<VecBoolType>::f(value);
                 if constexpr (fk::cn<T> == 1) {
                     return valBool.x;

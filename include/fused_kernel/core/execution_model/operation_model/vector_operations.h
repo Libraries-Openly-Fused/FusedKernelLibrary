@@ -32,7 +32,7 @@ namespace fk {
         using InputType = I;
         using OutputType = O;
         using InstanceType = UnaryType;
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             static_assert(cn<InputType> == cn<OutputType>,
                 "Unary struct requires same number of channels for input and output types.");
             constexpr bool allCUDAOrNotCUDA =
@@ -73,7 +73,7 @@ namespace fk {
         using InputType = I;
         using OutputType = O;
         using InstanceType = UnaryType;
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             const auto input1 = get<0>(input);
             const auto input2 = get<1>(input);
             using I1 = get_t<0, I>;
@@ -138,10 +138,10 @@ namespace fk {
         using ParamsType = P;
         using InstanceType = BinaryType;
         using OperationDataType = OperationData<BinaryV<Operation, I, P, O>>;
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const OperationDataType& opData) {
             return BinaryV<Operation, I, P, O>::exec(input, opData.params);
         }
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params) {
             static_assert(cn<I> == cn<O>,
                 "Binary struct requires same number of channels for input and output types.");
             constexpr bool allCUDAOrNotCUDA =

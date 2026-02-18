@@ -1,4 +1,4 @@
-/* Copyright 2023-2025 Oscar Amoros Huguet
+/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -120,12 +120,12 @@ namespace fk {
 
         // Accessor for the main Tuple
         template <size_t I, typename... Ts>
-        FK_HOST_DEVICE_FUSE auto &get(Tuple<Ts...> &t) {
+        FK_HOST_DEVICE_FUSE auto& get(Tuple<Ts...>& t) {
             return get_leaf_value<I>(t);
         }
 
         template <size_t I, typename... Ts>
-        FK_HOST_DEVICE_FUSE const auto &get(const Tuple<Ts...> &t) {
+        FK_HOST_DEVICE_FUSE const auto& get(const Tuple<Ts...>& t) {
             return get_leaf_value<I>(t);
         }
 
@@ -251,24 +251,13 @@ namespace fk {
         }
     };
 
-    template <size_t Idx, typename... Types>
-    FK_HOST_DEVICE_CNST const auto& get(const Tuple<Types...>& tuple) {
-        return TupleUtil::get<Idx>(tuple);
-    }
+    template <size_t Idx, typename TupleLike>
+    FK_HOST_DEVICE_CNST decltype(auto) get(TupleLike&& tuple) {
+        static_assert(isTuple_v<TupleLike>, "fk::get can only be used with fk::Tuple");
 
-    template <size_t Idx, typename... Types>
-    FK_HOST_DEVICE_CNST auto& get(Tuple<Types...>& tuple) {
-        return TupleUtil::get<Idx>(tuple);
-    }
-
-    template <size_t Idx, typename... Types>
-    FK_HOST_DEVICE_CNST auto&& get(Tuple<Types...>&& tuple) {
-        return TupleUtil::get<Idx>(std::forward<Tuple<Types...>>(tuple));
-    }
-
-    template <size_t Idx, typename... Types>
-    FK_HOST_DEVICE_CNST const auto&& get(const Tuple<Types...>&& tuple) {
-        return TupleUtil::get<Idx>(std::move(tuple));
+        // decltype(auto) + std::forward preserves EXACTLY what TupleUtil returned
+        // (Value category, const-ness, and reference type)
+        return TupleUtil::get<Idx>(std::forward<TupleLike>(tuple));
     }
 
     template <typename... Types>

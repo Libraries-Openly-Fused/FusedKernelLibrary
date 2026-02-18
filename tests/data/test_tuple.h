@@ -1,4 +1,5 @@
-﻿/* Copyright 2023-2024 Mediaproduccion S.L.U. (Oscar Amoros Huguet)
+﻿/* Copyright 2023-2024 Grup Mediapro S.L.U. (Oscar Amoros Huguet)
+   Copyright 2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -18,7 +19,7 @@
 
 #include <fused_kernel/core/execution_model/operation_model/operation_tuple.h>
 #include <fused_kernel/algorithms/basic_ops/vector_ops.h>
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #ifdef __NVCC__
 // Condition 1: we are compiling with MSVC + nvcc OR other compilers + nvcc versions lower than 12.4.99
 #if (NVCC_VERSION_CALCULATED < NVCC_VERSION_12_4_99)
@@ -49,11 +50,11 @@ constexpr bool buildTuple() {
 }
 
 constexpr bool buildOperationTupleType() {
-    using Op1 = fk::PerThreadRead<fk::ND::_2D, uchar3>;
-    using Op2 = fk::VectorReorder<uchar3, 0, 1, 2>;
-    using Op3 = fk::PerThreadWrite<fk::ND::_2D, uchar3>;
+    using Op1 = typename fk::PerThreadRead<fk::ND::_2D, uchar3>::InstantiableType;
+    using Op2 = typename fk::VectorReorder<uchar3, 0, 1, 2>::InstantiableType;
+    using Op3 = typename fk::PerThreadWrite<fk::ND::_2D, uchar3>::InstantiableType;
 
-    using TupleType = fk::OperationTuple<Op1, Op2, Op3>;
+    using TupleType = typename fk::OperationTuple<Op1, Op2, Op3>::Operations;
 
     constexpr bool result1 = std::is_same_v<fk::get_type_t<0, TupleType>, Op1>;
     constexpr bool result2 = std::is_same_v<fk::get_type_t<1, TupleType>, Op2>;

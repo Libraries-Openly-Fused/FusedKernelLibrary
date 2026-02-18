@@ -1,4 +1,4 @@
-/* Copyright 2025 Oscar Amoros Huguet
+/* Copyright 2025-2026 Oscar Amoros Huguet
    Copyright 2025 Grup Mediapro S.L.U (Oscar Amoros Huguet)
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,7 +17,7 @@
 #define FK_DEINTERLACE
 
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/core/data/size.h>
 #include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 
@@ -47,11 +47,11 @@ namespace fk {
         using Parent = ReadBackOperation<typename BackIOp_::Operation::OutputType,
                                          DeinterlaceParameters<DType>,
                                          BackIOp_,
-                                         VectorType_t<float, cn<typename BackIOp_::Operation::OutputType>>,
+                                         float_<cn<typename BackIOp_::Operation::OutputType>>,
                                          Deinterlace<DType, BackIOp_>>;
         DECLARE_READBACK_PARENT
 
-        FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const Point thread, const ParamsType& params, const BackIOp& backIOp) {
             if constexpr (DType == DeinterlaceType::BLEND) {
                 return execBlend(thread, params, backIOp);
             } else { // INTER_LINEAR
@@ -59,58 +59,58 @@ namespace fk {
             }
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return BackIOp::Operation::num_elems_x(thread, opData.backIOp);
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return BackIOp::Operation::num_elems_y(thread, opData.backIOp);
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
-            return { num_elems_x(Point(), opData), num_elems_y(Point(), opData), num_elems_z(Point(), opData) };
+            return { num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
         }
     private:
-        FK_HOST_DEVICE_FUSE OutputType execBlend(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
+        FK_HOST_DEVICE_FUSE OutputType execBlend(const Point thread, const ParamsType& params, const BackIOp& backIOp) {
             // For blend deinterlacing, we average the current line with adjacent lines
             using ReadOperation = typename BackIOp::Operation;
             
             // Read current pixel
-            const auto current = ReadOperation::exec(Point(thread.x, thread.y, thread.z), backIOp);
+            const auto current = ReadOperation::exec(thread, backIOp);
             
             if (thread.y > 0) {
-                const auto above = ReadOperation::exec(Point(thread.x, thread.y - 1, thread.z), backIOp);
+                const auto above = ReadOperation::exec(Point{thread.x, thread.y - 1, thread.z}, backIOp);
                 return (current + above + 1) * 0.5f;
             } else {
                 return current * 1.f;
             }
         }
 
-        FK_HOST_DEVICE_FUSE OutputType execInterLinearGetPixel(const Point& thread, const BackIOp& backIOp, const bool& interpolate) {
+        FK_HOST_DEVICE_FUSE OutputType execInterLinearGetPixel(const Point thread, const BackIOp& backIOp, const bool& interpolate) {
             using ReadOperation = typename BackIOp::Operation;
             if (interpolate) {
                 // We average the above pixel with the below pixel
-                const auto above = ReadOperation::exec(Point(thread.x, thread.y - 1, thread.z), backIOp);
-                const auto below = ReadOperation::exec(Point(thread.x, thread.y + 1, thread.z), backIOp);
+                const auto above = ReadOperation::exec(Point{thread.x, thread.y - 1, thread.z}, backIOp);
+                const auto below = ReadOperation::exec(Point{thread.x, thread.y + 1, thread.z}, backIOp);
                 return (above + below + 1) * 0.5f;
             } else {
                 return ReadOperation::exec(thread, backIOp) * 1.f;
             }
         }
 
-        FK_HOST_DEVICE_FUSE OutputType execInterLinear(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
+        FK_HOST_DEVICE_FUSE OutputType execInterLinear(const Point thread, const ParamsType& params, const BackIOp& backIOp) {
             using ReadOperation = typename BackIOp::Operation;
             
-            // Assuming BackFunction::Operation::num_elems_y(Point(), backIOp) is an even number
+            // Assuming BackFunction::Operation::num_elems_y(Point{0,0,0}, backIOp) is an even number
             // If useEvenLines is true, we interpolate on odd lines, otherwise we interpolate the even lines
             // useEvenLines = true, we interpolate if thread.y is odd and not the last line
             // useEvenLines = false, we interpolate if thread.y is even and not the first line
             const bool interpolate = params.useEvenLines ?
-                                        !cxp::is_even::f(thread.y) && thread.y != ReadOperation::num_elems_y(Point(), backIOp) - 1
+                                        !cxp::is_even::f(thread.y) && thread.y != ReadOperation::num_elems_y(Point{0,0,0}, backIOp) - 1
                                         : cxp::is_even::f(thread.y) && thread.y != 0;
 
             return execInterLinearGetPixel(thread, backIOp, interpolate);
@@ -129,15 +129,15 @@ namespace fk {
         template <typename BackIOp_>
         using NewInstantiableType = ReadBack<Deinterlace<DType, BackIOp_>>;
 
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 

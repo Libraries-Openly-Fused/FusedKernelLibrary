@@ -1,4 +1,4 @@
-/* Copyright 2025 Oscar Amoros Huguet
+/* Copyright 2025-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -79,7 +79,7 @@ namespace fk {
     template <typename Operation, typename Enabler = void>
     struct OperationData;
 
-    using ParamsTypes = TypeList<BinaryType, ReadType, WriteType, MidWriteType>;
+    using ParamsTypes = TypeList<BinaryType, ReadType, WriteType, MidWriteType, OpenType, ClosedType>;
     using ParamsAndBackIOpTypes = TypeList<ReadBackType, IncompleteReadBackType, TernaryType>;
 
     template <typename Operation>

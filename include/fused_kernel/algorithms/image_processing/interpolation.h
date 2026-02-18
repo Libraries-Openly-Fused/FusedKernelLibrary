@@ -1,4 +1,4 @@
-/* Copyright 2023-2025 Oscar Amoros Huguet
+/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -51,23 +51,23 @@ namespace fk {
     public:
         FK_STATIC_STRUCT(InterpolateComplete, SelfType)
         using Parent = TernaryOperation<float2, InterpolationParameters<InterpolationType::INTER_LINEAR>,
-                                        BackIOp_, VectorType_t<float, cn<BackIOpOutputType>>,
+                                        BackIOp_, float_<cn<BackIOpOutputType>>,
                                         SelfType>;
         DECLARE_TERNARY_PARENT
 
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return BackIOp::Operation::num_elems_x(thread, opData.backIOp);
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return BackIOp::Operation::num_elems_y(thread, opData.backIOp);
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params, const BackIOp& backIOp) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params, const BackIOp& backIOp) {
             const float src_x = input.x;
             const float src_y = input.y;
 
@@ -81,14 +81,14 @@ namespace fk {
             const int x2 = x1 + 1;
             const int y2 = y1 + 1;
 
-            const Size srcSize = NumElems::size(Point(), backIOp);
+            const Size srcSize = NumElems::size(Point{0,0,0}, backIOp);
             const int x2_read = cxp::min::f(x2, srcSize.width - 1);
             const int y2_read = cxp::min::f(y2, srcSize.height - 1);
 
-            const Slice2x2<Point> readPoints{ Point(x1, y1),
-                                              Point(x2_read, y1),
-                                              Point(x1, y2_read),
-                                              Point(x2_read, y2_read) };
+            const Slice2x2<Point> readPoints{ {x1, y1, 0},
+                                              {x2_read, y1, 0},
+                                              {x1, y2_read, 0},
+                                              {x2_read, y2_read, 0} };
 
             // Read the 4 pixels from backIOp Read or ReadBack Operation
             const auto src_reg0x0 = BackIOp::Operation::exec(readPoints._0x0, backIOp);

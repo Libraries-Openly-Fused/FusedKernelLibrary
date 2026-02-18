@@ -1,4 +1,4 @@
-/* Copyright 2023-2024 Oscar Amoros Huguet
+/* Copyright 2023-2026 Oscar Amoros Huguet
    Copyright 2023 David Del Rio Astorga
    Copyright 2023 Grup Mediapro S.L.U. (Oscar Amoros Huguet)
 
@@ -19,41 +19,59 @@
 #define FK_TYPE_LIST
 
 #include <utility>
+#include <type_traits>
 #include <fused_kernel/core/utils/utils.h>
 
 namespace fk { // namespace fused kernel
-    /**
-     * @struct TypeList
-     * @brief Struct to hold a list of types, and be able to work with them at compile time.
-     *
-     * This the base defintion of the struct. Contains no implementation
-     */
-    template <typename... Types>
-    struct TypeList {
-    private:
-        template <size_t n, typename... TypeList_t>
-        struct At;
-        template <typename Head>
-        struct At<0, TypeList<Head>> {
-            using type = Head;
-        };
-        template <typename Head, typename... Tail>
-        struct At<0, TypeList<Head, Tail...>> {
-            using type = Head;
-        };
-        template <size_t n, typename Head, typename... Tail>
-        struct At<n, TypeList<Head, Tail...>> {
-            static_assert(n < TypeList<Head, Tail...>::size, "Index out of range");
-            using type = typename At<n - 1, TypeList<Tail...>>::type;
-        };
-    public:
-        static constexpr size_t size{sizeof...(Types)};
+
+    // Type identity implementation that avoids adding to namespace std
+    // Uses std::type_identity when available, otherwise provides our own
+#if defined(__cpp_lib_type_identity) && __cpp_lib_type_identity >= 201806L
+    template <typename T>
+    using type_identity = std::type_identity<T>;
+#else
+    template <typename T>
+    struct type_identity {
+        using type = T;
+    };
+#endif
+
+    template <size_t I, typename T>
+    struct TypeLeaf {
+        using type = T;
+    };
+
+    namespace detail {
+        // Declaration only.
+        // We rely on the compiler matching the specific base class TypeLeaf<I, T>
+        // to the explicitly provided index 'I'.
+        template <size_t I, typename T>
+        fk::type_identity<T> getter(const TypeLeaf<I, T> &);
+    } // namespace detail
+
+    template <typename IndxSeq, typename... Ts>
+    struct TypeListImpl;
+
+    template <size_t... Is, typename... Ts>
+    struct TypeListImpl<std::index_sequence<Is...>, Ts...> 
+        : TypeLeaf<Is, Ts>... 
+    {
+    };
+
+    template <typename... Ts>
+    struct TypeList : TypeListImpl<std::make_index_sequence<sizeof...(Ts)>, Ts...> {
+        static constexpr size_t size = sizeof...(Ts);
 
         template <size_t Idx>
-        using at = typename At<Idx, TypeList<Types...>>::type;
-        using first = at<0>;
-        using last = at<sizeof...(Types)-1>;
+        using at = typename decltype(detail::getter<Idx>(std::declval<TypeList<Ts...>>()))::type;
+
+        template <typename... Us>
+        FK_HOST_DEVICE_CNST TypeList<Ts..., Us...> operator>>(const TypeList<Us...> &) const;
     };
+
+    // The Accessor Alias
+    template <size_t Idx, typename List>
+    using TypeAt_t = typename decltype(detail::getter<Idx>(std::declval<List>()))::type;
 
     template <typename T>
     struct IsTypeList : std::false_type {};
@@ -64,41 +82,28 @@ namespace fk { // namespace fused kernel
     template <typename T>
     constexpr bool isTypeList = IsTypeList<T>::value;
 
-    /**
-     * @struct TypeList<TypeList<Args1...>, TypeList<Args2...>, TypeList<Args3...>, TypeList<Args4...>>
-     * @brief Struct to fuse 4 TypeList into a single one.
-     *
-     * The expansion results into a single struct that holds all the types.
-     */
-    template<typename... Args1, typename... Args2, typename... Args3, typename... Args4>
-    struct TypeList<TypeList<Args1...>, TypeList<Args2...>, TypeList<Args3...>, TypeList<Args4...>> {
-        using type = TypeList<Args1..., Args2..., Args3..., Args4...>;
+    // ------------------------------------------------------------------
+    // TypeListCat Implementation
+    // ------------------------------------------------------------------
+    template <typename... Lists>
+    struct TypeListCat {
+        using type = decltype((std::declval<Lists>() >> ...));
+    };
+    
+    template <typename... Lists>
+    using TypeListCat_t = typename TypeListCat<Lists...>::type;
+
+    // Primary template (default false)
+    template <typename T, typename List>
+    struct one_of {
+        static constexpr bool value = false;
     };
 
-    template<typename... Args1, typename... Args2, typename... Args3,
-             typename... Args4, typename... Args5, typename... Args6>
-    struct TypeList<TypeList<Args1...>, TypeList<Args2...>, TypeList<Args3...>,
-                    TypeList<Args4...>, TypeList<Args5...>, TypeList<Args6...>> {
-        using type = TypeList<Args1..., Args2..., Args3..., Args4..., Args5..., Args6...>;
-    };
-
-    template<typename... Types>
-    struct TypeListCat{};
-
-    template<typename... Args1, typename... Args2>
-    struct TypeListCat<TypeList<Args1...>, TypeList<Args2...>> {
-        using type = TypeList<Args1..., Args2...>;
-    };
-
-    template <typename TypeList1, typename TypeList2>
-    using TypeListCat_t = typename TypeListCat<TypeList1, TypeList2>::type;
-
-    template <typename... Args>
-    struct one_of {};
-
-    template <typename T, typename... U>
-    struct one_of<T, TypeList<U...>> {
-        static constexpr int value = std::disjunction_v<std::is_same<T,U>...>;
+    // Specialization for TypeList
+    // This will match any fk::TypeList<Us...>
+    template <typename T, typename... Us>
+    struct one_of<T, fk::TypeList<Us...>> {
+        static constexpr bool value = (std::is_same_v<T, Us> || ...);
     };
 
     template <typename T, typename TypeList_t>
@@ -109,7 +114,7 @@ namespace fk { // namespace fused kernel
 
     template <typename T, typename... U>
     struct all_of<T, TypeList<U...>> {
-        static constexpr bool value = std::conjunction_v<std::is_same<T, U>...>;
+        static constexpr bool value = (std::is_same_v<T, U> && ...);
     };
 
     template <typename T, typename TypeList_t>
@@ -170,10 +175,6 @@ namespace fk { // namespace fused kernel
      */
     template <typename T, typename TypeList_t>
     constexpr size_t TypeIndex_v = TypeIndex<T, TypeList_t>::value;
-
-    // Obtain the type found in the index Idx, in TypeList
-    template <int n, typename TypeList_t>
-    using TypeAt_t = std::conditional_t<(n>=0), typename TypeList_t::template at<static_cast<size_t>(n)>, typename TypeList_t::last>;
 
     template <typename... Types>
     using FirstType_t = TypeAt_t<0, TypeList<Types...>>;

@@ -30,7 +30,7 @@ namespace fk {
         FK_STATIC_STRUCT(SaturateCast, SelfType)
         using Parent = UnaryOperation<I, O, SaturateCast<I, O>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             return cxp::saturate_cast<OutputType>::f(input);
         }
     };
@@ -43,7 +43,7 @@ namespace fk {
         FK_STATIC_STRUCT(Saturate, SelfType)
         using Parent = BinaryOperation<T, VectorType_t<VBase<T>, 2>, T, Saturate<T>>;
         DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params) {
             static_assert(!validCUDAVec<T>, "Saturate only works with non cuda vector types");
             return cxp::max::f(cxp::min::f(input, params.y), params.x);
         }
@@ -57,7 +57,7 @@ namespace fk {
         FK_STATIC_STRUCT(SaturateFloat, SelfType)
         using Parent = UnaryOperation<T, T, SaturateFloat<T>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             static_assert(std::is_same_v<VBase<T>, float>, "Saturate float only works with float base types.");
             
             return cxp::max::f(make_set<InputType>(0.f), cxp::min::f(input, make_set<InputType>(1.f)));;

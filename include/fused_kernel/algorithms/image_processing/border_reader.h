@@ -56,15 +56,15 @@ namespace fk {
         using Parent = IncompleteReadBackOperation<NullType, NullType, NullType, NullType, SelfType>;
         DECLARE_INCOMPLETEREADBACK_PARENT
 
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
@@ -93,15 +93,15 @@ namespace fk {
         using Parent = IncompleteReadBackOperation<NullType, BorderReaderParameters<BorderType::CONSTANT, T>, NullType, NullType, SelfType>;
         DECLARE_INCOMPLETEREADBACK_PARENT
 
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
@@ -127,15 +127,15 @@ namespace fk {
         using Parent = IncompleteReadBackOperation<NullType, BorderReaderParameters<BT>, NullType, NullType, SelfType>;
         DECLARE_INCOMPLETEREADBACK_PARENT
 
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
@@ -165,21 +165,21 @@ public: \
     using Parent = ReadBackOperation<typename BackIOp_::Operation::OutputType, BorderReaderParameters<BT>, \
         BackIOp_, typename BackIOp_::Operation::OutputType, SelfType>; \
     DECLARE_READBACK_PARENT \
-FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) { \
+FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) { \
     return BackIOp::Operation::num_elems_x(thread, opData.backIOp); \
 } \
-FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) { \
+FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) { \
     return BackIOp::Operation::num_elems_y(thread, opData.backIOp); \
 } \
-FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) { \
+FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) { \
     return BackIOp::Operation::num_elems_z(thread, opData.backIOp); \
 }
 
 #define BORDER_READER_EXEC \
-FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params, const BackIOp& backIOp) { \
+FK_HOST_DEVICE_FUSE OutputType exec(const Point thread, const ParamsType& params, const BackIOp& backIOp) { \
     const int last_col = BackIOp::Operation::num_elems_x(thread, backIOp) - 1; \
     const int last_row = BackIOp::Operation::num_elems_y(thread, backIOp) - 1; \
-    const Point new_thread(idx_col(thread.x, last_col), idx_row(thread.y, last_row), thread.z); \
+    const Point new_thread{idx_col(thread.x, last_col), idx_row(thread.y, last_row), thread.z}; \
     return BackIOp::Operation::exec(new_thread, backIOp); \
 }
 
@@ -197,17 +197,17 @@ FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& param
                         BackIOp_, ReadAndOutputType, SelfType>;
         DECLARE_READBACK_PARENT
 
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return BackIOp::Operation::num_elems_x(thread, opData.backIOp);
         }
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return BackIOp::Operation::num_elems_y(thread, opData.backIOp);
         }
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return BackIOp::Operation::num_elems_z(thread, opData.backIOp);
         }
 
-        FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const Point thread, const ParamsType& params, const BackIOp& backIOp) {
             const int width = BackIOp::Operation::num_elems_x(thread, backIOp);
             const int height = BackIOp::Operation::num_elems_y(thread, backIOp);
             if (thread.x >= 0 && thread.x < width && thread.y >= 0 && thread.y < height) {
@@ -274,10 +274,10 @@ FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& param
     struct BorderReader<BorderType::WRAP, BorderReaderParameters<BorderType::WRAP>, BackIOp_,
                         std::enable_if_t<isAnyCompleteReadType<BackIOp_>, void>> {
         BORDER_READER_DETAILS(BorderType::WRAP)
-        FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const Point thread, const ParamsType& params, const BackIOp& backIOp) {
             const int width = BackIOp::Operation::num_elems_x(thread, backIOp);
             const int height = BackIOp::Operation::num_elems_y(thread, backIOp);
-            const Point new_thread(idx_col(thread.x, width), idx_row(thread.y, height), thread.z);
+            const Point new_thread{idx_col(thread.x, width), idx_row(thread.y, height), thread.z};
             return BackIOp::Operation::exec(new_thread, backIOp);
         }
     private:
