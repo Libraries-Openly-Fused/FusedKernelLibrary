@@ -251,24 +251,13 @@ namespace fk {
         }
     };
 
-    template <size_t Idx, typename... Types>
-    FK_HOST_DEVICE_CNST const auto& get(const Tuple<Types...>& tuple) {
-        return TupleUtil::get<Idx>(tuple);
-    }
+    template <size_t Idx, typename TupleLike>
+    FK_HOST_DEVICE_CNST decltype(auto) get(TupleLike&& tuple) {
+        static_assert(isTuple_v<TupleLike>, "fk::get can only be used with fk::Tuple");
 
-    template <size_t Idx, typename... Types>
-    FK_HOST_DEVICE_CNST auto& get(Tuple<Types...>& tuple) {
-        return TupleUtil::get<Idx>(tuple);
-    }
-
-    template <size_t Idx, typename... Types>
-    FK_HOST_DEVICE_CNST auto&& get(Tuple<Types...>&& tuple) {
-        return TupleUtil::get<Idx>(std::forward<Tuple<Types...>>(tuple));
-    }
-
-    template <size_t Idx, typename... Types>
-    FK_HOST_DEVICE_CNST const auto&& get(const Tuple<Types...>&& tuple) {
-        return TupleUtil::get<Idx>(std::move(tuple));
+        // decltype(auto) + std::forward preserves EXACTLY what TupleUtil returned
+        // (Value category, const-ness, and reference type)
+        return TupleUtil::get<Idx>(std::forward<TupleLike>(tuple));
     }
 
     template <typename... Types>

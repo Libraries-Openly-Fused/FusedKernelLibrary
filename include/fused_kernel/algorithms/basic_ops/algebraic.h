@@ -38,7 +38,7 @@ namespace fk {
         using Parent = BinaryOperation<float3, M3x3Float, float3, MxVFloat3<BinaryType>>;
         DECLARE_BINARY_PARENT
 
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params) {
             const float3 xOut = input * params.x;
             const float3 yOut = input * params.y;
             const float3 zOut = input * params.z;
@@ -54,7 +54,7 @@ namespace fk {
         FK_STATIC_STRUCT(MxVFloat3, SelfType)
         using Parent = UnaryOperation<Tuple<float3, M3x3Float>, float3, MxVFloat3<UnaryType>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             const float3 xOut = get<0>(input) * get<1>(input).x;
             const float3 yOut = get<0>(input) * get<1>(input).y;
             const float3 zOut = get<0>(input) * get<1>(input).z;

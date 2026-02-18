@@ -78,7 +78,7 @@ namespace fk {
   using OperationDataType = typename Parent::OperationDataType;                                  \
   using InstantiableType = typename Parent::InstantiableType;                                    \
   static constexpr bool IS_FUSED_OP = Parent::IS_FUSED_OP;                                       \
-  FK_HOST_DEVICE_FUSE OutputType exec(const InputType &input, const OperationDataType &opData) { \
+  FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const OperationDataType &opData) { \
     return exec(input, opData.params);                                                           \
   }                                                                                              \
   FK_HOST_FUSE InstantiableType build(const OperationDataType& opData) { return {opData}; }      \
@@ -110,7 +110,7 @@ namespace fk {
   using OperationDataType = typename Parent::OperationDataType;                                   \
   using InstantiableType = typename Parent::InstantiableType;                                     \
   static constexpr bool IS_FUSED_OP = Parent::IS_FUSED_OP;                                        \
-  FK_HOST_DEVICE_FUSE OutputType exec(const InputType &input, const OperationDataType &opData) {  \
+  FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const OperationDataType &opData) {  \
     return exec(input, opData.params, opData.backIOp);                                            \
   }                                                                                               \
   FK_HOST_FUSE InstantiableType build(const OperationDataType &opData) { return {opData}; }       \
@@ -146,7 +146,7 @@ namespace fk {
   static constexpr bool IS_FUSED_OP = Parent::IS_FUSED_OP;                                     \
   static constexpr bool THREAD_FUSION = Parent::THREAD_FUSION;                                 \
   template <uint ELEMS_PER_THREAD = 1>                                                         \
-  FK_HOST_DEVICE_FUSE auto exec(const Point& thread, const OperationDataType& opData) {        \
+  FK_HOST_DEVICE_FUSE auto exec(const Point thread, const OperationDataType& opData) {        \
     if constexpr (std::bool_constant<THREAD_FUSION>::value) {                                  \
       return exec<ELEMS_PER_THREAD>(thread, opData.params);                                    \
     } else {                                                                                   \
@@ -186,7 +186,7 @@ namespace fk {
   static constexpr bool IS_FUSED_OP = Parent::IS_FUSED_OP;                                              \
   static constexpr bool THREAD_FUSION = Parent::THREAD_FUSION;                                          \
   template <uint ELEMS_PER_THREAD = 1>                                                                  \
-  FK_HOST_DEVICE_FUSE void exec(const Point &thread,                                                    \
+  FK_HOST_DEVICE_FUSE void exec(const Point thread,                                                    \
                                 const ThreadFusionType<InputType, ELEMS_PER_THREAD, InputType> &input,  \
                                 const OperationDataType &opData) {                                      \
     if constexpr (THREAD_FUSION) {                                                                      \
@@ -222,8 +222,8 @@ namespace fk {
   using OperationDataType = typename Parent::OperationDataType;                             \
   using InstantiableType = typename Parent::InstantiableType;                               \
   static constexpr bool IS_FUSED_OP = Parent::IS_FUSED_OP;                                  \
-  FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread,                                  \
-                                      const InputType& input,                               \
+  FK_HOST_DEVICE_FUSE OutputType exec(const Point thread,                                  \
+                                      const InputType input,                               \
                                       const OperationDataType& opData) {                    \
     return exec(thread, input, opData.params);                                              \
   }                                                                                         \
@@ -251,7 +251,7 @@ struct ClosedOperation {
     using OperationDataType = typename Parent::OperationDataType;                               \
     using InstantiableType = typename Parent::InstantiableType;                                 \
     static constexpr bool IS_FUSED_OP = Parent::IS_FUSED_OP;                                    \
-    FK_HOST_DEVICE_FUSE void exec(const Point &thread, const OperationDataType &opData) {       \
+    FK_HOST_DEVICE_FUSE void exec(const Point thread, const OperationDataType &opData) {       \
         exec(thread, opData.params);                                                            \
     }                                                                                           \
     FK_HOST_FUSE InstantiableType build(const OperationDataType &opData) { return { opData }; } \
@@ -285,7 +285,7 @@ struct ClosedOperation {
   using InstantiableType = typename Parent::InstantiableType;                                  \
   static constexpr bool IS_FUSED_OP = Parent::IS_FUSED_OP;                                     \
   static constexpr bool THREAD_FUSION = Parent::THREAD_FUSION;                                 \
-  FK_HOST_DEVICE_FUSE OutputType exec(const Point &thread, const OperationDataType &opData) {  \
+  FK_HOST_DEVICE_FUSE OutputType exec(const Point thread, const OperationDataType &opData) {  \
     return exec(thread, opData.params, opData.backIOp);                                        \
   }                                                                                            \
   FK_HOST_FUSE InstantiableType build(const OperationDataType &opData) { return {opData}; }    \
@@ -328,22 +328,22 @@ struct ClosedOperation {
 
     struct NumElems {
         template <typename IOp>
-        FK_HOST_DEVICE_FUSE uint x(const Point& thread, const IOp& iOp) {
+        FK_HOST_DEVICE_FUSE uint x(const Point thread, const IOp& iOp) {
             static_assert(isAnyReadType<IOp> || opIs<TernaryType, IOp>, "Only Read, ReadBack, IncompleteReadBack and Ternary Types work with NumElems::x");
             return IOp::Operation::num_elems_x(thread, iOp);
         }
         template <typename IOp>
-        FK_HOST_DEVICE_FUSE uint y(const Point& thread, const IOp& iOp) {
+        FK_HOST_DEVICE_FUSE uint y(const Point thread, const IOp& iOp) {
             static_assert(isAnyReadType<IOp> || opIs<TernaryType, IOp>, "Only Read, ReadBack, IncompleteReadBack and Ternary Types work with NumElems::y");
             return IOp::Operation::num_elems_y(thread, iOp);
         }
         template <typename IOp>
-        FK_HOST_DEVICE_FUSE Size size(const Point& thread, const IOp& iOp) {
+        FK_HOST_DEVICE_FUSE Size size(const Point thread, const IOp& iOp) {
             static_assert(isAnyReadType<IOp> || opIs<TernaryType, IOp>, "Only Read, ReadBack, IncompleteReadBack and Ternary Types work with NumElems::size");
             return Size(x(thread, iOp), y(thread, iOp));
         }
         template <typename IOp>
-        FK_HOST_DEVICE_FUSE uint z(const Point& thread, const IOp& iOp) {
+        FK_HOST_DEVICE_FUSE uint z(const Point thread, const IOp& iOp) {
             static_assert(isAnyReadType<IOp> || opIs<TernaryType, IOp>, "Only Read, ReadBack, IncompleteReadBack and Ternary Types work with NumElems::z");
             return IOp::Operation::num_elems_z(thread, iOp);
         }

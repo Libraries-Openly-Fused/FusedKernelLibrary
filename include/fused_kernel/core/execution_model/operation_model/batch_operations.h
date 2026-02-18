@@ -51,8 +51,8 @@ ReadBackOperation<TypeList<void, ...>>:
 
 ReadBackOperation<BackIOp>:
     Instantiable
-    Implements exec(const Point& thread, const OperationData<ReadBackOperation<BackIOp>>& opData)
-    Implements exec(const Point& thread, const ParamsType& params, const BackIOp& backIOp)
+    Implements exec(const Point thread, const OperationData<ReadBackOperation<BackIOp>>& opData)
+    Implements exec(const Point thread, const ParamsType& params, const BackIOp& backIOp)
     Implements build(const OperationData<ReadBackOperation<BackIOp>>& opData)
     Implements build(const ParamsType& params, const BackIOp& backIOp)
 
@@ -156,8 +156,8 @@ namespace fk {
     BatchRead<PP, BATCH, Operation>:
         Instantiable
         ParamsType = BatchReadParams<BATCH, PP, Operation::ParamsType>
-        Implements exec(const Point& thread, const OperationDataType& opData)
-        Implements exec(const Point& thread, const ParamsType& params)
+        Implements exec(const Point thread, const OperationDataType& opData)
+        Implements exec(const Point thread, const ParamsType& params)
         Implements build(const OperationDataType& opData)
         Implements build(const ParamsType& params)
     */
@@ -182,16 +182,16 @@ namespace fk {
         static constexpr bool IS_FUSED_OP = Operation::IS_FUSED_OP;
         static constexpr bool THREAD_FUSION = Operation::THREAD_FUSION;
 
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData[thread.z]);
         }
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_y(thread, opData.params.opData[thread.z]);
         }
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return BATCH;
         }
-        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {
             return Operation::pitch(thread, opData.params.opData[thread.z]);
         }
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
@@ -199,11 +199,11 @@ namespace fk {
         }
 
         template <uint ELEMS_PER_THREAD = 1>
-        FK_HOST_DEVICE_FUSE auto exec(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE auto exec(const Point thread, const OperationDataType& opData) {
             return exec<ELEMS_PER_THREAD>(thread, opData.params);
         }
         template <uint ELEMS_PER_THREAD = 1>
-        FK_HOST_DEVICE_FUSE auto exec(const Point& thread, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE auto exec(const Point thread, const ParamsType& params) {
             if constexpr (THREAD_FUSION) {
                 return Operation::template exec<ELEMS_PER_THREAD>(thread, params.opData[thread.z]);
             } else {
@@ -239,16 +239,16 @@ namespace fk {
         static constexpr bool IS_FUSED_OP = Operation::IS_FUSED_OP;
         static constexpr bool THREAD_FUSION = false;
 
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData[thread.z]);
         }
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_y(thread, opData.params.opData[thread.z]);
         }
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return BATCH;
         }
-        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {
             return Operation::pitch(thread, opData.params.opData[thread.z]);
         }
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
@@ -256,11 +256,11 @@ namespace fk {
         }
 
         template <uint ELEMS_PER_THREAD = 1>
-        FK_HOST_DEVICE_FUSE auto exec(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE auto exec(const Point thread, const OperationDataType& opData) {
             return exec<ELEMS_PER_THREAD>(thread, opData.params);
         }
         template <uint ELEMS_PER_THREAD = 1>
-        FK_HOST_DEVICE_FUSE auto exec(const Point& thread, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE auto exec(const Point thread, const ParamsType& params) {
             if (params.usedPlanes <= thread.z) {
                 return params.default_value;
             } else {
@@ -304,16 +304,16 @@ namespace fk {
         static constexpr bool IS_FUSED_OP = Operation::IS_FUSED_OP;
         static constexpr bool THREAD_FUSION = Operation::THREAD_FUSION;
 
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData[thread.z]);
         }
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_y(thread, opData.params.opData[thread.z]);
         }
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return BATCH;
         }
-        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {
             return Operation::pitch(thread, opData.params.opData[thread.z]);
         }
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
@@ -352,16 +352,16 @@ namespace fk {
         static constexpr bool IS_FUSED_OP = Operation::IS_FUSED_OP;
         static constexpr bool THREAD_FUSION = false;
 
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData[thread.z]);
         }
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_y(thread, opData.params.opData[thread.z]);
         }
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return BATCH;
         }
-        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {
             return Operation::pitch(thread, opData.params.opData[thread.z]);
         }
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
@@ -472,8 +472,8 @@ namespace fk {
         DECLARE_WRITE_PARENT_BASIC
 
         template <uint ELEMS_PER_THREAD = 1>
-        FK_HOST_DEVICE_FUSE void exec(const Point& thread,
-            const ThreadFusionType<InputType, ELEMS_PER_THREAD, InputType>& input,
+        FK_HOST_DEVICE_FUSE void exec(const Point thread,
+            const ThreadFusionType<InputType, ELEMS_PER_THREAD, InputType> input,
             const ParamsType& params) {
             if constexpr (THREAD_FUSION) {
                 Operation::template exec<ELEMS_PER_THREAD>(thread, input, params[thread.z]);
@@ -481,10 +481,10 @@ namespace fk {
                 Operation::exec(thread, input, params[thread.z]);
             }
         }
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params[thread.z]);
         }
-        FK_HOST_DEVICE_FUSE uint pitch(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {
             return Operation::pitch(thread, opData.params[thread.z]);
         }
         // Build WriteBatch from array of IOps

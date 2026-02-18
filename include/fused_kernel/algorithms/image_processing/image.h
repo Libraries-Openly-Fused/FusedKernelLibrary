@@ -58,7 +58,7 @@ namespace fk {
             return ptr();
         }
 
-        FK_HOST_CNST Image<PF> crop(const Point& p, const uint& newWidth, const uint& newHeight) {
+        FK_HOST_CNST Image<PF> crop(const Point p, const uint& newWidth, const uint& newHeight) {
             const uint newDataWidth = newWidth * PixelFormatTraits<PF>::rf.width_f;
             const uint newDataHeight = newHeight * PixelFormatTraits<PF>::rf.height_f;
             const Point dataPoint{p.x * PixelFormatTraits<PF>::rf.width_f, p.y * PixelFormatTraits<PF>::rf.height_f, 0};
@@ -87,7 +87,7 @@ namespace fk {
 #endif // defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED)
 #endif // defined(NVRTC_COMPILER)
 
-        FK_HOST_CNST VectorType_t<BaseType, PixelFormatTraits<PF>::cn> readAt(const Point& p) const {
+        FK_HOST_CNST VectorType_t<BaseType, PixelFormatTraits<PF>::cn> readAt(const Point p) const {
             return ReadYUV<PF>::exec(p, ptr());
         }
     };

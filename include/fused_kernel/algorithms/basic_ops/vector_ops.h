@@ -27,7 +27,7 @@ namespace fk {
         FK_STATIC_STRUCT(Discard, SelfType)
         using Parent = UnaryOperation<I, O, Discard<I, O>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             static_assert(cn<I> > cn<O>, "Output type should at least have one channel less");
             static_assert(std::is_same_v<VBase<I>, VBase<O>>,
                 "Base types should be the same");
@@ -48,7 +48,7 @@ namespace fk {
         FK_STATIC_STRUCT(VectorReorder, SelfType)
         using Parent = UnaryOperation<T, T, VectorReorder<T, Idx...>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             static_assert(validCUDAVec<T>, "Non valid CUDA vetor type: UnaryVectorReorder");
             static_assert(cn<T> >= 2, "Minimum number of channels is 2: UnaryVectorReorder");
             return {static_get<Idx>(input)...};
@@ -63,7 +63,7 @@ namespace fk {
         FK_STATIC_STRUCT(VectorReorderRT, SelfType)
         using Parent = BinaryOperation<T, int_<cn<T>>, T, VectorReorderRT<T>>;
         DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params) {
             static_assert(validCUDAVec<T>, "Non valid CUDA vetor type");
             static_assert(cn<T> >= 2, "Minimum number of channels is 2");
             if constexpr (cn<T> == 2) {
@@ -86,7 +86,7 @@ namespace fk {
         FK_STATIC_STRUCT(VectorReduce, SelfType)
         using Parent = UnaryOperation<T, typename Operation::OutputType, VectorReduce<T, Operation>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) { 
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) { 
             return cxp::vector_reduce<Operation>::f(input);
         }
     };
@@ -99,7 +99,7 @@ namespace fk {
         FK_STATIC_STRUCT(AddLast, SelfType)
         using Parent = BinaryOperation<I, typename VectorTraits<I>::base, O, AddLast<I, O>>;
         DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params) {
             static_assert(cn<I> == cn<O> -1, "Output type should have one channel more");
             static_assert(std::is_same_v<typename VectorTraits<I>::base, typename VectorTraits<O>::base>,
                 "Base types should be the same");
@@ -125,7 +125,7 @@ namespace fk {
         FK_STATIC_STRUCT(VectorAnd, SelfType)
         using Parent = UnaryOperation<T, bool, VectorAnd<T>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             return cxp::vector_and::f(input);
         }
     };

@@ -57,7 +57,7 @@ struct SimpleTransformDPPBaseReference {
     friend struct SimpleTransformDPPReference<ParArch::GPU_NVIDIA>; // Allow TransformDPP to access private members
   private:
     template <typename ReadIOp, typename... IOps>
-    FK_HOST_DEVICE_FUSE void execute_thread(const Point& thread, const ReadIOp& readDF, const IOps&... iOps) {
+    FK_HOST_DEVICE_FUSE void execute_thread(const Point thread, const ReadIOp& readDF, const IOps&... iOps) {
         using ReadOperation = typename ReadIOp::Operation;
         using WriteOperation = typename LastType_t<IOps...>::Operation;
 
@@ -82,7 +82,7 @@ struct SimpleTransformDPPBaseReferenceFoldExpr {
                                                                             // to access private members
   private:
     template <typename ReadIOp, typename... IOps>
-    FK_HOST_DEVICE_FUSE void execute_thread(const Point &thread, const ReadIOp &readDF, const IOps &...iOps) {
+    FK_HOST_DEVICE_FUSE void execute_thread(const Point thread, const ReadIOp &readDF, const IOps &...iOps) {
         using ReadOperation = typename ReadIOp::Operation;
         using WriteOperation = typename LastType_t<IOps...>::Operation;
 

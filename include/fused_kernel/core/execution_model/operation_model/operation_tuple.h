@@ -59,6 +59,17 @@ namespace fk {
     template <typename... Operations>
     using OperationTuple = OperationTuple_<void, Operations...>;
 
+     // Primary template: defaults to false
+    template <typename T>
+    struct IsOpTuple : std::false_type {};
+
+    // Partial specialization: matches any specialization of Tuple
+    template <typename... Types>
+    struct IsOpTuple<OperationTuple_<void, Types...>> : std::true_type {};
+
+    template <typename TypeToTest>
+    constexpr bool isOpTuple_v = IsOpTuple<std::decay_t<TypeToTest>>::value;
+
     template <typename IndexSeq, size_t IdxValue>
     struct GetIndex;
 
@@ -76,17 +87,21 @@ namespace fk {
 
     template <size_t... Idx, size_t IdxValue>
     struct GetIndex<std::index_sequence<Idx...>, IdxValue> {
-        static constexpr size_t value = GetIndexHelper<std::index_sequence<Idx...>, decltype(std::make_index_sequence<sizeof...(Idx)>()), IdxValue>::value;
+        static constexpr size_t value = GetIndexHelper<std::index_sequence<Idx...>,
+            decltype(std::make_index_sequence<sizeof...(Idx)>()), IdxValue>::value;
     };
 
-    // As observed in get<>(Tuple<...>), returning a const& as auto,
-    // may lead to local memory accesses in the GPU
-    template <size_t Idx, typename... Operations>
-    FK_HOST_DEVICE_CNST decltype(auto) get_opt(const OperationTuple<Operations...>& opTuple){
-        if constexpr (opIs<UnaryType, TypeAt_t<Idx, TypeList<Operations...>>>) {
-            return typename TypeAt_t<Idx, TypeList<Operations...>>::Operation::InstantiableType{};
+    template <size_t Idx, typename OpTuple>
+    FK_HOST_DEVICE_CNST decltype(auto) get_opt(OpTuple&& opTuple) {
+        static_assert(isOpTuple_v<std::decay_t<OpTuple>>, "get_opt only works with OperationTuple.");
+        if constexpr (opIs<UnaryType, TypeAt_t<Idx, typename std::decay_t<OpTuple>::Operations>>) {
+            // Unary types are stateless, return a new temporary by value.
+            // decltype(auto) deduces this as 'T' (Value).
+            return typename TypeAt_t<Idx, typename std::decay_t<OpTuple>::Operations>::Operation::InstantiableType{};
         } else {
-            return get<GetIndex<typename OperationTuple<Operations...>::Indexes, Idx>::value>(opTuple.instances);
+            // Stored types return whatever is stored in the OpTuple
+            return get<GetIndex<typename std::decay_t<OpTuple>::Indexes, Idx>::value>(
+                std::forward<OpTuple>(opTuple).instances);
         }
     }
 

@@ -439,7 +439,7 @@ namespace fk {
 
         inline constexpr operator RawPtr<D, T>() const { return ptr_a; }
 
-        inline constexpr Ptr<D, T> crop(const Point& p, const PtrDims<D>& newDims) {
+        inline constexpr Ptr<D, T> crop(const Point p, const PtrDims<D>& newDims) {
             T* ptr = At::point(p, ptr_a);
             if (ref) {
                 ref->cnt.fetch_add(1);
@@ -564,7 +564,7 @@ namespace fk {
         inline void download(Stream& stream) {}
 #endif // defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED)
 
-        inline T at(const Point& p) const {
+        inline T at(const Point p) const {
             if (type != MemType::Device) {
                 return *At::cr_point(p, ptr_pinned);
             } else {
@@ -649,7 +649,7 @@ namespace fk {
         inline constexpr Ptr1D<T>(T* data_, const PtrDims<ND::_1D>& dims_, const MemType& type_ = defaultMemType, const int& deviceID_ = 0) :
             Ptr<ND::_1D, T>(data_, dims_, type_, deviceID_) {}
 
-        inline constexpr Ptr1D<T> crop1D(const Point& p, const PtrDims<ND::_1D>& newDims) { return Ptr<ND::_1D, T>::crop(p, newDims); }
+        inline constexpr Ptr1D<T> crop1D(const Point p, const PtrDims<ND::_1D>& newDims) { return Ptr<ND::_1D, T>::crop(p, newDims); }
     };
 
     template <typename T>
@@ -666,7 +666,7 @@ namespace fk {
         inline Ptr2D<T>(T* data_, const uint& width_, const uint& height_, const uint& pitch_, const MemType& type_ = defaultMemType, const int& deviceID_ = 0) :
             Ptr<ND::_2D, T>(data_, PtrDims<ND::_2D>(width_, height_, pitch_), type_, deviceID_) {}
 
-        inline Ptr2D<T> crop2D(const Point& p, const PtrDims<ND::_2D>& newDims) { return Ptr<ND::_2D, T>::crop(p, newDims); }
+        inline Ptr2D<T> crop2D(const Point p, const PtrDims<ND::_2D>& newDims) { return Ptr<ND::_2D, T>::crop(p, newDims); }
         inline void Alloc(const fk::Size& size, const uint& pitch_ = 0, const MemType& type_ = defaultMemType, const int& deviceID_ = 0) {
             this->freePtr();
             this->allocPtr(PtrDims<ND::_2D>(size.width, size.height, pitch_), type_, deviceID_);
@@ -685,7 +685,7 @@ namespace fk {
         inline constexpr Ptr3D<T>(T* data_, const PtrDims<ND::_3D>& dims_, const MemType& type_ = defaultMemType, const int& deviceID_ = 0) :
             Ptr<ND::_3D, T>(data_, dims_, type_, deviceID_) {}
 
-        inline constexpr Ptr3D<T> crop3D(const Point& p, const PtrDims<ND::_3D>& newDims) { return Ptr<ND::_3D, T>::crop(p, newDims); }
+        inline constexpr Ptr3D<T> crop3D(const Point p, const PtrDims<ND::_3D>& newDims) { return Ptr<ND::_3D, T>::crop(p, newDims); }
     };
 
     // A color-plane-transposed 3D pointer PtrT3D
@@ -700,7 +700,7 @@ namespace fk {
         inline constexpr PtrT3D<T>(T* data_, const PtrDims<ND::T3D>& dims_, const MemType& type_ = defaultMemType, const int& deviceID_ = 0) :
             Ptr<ND::T3D, T>(data_, dims_, type_, deviceID_) {}
 
-        inline constexpr PtrT3D<T> crop3D(const Point& p, const PtrDims<ND::T3D>& newDims) { return Ptr<ND::T3D, T>::crop(p, newDims); }
+        inline constexpr PtrT3D<T> crop3D(const Point p, const PtrDims<ND::T3D>& newDims) { return Ptr<ND::T3D, T>::crop(p, newDims); }
     };
 
     // A Tensor pointer

@@ -64,14 +64,14 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
         Point thread;
         InputType input;
 
-        FK_HOST_DEVICE_CNST InputFoldType(const Point& thread_, const InputType& input_)
+        FK_HOST_DEVICE_CNST InputFoldType(const Point thread_, const InputType input_)
             : thread(thread_), input(input_) {}
     };
 
     template <>
     struct InputFoldType<void> {
         template <typename InputT>
-        FK_HOST_DEVICE_FUSE auto build(const Point& thread, InputT&& input) {
+        FK_HOST_DEVICE_FUSE auto build(const Point thread, InputT&& input) {
             return InputFoldType<std::decay_t<InputT>>(thread, std::forward<InputT>(input));
         }
     };
@@ -84,7 +84,7 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
             return Operation::getActiveThreads(*this);
         }
 
-        FK_HOST_DEVICE_CNST friend auto operator|(const Point& thread, const OperationData<Operation_t>& opData) {
+        FK_HOST_DEVICE_CNST friend auto operator|(const Point thread, const OperationData<Operation_t>& opData) {
             return InputFoldType<>::build(thread, Operation::exec(thread, opData));
         }
 
@@ -107,7 +107,7 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
             return Fuser_t::fuse(std::forward<PreviousIOp>(prevIOp), self);
         }
 
-        FK_HOST_DEVICE_CNST friend auto operator|(const Point& thread, const OperationData<Operation_t>& opData) {
+        FK_HOST_DEVICE_CNST friend auto operator|(const Point thread, const OperationData<Operation_t>& opData) {
             return InputFoldType<>::build(thread, Operation::exec(thread, opData));
         }
     };
@@ -134,7 +134,7 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     * It can be composed of a single Operation or of a chain of Operations, in which case it wraps them into an
     * FusedOperation.
     * Expects Operation_t to have an static __device__ function member with the following parameters:
-    * OutputType exec(const InputType& input, const OperationData<Operation_t>& opDat)
+    * OutputType exec(const InputType input, const OperationData<Operation_t>& opDat)
     */
     template <typename Operation_t>
     struct BinaryInstantiableOperation final : public OperationData<Operation_t> {
@@ -164,7 +164,7 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     * Third parameter (back_function): it's a IOp that will be used at some point in the implementation of the
     * Operation. It can be any kind of IOp.
     * Expects Operation_t to have an static __device__ function member with the following parameters:
-    * OutputType exec(const InputType& input, const OperationData<Operation_t>& opData)
+    * OutputType exec(const InputType input, const OperationData<Operation_t>& opData)
     */
     template <typename Operation_t>
     struct TernaryInstantiableOperation final : public OperationData<Operation_t> {
@@ -194,7 +194,7 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     * It allows to execute the Operation (or chain of Unary Operations) on the input, and returns the result as output
     * in register memory.
     * Expects Operation_t to have an static __device__ function member with the following parameters:
-    * OutputType exec(const InputType& input)
+    * OutputType exec(const InputType input)
     */
     template <typename Operation_t>
     struct UnaryInstantiableOperation {
@@ -275,7 +275,7 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     struct ClosedInstantiableOperation final : public OperationData<Operation_t> {
         INSTANTIABLE_OPERATION_DETAILS_IS_ASSERT(ClosedType)
 
-        FK_HOST_DEVICE_CNST friend void operator|(const Point& thread, const OperationData<Operation_t>& opData) {
+        FK_HOST_DEVICE_CNST friend void operator|(const Point thread, const OperationData<Operation_t>& opData) {
             Operation::exec(thread, opData);
         }
     };

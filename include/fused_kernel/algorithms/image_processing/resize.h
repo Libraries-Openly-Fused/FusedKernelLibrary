@@ -27,7 +27,7 @@ namespace fk {
         FK_STATIC_STRUCT(ComputeResizePoint, ComputeResizePoint)
         using Parent = BinaryOperation<Point, float2, float2, ComputeResizePoint>;
         DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& thread, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType thread, const ParamsType& params) {
             // This is what makes the interpolation a resize operation
             const float fx = params.x;
             const float fy = params.y;
@@ -83,7 +83,7 @@ namespace fk {
                                          SelfType>;
         DECLARE_READBACK_PARENT
 
-        FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const Point thread, const ParamsType& params, const BackIOp& backIOp) {
             if constexpr (AR == AspectRatio::IGNORE_AR) {
                 return exec_resize(thread, params, backIOp);
             } else {
@@ -97,15 +97,15 @@ namespace fk {
             }
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return opData.params.dstSize.width;
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return opData.params.dstSize.height;
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
@@ -114,7 +114,7 @@ namespace fk {
         }
 
     private:
-        FK_HOST_DEVICE_FUSE auto exec_resize(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
+        FK_HOST_DEVICE_FUSE auto exec_resize(const Point thread, const ParamsType& params, const BackIOp& backIOp) {
             static_assert(opIs<TernaryType, BackIOp>, "BackIOp must be a ternary type for this specialization");
             
             const float src_x = thread.x * params.src_conv_factors.x;
@@ -138,13 +138,13 @@ namespace fk {
         template <typename BackIOp_>
         using NewInstantiableType = ResizeComplete<AR, Ternary<InterpolateComplete<IType, BackIOp_>>>;
 
-        FK_HOST_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return opData.params.dstSize.width;
         }
-        FK_HOST_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return opData.params.dstSize.height;
         }
-        FK_HOST_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
@@ -249,13 +249,13 @@ namespace fk {
         template <typename NewBackIOp>
         using NewInstantiableType = ResizeComplete<AspectRatio::IGNORE_AR, Ternary<InterpolateComplete<InterpolationType::INTER_LINEAR, NewBackIOp>>>;
 
-        FK_HOST_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return opData.params.dstSize.width;
         }
-        FK_HOST_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return opData.params.dstSize.height;
         }
-        FK_HOST_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
