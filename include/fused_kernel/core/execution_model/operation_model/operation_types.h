@@ -60,7 +60,7 @@ namespace fk {
          | ClosedType **          |          |    X     |          |    X     |          |  void exec(Point, ParamsType)
          +------------------------+----------+----------+----------+----------+----------+
 
-         * Applicable only to Instantiapble Operations. In and Out must be the same type and value. Operation must be of WriteType.
+         * Applicable only to Instantiable Operations. In and Out must be the same type and value. Operation must be of WriteType.
          ** OpenType and ClosedType are only applicable to FusedOperations. FusedOperations can also be ReadType or WriteType.
     */
 
