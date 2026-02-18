@@ -59,6 +59,17 @@ namespace fk {
     template <typename... Operations>
     using OperationTuple = OperationTuple_<void, Operations...>;
 
+     // Primary template: defaults to false
+    template <typename T>
+    struct IsOpTuple : std::false_type {};
+
+    // Partial specialization: matches any specialization of Tuple
+    template <typename... Types>
+    struct IsOpTuple<OperationTuple_<void, Types...>> : std::true_type {};
+
+    template <typename TypeToTest>
+    constexpr bool isOpTuple_v = IsOpTuple<std::decay_t<TypeToTest>>::value;
+
     template <typename IndexSeq, size_t IdxValue>
     struct GetIndex;
 
@@ -76,54 +87,21 @@ namespace fk {
 
     template <size_t... Idx, size_t IdxValue>
     struct GetIndex<std::index_sequence<Idx...>, IdxValue> {
-        static constexpr size_t value = GetIndexHelper<std::index_sequence<Idx...>, decltype(std::make_index_sequence<sizeof...(Idx)>()), IdxValue>::value;
+        static constexpr size_t value = GetIndexHelper<std::index_sequence<Idx...>,
+            decltype(std::make_index_sequence<sizeof...(Idx)>()), IdxValue>::value;
     };
 
-    // 1. Mutable L-value (Allows modification: get_opt<0>(tup) = x;)
-    template <size_t Idx, typename... Operations>
-    FK_HOST_DEVICE_CNST decltype(auto) get_opt(OperationTuple<Operations...>& opTuple) {
-        if constexpr (opIs<UnaryType, TypeAt_t<Idx, TypeList<Operations...>>>) {
+    template <size_t Idx, typename OpTuple>
+    FK_HOST_DEVICE_CNST decltype(auto) get_opt(OpTuple&& opTuple) {
+        static_assert(isOpTuple_v<std::decay_t<OpTuple>>, "get_opt only works with OperationTuple.");
+        if constexpr (opIs<UnaryType, TypeAt_t<Idx, typename std::decay_t<OpTuple>::Operations>>) {
             // Unary types are stateless, return a new temporary by value.
             // decltype(auto) deduces this as 'T' (Value).
-            return typename TypeAt_t<Idx, TypeList<Operations...>>::Operation::InstantiableType{};
+            return typename TypeAt_t<Idx, typename std::decay_t<OpTuple>::Operations>::Operation::InstantiableType{};
         } else {
-            // Stored types return a reference to the data.
-            // get(...) returns 'auto&', so decltype(auto) returns 'T&'.
-            return get<GetIndex<typename OperationTuple<Operations...>::Indexes, Idx>::value>(opTuple.instances);
-        }
-    }
-
-    // 2. Const L-value (Read-only access: safe for const objects)
-    template <size_t Idx, typename... Operations>
-    FK_HOST_DEVICE_CNST decltype(auto) get_opt(const OperationTuple<Operations...>& opTuple) {
-        if constexpr (opIs<UnaryType, TypeAt_t<Idx, TypeList<Operations...>>>) {
-            return typename TypeAt_t<Idx, TypeList<Operations...>>::Operation::InstantiableType{};
-        } else {
-            // get(...) returns 'const auto&', so decltype(auto) returns 'const T&'.
-            return get<GetIndex<typename OperationTuple<Operations...>::Indexes, Idx>::value>(opTuple.instances);
-        }
-    }
-
-    // 3. Mutable R-value (Move semantics: allows stealing resources)
-    template <size_t Idx, typename... Operations>
-    FK_HOST_DEVICE_CNST decltype(auto) get_opt(OperationTuple<Operations...>&& opTuple) {
-        if constexpr (opIs<UnaryType, TypeAt_t<Idx, TypeList<Operations...>>>) {
-            return typename TypeAt_t<Idx, TypeList<Operations...>>::Operation::InstantiableType{};
-        } else {
-            // We must std::move the internal tuple member to propagate the r-value nature.
-            // get(...) returns 'auto&&', so decltype(auto) returns 'T&&'.
-            return get<GetIndex<typename OperationTuple<Operations...>::Indexes, Idx>::value>(std::move(opTuple.instances));
-        }
-    }
-
-    // 4. Const R-value (Rare, but technically correct for completeness)
-    template <size_t Idx, typename... Operations>
-    FK_HOST_DEVICE_CNST decltype(auto) get_opt(const OperationTuple<Operations...>&& opTuple) {
-        if constexpr (opIs<UnaryType, TypeAt_t<Idx, TypeList<Operations...>>>) {
-            return typename TypeAt_t<Idx, TypeList<Operations...>>::Operation::InstantiableType{};
-        } else {
-            // get(...) returns 'const auto&&'.
-            return get<GetIndex<typename OperationTuple<Operations...>::Indexes, Idx>::value>(std::move(opTuple.instances));
+            // Stored types return whatever is stored in the OpTuple
+            return get<GetIndex<typename std::decay_t<OpTuple>::Indexes, Idx>::value>(
+                std::forward<OpTuple>(opTuple).instances);
         }
     }
 
