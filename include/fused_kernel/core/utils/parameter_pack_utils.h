@@ -1,5 +1,5 @@
-/* Copyright 2023 Mediaproduccion S.L.U. (Oscar Amoros Huguet)
-   Copyright 2023-2025 Oscar Amoros Huguet
+/* Copyright 2023 Grup Mediapro S.L.U. (Oscar Amoros Huguet)
+   Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 #define FK_PARAMETER_PACK_UTILS
 
 #include <fused_kernel/core/utils/utils.h>
+#include <fused_kernel/core/data/tuple.h>
 #include <utility>
 
 namespace fk { // namespace fused kernel
@@ -25,41 +26,31 @@ namespace fk { // namespace fused kernel
     constexpr auto indexSequence = std::make_index_sequence<N>{};
 
     // Util to get the parameters of a parameter pack
-    template <int Index, typename T, typename... Args>
-    FK_HOST_DEVICE_CNST auto get(const T& current, const Args&... args) {
-        static_assert(sizeof...(args) + 1 > Index, "Index out of range when looking for a parameter in a parameter pack.");
-        if constexpr (Index == 0) {
-            return current;
-        } else {
-            return get<Index - 1>(args...);
-        }
-    }
-
-    template <int Index, typename T, typename... Args>
-    FK_HOST_DEVICE_CNST auto& get(T& current, Args&... args) {
-        static_assert(sizeof...(args) + 1 > Index, "Index out of range when looking for a parameter in a parameter pack.");
-        if constexpr (Index == 0) {
-            return current;
-        } else {
-            return get<Index - 1>(args...);
-        }
+    template <size_t I, typename... Args>
+    FK_HOST_DEVICE_CNST decltype(auto) get_arg(Args&&... args) {
+        // 1. Args&& captures the exact category (L-value vs R-value)
+        // 2. std::forward preserves it
+        // 3. forward_as_tuple creates a Tuple of references (Tuple<T&, U&&...>)
+        // 4. get extracts it
+        // 5. decltype(auto) returns exactly that reference
+        return TupleUtil::get<I>(forward_as_tuple(std::forward<Args>(args)...));
     }
 
     // Util to get the last parameter of a parameter pack
     template <typename... Args>
-    FK_HOST_DEVICE_CNST auto ppLast(const Args&... args) {
-        return get<sizeof...(args) - 1>(args...);
+    FK_HOST_DEVICE_CNST const auto& ppLast(const Args&... args) {
+        return get_arg<sizeof...(args) - 1>(args...);
     }
 
     // Util to get the first parameter of a parameter pack
     template <typename... Args>
-    FK_HOST_DEVICE_CNST auto ppFirst(const Args&... args) {
-        return get<0>(args...);
+    FK_HOST_DEVICE_CNST const auto& ppFirst(const Args&... args) {
+        return get_arg<0>(args...);
     }
 
     template <size_t idx, size_t... iseq>
     constexpr inline size_t get_index_f(const std::index_sequence<iseq...>&) {
-        return get<static_cast<int>(idx)>(iseq...);
+        return get_arg<idx>(iseq...);
     }
 
     template <size_t idx, typename ISeq>
@@ -67,7 +58,7 @@ namespace fk { // namespace fused kernel
 
     template <typename T, T idx, T... iseq>
     constexpr inline size_t get_integer_f(const std::integer_sequence<T, iseq...>&) {
-        return get<static_cast<int>(idx)>(iseq...);
+        return get_arg<static_cast<size_t>(idx)>(iseq...);
     }
 
     template <typename T, T idx, typename ISeq>

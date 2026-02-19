@@ -1,4 +1,4 @@
-/* Copyright 2025 Oscar Amoros Huguet
+/* Copyright 2025-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -12,8 +12,8 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
-#ifndef FK_OPERATION_DATA_CUH
-#define FK_OPERATION_DATA_CUH
+#ifndef FK_OPERATION_DATA_H
+#define FK_OPERATION_DATA_H
 
 #include <type_traits>
 #include <fused_kernel/core/execution_model/operation_model/operation_types.h>
@@ -79,94 +79,23 @@ namespace fk {
     template <typename Operation, typename Enabler = void>
     struct OperationData;
 
-#if !defined(COPYABLE_IOPS)
-    using ParamsTypes = TypeList<BinaryType, ReadType, WriteType, MidWriteType>;
+    using ParamsTypes = TypeList<BinaryType, ReadType, WriteType, MidWriteType, OpenType, ClosedType>;
     using ParamsAndBackIOpTypes = TypeList<ReadBackType, IncompleteReadBackType, TernaryType>;
 
     template <typename Operation>
     struct OperationData<Operation, std::enable_if_t<one_of_v<typename Operation::InstanceType, ParamsTypes>>> {
-        typename Operation::ParamsType params;
+        FK_HOST_DEVICE_CNST OperationData() {};
+        FK_HOST_DEVICE_CNST OperationData(const typename Operation::ParamsType &params_) : params(params_) {}
+        typename Operation::ParamsType params{};
     };
 
     template <typename Operation>
     struct OperationData<Operation, std::enable_if_t<one_of_v<typename Operation::InstanceType, ParamsAndBackIOpTypes>>> {
-        typename Operation::ParamsType params;
-        typename Operation::BackIOp backIOp;
-    };
-#else
-    template <typename Operation>
-    struct OperationData<Operation, std::enable_if_t<hasParamsNoArray<Operation>&& hasNoBackIOp_v<Operation>, void>> {
-
         FK_HOST_DEVICE_CNST OperationData() {};
-        FK_HOST_DEVICE_CNST OperationData(const typename Operation::ParamsType& params_) : params(params_) {}
-
-        typename Operation::ParamsType params;
+        FK_HOST_DEVICE_CNST OperationData(const typename Operation::ParamsType& params_, const typename Operation::BackIOp& backIOp_) : params(params_), backIOp(backIOp_) {}
+        typename Operation::ParamsType params{};
+        typename Operation::BackIOp backIOp{};
     };
-
-    template <typename Operation>
-    struct OperationData<Operation, std::enable_if_t<hasParamsArray<Operation>&& hasNoBackIOp_v<Operation>, void>> {
-        FK_HOST_DEVICE_CNST OperationData() {};
-        __host__ __forceinline__ OperationData(const typename Operation::ParamsType& params_) {
-            std::copy(std::begin(params_), std::end(params_), std::begin(params));
-        }
-        __host__ __forceinline__ OperationData<Operation>& operator=(const OperationData<Operation>& other) {
-            if (this != &other) {
-                std::copy(std::begin(other.params), std::end(other.params), std::begin(params));
-            }
-            return *this;
-        }
-        typename Operation::ParamsType params;
-    };
-
-    template <typename Operation>
-    struct OperationData<Operation, std::enable_if_t<hasParamsAndBackIOp_v<Operation> &&
-        !std::is_array_v<typename Operation::ParamsType> &&
-        !std::is_array_v<typename Operation::BackIOp>, void>> {
-        FK_HOST_DEVICE_CNST OperationData() {};
-        FK_HOST_DEVICE_CNST OperationData(const typename Operation::ParamsType& params_,
-            const typename Operation::BackIOp& backIOp_) :
-            params(params_), backIOp(backIOp_) {}
-        typename Operation::ParamsType params;
-        typename Operation::BackIOp backIOp;
-    };
-
-    template <typename Operation>
-    struct OperationData<Operation, std::enable_if_t<hasParamsAndBackIOp_v<Operation> &&
-        (std::is_array_v<typename Operation::ParamsType> ||
-            std::is_array_v<typename Operation::BackIOp>), void>> {
-        __host__ __forceinline__ OperationData() {};
-        __host__ __forceinline__ OperationData(const typename Operation::ParamsType& params_,
-            const typename Operation::BackIOp& backIOp_) {
-            if constexpr (std::is_array_v<typename Operation::ParamsType>) {
-                std::copy(std::begin(params_), std::end(params_), std::begin(params));
-            } else {
-                params = params_;
-            }
-            if constexpr (std::is_array_v<typename Operation::BackIOp>) {
-                std::copy(std::begin(backIOp_), std::end(backIOp_), std::begin(backIOp));
-            } else {
-                backIOp = backIOp_;
-            }
-        }
-        __host__ __forceinline__ OperationData<Operation>& operator=(const OperationData<Operation>& other) {
-            if (this != &other) {
-                if constexpr (std::is_array_v<typename Operation::ParamsType>) {
-                    std::copy(std::begin(other.params), std::end(other.params), std::begin(params));
-                } else {
-                    params = other.params;
-                }
-                if constexpr (std::is_array_v<typename Operation::BackIOp>) {
-                    std::copy(std::begin(other.backIOp), std::end(other.backIOp), std::begin(backIOp));
-                } else {
-                    backIOp = other.backIOp;
-                }
-            }
-            return *this;
-        }
-        typename Operation::ParamsType params;
-        typename Operation::BackIOp backIOp;
-    };
-#endif
 } // namespace fk
 
-#endif
+#endif // FK_OPERATION_DATA_H

@@ -1,4 +1,5 @@
 /* Copyright 2025 Grup Mediapro S.L.U (Oscar Amoros Huguet)
+   Copyright 2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -18,7 +19,7 @@
 
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 #include <fused_kernel/core/execution_model/data_parallel_patterns.h>
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/basic_ops/set.h>
 #include <fused_kernel/core/execution_model/stream.h>
 
@@ -41,61 +42,26 @@ namespace fk {
     };
 #endif
 
-    struct Back {
-        template <typename First, typename Second, typename... IOps>
-        FK_HOST_FUSE auto fuse(const First& first, const Second& second, const IOps&... iOps) {
-            if constexpr (sizeof...(iOps) == 0 || noneIncompleteReadBackType<IOps...>) {
-                if constexpr (isIncompleteReadBackType<Second>) {
-                    return first.then(second);
-                } else {
-                    return first;
-                }
-            } else {
-                return fuse(first.then(second), iOps...);
-            }
-        }
-
-        template <typename First, typename... IOps>
-        FK_HOST_FUSE size_t idxFirstNonBack() {
-            if constexpr (sizeof...(IOps) == 0) {
-                return 1;
-            } else {
-                if constexpr (!noneIncompleteReadBackType<IOps...>) {
-                    return 1 + idxFirstNonBack<IOps...>();
-                } else {
-                    if constexpr (isReadBackType<First> || isIncompleteReadBackType<First>) {
-                        return 1;
-                    } else {
-                        return 0;
-                    }
-                }
-            }
-        }
-    };
-
     template <typename Child>
     struct BaseExecutor {
-        template <size_t firstNonBackOp, ParArch PA, size_t... Idx, typename... IOps>
-        FK_HOST_FUSE void executeOperationsBase_helper(const std::index_sequence<Idx...>&, Stream_<PA>& stream, const IOps&... iOps) {
-            // firstNonBackOp is the index of the first non back operation in the operation sequence
-            if constexpr (firstNonBackOp < 2) {
-                // Only the first operation is a back operation or there are no back operations
-                Child::executeOperations_helper(stream, iOps...);
-            } else {
-                // There are back operations that are not the first operation, fuse them
-                const auto firstOp = Back::fuse(iOps...);
-                // And call the executeOperations_helper with the fused back operation and the rest of operations
-                Child::executeOperations_helper(stream, firstOp, get<Idx + firstNonBackOp>(iOps...)...);
-            }
+      private:
+        template <typename StreamT, typename... Args>
+        FK_HOST_FUSE void applyExecuteOperations_helper(Tuple<StreamT, Args...>& argTuple) {
+            apply(Child::template executeOperations_helper<Args...>, argTuple);
+        }
+      public:
+        template <ParArch PA, typename... IOps>
+        FK_HOST_FUSE void executeOperationsBase_helper(Stream_<PA>& stream, const IOps&... iOps) {
+            const auto fb_iOps = BackFuser::fuse_back(iOps...);
+            auto fullArgs = tuple_cat(forward_as_tuple(stream), fb_iOps);
+            applyExecuteOperations_helper(fullArgs);
         }
 
         FK_STATIC_STRUCT(BaseExecutor, BaseExecutor)
 
         template <enum ParArch PA, typename... IOps>
         FK_HOST_FUSE void executeOperations(Stream_<PA>& stream, const IOps&... iOps) {
-            constexpr size_t firstNonBackIdx = Back::idxFirstNonBack<IOps...>();
-            constexpr size_t remainingOps = sizeof...(iOps) - firstNonBackIdx;
-            executeOperationsBase_helper<firstNonBackIdx>(std::make_index_sequence<remainingOps>{}, stream, iOps...);
+            executeOperationsBase_helper(stream, iOps...);
         }
 
         template <enum ParArch PA, enum ND D, typename I, typename... IOps>
@@ -319,7 +285,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                     gpuErrchk(cudaGetLastError());
                 }
             } else {
-                const auto readOp = get<0>(iOps...);
+                const auto readOp = get_arg<0>(iOps...);
 
                 const ActiveThreads activeThreads = readOp.getActiveThreads();
 
@@ -356,23 +322,9 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             return ActiveThreads{ x, y, z }; 
         }
 
-        template <size_t firstNonBack, size_t... Idx, typename FirstIOp, typename... IOps>
-        FK_HOST_FUSE auto getNewIOpSequence(const std::index_sequence<Idx...>&, const FirstIOp& firstIOp, const Tuple<IOps...>& iOps) {
-            if constexpr (firstNonBack < 2) {
-                return IOpSequence<IOps...>{iOps};
-            } else {
-                return IOpSequence<FirstIOp, get_t<firstNonBack + Idx, Tuple<IOps...>>...>{
-                    Tuple<FirstIOp, get_t<firstNonBack + Idx, Tuple<IOps...>>...>{firstIOp, get<firstNonBack + Idx>(iOps)...}
-                };
-            }
-        }
-
         template <typename... IOps>
         FK_HOST_FUSE auto fuseBackSequence(const IOpSequence<IOps...>& iOpSeq) {
-            const auto firstOp = fk::apply(Back::fuse<IOps...>, iOpSeq.iOps);
-            constexpr auto firstNonBackIdx = Back::idxFirstNonBack<IOps...>();
-            return getNewIOpSequence<firstNonBackIdx>(std::make_index_sequence<sizeof...(IOps) - firstNonBackIdx>{}, firstOp,
-                                     iOpSeq.iOps);
+            return buildOperationSequence_tup(apply(BackFuser::fuse_back<IOps...>, iOpSeq.iOps));
         }
 
         template <typename... IOpSequenceTypes>

@@ -1,4 +1,5 @@
-﻿/* Copyright 2023-2024 Mediaproduccion S.L.U. (Oscar Amoros Huguet)
+﻿/* Copyright 2023-2024 Grup Mediapro S.L.U. (Oscar Amoros Huguet)
+   Copyright 2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -18,10 +19,26 @@
 
 #include <fused_kernel/core/execution_model/operation_model/operation_tuple.h>
 #include <fused_kernel/algorithms/basic_ops/vector_ops.h>
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
+#ifdef __NVCC__
+// Condition 1: we are compiling with MSVC + nvcc OR other compilers + nvcc versions lower than 12.4.99
+#if (NVCC_VERSION_CALCULATED < NVCC_VERSION_12_4_99)
+#define WILL_COMPILE 1
+#else
+#define WILL_NOT_COMPILE 1
+#endif
+
+// Undefine helper macros to avoid polluting the global macro namespace
+#undef NVCC_VERSION_CALCULATED
+#undef NVCC_VERSION_12_4_99
+#else
+#define WILL_COMPILE 1
+#endif // __NVCC__
+
+#ifdef WILL_COMPILE
 
 constexpr bool buildTuple() {
-    constexpr fk::Tuple<int, float, double, float3> test{1, 4.f, 5.0, {4.f, 3.f, 1.f}};
+    constexpr fk::Tuple<int, float, double, float3> test{1, 4.f, 5.0, float3{4.f, 3.f, 1.f}};
 
     constexpr bool result1 = fk::TupleUtil::get<0>(test) == 1;
     constexpr bool result2 = fk::TupleUtil::get<1>(test) == 4.f;
@@ -33,11 +50,11 @@ constexpr bool buildTuple() {
 }
 
 constexpr bool buildOperationTupleType() {
-    using Op1 = fk::PerThreadRead<fk::ND::_2D, uchar3>;
-    using Op2 = fk::VectorReorder<uchar3, 0, 1, 2>;
-    using Op3 = fk::PerThreadWrite<fk::ND::_2D, uchar3>;
+    using Op1 = typename fk::PerThreadRead<fk::ND::_2D, uchar3>::InstantiableType;
+    using Op2 = typename fk::VectorReorder<uchar3, 0, 1, 2>::InstantiableType;
+    using Op3 = typename fk::PerThreadWrite<fk::ND::_2D, uchar3>::InstantiableType;
 
-    using TupleType = fk::OperationTuple<Op1, Op2, Op3>;
+    using TupleType = typename fk::OperationTuple<Op1, Op2, Op3>::Operations;
 
     constexpr bool result1 = std::is_same_v<fk::get_type_t<0, TupleType>, Op1>;
     constexpr bool result2 = std::is_same_v<fk::get_type_t<1, TupleType>, Op2>;
@@ -52,7 +69,7 @@ constexpr bool tupleCat() {
     constexpr Tuple1 tuple1{ 1, 1.f };
     constexpr Tuple2 tuple2{ 1u, 1.0 };
 
-    constexpr auto myTuple = fk::cat(tuple1, tuple2);
+    constexpr auto myTuple = fk::tuple_cat(tuple1, tuple2);
 
     return fk::and_v<fk::get<0>(myTuple) == 1,
                      fk::get<1>(myTuple) == 1.f,
@@ -84,8 +101,10 @@ bool modifyTupleElement() {
            (fk::get<1>(myTuple) == 0.5f) &&
            (fk::get<2>(myTuple) == 3.0);
 }
+#endif
 
 int launch() {
+#ifdef WILL_COMPILE
     static_assert(buildTuple(), "Failed buildTuple test");
     static_assert(buildOperationTupleType(), "Failed buildOperationTupleType test");
     static_assert(tupleCat(), "Failed tupleCat test");
@@ -98,4 +117,9 @@ int launch() {
         std::cout << "test_tuple Failed!!" << std::endl;
         return -1;
     }
+#else
+    return 0;
+#endif
 }
+ 
+

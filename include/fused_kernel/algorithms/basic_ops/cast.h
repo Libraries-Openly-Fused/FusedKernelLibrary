@@ -27,7 +27,7 @@ namespace fk {
         FK_STATIC_STRUCT(Cast, SelfType)
         using Parent = UnaryOperation<I, O, Cast<I, O>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             return cxp::cast<OutputType>::f(input);
         }
     };

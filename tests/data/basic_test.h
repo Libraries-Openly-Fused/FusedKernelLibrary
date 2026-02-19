@@ -1,4 +1,4 @@
-﻿/* Copyright 2023-2025 Oscar Amoros Huguet
+﻿/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -19,13 +19,11 @@
 #include <fused_kernel/core/data/ptr_nd.h>
 #include <fused_kernel/core/data/ptr_utils.h>
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/image_processing/saturate.h>
 #include <fused_kernel/fused_kernel.h>
-#include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/core/utils/template_operations.h>
-#include <fused_kernel/algorithms/image_processing/saturate.h>
 #include <fused_kernel/core/execution_model/stream.h>
 #include <fused_kernel/algorithms/basic_ops/vector_ops.h>
 
@@ -36,7 +34,7 @@ bool testPtr_2D() {
     constexpr size_t width_crop = 300;
     constexpr size_t height_crop = 200;
 
-    fk::Point startPoint = {100, 200};
+    fk::Point startPoint = {100, 200, 0};
 
     fk::Stream stream;
 
@@ -100,26 +98,47 @@ int launch() {
     fk::Unary<fk::SaturateCast<uchar, uint>> cast = {};
     fk::Write<fk::PerThreadWrite<fk::ND::_2D, uint>> write { {output} };
 
-    auto fusedDF = fk::fuse(read, cast, fk::Binary<fk::Mul<uint>>{4});
-    static_assert(std::is_same_v<decltype(fusedDF.params.instance.params), fk::RawPtr<fk::ND::_2D, uchar>>, "Unexpected type for params");
+    auto fusedDF = fk::fuse(read, cast, fk::Binary<fk::Mul<uint>>{4u});
+    constexpr bool correct = std::is_same_v<std::decay_t<decltype(fusedDF.params)>,
+                       fk::OperationTuple_<void, fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar>>,
+                                              fk::Unary<fk::SaturateCast<uchar, uint>>, fk::Binary<fk::Mul<uint>>>>;
+    static_assert(correct, "Unexpected type for fusedDF.params");
+    constexpr bool correct2 =
+        std::is_same_v<std::decay_t<decltype(fk::get_opt<0>(fusedDF.params))>, fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar>>>;
+    static_assert(correct2, "Unexpected type for get<0>(fusedDF.params)");
     //fusedDF.params.next.instance.params; // Should not compile
-    static_assert(std::is_same_v<decltype(fusedDF.params.next.next.instance.params), uint>, "Unexpected type for params");
+    auto params2 = fk::get_opt<2>(fusedDF.params).params;
+    static_assert(std::is_same_v<std::decay_t<decltype(params2)>, uint>, "Unexpected type for params");
 
     fk::executeOperations<fk::TransformDPP<>>(stream, fusedDF, write);
     stream.sync();
 
-    fk::OperationTuple<fk::PerThreadRead<fk::ND::_2D, uchar>, fk::SaturateCast<uchar, uint>, fk::PerThreadWrite<fk::ND::_2D, uint>> myTup{};
+    fk::OperationTuple<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar>>, fk::Unary<fk::SaturateCast<uchar, uint>>, fk::Write<fk::PerThreadWrite<fk::ND::_2D, uint>>> myTup{};
 
-    fk::get<2>(myTup);
-    constexpr bool test1 = std::is_same_v<fk::get_type_t<0, decltype(myTup)>, fk::PerThreadRead<fk::ND::_2D, uchar>>;
-    constexpr bool test2 = std::is_same_v<fk::get_type_t<1, decltype(myTup)>, fk::SaturateCast<uchar, uint>>;
-    constexpr bool test3 = std::is_same_v<fk::get_type_t<2, decltype(myTup)>, fk::PerThreadWrite<fk::ND::_2D, uint>>;
+    fk::get_opt<2>(myTup);
+    constexpr bool test1 = std::is_same_v<fk::TypeAt_t<0, typename decltype(myTup)::Operations>, fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar>>>;
+    constexpr bool test2 =
+        std::is_same_v<fk::TypeAt_t<1, typename decltype(myTup)::Operations>, fk::Unary<fk::SaturateCast<uchar, uint>>>;
+    constexpr bool test3 =
+        std::is_same_v<fk::TypeAt_t<2, typename decltype(myTup)::Operations>, fk::Write<fk::PerThreadWrite<fk::ND::_2D, uint>>>;
 
     if (test2Dpassed && fk::and_v<test1, test2, test3>) {
         std::cout << "cuda_transform executed!!" << std::endl;
         return 0;
     } else {
         std::cout << "cuda_transform failed!!" << std::endl;
+        if (!test2Dpassed) {
+            std::cout << "Specifically testPtr_2D failed!!" << std::endl;
+        }
+        if (!test1) {
+            std::cout << "Specifically test1 failed!!" << std::endl;
+        }
+        if (!test2) {
+            std::cout << "Specifically test2 failed!!" << std::endl;
+        }
+        if (!test3) {
+            std::cout << "Specifically test3 failed!!" << std::endl;
+        }
         return -1;
     }
 }

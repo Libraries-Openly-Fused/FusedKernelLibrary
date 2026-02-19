@@ -1,4 +1,4 @@
-/* Copyright 2023-2025 Oscar Amoros Huguet
+/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@
 #include <fused_kernel/core/utils/type_lists.h>
 #include <fused_kernel/core/utils/template_operations.h>
 #include <fused_kernel/core/data/vector_types.h>
-#include <fused_kernel/core/utils/static_get.h>
+#include <fused_kernel/core/utils/utils.h>
 
 namespace fk {
     template <typename BaseType, int Channels>
@@ -72,24 +72,34 @@ namespace fk {
     template <typename BaseType, int Channels>
     using VectorType_t = typename VectorType<BaseType, Channels>::type;
 
-    template <uint CHANNELS>
-    using VectorTypeList = TypeList<VectorType_t<bool, CHANNELS>, VectorType_t<uchar, CHANNELS>, VectorType_t<schar, CHANNELS>,
-                                    VectorType_t<ushort, CHANNELS>, VectorType_t<short, CHANNELS>,
-                                    VectorType_t<uint, CHANNELS>, VectorType_t<int, CHANNELS>,
-                                    VectorType_t<ulong, CHANNELS>, VectorType_t<long, CHANNELS>,
-                                    VectorType_t<ulonglong, CHANNELS>, VectorType_t<longlong, CHANNELS>,
-                                    VectorType_t<float, CHANNELS>, VectorType_t<double, CHANNELS>>;
+    template <size_t CN> using bool_ = VectorType_t<bool, CN>;
+    template <size_t CN> using uchar_ = VectorType_t<uchar, CN>;
+    template <size_t CN> using char_ = VectorType_t<schar, CN>;
+    template <size_t CN> using ushort_ = VectorType_t<ushort, CN>;
+    template <size_t CN> using short_ = VectorType_t<short, CN>;
+    template <size_t CN> using uint_ = VectorType_t<uint, CN>;
+    template <size_t CN> using int_ = VectorType_t<int, CN>;
+    template <size_t CN> using ulong_ = VectorType_t<ulong, CN>;
+    template <size_t CN> using long_ = VectorType_t<long, CN>;
+    template <size_t CN> using ulonglong_ = VectorType_t<ulonglong, CN>;
+    template <size_t CN> using longlong_ = VectorType_t<longlong, CN>;
+    template <size_t CN> using float_ = VectorType_t<float, CN>;
+    template <size_t CN> using double_ = VectorType_t<double, CN>;
+
+    template <uint CN>
+    using VectorTypeList = TypeList<bool_<CN>, uchar_<CN>, char_<CN>, ushort_<CN>, short_<CN>, uint_<CN>, int_<CN>,
+                                    ulong_<CN>, long_<CN>, ulonglong_<CN>, longlong_<CN>, float_<CN>, double_<CN>>;
 
     using FloatingTypes = TypeList<float, double>;
     using IntegralTypes = TypeList<uchar, char, schar, ushort, short, uint, int, ulong, long, ulonglong, longlong>;
     using IntegralBaseTypes = TypeList<uchar, schar, ushort, short, uint, int, ulong, long, ulonglong, longlong>;
-    using StandardTypes = TypeListCat_t<TypeListCat_t<TypeList<bool>, IntegralTypes>, FloatingTypes>;
-    using BaseTypes = TypeListCat_t<TypeListCat_t<TypeList<bool>, IntegralBaseTypes>, FloatingTypes>;
+    using StandardTypes = TypeListCat_t<TypeList<bool>, IntegralTypes, FloatingTypes>;
+    using BaseTypes = TypeListCat_t<TypeList<bool>, IntegralBaseTypes, FloatingTypes>;
     using VOne = TypeList<bool1, uchar1, char1, ushort1, short1, uint1, int1, ulong1, long1, ulonglong1, longlong1, float1, double1>;
     using VTwo = VectorTypeList<2>;
     using VThree = VectorTypeList<3>;
     using VFour = VectorTypeList<4>;
-    using VAll = typename TypeList<VOne, VTwo, VThree, VFour>::type;
+    using VAll = TypeListCat_t<VOne, VTwo, VThree, VFour>;
 
     template <typename T>
     constexpr bool validCUDAVec = one_of<T, VAll>::value;
@@ -105,7 +115,8 @@ namespace fk {
             return 2;
         } else if constexpr (one_of_v<T, VThree>) {
             return 3;
-        } else if constexpr (one_of_v<T, VFour>) {
+        } else {
+            static_assert(one_of_v<T, VFour>, "Type T must be a valid CUDA vector type (1, 2, 3, or 4 channels)");
             return 4;
         }
     }
@@ -158,11 +169,9 @@ namespace fk {
     template <typename T>
     using VBase = typename VectorTraits<T>::base;
 
-    template <size_t Idx>
-    template <typename VT>
-    FK_HOST_DEVICE_CNST auto static_get<Idx>::f(const VT& v)
-        -> std::enable_if_t<IsCudaVector<VT>::value,
-                            typename VectorTraits<VT>::base> {
+    template <size_t Idx, typename VT>
+    FK_HOST_DEVICE_CNST auto static_get(const VT& v) {
+        static_assert(IsCudaVector<VT>::value, "Invalid type for static_get");
         static_assert((Idx < cn<VT>), "Index out of bounds.");
         if constexpr (Idx == 0) {
             return v.x;
@@ -301,25 +310,26 @@ namespace fk {
     struct BothIntegrals : public std::false_type {};
 
     template <typename I1, typename I2>
-    struct BothIntegrals<I1, I2, std::enable_if_t<std::is_integral_v<fk::VBase<I1>>&& std::is_integral_v<fk::VBase<I2>>, void>> : public std::true_type {};
+    struct BothIntegrals<I1, I2, std::enable_if_t<std::is_integral_v<fk::VBase<I1>> && std::is_integral_v<fk::VBase<I2>>, void>> : public std::true_type {};
 
     template <typename I1, typename I2, typename = void>
     struct AreVVEqCN : public std::false_type {};
 
     template <typename I1, typename I2>
-    struct AreVVEqCN<I1, I2, std::enable_if_t<fk::validCUDAVec<I1>&& fk::validCUDAVec<I2> && (fk::cn<I1> == fk::cn<I2>), void>> : public std::true_type {};
+        struct AreVVEqCN<I1, I2, std::enable_if_t<fk::validCUDAVec<I1> && fk::validCUDAVec<I2>>>
+        : public std::bool_constant<(fk::cn<I1> == fk::cn<I2>)> {};
 
     template <typename I1, typename I2, typename = void>
     struct AreSV : public std::false_type {};
 
     template <typename I1, typename I2>
-    struct AreSV<I1, I2, std::enable_if_t<std::is_fundamental_v<I1>&& fk::validCUDAVec<I2>, void>> : public std::true_type {};
+    struct AreSV<I1, I2, std::enable_if_t<std::is_fundamental_v<I1> && fk::validCUDAVec<I2>, void>> : public std::true_type {};
 
     template <typename I1, typename I2, typename = void>
     struct AreVS : public std::false_type {};
 
     template <typename I1, typename I2>
-    struct AreVS<I1, I2, std::enable_if_t<fk::validCUDAVec<I1>&& std::is_fundamental_v<I2>, void>> : public std::true_type {};
+    struct AreVS<I1, I2, std::enable_if_t<fk::validCUDAVec<I1> && std::is_fundamental_v<I2>, void>> : public std::true_type {};
 
     template <typename I1, typename I2, typename = void>
     struct AreSS : public std::false_type {};

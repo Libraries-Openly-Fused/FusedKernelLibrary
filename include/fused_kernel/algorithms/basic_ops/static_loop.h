@@ -29,7 +29,7 @@ namespace fk {
 
         private:
         template <int ITERATION>
-        FK_DEVICE_FUSE OutputType helper_exec(const InputType& input, const ParamsType& params) {
+        FK_DEVICE_FUSE OutputType helper_exec(const InputType input, const ParamsType& params) {
             if constexpr (ITERATION + 1 < ITERATIONS) {
                 return helper_exec<ITERATION + 1>(Operation::exec(input, params), params);
             } else {
@@ -38,7 +38,7 @@ namespace fk {
         }
 
         public:
-        FK_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
+        FK_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params) {
             return helper_exec<0>(Operation::exec(input, params), params);
         }
     };
