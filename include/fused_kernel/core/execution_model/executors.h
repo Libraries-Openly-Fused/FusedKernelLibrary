@@ -324,7 +324,12 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
 
         template <typename... IOps>
         FK_HOST_FUSE auto fuseBackSequence(const IOpSequence<IOps...>& iOpSeq) {
-            return buildOperationSequence_tup(apply(BackFuser::fuse_back<IOps...>, iOpSeq.iOps));
+            return buildOperationSequence_tup(
+                apply([](auto&&... args) {
+                    // Now fuse_back deduces the types naturally, preserving const &
+                    return BackFuser::fuse_back(std::forward<decltype(args)>(args)...);
+                }, iOpSeq.iOps)
+            );
         }
 
         template <typename... IOpSequenceTypes>
