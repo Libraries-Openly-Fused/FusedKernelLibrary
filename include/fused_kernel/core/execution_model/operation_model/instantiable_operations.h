@@ -63,16 +63,13 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     struct InputFoldType {
         Point thread;
         InputType input;
-
-        FK_HOST_DEVICE_CNST InputFoldType(const Point thread_, const InputType input_)
-            : thread(thread_), input(input_) {}
     };
 
     template <>
     struct InputFoldType<void> {
         template <typename InputT>
-        FK_HOST_DEVICE_FUSE auto build(const Point thread, InputT&& input) {
-            return InputFoldType<std::decay_t<InputT>>(thread, std::forward<InputT>(input));
+        FK_HOST_DEVICE_FUSE auto build(const Point thread, const InputT input) {
+            return InputFoldType<InputT>{thread, input};
         }
     };
 
