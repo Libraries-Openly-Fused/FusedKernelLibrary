@@ -125,7 +125,7 @@ namespace fk {
     constexpr int cn = Channels<T>();
 
     template <typename V>
-    struct VectorTraits {};
+    struct VectorTraits;
 
 #define VECTOR_TRAITS(BaseType) \
     template <> \
@@ -151,7 +151,6 @@ namespace fk {
     VECTOR_TRAITS(ulonglong)
     VECTOR_TRAITS(float)
     VECTOR_TRAITS(double)
-#undef VECTOR_TRAITS
 
     template <>
     struct VectorTraits<schar> { using base = schar; enum { bytes = sizeof(base) }; };
@@ -165,6 +164,8 @@ namespace fk {
     struct VectorTraits<char3> { using base = schar; enum { bytes = sizeof(base) * 3 }; };
     template <>
     struct VectorTraits<char4> { using base = schar; enum { bytes = sizeof(base) * 4 }; };
+
+#undef VECTOR_TRAITS
 
     template <typename T>
     using VBase = typename VectorTraits<T>::base;

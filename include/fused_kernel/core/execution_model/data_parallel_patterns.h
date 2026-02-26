@@ -74,7 +74,7 @@ namespace fk { // namespace FusedKernel
 
         template <typename InputType, typename... IOpTypes>
         FK_HOST_DEVICE_FUSE auto operate(const Point thread, const InputType i_data, const IOpTypes&... iOpInstances) {
-            return (InputFoldType(thread, i_data) | ... | iOpInstances).input;
+            return (InputFoldType<>::build(thread, i_data) | ... | iOpInstances).input;
         }
 
         template <uint IDX, typename TFI, typename InputType, typename... IOpTypes>
