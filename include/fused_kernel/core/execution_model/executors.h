@@ -326,7 +326,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         FK_HOST_FUSE auto fuseBackSequence(const IOpSequence<IOps...>& iOpSeq) {
             return buildOperationSequence_tup(
                 apply([](auto&&... args) {
-                    // Now fuse_back deduces the types naturally, preserving const &
+                    // Now fuse_back deduces the types naturally and preserves value categories via perfect forwarding
                     return BackFuser::fuse_back(std::forward<decltype(args)>(args)...);
                 }, iOpSeq.iOps)
             );
