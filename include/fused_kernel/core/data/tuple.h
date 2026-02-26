@@ -335,12 +335,22 @@ namespace fk {
     } // namespace detail
 
     template <typename F, typename... Ts>
-    FK_HOST_DEVICE_CNST decltype(auto) apply(F &&f, Tuple<Ts...> &t) {
+    FK_HOST_CNST decltype(auto) apply(F &&f, Tuple<Ts...> &t) {
         return detail::apply_impl(std::forward<F>(f), t, std::make_index_sequence<sizeof...(Ts)>{});
     }
 
     template <typename F, typename... Ts>
-    FK_HOST_DEVICE_CNST decltype(auto) apply(F &&f, const Tuple<Ts...> &t) {
+    FK_HOST_CNST decltype(auto) apply(F &&f, const Tuple<Ts...> &t) {
+        return detail::apply_impl(std::forward<F>(f), t, std::make_index_sequence<sizeof...(Ts)>{});
+    }
+
+    template <typename F, typename... Ts>
+    FK_HOST_DEVICE_CNST decltype(auto) apply_d(F &&f, Tuple<Ts...> &t) {
+        return detail::apply_impl(std::forward<F>(f), t, std::make_index_sequence<sizeof...(Ts)>{});
+    }
+
+    template <typename F, typename... Ts>
+    FK_HOST_DEVICE_CNST decltype(auto) apply_d(F &&f, const Tuple<Ts...> &t) {
         return detail::apply_impl(std::forward<F>(f), t, std::make_index_sequence<sizeof...(Ts)>{});
     }
 
@@ -361,7 +371,7 @@ namespace fk {
 
     template <typename... IOpTypes>
     FK_HOST_DEVICE_CNST auto buildOperationSequence_tup(const Tuple<IOpTypes...>& instantiableOperationInstances) {
-        return apply([](const auto&... args) {
+        return apply_d([](const auto&... args) {
             return buildOperationSequence(args...);
             }, instantiableOperationInstances);
     }

@@ -206,7 +206,7 @@ struct SimpleTransformDPPReferenceBuilder {
 
 template <typename IDPP>
 __global__ void launchInstantiableDPP_Kernel(const __grid_constant__ IDPP idpp) {
-    fk::apply([](auto &&...args) { return std::decay_t<IDPP>::DPP::exec(std::forward<decltype(args)>(args)...); },
+    fk::apply_d([](auto &&...args) { return std::decay_t<IDPP>::DPP::exec(std::forward<decltype(args)>(args)...); },
               idpp.ops);
 }
 
