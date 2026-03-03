@@ -17,22 +17,21 @@ jobs:
         #host compiler, version, cuda compiler, cuda version,
         #disabling ,"llvm,21.1.0,llvm,12.1", not working on windows yet
         include:
-          - host_compiler: "cl.exe"            
+          - host_compiler: "cl"
             msvc_env_version: "14.44"
             cuda_version: "12.9"
-           
-          - host_compiler: "cl.exe"            
+
+          - host_compiler: "cl"
             msvc_env_version: "14.44"
             cuda_version: "13.0"
-         
-          - host_compiler: "clang-cl.exe"            
+
+          - host_compiler: "clang-cl"
             msvc_env_version: "14.44"
             cuda_version: "12.9"
-         
-          - host_compiler: "clang-cl.exe"            
+
+          - host_compiler: "clang-cl"
             msvc_env_version: "14.44"
             cuda_version: "13.0"
-        
 
     steps:
       - uses: actions/checkout@v4
@@ -41,36 +40,32 @@ jobs:
         # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
         id: strings
         run: |
-          echo "build-output-dir=${{github.workspace}}/build" >> "$env:GITHUB_OUTPUT"
+          echo "build-output-dir=${{github.workspace}}/build" >> "$env:GITHUB_OUTPUT"          
+          echo "D:/clang+llvm-21.1.0-x86_64-pc-windows-msvc/bin/" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append   
+          echo "CUDACXX=${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v${{matrix.cuda_version}}\bin\nvcc.exe" >> "$env:GITHUB_ENV"
+          echo "CC=${{matrix.host_compiler}}" >> "$env:GITHUB_ENV"
+          echo "CXX=${{matrix.host_compiler}}" >> "$env:GITHUB_ENV"
+
+      - name: Detect visual studio installation
+        run: |
+          $vsWhere = "${Env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere"   
+          $vsInstallationPath = & $vsWhere -products * -latest -property installationPath        
+          echo "VS_INSTALLATION_PATH=$vsInstallationPath" >> "$env:GITHUB_ENV"
+          echo "DEV_ARGS=-arch=x64 -vcvars_ver=${{matrix.msvc_env_version}}" >> "$env:GITHUB_ENV"
 
       - name: Configure CMake
         run: |
-          $vsWhere = "${Env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"   
-          $vsInstallationPath = & $vsWhere -products * -latest -property installationPath        
-          $vsWhere = "${Env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"   
-          $vsInstallationPath = & $vsWhere -products * -latest -property installationPath        
-          $env:CC="${{matrix.host_compiler}}"
-          $env:CXX="${{matrix.host_compiler}}"              
-          $env:PATH += ";D:\clang+llvm-21.1.0-x86_64-pc-windows-msvc\bin\"                                         
-          $env:CUDACXX="${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v${{matrix.cuda_version}}\bin\nvcc.exe"
-          $devargs='-arch=x64 -vcvars_ver='+${{matrix.msvc_env_version}} 
-          Import-Module (Get-ChildItem $vsInstallationPath -Recurse -File -Filter Microsoft.VisualStudio.DevShell.dll).FullName           
-          Enter-VsDevShell -VsInstallPath $vsInstallationPath -SkipAutomaticLocation -DevCmdArguments $devargs            
-          cmake -G "Ninja"  -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_CUDA_COMPILER="$env:CUDACXX" -DCMAKE_BUILD_TYPE=Release -S ${{github.workspace}};        
+          Import-Module (Get-ChildItem $env:VS_INSTALLATION_PATH -Recurse -File -Filter Microsoft.VisualStudio.DevShell.dll).FullName           
+          Enter-VsDevShell -VsInstallPath  $env:VS_INSTALLATION_PATH  -SkipAutomaticLocation -DevCmdArguments $env:DEV_ARGS             
+          cmake -G "Ninja"  -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE=Release -S ${{github.workspace}};        
           #workaround for rules.ninja generating empty path          
           (Get-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja) -replace "\\nvcc\\bin\\nvcc.exe", "$env:CUDACXX" | Set-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja
-          
+
       - name: Build
         # Build your program with the given configuration. Note that --config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).
         run: |
-          $vsWhere = "${Env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"   
-          $vsInstallationPath = & $vsWhere -products * -latest -property installationPath        
-          $env:CC="${{matrix.host_compiler}}"
-          $env:CXX="${{matrix.host_compiler}}"                                             
-          $env:CUDACXX="${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v${{matrix.cuda_version}}\bin\nvcc.exe"
-          $devargs='-arch=x64 -vcvars_ver='+${{matrix.msvc_env_version}} 
-          Import-Module (Get-ChildItem $vsInstallationPath -Recurse -File -Filter Microsoft.VisualStudio.DevShell.dll).FullName           
-          Enter-VsDevShell -VsInstallPath $vsInstallationPath -SkipAutomaticLocation -DevCmdArguments $devargs                 
+          Import-Module (Get-ChildItem $env:VS_INSTALLATION_PATH -Recurse -File -Filter Microsoft.VisualStudio.DevShell.dll).FullName           
+          Enter-VsDevShell -VsInstallPath $env:VS_INSTALLATION_PATH -SkipAutomaticLocation -DevCmdArguments $env:DEV_ARGS                 
           cmake --build ${{ steps.strings.outputs.build-output-dir }} --config Release
 
       - name: Test
