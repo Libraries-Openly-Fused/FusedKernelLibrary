@@ -27,7 +27,7 @@
 
 namespace fk {
 	enum class MemType { Device, Host, HostPinned, DeviceAndPinned };
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
     constexpr MemType defaultMemType = MemType::DeviceAndPinned;
 #else
     constexpr MemType defaultMemType = MemType::Host;
@@ -152,7 +152,7 @@ namespace fk {
         }
 
         inline constexpr void allocDevice() {
-            #if defined(__NVCC__) || CLANG_HOST_DEVICE
+            #if defined(__NVCC__)
             int currentDevice;
             gpuErrchk(cudaGetDevice(&currentDevice));
             gpuErrchk(cudaSetDevice(deviceID));
@@ -171,7 +171,7 @@ namespace fk {
         }
 
         inline constexpr void allocHostPinned() {
-            #if defined(__NVCC__) || CLANG_HOST_DEVICE
+            #if defined(__NVCC__)
             int currentDevice;
             gpuErrchk(cudaGetDevice(&currentDevice));
             gpuErrchk(cudaSetDevice(deviceID));
@@ -186,7 +186,7 @@ namespace fk {
         }
 
         inline constexpr void allocDeviceAndPinned() {
-            #if defined(__NVCC__) || CLANG_HOST_DEVICE
+            #if defined(__NVCC__)
             int currentDevice;
             gpuErrchk(cudaGetDevice(&currentDevice));
             gpuErrchk(cudaSetDevice(deviceID));
@@ -209,7 +209,7 @@ namespace fk {
                 switch (type) {
                 case MemType::Device:
                     {
-                        #if defined(__NVCC__) || CLANG_HOST_DEVICE
+                        #if defined(__NVCC__)
                         gpuErrchk(cudaFree(ref->ptr));
                         #else
                         throw std::runtime_error("Device memory deallocation not supported in non-CUDA compilation.");
@@ -223,7 +223,7 @@ namespace fk {
                     }
                 case MemType::HostPinned:
                     {
-                        #if defined(__NVCC__) || CLANG_HOST_DEVICE
+                        #if defined(__NVCC__)
                         gpuErrchk(cudaFreeHost(ref->ptr));
                         #else
                         throw std::runtime_error("Host pinned memory deallocation not supported in non-CUDA compilation.");
@@ -232,7 +232,7 @@ namespace fk {
                     }
                 case MemType::DeviceAndPinned:
                 {
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
                     gpuErrchk(cudaFree(ref->ptr));
                     gpuErrchk(cudaFreeHost(ref->pinnedPtr));
 #else
@@ -249,7 +249,7 @@ namespace fk {
             }
         }
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
         inline void copy(const RawPtr<D, T>& thisPtr, RawPtr<D, T>& other, const cudaMemcpyKind& kind,
                          cudaStream_t stream = 0) const {
             if ((other.dims.pitch == other.dims.width * sizeof(T)) && (thisPtr.dims.pitch == thisPtr.dims.width * sizeof(T))) {
@@ -484,7 +484,7 @@ namespace fk {
             return *this;
         }
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
         inline void uploadTo(Ptr<D, T>& other, cudaStream_t stream = 0) {
             constexpr cudaMemcpyKind kind = cudaMemcpyHostToDevice;
             constexpr MemType otherExpectedMemType1 = MemType::Device;

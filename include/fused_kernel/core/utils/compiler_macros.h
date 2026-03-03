@@ -20,13 +20,6 @@
 #define _MSC_VER_EXISTS 1
 #else
 #define _MSC_VER_EXISTS 0
-#endif
- 
-#if defined(__clang__) && defined(__CUDA__) 
-// clang compiling CUDA code, both host and device mode
-#define CLANG_HOST_DEVICE 1
-#else
-#define CLANG_HOST_DEVICE 0
-#endif
+#endif 
 
 #endif // COMPILER_MACROS_H
