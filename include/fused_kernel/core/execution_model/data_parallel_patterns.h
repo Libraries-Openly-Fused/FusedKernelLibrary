@@ -15,7 +15,7 @@
 #ifndef FK_INSTANTIABLE_DATA_PARALLEL_PATTERNS
 #define FK_INSTANTIABLE_DATA_PARALLEL_PATTERNS
 
-#if defined(__NVCC__) && !(VS2017_COMPILER || CLANG_HOST_DEVICE)
+#if defined(__NVCC__) && !CLANG_HOST_DEVICE
 #include <cooperative_groups.h>
 namespace cooperative_groups {};
 namespace cg = cooperative_groups;
