@@ -42,7 +42,7 @@ FusedKernelLibrary/
 ### Requirements
 - **CMake ≥ 3.24** (CI uses cmake 4.2.1 custom install)
 - **C++17** standard required (enforced via `CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO`)
-- **CUDA 12.x or 13.x** — CUDA 11 is **not** supported
+- **CUDA 12.x or 13.x** — gpu arch must be Volta(sm_70) or above, normally auto-detected via `CUDA_ARCH=native` (see CUDA Architecture Notes below);
 - **Host compilers**: `g++-13`, `g++-11` (ARM64), `clang++-21`, `cl` (MSVC 14.44), `clang-cl`
 - Only **nvcc** is supported as the CUDA compiler (clang-as-CUDA-compiler is not supported)
 - **Ninja** generator is used in CI; Visual Studio generator also works on Windows
@@ -50,7 +50,7 @@ FusedKernelLibrary/
 ### CMake Options
 | Option | Default | Description |
 |---|---|---|
-| `ENABLE_CPU` | ON | Enable CPU backend (disabled for MSVC < 2019) |
+| `ENABLE_CPU` | ON | Enable CPU backend |
 | `ENABLE_CUDA` | ON (if nvcc found) | Enable CUDA backend |
 | `BUILD_TEST` | ON | Build integration tests under `tests/` |
 | `BUILD_UTEST` | ON | Build unit tests under `utests/` |
@@ -72,9 +72,12 @@ cd build && ctest --build-config Release --output-junit test_results.xml
 ### Build Commands (Windows, in VS Developer Shell with Ninja)
 ```powershell
 # Set compilers via env vars (as CI does)
-$env:CUDACXX = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9\bin\nvcc.exe"
-$env:CC = "cl"  # or "clang-cl"
-$env:CXX = "cl"
+# Adjust the CUDA path as needed v12.9  or 13.0 depending on the environment passed by the CI workflow
+#we also use scripts to enter the correct VS Developer Shell with the right environment variables set, but for local dev you may need to set these manually
+#compiler version is v143 (14.44) in CI, but adjust as needed for your environment
+$env:CUDACXX = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9\bin\nvcc.exe" #windows 
+$env:CC = "cl"  # or clang-cl on windows
+$env:CXX = "cl" # or clang-cl on windows
 
 cmake -G "Ninja" -B build -DCMAKE_BUILD_TYPE=Release -S .
 cmake --build build --config Release
@@ -84,6 +87,17 @@ cmake --build build --config Release
 On Windows with Ninja, the generated `CMakeFiles/rules.ninja` may have an empty path for nvcc. The CI workaround patches it:
 ```powershell
 (Get-Content build\CMakeFiles\rules.ninja) -replace "\\nvcc\\bin\\nvcc.exe", $env:CUDACXX | Set-Content build\CMakeFiles\rules.ninja
+```
+### Build Commands (Linux, bash terminal with Ninja)
+```bash
+# Set compilers via env vars (as CI does)
+# Adjust the CUDA path as needed v12.9  or 13.0 depending on the environment passed by the CI workflow
+export CUDACXX="/usr/local/cuda-12.9/bin/nvcc" #linux (12.9 or 13.0)
+export CC="gcc"  # or clang on linux (gcc 11 on arm64, 13 on x86_64 ,clang 21 on both)
+export CXX="g++" # or clang on linux (gcc 11 on arm64, 13 on x86_64 ,clang 21 on both)
+
+cmake -G "Ninja" -B build -DCMAKE_BUILD_TYPE=Release -S .
+cmake --build build --config Release
 ```
 
 ## CI Workflows
@@ -164,8 +178,6 @@ auto fusedIOp = readIOp & unaryIOp1 & unaryIOp2 & writeIOp;
 
 ### Compiler Macros (`compiler_macros.h`)
 - `_MSC_VER_EXISTS` — 1 when compiling with MSVC
-- `CLANG_HOST_DEVICE` — 1 when clang compiles CUDA in host+device mode
-- `VS2017_COMPILER` / `NO_VS2017_COMPILER` — detect VS2017 compiler
 - `FK_HOST_DEVICE_CNST`, `FK_HOST_FUSE`, `FK_DEVICE_FUSE`, etc. — cross-platform `__host__ __device__ __forceinline__ constexpr` equivalents defined in `utils.h`
 
 ### NVRTC Support
@@ -193,10 +205,9 @@ The library supports NVRTC (runtime compilation) via the `NVRTC_COMPILER` define
 
 1. **Windows/Ninja: empty nvcc path in `rules.ninja`** — Apply the `rules.ninja` patch in CI (`cmake-windows-amd64.yml` step "Configure CMake").
 2. **CUDA < 13 + `CUDA_ARCH=all`** — The build system automatically filters out GPU architectures below sm_70.
-3. **MSVC < 2019** — CPU backend is automatically disabled (`ENABLE_CPU OFF`).
-4. **Template depth** — `TEMPLATE_DEPTH` is set to 1000 via `cmake_init.cmake` for deeply nested fusion expressions.
-5. **`/bigobj` on MSVC** — Required due to large generated test binaries; added automatically in `add_generated_test.cmake`.
-6. **`/Zc:preprocessor` on MSVC** — Required to avoid traditional preprocessor warnings; added in `add_generated_test.cmake`.
+3. **Template depth** — `TEMPLATE_DEPTH` is set to 1000 via `cmake_init.cmake` for deeply nested fusion expressions.
+4. **`/bigobj` on MSVC** — Required due to large generated test binaries; added automatically in `add_generated_test.cmake`.
+5. **`/Zc:preprocessor` on MSVC** — Required to avoid traditional preprocessor warnings; added in `add_generated_test.cmake`.
 
 ## How to Add a New Operation
 
