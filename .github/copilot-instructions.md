@@ -50,7 +50,7 @@ FusedKernelLibrary/
 ### CMake Options
 | Option | Default | Description |
 |---|---|---|
-| `ENABLE_CPU` | ON | Enable CPU backend (disabled for MSVC < 2019) |
+| `ENABLE_CPU` | ON | Enable CPU backend |
 | `ENABLE_CUDA` | ON (if nvcc found) | Enable CUDA backend |
 | `BUILD_TEST` | ON | Build integration tests under `tests/` |
 | `BUILD_UTEST` | ON | Build unit tests under `utests/` |
