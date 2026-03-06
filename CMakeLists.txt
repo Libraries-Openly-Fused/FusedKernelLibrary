@@ -16,6 +16,12 @@ project(FusedKernelLibrary VERSION ${PROJECT_VERSION} LANGUAGES CXX
 DESCRIPTION "Implementation of a methodology that allows all sorts of user defined GPU kernel fusion, for non CUDA programmers." 
 HOMEPAGE_URL "https://github.com/morousg/FusedKernelLibrary" )
 
+if (MSVC)
+    # Require Visual Studio 2019 (MSVC 19.20 / 1920) or newer
+    if (MSVC_VERSION LESS 1920)
+        message(FATAL_ERROR "MSVC versions older than Visual Studio 2019 (MSVC 1920) are not supported. Please upgrade your compiler.")
+    endif()
+endif()
 #cuda is optional, but if it is found, it will be used
 option(ENABLE_CPU "Enable CPU support" ON)
   
