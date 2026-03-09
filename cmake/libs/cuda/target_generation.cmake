@@ -1,6 +1,6 @@
 function(set_default_cuda_target_properties TARGET_NAME)
     if (WIN32)
-        list(APPEND COMPILER_CUDA_FLAGS "-Xcompiler=/bigobj /Zc:preprocessor")
+        list(APPEND COMPILER_CUDA_FLAGS "-Xcompiler=/bigobj" "-Xcompiler=/Zc:preprocessor")
     endif()
     target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${COMPILER_CUDA_FLAGS}>)
     if(${CUDA_VERSION_MAJOR} GREATER_EQUAL 13)	
