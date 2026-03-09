@@ -4,7 +4,7 @@ on:
   #push:
   #  branches: [ $default-branch ]
   pull_request:
-    branches: ["LTS-C*"]
+    branches: ["main"]
 
 jobs:
   build:
@@ -13,7 +13,7 @@ jobs:
     strategy:
       # Set fail-fast to false to ensure that feedback is delivered for all matrix combinations. Consider changing this to true when your workflow is stable.
       fail-fast: false
-      matrix:        
+      matrix:
         include:
           - host_compiler: "cl"
             msvc_env_version: "14.44"
@@ -26,10 +26,10 @@ jobs:
           - host_compiler: "clang-cl"
             msvc_env_version: "14.44"
             cuda_version: "12.9"
-          
+
           - host_compiler: "clang-cl"
             msvc_env_version: "14.50"
-            cuda_version: "13.2"  
+            cuda_version: "13.2"
 
     steps:
       - uses: actions/checkout@v4
@@ -59,12 +59,12 @@ jobs:
           #workaround for rules.ninja generating empty path          
           (Get-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja) -replace "\\nvcc\\bin\\nvcc.exe", "$env:CUDACXX" | Set-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja
 
-      - name: Build        
+      - name: Build
         run: |
           Import-Module (Get-ChildItem $env:VS_INSTALLATION_PATH -Recurse -File -Filter Microsoft.VisualStudio.DevShell.dll).FullName           
           Enter-VsDevShell -VsInstallPath $env:VS_INSTALLATION_PATH -SkipAutomaticLocation -DevCmdArguments $env:DEV_ARGS                 
           cmake --build ${{ steps.strings.outputs.build-output-dir }} --config Release
 
       - name: Test
-        working-directory: ${{ steps.strings.outputs.build-output-dir }}               
+        working-directory: ${{ steps.strings.outputs.build-output-dir }}
         run: ctest --build-config Release --output-junit test_results.xml
