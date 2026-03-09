@@ -33,7 +33,7 @@ jobs:
         id: strings
         run: |
           echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"        
-          echo "PATH=/home/cudeiro/cmake-4.2.1-linux-x86_64/bin/:$PATH" >> "$GITHUB_ENV"
+          echo "/home/cudeiro/cmake-4.2.1-linux-x86_64/bin/" >> "$GITHUB_PATH"
           echo "CUDACXX=/usr/local/cuda-${{matrix.cuda_toolkit}}/bin/nvcc" >> "$GITHUB_ENV"
           echo "CC=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
           echo "CXX=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
