@@ -17,7 +17,6 @@ find_package(CUDAToolkit REQUIRED)
  
 # some external lbis(opencv) use findCuda, so we set this variable for compatibility
 set(CUDA_TOOLKIT_ROOT_DIR_ORIG ${CUDAToolkit_LIBRARY_ROOT})
-# file(TO_CMAKE_PATH $ENV{APIS_PATH_VS2017} APIS_PATH)
 string(REPLACE "\\" "/" CUDA_TOOLKIT_ROOT_DIR_ORIG ${CUDA_TOOLKIT_ROOT_DIR_ORIG})
 set(CUDA_TOOLKIT_ROOT_DIR ${CUDA_TOOLKIT_ROOT_DIR_ORIG})
 message(STATUS )
