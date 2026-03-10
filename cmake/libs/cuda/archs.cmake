@@ -26,7 +26,7 @@ set(CUDA_ARCH "native" CACHE STRING "Cuda architecture to build")
 option(CUDA_ARCH "Build for cuda host architecture only" "native")
 # build archs controlled by cmake options must by either native, all OR at least one of these(turing|ampere|ada|hopper|)
 #for cuda <13 we need to avoid < 7.0 compute capabilities 
-if (${CUDA_VERSION_MAJOR} LESS 13)
+if (CUDA_VERSION_MAJOR LESS 13)
     set (GPU_MINUM70 "")  
     #nvcc automatically builds all gpu arch with all, so we need to remove <7.0
     if ("${CUDA_ARCH}" STREQUAL "all" OR "${CUDA_ARCH}" STREQUAL "all-major")  
