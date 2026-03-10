@@ -343,12 +343,14 @@ namespace fk {
 
     template <typename F, typename TupleType>
     FK_HOST_CNST decltype(auto) apply(F&& f, TupleType&& t) {
+        static_assert(isTuple_v<std::decay_t<TupleType>>, "fk::apply requires an fk::Tuple as second argument");
         return detail::apply_impl(std::forward<F>(f), std::forward<TupleType>(t),
             std::make_index_sequence<std::decay_t<TupleType>::size>{});
     }
 
     template <typename F, typename TupleType>
     FK_HOST_DEVICE_CNST decltype(auto) apply_d(F&& f, TupleType&& t) {
+        static_assert(isTuple_v<std::decay_t<TupleType>>, "fk::apply_d requires an fk::Tuple as second argument");
         return detail::apply_d_impl(std::forward<F>(f), std::forward<TupleType>(t),
             std::make_index_sequence<std::decay_t<TupleType>::size>{});
     }
