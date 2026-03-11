@@ -1,4 +1,4 @@
-﻿/* Copyright 2025 Oscar Amoros Huguet
+﻿/* Copyright 2025-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
 #include <tests/main.h>
 
 #include <fused_kernel/algorithms/image_processing/crop.h>
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/image_processing/resize.h>
 
 using namespace fk;
@@ -27,9 +27,9 @@ int launch() {
 
     constexpr Rect aCrop(10, 12, 20, 30);
     constexpr auto cropOp = Crop<ReadIOp>::build(readIOp, aCrop);
-    static_assert(isReadBackType<std::decay_t<decltype(cropOp)>>, "Crop is not ReadBack and should be");
+    static_assert(opIs<ReadBackType, std::decay_t<decltype(cropOp)>>, "Crop is not ReadBack and should be");
     constexpr auto fusedCrop = readIOp.then(Crop<>::build(Rect(11, 9, 10, 10)));
-    static_assert(isReadBackType<decltype(fusedCrop)>, "The IOp should be a ReadBack type");
+    static_assert(opIs<ReadBackType, decltype(fusedCrop)>, "The IOp should be a ReadBack type");
 
     constexpr std::array<Rect, 2> rects{ aCrop, Rect(15,15, 50, 20)};
 

@@ -1,4 +1,4 @@
-/* Copyright 2023-2025 Oscar Amoros Huguet
+/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -72,24 +72,24 @@ namespace fk { // namespace FusedKernel
     private:
         using Details = DPPDetails;
 
-        template <typename T, typename... IOpTypes>
-        FK_HOST_DEVICE_FUSE auto operate(const Point& thread, const T& i_data, const IOpTypes&... iOpInstances) {
-            return (InputFoldType(thread, i_data) | ... | iOpInstances).input;
+        template <typename InputType, typename... IOpTypes>
+        FK_HOST_DEVICE_FUSE auto operate(const Point thread, const InputType i_data, const IOpTypes&... iOpInstances) {
+            return (InputFoldType<>::build(thread, i_data) | ... | iOpInstances).input;
         }
 
         template <uint IDX, typename TFI, typename InputType, typename... IOpTypes>
-        FK_HOST_DEVICE_FUSE auto operate_idx(const Point& thread, const InputType& input, const IOpTypes&... instantiableOperationInstances) {
+        FK_HOST_DEVICE_FUSE auto operate_idx(const Point thread, const InputType input, const IOpTypes&... instantiableOperationInstances) {
             return operate(thread, TFI::template get<IDX>(input), instantiableOperationInstances...);
         }
 
         template <typename TFI, typename InputType, uint... IDX, typename... IOpTypes>
-        FK_HOST_DEVICE_FUSE auto operate_thread_fusion_impl(std::integer_sequence<uint, IDX...> idx, const Point& thread,
-            const InputType& input, const IOpTypes&... instantiableOperationInstances) {
+        FK_HOST_DEVICE_FUSE auto operate_thread_fusion_impl(std::integer_sequence<uint, IDX...> idx, const Point thread,
+            const InputType input, const IOpTypes&... instantiableOperationInstances) {
             return TFI::make(operate_idx<IDX, TFI>(thread, input, instantiableOperationInstances...)...);
         }
 
         template <typename TFI, typename InputType, typename... IOpTypes>
-        FK_HOST_DEVICE_FUSE auto operate_thread_fusion(const Point& thread, const InputType& input, const IOpTypes&... instantiableOperationInstances) {
+        FK_HOST_DEVICE_FUSE auto operate_thread_fusion(const Point thread, const InputType input, const IOpTypes&... instantiableOperationInstances) {
             if constexpr (TFI::elems_per_thread == 1) {
                 return operate(thread, input, instantiableOperationInstances...);
             } else {
@@ -98,7 +98,7 @@ namespace fk { // namespace FusedKernel
         }
         // We pass TFI as a template parameter because sometimes we need to disable the TF
         template <typename TFI, typename ReadIOp>
-        FK_HOST_DEVICE_FUSE auto read(const Point& thread, const ReadIOp& readDF) {
+        FK_HOST_DEVICE_FUSE auto read(const Point thread, const ReadIOp& readDF) {
             if constexpr (TFI::ENABLED) {
                 static_assert(isAnyReadType<ReadIOp>, "ReadIOp is not ReadType or ReadBackType");
                 return ReadIOp::Operation::template exec<TFI::elems_per_thread>(thread, readDF);
@@ -109,12 +109,12 @@ namespace fk { // namespace FusedKernel
 
         template <typename TFI, typename ReadIOp, typename... IOps>
         FK_HOST_DEVICE_FUSE
-        void execute_instantiable_operations_helper(const Point& thread, const ReadIOp& readDF,
+        void execute_instantiable_operations_helper(const Point thread, const ReadIOp& readDF,
                                                     const IOps&... iOps) {
             using ReadOperation = typename ReadIOp::Operation;
             using WriteOperation = typename LastType_t<IOps...>::Operation;
 
-            const auto writeDF = ppLast(iOps...);
+            const auto& writeDF = ppLast(iOps...);
 
             if constexpr (TFI::ENABLED) {
                 const auto tempI = read<TFI, ReadIOp>(thread, readDF);
@@ -136,12 +136,12 @@ namespace fk { // namespace FusedKernel
         }
 
         template <typename TFI, typename... IOps>
-        FK_HOST_DEVICE_FUSE void execute_instantiable_operations(const Point& thread, const IOps&... iOps) {
+        FK_HOST_DEVICE_FUSE void execute_instantiable_operations(const Point thread, const IOps&... iOps) {
             execute_instantiable_operations_helper<TFI>(thread, iOps...);
         }
 
         template <typename... IOps>
-        FK_HOST_DEVICE_FUSE void execute_thread(const Point& thread, const ActiveThreads& activeThreads, const IOps&... iOps) {
+        FK_HOST_DEVICE_FUSE void execute_thread(const Point thread, const ActiveThreads& activeThreads, const IOps&... iOps) {
             using TFI = typename Details::TFI;
             if constexpr (!TFI::ENABLED) {
                 execute_instantiable_operations<TFI>(thread, iOps...);
@@ -155,7 +155,7 @@ namespace fk { // namespace FusedKernel
                     } else if (iamlastActiveThread) {
                         const int initialX = thread.x * TFI::elems_per_thread;
                         using ReadOp = typename FirstType_t<IOps...>::Operation;
-                        const int finalX = ReadOp::num_elems_x(thread, get<0>(iOps...));
+                        const int finalX = ReadOp::num_elems_x(thread, get_arg<0>(iOps...));
                         int currentX = initialX;
                         while (currentX < finalX) {
                             const Point currentThread{ currentX , thread.y, thread.z };
@@ -201,27 +201,6 @@ namespace fk { // namespace FusedKernel
                 return Details{};
             }
         }
-        template <typename FirstIOp, typename... IOps>
-        FK_DEVICE_FUSE auto build_details(const ActiveThreads& activeThreads, const uint& readRow, const uint& writeRow) {
-            using Details = TransformDPPDetails<static_cast<bool>(TFEN), FirstIOp, IOps...>;
-            using TFI = typename Details::TFI;
-            if constexpr (TFI::ENABLED) {
-                const ActiveThreads gridActiveThreads(static_cast<uint>(ceil(activeThreads.x / static_cast<float>(TFI::elems_per_thread))),
-                                                      activeThreads.y, activeThreads.z);
-                bool threadDivisible;
-                if constexpr (TFI::ENABLED) {
-                    using ReadOperation = typename FirstIOp::Operation;
-                    using WriteOperation = typename LastType_t<IOps...>::Operation;
-                    threadDivisible = (readRow % TFI::elems_per_thread == 0) && (writeRow % TFI::elems_per_thread == 0);
-                } else {
-                    threadDivisible = true;
-                }
-                const Details details{ gridActiveThreads, threadDivisible };
-                return details;
-            } else {
-                return Details{};
-            }
-        }
     };
 
 // Note: there are no ParArch::GPU_NVIDIA_JIT DPP implementaitons, because
@@ -237,13 +216,13 @@ namespace fk { // namespace FusedKernel
         static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
         template <typename FirstIOp>
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const Details& details,
-                                                           const FirstIOp& iOp) {
+                                                            const FirstIOp& iOp) {
             return Parent::getActiveThreads(details, iOp);
         }
 
         template <typename... IOps>
         FK_DEVICE_FUSE void exec(const Details& details, const IOps&... iOps) {
-#if VS2017_COMPILER || CLANG_HOST_DEVICE
+#if CLANG_HOST_DEVICE
             const int x = (blockDim.x * blockIdx.x) + threadIdx.x;
             const int y = (blockDim.y * blockIdx.y) + threadIdx.y;
             const int z = blockIdx.z; // So far we only consider the option of using the z dimension to specify n (x*y) thread planes
@@ -257,14 +236,14 @@ namespace fk { // namespace FusedKernel
 #endif
             const Point thread{ x, y, z };
 
-            const ActiveThreads activeThreads = getActiveThreads(details, get<0>(iOps...));
+            const ActiveThreads activeThreads = getActiveThreads(details, get_arg<0>(iOps...));
 
             if (x < activeThreads.x && y < activeThreads.y) {
                 Parent::execute_thread(thread, activeThreads, iOps...);
             }
         }
     };
-#endif // defined(__NVCC__) || defined(__HIPCC__) || defined(__NVRTC__) || defined(NVRTC_COMPILER)
+#endif // defined(__NVCC__) || CLANG_HOST_DEVICE
 
     template <enum TF TFEN, typename DPPDetails, bool THREAD_DIVISIBLE>
     struct TransformDPP<ParArch::CPU, TFEN, DPPDetails, THREAD_DIVISIBLE, std::enable_if_t<!std::is_same_v<DPPDetails, void>, void>> {
@@ -275,14 +254,14 @@ namespace fk { // namespace FusedKernel
         static constexpr ParArch PAR_ARCH = ParArch::CPU;
         template <typename FirstIOp>
         FK_HOST_FUSE ActiveThreads getActiveThreads(const Details& details,
-                                                    const FirstIOp& iOp) {
+                                                     const FirstIOp& iOp) {
             return Parent::getActiveThreads(details, iOp);
         }
 
         template <typename... IOps>
         FK_HOST_FUSE void exec(const Details& details, const IOps&... iOps) {
             using TFI = typename Details::TFI;
-            const ActiveThreads activeThreads = getActiveThreads(details, get<0>(iOps...));
+            const ActiveThreads activeThreads = getActiveThreads(details, get_arg<0>(iOps...));
 
             for (int z = 0; z < activeThreads.z; ++z) {
                 for (int y = 0; y < activeThreads.y; ++y) {
@@ -310,10 +289,11 @@ namespace fk { // namespace FusedKernel
         }
 
         template <int OpSequenceNumber, typename... IOps, typename... IOpSequenceTypes>
-        FK_HOST_DEVICE_FUSE void divergent_operate(const uint& z, const InstantiableOperationSequence<IOps...>& iOpSequence,
-            const IOpSequenceTypes&... iOpSequences) {
+        FK_HOST_DEVICE_FUSE void divergent_operate(const uint z,
+                                                   const InstantiableOperationSequence<IOps...>& iOpSequence,
+                                                   const IOpSequenceTypes&... iOpSequences) {
             if (OpSequenceNumber == SequenceSelector::at(z)) {
-                apply(launchTransformDPP<IOps...>, iOpSequence.iOps);
+                apply_d(launchTransformDPP<IOps...>, iOpSequence.iOps);
             } else if constexpr (sizeof...(iOpSequences) > 0) {
                 divergent_operate<OpSequenceNumber + 1>(z, iOpSequences...);
             }
@@ -341,7 +321,7 @@ namespace fk { // namespace FusedKernel
         static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
         template <typename... IOpSequenceTypes>
         FK_DEVICE_FUSE void exec(const DPPDetails&, const IOpSequenceTypes&... iOpSequences) {
-#if VS2017_COMPILER || CLANG_HOST_DEVICE
+#if CLANG_HOST_DEVICE
             const uint z = blockIdx.z;
 #else
             const cg::thread_block g = cg::this_thread_block();

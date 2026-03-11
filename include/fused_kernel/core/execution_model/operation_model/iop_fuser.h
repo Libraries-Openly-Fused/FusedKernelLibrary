@@ -1,4 +1,4 @@
-/* Copyright 2023-2025 Oscar Amoros Huguet
+/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -22,11 +22,12 @@ namespace fk {
     struct Fuser {
         template <typename SelfType, typename ContinuationIOp>
         FK_HOST_FUSE auto fuse(const SelfType& selfIOp, const ContinuationIOp& cIOp) {
+            static_assert(isOperation<SelfType> && isOperation<ContinuationIOp>, "SelfType and ContinuationIOp should be IOps");
             using Operation = typename SelfType::Operation;
             if constexpr (isBatchOperation<Operation> && isBatchOperation<typename ContinuationIOp::Operation>) {
                 static_assert(Operation::BATCH == ContinuationIOp::Operation::BATCH,
                     "Fusing two batch operations of different BATCH size is not allowed.");
-                static_assert(isIncompleteReadBackType<typename ContinuationIOp::Operation::Operation>,
+                static_assert(opIs<IncompleteReadBackType, typename ContinuationIOp::Operation::Operation>,
                     "Read or ReadBack Operation as continuation is not allowed. It has to be an IncompleteReadBackOperation.");
                 const auto backOpArray = BatchUtils::toArray(selfIOp);
                 const auto forwardOpArray = BatchUtils::toArray(cIOp);
@@ -42,7 +43,6 @@ namespace fk {
                     static_assert((Operation::PP == PlanePolicy::CONDITIONAL_WITH_DEFAULT && ContinuationIOp::Operation::PP == PlanePolicy::PROCESS_ALL), "We should not be here");
                     using BackType = std::decay_t<decltype(backOpArray)>;
                     using ForType = std::decay_t<decltype(forwardOpArray)>;
-                    constexpr size_t BATCH = static_cast<size_t>(ContinuationIOp::Operation::BATCH);
                     using FusedType = typename decltype(make_fusedArray(std::declval<BackType>(), std::declval<ForType>()))::value_type;
                     using DefaultValueType = typename FusedType::Operation::OutputType;
                     if constexpr (std::is_same_v<typename Operation::OutputType, DefaultValueType>) {
@@ -54,7 +54,7 @@ namespace fk {
                     }
                 }
             } else if constexpr (!isBatchOperation<Operation> && isBatchOperation<typename ContinuationIOp::Operation>) {
-                static_assert(isIncompleteReadBackType<typename ContinuationIOp::Operation::Operation>,
+                static_assert(opIs<IncompleteReadBackType, typename ContinuationIOp::Operation::Operation>,
                     "ReadOperation as continuation is not allowed. It has to be a ReadBackOperation.");
                 constexpr size_t BATCH = static_cast<size_t>(ContinuationIOp::Operation::BATCH);
                 const auto backOpArray = make_set_std_array<BATCH>(selfIOp);
@@ -66,10 +66,10 @@ namespace fk {
                     return BuilderType::build(backOpArray, forwardOpArray);
                 }
             } else if constexpr (isBatchOperation<Operation> && !isBatchOperation<typename ContinuationIOp::Operation>) {
-                static_assert(!isAnyReadType<ContinuationIOp> || isIncompleteReadBackType<ContinuationIOp>,
+                static_assert(!isAnyReadType<ContinuationIOp> || opIs<IncompleteReadBackType, ContinuationIOp>,
                     "ReadOperation as continuation is not allowed. It has to be a ReadBackOperation.");
                 constexpr size_t BATCH = static_cast<size_t>(Operation::BATCH);
-                if constexpr (isIncompleteReadBackType<ContinuationIOp>) {
+                if constexpr (opIs<IncompleteReadBackType, ContinuationIOp>) {
                     const auto backOpArray = BatchUtils::toArray(selfIOp);
                     const auto forwardOpArray = make_set_std_array<BATCH>(cIOp);
                     using BuilderType = typename ContinuationIOp::Operation;
@@ -98,30 +98,19 @@ namespace fk {
             } else if constexpr (!isBatchOperation<Operation> && !isBatchOperation<typename ContinuationIOp::Operation>) {
                 static_assert(!isAnyCompleteReadType<ContinuationIOp>,
                     "Complete Read Operations as continuations are not allowed. It has to be an IncompleteReadBackOperation.");
-                if constexpr (isIncompleteReadBackType<ContinuationIOp>) {
+                if constexpr (opIs<IncompleteReadBackType, ContinuationIOp>) {
                     using BuilderType = typename ContinuationIOp::Operation;
                     return BuilderType::build(selfIOp, cIOp);
                 } else {
-                    return fuseNonBatchForwardIOps(selfIOp, cIOp);
+                    return FusedOperation<>::build(selfIOp, cIOp);
                 }
             }
         }
         private:
-        /** @brief fuseIOps: function that creates either a Read or a Binary IOp, composed of a
-        * FusedOperation, where the operations are the ones found in the InstantiableOperations in the
-        * iOps parameter pack.
-        * This is a convenience function to simplify the implementation of ReadBack and Ternary InstantiableOperations
-        * and Operations.
-        */
-        template <typename... InstantiableOperations>
-        FK_HOST_FUSE auto fuseNonBatchForwardIOps(const InstantiableOperations&... iOps) {
-            return operationTupleToIOp(iOpsToOperationTuple(iOps...));
-        }
-
         template <size_t BATCH, typename ThisIOp, typename ForwardIOp>
         FK_HOST_FUSE auto make_fusedArray(const std::array<ThisIOp, BATCH>& thisArray,
                                           const std::array<ForwardIOp, BATCH>& fwdArray) {
-            if constexpr (isIncompleteReadBackType<ForwardIOp>) {
+            if constexpr (opIs<IncompleteReadBackType, ForwardIOp>) {
                 using BuilderType = typename ForwardIOp::Operation;
                 using ResultingType = decltype(BuilderType::build(std::declval<ThisIOp>(), std::declval<ForwardIOp>()));
                 std::array<ResultingType, BATCH> resultArray{};
@@ -130,10 +119,10 @@ namespace fk {
                 }
                 return resultArray;
             } else {
-                using ResultingType = decltype(fuseNonBatchForwardIOps(std::declval<ThisIOp>(), std::declval<ForwardIOp>()));
+                using ResultingType = decltype(FusedOperation<>::build(std::declval<ThisIOp>(), std::declval<ForwardIOp>()));
                 std::array<ResultingType, BATCH> resultArray{};
                 for (size_t i = 0; i < BATCH; ++i) {
-                    resultArray[i] = fuseNonBatchForwardIOps(thisArray[i], fwdArray[i]);
+                    resultArray[i] = FusedOperation<>::build(thisArray[i], fwdArray[i]);
                 }
                 return resultArray;
             }
@@ -155,7 +144,7 @@ namespace fk {
             // Iterate through every type in Ts...
             // The comma operator ensures left-to-right evaluation.
             ((index++, // Increment index for every type (1-based)
-              (isReadBackType<IOps> || isIncompleteReadBackType<IOps>) 
+              (opIs<ReadBackType, IOps> || opIs<IncompleteReadBackType, IOps>) 
                   ? result = index // If it's a Back type, update the result
                   : 0              // Otherwise do nothing
              ), ...);

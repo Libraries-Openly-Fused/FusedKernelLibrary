@@ -49,9 +49,9 @@ inline bool compareAndCheck(const fk::Ptr2D<T>& firstResult, const fk::Ptr2D<T>&
         std::cout << "Dimensions do not match: " << firstResult.dims().width << "x" << firstResult.dims().height << " vs " << secondResult.dims().width << "x" << secondResult.dims().height << std::endl;
         return false;
     }
-    for (uint y = 0; y < firstResult.dims().height; ++y) {
-        for (uint x = 0; x < firstResult.dims().width; ++x) {
-            if (!fk::Equal<T>::exec(fk::make_tuple(firstResult.at(fk::Point(x, y)), secondResult.at(fk::Point(x, y))))) {
+    for (int y = 0; y < static_cast<int>(firstResult.dims().height); ++y) {
+        for (int x = 0; x < static_cast<int>(firstResult.dims().width); ++x) {
+            if (!fk::Equal<T>::exec(fk::make_tuple(firstResult.at(fk::Point{ x, y, 0 }), secondResult.at(fk::Point{ x, y, 0 })))) {
                 std::cout << "Mismatch at (" << x << ", " << y << ") " << std::endl;
                 return false;
             }

@@ -1,4 +1,4 @@
-/* Copyright 2023-2025 Oscar Amoros Huguet
+/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -20,116 +20,92 @@
 #include <fused_kernel/core/utils/type_lists.h>
 
 namespace fk {
+    /* Operation types are linked to the exec() function definition in the Operation. 
+    *  The elements that can change across Operation types are:
+    *   - OutputType: whether the exec function returns a value or not, and which type it is. The value resides on registers.
+    *   - ElementIdx (using the type Point): whether the exec function gets the thread idx as input or not.
+    *     It is used to compute DRAM or Shared Memory addresses to read from or write into.
+    *   - InputType: whether the exec function gets an input value or not. This value resides on registers.
+    *   - ParamsType: whether the exec function gets an any additional data that is not computed inside the kernel
+    *     and that is needed for the execution of the operation.
+    *   - BackIOp: whether the exec function gets an additional IOp as input, that is executed as part of the operation
+    *     implementation.
+    * 
+    *    An example of the exec function with all the types would be:
+    *    OutputType exec(Point, InputType, ParamsType, BackIOp)
+
+         +------------------------+----------+----------+----------+----------+----------+
+         |                        |   Out    |   EIdx   |    In    |   Par    |   BIOp   |
+         +------------------------+----------+----------+----------+----------+----------+
+         | ReadType               |    X     |    X     |          |    X     |          |  OutputType exec(Point, ParamsType)
+         +------------------------+----------+----------+----------+----------+----------+
+         | WriteType              |          |    X     |    X     |    X     |          |  void exec(Point, InputType, ParamsType)
+         +------------------------+----------+----------+----------+----------+----------+
+         | UnaryType              |    X     |          |    X     |          |          |  OutputType exec(InputType)
+         +------------------------+----------+----------+----------+----------+----------+
+         | BinaryType             |    X     |          |    X     |    X     |          |  OutputType exec(InputType, ParamsType)
+         +------------------------+----------+----------+----------+----------+----------+
+         | ReadBackType           |    X     |    X     |          |    X     |    X     |  OutputType exec(Point, ParamsType, BackIOp)
+         +------------------------+----------+----------+----------+----------+----------+
+         | IncompleteReadBackType |          |          |          |          |          |  no exec function present
+         +------------------------+----------+----------+----------+----------+----------+
+         | TernaryType            |    X     |          |    X     |    X     |    X     |  OutputType exec(InputType, ParamsType, BackIOp)
+         +------------------------+----------+----------+----------+----------+----------+
+         | IncompleteTernaryType  |          |          |          |          |          |  no exec function present
+         +------------------------+----------+----------+----------+----------+----------+
+         | MidWriteType *         |    X     |    X     |    X     |    X     |          |  InputType exec(Point, InputType, ParamsType)
+         +------------------------+----------+----------+----------+----------+----------+
+         | OpenType **            |    X     |    X     |    X     |    X     |          |  OutputType exec(Point, InputType, ParamsType)
+         +------------------------+----------+----------+----------+----------+----------+
+         | ClosedType **          |          |    X     |          |    X     |          |  void exec(Point, ParamsType)
+         +------------------------+----------+----------+----------+----------+----------+
+
+         * Applicable only to Instantiapble Operations. In and Out must be the same type and value. Operation must be of WriteType.
+         ** OpenType and ClosedType are only applicable to FusedOperations. FusedOperations can also be ReadType or WriteType.
+    */
+
     struct ReadType;
-    struct ReadBackType;
-    struct IncompleteReadBackType;
+    struct WriteType;
     struct UnaryType;
     struct BinaryType;
+    struct ReadBackType;
+    struct IncompleteReadBackType;
     struct TernaryType;
+    struct IncompleteTernaryType;
     struct MidWriteType;
-    struct WriteType;
+    struct OpenType;
+    struct ClosedType;
 
     template <typename T, typename = void>
     struct HasInstanceType : std::false_type {};
     template <typename T>
     struct HasInstanceType<T, std::void_t<typename T::InstanceType>> : std::true_type {};
 
-    template <typename T, typename = void>
-    struct IsReadType : std::false_type {};
-    template <typename T>
-    struct IsReadType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, ReadType>, void>> : std::false_type {};
-    template <typename T>
-    struct IsReadType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, ReadType>, void>> : std::true_type {};
+    template <typename OperationType, typename OpOrIOp, typename = void>
+    struct OpIs : std::false_type {};
+    template <typename OperationType, typename OpOrIOp>
+    struct OpIs<OperationType, OpOrIOp,
+              std::enable_if_t<std::is_same_v<typename OpOrIOp::InstanceType, OperationType>, void>> : std::true_type {};
 
-    template <typename T, typename = void>
-    struct IsReadBackType : std::false_type {};
-    template <typename T>
-    struct IsReadBackType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, ReadBackType>, void>> : std::false_type {};
-    template <typename T>
-    struct IsReadBackType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, ReadBackType>, void>> : std::true_type {};
-
-    template <typename T, typename = void>
-    struct IsIncompleteReadBackType : std::false_type {};
-    template <typename T>
-    struct IsIncompleteReadBackType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, IncompleteReadBackType>, void>> : std::false_type {};
-    template <typename T>
-    struct IsIncompleteReadBackType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, IncompleteReadBackType>, void>> : std::true_type {};
-
-    template <typename T, typename = void>
-    struct IsUnaryType : std::false_type {};
-    template <typename T>
-    struct IsUnaryType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, UnaryType>, void>> : std::false_type {};
-    template <typename T>
-    struct IsUnaryType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, UnaryType>, void>> : std::true_type {};
-
-    template <typename T, typename = void>
-    struct IsBinaryType : std::false_type {};
-    template <typename T>
-    struct IsBinaryType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, BinaryType>, void>> : std::false_type {};
-    template <typename T>
-    struct IsBinaryType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, BinaryType>, void>> : std::true_type {};
-
-    template <typename T, typename = void>
-    struct IsTernaryType : std::false_type {};
-    template <typename T>
-    struct IsTernaryType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, TernaryType>, void>> : std::false_type {};
-    template <typename T>
-    struct IsTernaryType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, TernaryType>, void>> : std::true_type {};
-
-    template <typename T, typename = void>
-    struct IsMidWriteType : std::false_type {};
-    template <typename T>
-    struct IsMidWriteType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, MidWriteType>, void>> : std::false_type {};
-    template <typename T>
-    struct IsMidWriteType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, MidWriteType>, void>> : std::true_type {};
-
-    template <typename T, typename = void>
-    struct IsWriteType : std::false_type {};
-    template <typename T>
-    struct IsWriteType<T, std::enable_if_t<!std::is_same_v<typename T::InstanceType, WriteType>, void>> : std::false_type {};
-    template <typename T>
-    struct IsWriteType<T, std::enable_if_t<std::is_same_v<typename T::InstanceType, WriteType>, void>> : std::true_type {};
+    template <typename OperationType, typename OpOrIOp>
+    constexpr bool opIs = OpIs<OperationType, OpOrIOp>::value;
 
     template <typename T>
     constexpr bool isOperation = HasInstanceType<T>::value;
 
     template <typename OpORIOp>
-    constexpr bool isReadType = IsReadType<OpORIOp>::value;
+    constexpr bool isAnyReadType = opIs<ReadType, OpORIOp> || opIs<ReadBackType, OpORIOp> || opIs<IncompleteReadBackType, OpORIOp>;
 
     template <typename OpORIOp>
-    constexpr bool isReadBackType = IsReadBackType<OpORIOp>::value;
+    constexpr bool isAnyCompleteReadType = opIs<ReadType, OpORIOp> || opIs<ReadBackType, OpORIOp>;
 
     template <typename OpORIOp>
-    constexpr bool isIncompleteReadBackType = IsIncompleteReadBackType<OpORIOp>::value;
-
-    template <typename OpORIOp>
-    constexpr bool isAnyReadType = isReadType<OpORIOp> || isReadBackType<OpORIOp> || isIncompleteReadBackType<OpORIOp>;
-
-    template <typename OpORIOp>
-    constexpr bool isAnyCompleteReadType = isReadType<OpORIOp> || isReadBackType<OpORIOp>;
-
-    template <typename OpORIOp>
-    constexpr bool isUnaryType = IsUnaryType<OpORIOp>::value;
-
-    template <typename OpORIOp>
-    constexpr bool isBinaryType = IsBinaryType<OpORIOp>::value;
-
-    template <typename OpORIOp>
-    constexpr bool isTernaryType = IsTernaryType<OpORIOp>::value;
-
-    template <typename OpORIOp>
-    constexpr bool isWriteType = IsWriteType<OpORIOp>::value;
-
-    template <typename OpORIOp>
-    constexpr bool isMidWriteType = IsMidWriteType<OpORIOp>::value;
-
-    template <typename OpORIOp>
-    constexpr bool isComputeType = isUnaryType<OpORIOp> || isBinaryType<OpORIOp> || isTernaryType<OpORIOp>;
+    constexpr bool isComputeType = opIs<UnaryType, OpORIOp> || opIs<BinaryType, OpORIOp> || opIs<TernaryType, OpORIOp>;
 
     using WriteTypeList = TypeList<WriteType, MidWriteType>;
 
     template <typename OpORIOp>
-    constexpr bool isAnyWriteType = isWriteType<OpORIOp> || isMidWriteType<OpORIOp>;
+    constexpr bool isAnyWriteType = opIs<WriteType, OpORIOp> || opIs<MidWriteType, OpORIOp>;
 
     template <typename IOp>
     using GetInputType_t = typename IOp::Operation::InputType;
@@ -142,7 +118,7 @@ namespace fk {
                                                      const IOp& instantiableOperation) {
         static_assert(isComputeType<IOp>,
             "Function compute only works with IOp InstanceTypes UnaryType, BinaryType and TernaryType");
-        if constexpr (isUnaryType<IOp>) {
+        if constexpr (opIs<UnaryType, IOp>) {
             return IOp::Operation::exec(input);
         } else {
             return IOp::Operation::exec(input, instantiableOperation);
@@ -150,7 +126,12 @@ namespace fk {
     }
 
     template <typename... OpsOrIOps>
-    constexpr bool allUnaryTypes = and_v<isUnaryType<OpsOrIOps>...>;
+    constexpr bool allUnaryTypes = and_v<opIs<UnaryType, OpsOrIOps>...>;
+    template <typename... OpsOrIOps>
+    constexpr bool allComputeTypes = and_v<isComputeType<OpsOrIOps>...>;
+
+    template <typename... OpsOrIOps>
+    constexpr bool atLeastOneMidWriteType = or_v<opIs<MidWriteType, OpsOrIOps>...>;
 
     template <typename = void, typename... OpsOrIOps>
     struct NotAllUnary final : public std::false_type {};
@@ -173,22 +154,22 @@ namespace fk {
                                OperationsOrInstantiableOperations...> : std::true_type {};
 
     template <typename... OperationORInstantiableOperation>
-    constexpr bool noneWriteType = and_v<(!isWriteType<OperationORInstantiableOperation>)...>;
+    constexpr bool noneWriteType = and_v<(!opIs<WriteType, OperationORInstantiableOperation>)...>;
 
     template <typename... OperationORInstantiableOperation>
-    constexpr bool noneMidWriteType = and_v<(!isMidWriteType<OperationORInstantiableOperation>)...>;
+    constexpr bool noneMidWriteType = and_v<(!opIs<MidWriteType, OperationORInstantiableOperation>)...>;
 
     template <typename... OperationORInstantiableOperation>
     constexpr bool noneAnyWriteType = and_v<(!isAnyWriteType<OperationORInstantiableOperation>)...>;
 
     template <typename... OperationORInstantiableOperation>
-    constexpr bool noneReadType = and_v<(!isReadType<OperationORInstantiableOperation>)...>;
+    constexpr bool noneReadType = and_v<(!opIs<ReadType, OperationORInstantiableOperation>)...>;
 
     template <typename... OperationORInstantiableOperation>
-    constexpr bool noneReadBackType = and_v<(!isReadBackType<OperationORInstantiableOperation>)...>;
+    constexpr bool noneReadBackType = and_v<(!opIs<ReadBackType, OperationORInstantiableOperation>)...>;
 
     template <typename... OperationORInstantiableOperation>
-    constexpr bool noneIncompleteReadBackType = and_v<(!isIncompleteReadBackType<OperationORInstantiableOperation>)...>;
+    constexpr bool noneIncompleteReadBackType = and_v<(!opIs<IncompleteReadBackType, OperationORInstantiableOperation>)...>;
 
     template <typename... OperationORInstantiableOperation>
     constexpr bool noneAnyReadType = and_v<(!isAnyReadType<OperationORInstantiableOperation>)...>;
@@ -197,7 +178,7 @@ namespace fk {
     struct IsCompleteOperation : std::false_type {};
 
     template <typename T>
-    struct IsCompleteOperation<T, std::enable_if_t<isOperation<T> && !isIncompleteReadBackType<T>>> : std::true_type {};
+    struct IsCompleteOperation<T, std::enable_if_t<isOperation<T> && !opIs<IncompleteReadBackType, T>>> : std::true_type {};
 
     template <typename T>
     constexpr bool isCompleteOperation = IsCompleteOperation<T>::value;

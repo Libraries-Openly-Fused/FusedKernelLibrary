@@ -1,4 +1,4 @@
-﻿/* Copyright 2024-2025 Oscar Amoros Huguet
+﻿/* Copyright 2024-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/basic_ops/cast.h>
-#include <fused_kernel/core/execution_model/memory_operations.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/image_processing/resize.h>
 #include <fused_kernel/core/utils/type_lists.h>
 #include <fused_kernel/algorithms/basic_ops/set.h>
@@ -69,9 +69,9 @@ constexpr inline bool test_read_then_batch() {
     static_assert(std::is_same_v<ResultingType_, ResultingType2>);
     static_assert(fusedBatchIOp.params.usedPlanes == 2);
     static_assert(fusedBatchIOp.params.default_value == 3.f);
-    static_assert(isReadType<ResultingType2>);
-    static_assert(isReadBackType<typename ResultingType2::Operation::Operation>);
-    static_assert(isTernaryType<typename ResultingType2::Operation::Operation::BackIOp>);
+    static_assert(opIs<ReadType, ResultingType2>);
+    static_assert(opIs<ReadBackType, typename ResultingType2::Operation::Operation>);
+    static_assert(opIs<TernaryType, typename ResultingType2::Operation::Operation::BackIOp>);
 
     return true;
 }
@@ -126,7 +126,7 @@ constexpr inline bool test_read_then_readback() {
     constexpr auto readIOp = RPerThrFloat::build(input);
 
     constexpr auto fusedOp = readIOp.then(Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>::build(Size(16,32), 0.5f));
-    static_assert(isReadBackType<decltype(fusedOp)>, "The IOp should be a ReadBack type");
+    static_assert(opIs<ReadBackType, decltype(fusedOp)>, "The IOp should be a ReadBack type");
 
     return true;
 }
@@ -186,21 +186,21 @@ int launch() {
     static_assert(is_fused_operation<typename ResType::Operation>::value);
     using ResOperationTuple = typename ResType::Operation::ParamsType;
     constexpr bool noIntermediateFusedOperation =
-        and_v<!is_fused_operation<ResOperationTuple::Operation>::value,
-        !is_fused_operation<ResOperationTuple::Next::Operation>::value,
-        !is_fused_operation<ResOperationTuple::Next::Next::Operation>::value,
-        !is_fused_operation<ResOperationTuple::Next::Next::Next::Operation>::value,
-        !is_fused_operation<ResOperationTuple::Next::Next::Next::Next::Operation>::value>;
+        and_v<!is_fused_operation<TypeAt_t<0, typename ResOperationTuple::Operations>>::value,
+              !is_fused_operation<TypeAt_t<1, typename ResOperationTuple::Operations>>::value,
+              !is_fused_operation<TypeAt_t<2, typename ResOperationTuple::Operations>>::value,
+              !is_fused_operation<TypeAt_t<3, typename ResOperationTuple::Operations>>::value,
+              !is_fused_operation<TypeAt_t<4, typename ResOperationTuple::Operations>>::value>;
     static_assert(noIntermediateFusedOperation);
 
     // All Unary
-    constexpr auto func = Instantiable<UFloatInt>{}.then(Instantiable<UIntFloat>{}).then(Instantiable<UFloatInt>{});
+    constexpr auto func = UFloatInt::build().then(UIntFloat::build()).then(UFloatInt::build());
 
     using Operations = decltype(func)::Operation::Operations;
     static_assert(Operations::size == 3);
-    static_assert(std::is_same_v<TypeAt_t<0,Operations>, UFloatInt>);
-    static_assert(std::is_same_v<TypeAt_t<1, Operations>, UIntFloat>);
-    static_assert(std::is_same_v<TypeAt_t<2, Operations>, UFloatInt>);
+    static_assert(std::is_same_v<TypeAt_t<0,Operations>, Unary<UFloatInt>>);
+    static_assert(std::is_same_v<TypeAt_t<1, Operations>, Unary<UIntFloat>>);
+    static_assert(std::is_same_v<TypeAt_t<2, Operations>, Unary<UFloatInt>>);
     static_assert(decltype(func)::Operation::exec(5.5f) == 5);
 
     constexpr auto op = BAddInt::build(45);
@@ -215,15 +215,15 @@ int launch() {
 
     constexpr auto someReadOp =
         PerThreadRead<ND::_2D, uchar3>::build(input).then(Cast<uchar3, float3>::build()).then(Resize<InterpolationType::INTER_LINEAR>::build(dstSize));
-    static_assert(isReadBackType<decltype(someReadOp)>, "Unexpected Operation Type for someReadOp");
-    static_assert(std::is_same_v<decltype(someReadOp.backIOp.backIOp.params), OperationTuple<PerThreadRead<ND::_2D, uchar3>, Cast<uchar3, float3>>>, "Unexpected type for params");
+    static_assert(opIs<ReadBackType, decltype(someReadOp)>, "Unexpected Operation Type for someReadOp");
+    static_assert(std::is_same_v<decltype(someReadOp.backIOp.backIOp.params), OperationTuple<Read<PerThreadRead<ND::_2D, uchar3>>, Unary<Cast<uchar3, float3>>>>, "Unexpected type for params");
 
     constexpr bool correct =
-        std::is_same_v<OperationTuple<PerThreadRead<ND::_2D, uchar3>, Cast<uchar3, float3>>, decltype(someReadOp.backIOp.backIOp.params)>;
+        std::is_same_v<OperationTuple<Read<PerThreadRead<ND::_2D, uchar3>>, Unary<Cast<uchar3, float3>>>, decltype(someReadOp.backIOp.backIOp.params)>;
     static_assert(correct, "Unexpected resulting type");
 
     constexpr auto finalOp = someReadOp.then(Mul<float3>::build(make_<float3>(3.f, 1.f, 32.f)));
-    static_assert(!isReadBackType<std::decay_t<decltype(finalOp)>>, "Unexpected type for finalOp");
+    static_assert(!opIs<ReadBackType, std::decay_t<decltype(finalOp)>>, "Unexpected type for finalOp");
 
     constexpr auto inputAlt = ReadSet<uchar3>::build({ { { 0,0,0 }, {128,128,1} } });
 

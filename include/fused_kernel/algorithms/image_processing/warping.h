@@ -1,4 +1,4 @@
-/* Copyright 2025 Oscar Amoros Huguet
+/* Copyright 2025-2026 Oscar Amoros Huguet
    Copyright 2025 Grup Mediapro S.L.U
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -47,7 +47,7 @@ namespace fk {
         FK_STATIC_STRUCT(WarpingCoords, SelfType)
         using Parent = BinaryOperation<Point, WarpingParameters<WT>, float2, WarpingCoords<WT>>;
         DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& thread, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType thread, const ParamsType& params) {
             const int x = thread.x;
             const int y = thread.y;
             const auto& transMatRaw = params.transformMatrix.data;
@@ -77,10 +77,10 @@ namespace fk {
         using Parent = ReadBackOperation<typename BackIOp_::Operation::ReadDataType,
                                          WarpingParameters<WT>,
                                          BackIOp_,
-                                         VectorType_t<float, cn<typename BackIOp_::Operation::ReadDataType>>,
+                                         float_<cn<typename BackIOp_::Operation::ReadDataType>>,
                                          Warping<WT, BackIOp_>>;
         DECLARE_READBACK_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const Point& thread, const ParamsType& params, const BackIOp& backIOp) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const Point thread, const ParamsType& params, const BackIOp& backIOp) {
             const float2 coord = WarpingCoords<WT>::exec(thread, params);
             const Size sourceSize(BackIOp::Operation::num_elems_x(thread, backIOp),
                                   BackIOp::Operation::num_elems_y(thread, backIOp));
@@ -91,20 +91,20 @@ namespace fk {
             }
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return opData.params.dstSize.width;
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return opData.params.dstSize.height;
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
-            return { num_elems_x(Point(), opData), num_elems_y(Point(), opData), num_elems_z(Point(), opData) };
+            return { num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
         }
     };
 
@@ -121,15 +121,15 @@ namespace fk {
                                                    Warping<WT, NullType>>;
         DECLARE_INCOMPLETEREADBACK_PARENT
 
-        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return opData.params.dstSize.width;
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
             return opData.params.dstSize.height;
         }
 
-        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point& thread, const OperationDataType& opData) {
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
             return 1;
         }
 

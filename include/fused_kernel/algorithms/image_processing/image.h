@@ -1,4 +1,5 @@
 /* Copyright 2025 Grup Mediapro S.L.U
+   Copyright 2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -57,10 +58,10 @@ namespace fk {
             return ptr();
         }
 
-        FK_HOST_CNST Image<PF> crop(const Point& p, const uint& newWidth, const uint& newHeight) {
+        FK_HOST_CNST Image<PF> crop(const Point p, const uint& newWidth, const uint& newHeight) {
             const uint newDataWidth = newWidth * PixelFormatTraits<PF>::rf.width_f;
             const uint newDataHeight = newHeight * PixelFormatTraits<PF>::rf.height_f;
-            const Point dataPoint(p.x * PixelFormatTraits<PF>::rf.width_f, p.y * PixelFormatTraits<PF>::rf.height_f);
+            const Point dataPoint{p.x * PixelFormatTraits<PF>::rf.width_f, p.y * PixelFormatTraits<PF>::rf.height_f, 0};
             PtrDims<ND::_2D> newDataDims{ newDataWidth, newDataHeight, data.dims().pitch };
             return Image<PF>(data.crop(dataPoint, newDataDims), newWidth, newHeight);
         }
@@ -86,7 +87,7 @@ namespace fk {
 #endif // defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED)
 #endif // defined(NVRTC_COMPILER)
 
-        FK_HOST_CNST VectorType_t<BaseType, PixelFormatTraits<PF>::cn> readAt(const Point& p) const {
+        FK_HOST_CNST VectorType_t<BaseType, PixelFormatTraits<PF>::cn> readAt(const Point p) const {
             return ReadYUV<PF>::exec(p, ptr());
         }
     };

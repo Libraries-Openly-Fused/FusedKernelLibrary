@@ -24,8 +24,8 @@ namespace fk {
     struct Rect_ {
         P x{ 0 }, y{0};
         S width{ 0 }, height{0};
-        FK_HOST_DEVICE_CNST Rect_(const Point& point, const Size& size) : x(point.x), y(point.y), width(size.width), height(size.height) {}
-        FK_HOST_DEVICE_CNST Rect_(const P& x_, const P& y_, const S& width_, const S& height_) : x(x_), y(y_), width(width_), height(height_) {}
+        FK_HOST_DEVICE_CNST Rect_(const Point point, const Size size) : x(point.x), y(point.y), width(size.width), height(size.height) {}
+        FK_HOST_DEVICE_CNST Rect_(const P x_, const P y_, const S width_, const S height_) : x(x_), y(y_), width(width_), height(height_) {}
         FK_HOST_DEVICE_CNST Rect_(){}
     };
 

@@ -1,4 +1,5 @@
 ﻿/* Copyright 2025 Grup Mediapro S.L.U (Oscar Amoros Huguet)
+   Copyright 2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -260,8 +261,6 @@ namespace fk {
 
 #if defined(__NVCC__) || CLANG_HOST_DEVICE
 #include <vector_types.h>
-#elif defined(NVRTC_COMPILER)
-// Nothing to include here
 #else
 using char1 = fk::Char1;
 using uchar1 = fk::Uchar1;

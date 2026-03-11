@@ -29,7 +29,7 @@ namespace fk {
         FK_STATIC_STRUCT(IsEven, SelfType)
         using Parent = UnaryOperation<I, bool, IsEven<I>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE auto exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE auto exec(const InputType input) {
             return cxp::is_even::f(input);
         }
     };
@@ -42,7 +42,7 @@ namespace fk {
         FK_STATIC_STRUCT(Max, SelfType)
         using Parent = BinaryOperation<I, P, O, Max<I, P, O, BinaryType>>;
         DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params) {
             return cxp::max::f(input, params);
         }
     };
@@ -55,7 +55,7 @@ namespace fk {
         FK_STATIC_STRUCT(Max, SelfType)
         using Parent = UnaryOperation<Tuple<I, P>, O, Max<I, P, O, UnaryType>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             return cxp::max::f(get<0>(input), get<1>(input));
         }
     };
@@ -68,7 +68,7 @@ namespace fk {
         FK_STATIC_STRUCT(Min, SelfType)
         using Parent = BinaryOperation<I, P, O, Min<I, P, O, BinaryType>>;
         DECLARE_BINARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input, const ParamsType& params) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params) {
             return cxp::min::f(input, params);
         }
     };
@@ -81,7 +81,7 @@ namespace fk {
         FK_STATIC_STRUCT(Min, SelfType)
         using Parent = UnaryOperation<Tuple<I, P>, O, Min<I, P, O, UnaryType>>;
         DECLARE_UNARY_PARENT
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             return cxp::min::f(get<0>(input), get<1>(input));
         }
     };
@@ -95,21 +95,21 @@ namespace fk {
         using Parent = UnaryOperation<Tuple<I1, I2>, bool, Equal<I1, I2>>;
         DECLARE_UNARY_PARENT
         template <int N = cn<I1>>
-        FK_HOST_DEVICE_FUSE std::enable_if_t<N==1, OutputType> exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE std::enable_if_t<N==1, OutputType> exec(const InputType input) {
             return get<0>(input) == get<1>(input);
         }
         template <int N = cn<I1>>
-        FK_HOST_DEVICE_FUSE std::enable_if_t<N == 2, OutputType> exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE std::enable_if_t<N == 2, OutputType> exec(const InputType input) {
             const auto result = get<0>(input) == get<1>(input);
             return result.x && result.y;
         }
         template <int N = cn<I1>>
-        FK_HOST_DEVICE_FUSE std::enable_if_t<N == 3, OutputType> exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE std::enable_if_t<N == 3, OutputType> exec(const InputType input) {
             const auto result = get<0>(input) == get<1>(input);
             return result.x && result.y && result.z;
         }
         template <int N = cn<I1>>
-        FK_HOST_DEVICE_FUSE std::enable_if_t<N == 4, OutputType> exec(const InputType& input) {
+        FK_HOST_DEVICE_FUSE std::enable_if_t<N == 4, OutputType> exec(const InputType input) {
             const auto result = get<0>(input) == get<1>(input);
             return result.x && result.y && result.z && result.w;
         }
