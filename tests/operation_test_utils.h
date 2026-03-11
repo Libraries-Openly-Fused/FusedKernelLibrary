@@ -283,6 +283,39 @@ inline bool comparePtrs(const fk::Ptr<D, T>& ptr1, const fk::Ptr<D, T>&ptr2) {
     }
 }
 
+template <fk::ND D, typename T, fk::TF TFVal = fk::TF::DISABLED>
+struct DummyBackIOp {
+    private:
+        using SelfType = DummyBackIOp<D, T, TFVal>;
+        using Parent = fk::ReadOperation<T, fk::PtrDims<D>, T, TFVal, SelfType>;
+
+    public:
+        FK_STATIC_STRUCT(DummyBackIOp, SelfType)
+        DECLARE_READ_PARENT
+        FK_HOST_DEVICE_FUSE OutputType exec(const fk::Point thread, const ParamsType& params) {
+            return make_set<OutputType>(thread.x + thread.y); 
+        }
+
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
+            return opData.params.x;
+        }
+
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
+            if constexpr (std::bool_constant<D >= fk::ND::_2D>::value) {
+                return opData.params.y;
+            } else {
+                return 1;
+            }
+        }
+
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
+            if constexpr (std::bool_constant<D >= fk::ND::_3D>::value) {
+                return opData.params.z;
+            } else {
+                return 1;
+            }
+        }
+};
 
 template <typename Operation, typename = void>
 struct TestCaseBuilder;
