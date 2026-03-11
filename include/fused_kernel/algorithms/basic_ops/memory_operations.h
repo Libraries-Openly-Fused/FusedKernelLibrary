@@ -67,11 +67,9 @@ namespace fk {
     };
 
     struct ReadOp {
-        template <typename PtrType>
-        FK_HOST_FUSE decltype(auto) build(PtrType&& ptr) {
-            constexpr ND D = std::decay_t<PtrType>::nd;
-            using PtrDataType = typename std::decay_t<PtrType>::Type;
-            return PerThreadRead<D, PtrDataType>::build(std::forward<PtrType>(ptr));
+        template <ND D, typename Type>
+        FK_HOST_FUSE decltype(auto) build(const Ptr<D, Type>& ptr) {
+            return PerThreadRead<D, Type>::build(ptr);
         }
         template <typename PtrType, size_t N>
         FK_HOST_FUSE decltype(auto) build(const std::array<PtrType, N>& ptrs) {
