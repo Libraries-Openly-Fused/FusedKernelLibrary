@@ -41,6 +41,11 @@ FusedKernelLibrary/
 
 ## Build System
 
+### ⚠️ Copilot Constraints
+- **Build Directory:** Always output compiled binaries, artifacts, or generated files to a `build` directory located strictly **outside** the current source folder (e.g., `../build`). Never create the build folder within the project repository.
+- **Source Directory** Never add any file that should not be part of the repository, in the source folder. Always create folders outside the source folder.
+- **Git Ignore:** As a consecuence of the previous two rules, under no circumstances should you modify, append to, or suggest changes to the `.gitignore` file.
+
 ### Requirements
 - **CMake ≥ 3.24** (CI uses cmake 4.2.1 custom install)
 - **C++17** standard required (enforced via `CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO`)
