@@ -164,8 +164,8 @@ auto fusedIOp = readIOp & unaryIOp1 & unaryIOp2 & writeIOp;
 
 ### Compiler Macros (`compiler_macros.h`)
 - `_MSC_VER_EXISTS` — 1 when compiling with MSVC
-- `CLANG_HOST_DEVICE` — 1 when clang compiles CUDA in host+device mode
-- `VS2017_COMPILER` / `NO_VS2017_COMPILER` — detect VS2017 compiler
+- `CLANG_HOST_DEVICE` — 1 when clang compiles CUDA in host+device mode #deprecated, we only suppport nvcc for CUDA compilation now
+- `VS2017_COMPILER` / `NO_VS2017_COMPILER` — detect VS2017 compiler #deprecated, we only support VS2022+ now
 - `FK_HOST_DEVICE_CNST`, `FK_HOST_FUSE`, `FK_DEVICE_FUSE`, etc. — cross-platform `__host__ __device__ __forceinline__ constexpr` equivalents defined in `utils.h`
 
 ### NVRTC Support
@@ -193,10 +193,9 @@ The library supports NVRTC (runtime compilation) via the `NVRTC_COMPILER` define
 
 1. **Windows/Ninja: empty nvcc path in `rules.ninja`** — Apply the `rules.ninja` patch in CI (`cmake-windows-amd64.yml` step "Configure CMake").
 2. **CUDA < 13 + `CUDA_ARCH=all`** — The build system automatically filters out GPU architectures below sm_70.
-3. **MSVC < 2019** — CPU backend is automatically disabled (`ENABLE_CPU OFF`).
-4. **Template depth** — `TEMPLATE_DEPTH` is set to 1000 via `cmake_init.cmake` for deeply nested fusion expressions.
-5. **`/bigobj` on MSVC** — Required due to large generated test binaries; added automatically in `add_generated_test.cmake`.
-6. **`/Zc:preprocessor` on MSVC** — Required to avoid traditional preprocessor warnings; added in `add_generated_test.cmake`.
+3. **Template depth** — `TEMPLATE_DEPTH` is set to 1000 via `cmake_init.cmake` for deeply nested fusion expressions.
+4. **`/bigobj` on MSVC** — Required due to large generated test binaries; added automatically in `add_generated_test.cmake`.
+5. **`/Zc:preprocessor` on MSVC** — Required to avoid traditional preprocessor warnings; added in `add_generated_test.cmake`.
 
 ## How to Add a New Operation
 
