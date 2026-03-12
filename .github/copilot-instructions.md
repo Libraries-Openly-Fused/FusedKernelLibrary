@@ -63,8 +63,8 @@ FusedKernelLibrary/
    
 export PATH=/home/cudeiro/cmake-4.2.1-linux-aarch64/bin/:$PATH
 export CUDACXX=/usr/local/cuda-12.9/bin/nvcc  #can be 13.0 or 13.2 but only on x86_64 linux
-export CC=g++11 # e.g. "g++-13", "clang++-21" on x86_64; "g++-11", "clang++-21" on arm64
-export CXX=g++11 # e.g. "g++-13", "clang++-21" on x86_64; "g++-11", "clang++-21" on arm64
+export CC=g++-11 # e.g. "g++-13", "clang++-21" on x86_64; "g++-11", "clang++-21" on arm64
+export CXX=g++-11 # e.g. "g++-13", "clang++-21" on x86_64; "g++-11", "clang++-21" on arm64
 # Configure
 cmake -G "Ninja" -B build -DCMAKE_BUILD_TYPE=Release -S .
 
