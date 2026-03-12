@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**FusedKernelLibrary (FKL)** is a header-only C++17 library that enables automatic GPU kernel fusion (Vertical, Horizontal, Backwards Vertical, and Divergent Horizontal Fusion) for CUDA and CPU backends. The library lives under `include/fused_kernel/`. All public types are in the `fk` namespace.
+**FusedKernelLibrary (FKL)** is a header-only C++17 library that enables automatic GPU kernel fusion (Vertical, Horizontal, Backwards Vertical, and Divergent Horizontal Fusion) for CUDA and CPU backends. The library lives under `include/fused_kernel/`. All public types (except for vector types) are in the `fk` namespace.
 
 - The primary entry point header is `include/fused_kernel/fused_kernel.h`.
 - The main user-facing function is `fk::executeOperations<DPPType>(stream, iop1, iop2, ...)`.
@@ -25,10 +25,12 @@ FusedKernelLibrary/
 │   │   ├── execution_model/ # Operation types, instantiable ops, DPPs, executors, stream
 │   │   ├── data/            # Data types: Ptr2D, Tensor, Size, Rect, Point, Tuple, Array, etc.
 │   │   ├── utils/           # Compiler macros, template utils, type lists, vector utils
-│   │   └── constexpr_libs/  # Constexpr math (constexpr_cmath.h)
+│   │   ├── constexpr_libs/  # Constexpr math (constexpr_cmath.h)
+│   │   └── core.h           # Include everything in core folder
 │   └── algorithms/
-│       ├── basic_ops/       # Arithmetic, cast, logical, memory ops, set, static loop, vector ops
-│       └── image_processing/ # Crop, Resize, ColorConversion, BorderReader, Interpolation, Warp, etc.
+│       ├── basic_ops/        # Arithmetic, cast, logical, memory ops, set, static loop, vector ops
+│       ├── image_processing/ # Crop, Resize, ColorConversion, BorderReader, Interpolation, Warp, etc.
+│       └── algorithms.h      # Include everything in Algorithms
 ├── lib/                     # CMake INTERFACE library target (FKL::FKL) and install config
 ├── tests/                   # Integration tests (discovered from .h files by CMake)
 ├── utests/                  # Unit tests (discovered from .h files by CMake)
@@ -50,8 +52,8 @@ FusedKernelLibrary/
 ### CMake Options
 | Option | Default | Description |
 |---|---|---|
-| `ENABLE_CPU` | ON | Enable CPU backend |
-| `ENABLE_CUDA` | ON (if nvcc found) | Enable CUDA backend |
+| `ENABLE_CPU` | ON | Enable tests on CPU backend |
+| `ENABLE_CUDA` | ON (if nvcc found) | Enable tests on CUDA backend |
 | `BUILD_TEST` | ON | Build integration tests under `tests/` |
 | `BUILD_UTEST` | ON | Build unit tests under `utests/` |
 | `ENABLE_BENCHMARK` | OFF | Build benchmarks under `benchmarks/` |
@@ -99,9 +101,9 @@ Workflows trigger on **pull requests** targeting branches matching `LTS-C*`. All
 
 | Workflow | Runner | Compilers | CUDA versions |
 |---|---|---|---|
-| `cmake-linux-amd64.yml` | `linux, x64` | `g++-13`, `clang++-21` | 12.9, 13.0,13.2 |
+| `cmake-linux-amd64.yml` | `linux, x64` | `g++-13`, `clang++-21` | 12.9,13.0,13.2 |
 | `cmake-linux-arm64.yml` | `linux, arm64` | `g++-11`, `clang++-21` | 12.9 |
-| `cmake-windows-amd64.yml` | `windows, x64` | `cl`, `clang-cl` (LLVM 21.1.0) | 12.9, 13.0,13.2 |
+| `cmake-windows-amd64.yml` | `windows, x64` | `cl`, `clang-cl` (LLVM 21.1.0) | 12.9,13.0,13.2 |
 
 Compilers are set via `CC`, `CXX`, `CUDACXX` environment variables in the "Set reusable strings" step — not as CMake `-D` flags.
 
@@ -139,6 +141,7 @@ Operations are classified by their `InstanceType` member (defined in `operation_
 | `UnaryType` | `OutputType exec(InputType)` | Pure computation, no params |
 | `BinaryType` | `OutputType exec(InputType, ParamsType)` | Computation with params |
 | `ReadBackType` | `OutputType exec(Point, ParamsType, BackIOp)` | Read with backward-fused op |
+| `IncompleteReadBackType` | `` | ReadBackType that has no info on the BackIOp type and has no exec function, but can store params |
 | `TernaryType` | `OutputType exec(InputType, ParamsType, BackIOp)` | Compute with params and backward op |
 | `MidWriteType` | `InputType exec(Point, InputType, ParamsType)` | Writes and passes input through |
 
@@ -146,14 +149,14 @@ Operations are classified by their `InstanceType` member (defined in `operation_
 Operations are wrapped in `InstantiableOperation` structs that hold runtime parameters. Aliases:
 - `fk::Read<Op>`, `fk::Write<Op>`, `fk::Unary<Op>`, `fk::Binary<Op>`, `fk::Ternary<Op>`, `fk::ReadBack<Op>`, `fk::MidWrite<Op>`, `fk::Open<Op>`, `fk::Closed<Op>`
 - Use `fk::Instantiable<Op>` to automatically select the right wrapper based on `Op::InstanceType`
-
-Operations are constructed via a static `build(...)` method that returns the wrapped IOp.
+ 
+Instantible Operations (IOps) are constructed via a static `build(...)` method on each Operation that returns the wrapped IOp.
 
 ### Data Parallel Patterns (DPPs)
 DPPs determine how threads are organized. The main one is `TransformDPP<THREAD_FUSION>` (where `THREAD_FUSION` defaults to `false`). Pass the DPP as the first template argument to `executeOperations`.
 
 ### Key Data Types
-- `fk::Ptr2D<T>` / `fk::Ptr3D<T>` — 2D/3D pitched GPU pointers
+- `fk::Ptr1D<T>` / `fk::Ptr2D<T>` / `fk::Ptr3D<T>` — 1D/2D/3D pitched GPU pointers
 - `fk::Tensor<T>` — contiguous multi-plane GPU array
 - `fk::Size` — width/height size
 - `fk::Rect` — x, y, width, height rectangle
@@ -164,27 +167,26 @@ DPPs determine how threads are organized. The main one is `TransformDPP<THREAD_F
 ### Fusion API (`.then()` and `operator&`)
 IOps support chaining:
 ```cpp
-auto fusedIOp = readIOp.then(unaryIOp1, unaryIOp2, writeIOp);
+auto fusedIOp = readIOp.then(unaryIOp1).then(unaryIOp2).then(writeIOp);
 // equivalent to
 auto fusedIOp = readIOp & unaryIOp1 & unaryIOp2 & writeIOp;
 ```
 
 ### Compiler Macros (`compiler_macros.h`)
 - `_MSC_VER_EXISTS` — 1 when compiling with MSVC
-- `CLANG_HOST_DEVICE` — 1 when clang compiles CUDA in host+device mode #will be deprecated in a future version, we build and test with VS2022+ minimum now
-- `VS2017_COMPILER` / `NO_VS2017_COMPILER` — detect VS2017 compiler #will be deprecated in a future version, we build and test with VS2022+ minimum now
-- `FK_HOST_DEVICE_CNST`, `FK_HOST_FUSE`, `FK_DEVICE_FUSE`, etc. — cross-platform `__host__ __device__ __forceinline__ constexpr` equivalents defined in `utils.h`
-
-### NVRTC Support
-The library supports NVRTC (runtime compilation) via the `NVRTC_COMPILER` define. When set, `INSTANTIABLE_OPERATION_THEN` and some host-only features are disabled.
+- `FK_HOST_DEVICE_CNST`, `FK_HOST_FUSE`, `FK_DEVICE_FUSE`, etc.
+- CNST means __forceinline__ constexpr with nvcc, inline constexpr with CPU compilers.
+- FUSE means __forceinline__ static constexpr with nvcc, inline static constexpr with CPU compilers.
+- HOST means __host__ with nvcc, nothing with CPU compilers.
+- DEVICE  means __device__ with nvcc, nothing with CPU compilers.
 
 ## Code Style
 
 - **Formatting**: LLVM-based, 4-space indent, 120-column limit (`.clang-format` in repo root)
 - **C++ Standard**: C++17 strictly (no extensions)
 - **Copyright header**: Every file begins with an Apache 2.0 license header
-- **Include guards**: `#ifndef FK_XXX_H` / `#define FK_XXX_H` (not `#pragma once` in most files)
-- **Namespace**: All public API is in namespace `fk`
+- **Include guards**: `#ifndef FK_XXX_H` / `#define FK_XXX_H` (not `#pragma once`)
+- **Namespace**: All public API is in namespace `fk` except for vector types
 - **Templates**: Heavy use of SFINAE (`std::enable_if_t`), type traits, and variadic templates
 - **No exceptions in device code**: Only host code uses `std::runtime_error`
 - **Pointer alignment**: Right (i.e., `T* ptr`, not `T *ptr`)
@@ -206,9 +208,11 @@ The library supports NVRTC (runtime compilation) via the `NVRTC_COMPILER` define
 
 ## How to Add a New Operation
 
-1. Create a struct in `include/fused_kernel/algorithms/` (or `core/execution_model/`) with:
-   - `using InstanceType = fk::<SomeOperationType>;`
-   - `using InputType = ...;` / `using OutputType = ...;` / `using ParamsType = ...;` as required
-   - A static `FK_HOST_DEVICE_CNST`/`FK_DEVICE_FUSE` `exec(...)` function matching the InstanceType signature
+1. Create a struct in `include/fused_kernel/algorithms/` with:
+   - `private: using SelfType = StructName<TemplateTypes...>;`
+   - `using Parent = /*Parent operation according to the InstanceType of the operation*/;`
+   - `public: FK_STATIC_STRUCT(StructName, SelfType)`
+   - `DECLARE_/*use macro according to InstanceType*/_PARENT`
+   - A `FK_HOST_DEVICE_FUSE` `exec(...)` function matching the InstanceType signature
 2. If the operation needs a `build()` factory, wrap it in an `Instantiable<YourOp>` specialization or provide a custom `build()` static method
-3. Add a test `.h` in `tests/` or `utests/` with `int launch()` to exercise it
+3. Add a test `.h` in `utests/` with `int launch()` to exercise it
