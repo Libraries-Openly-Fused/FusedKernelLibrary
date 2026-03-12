@@ -51,6 +51,21 @@ namespace fk {
       public:
         FK_STATIC_STRUCT(AddBorderComplete, SelfType)
         DECLARE_READBACK_PARENT
+
+        FK_HOST_DEVICE_FUSE OutputType exec(const Point thread, const ParamsType& params, const BackIOp& backIOp) {
+            OutputType result{};
+            if (thread.x < params.left || thread.x >= params.left + BackIOp_::Operation::num_elems_x(thread, backIOp) ||
+                thread.y < params.top  || thread.y >= params.top + BackIOp_::Operation::num_elems_y(thread, backIOp))
+            {
+                result = params.borderValue;
+            } 
+            else
+            {
+                result = BackIOp::Operation::exec(Point{thread.x - params.left, thread.y - params.top, thread.z}, backIOp);
+            }
+            return result;
+        }
+
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return opData.params.left + opData.params.right + BackIOp_::Operation::num_elems_x(thread, opData.backIOp);
         }

@@ -288,10 +288,41 @@ struct DummyBackIOp {
     private:
         using SelfType = DummyBackIOp<D, T, TFVal>;
         using Parent = fk::ReadOperation<T, fk::PtrDims<D>, T, TFVal, SelfType>;
-
     public:
         FK_STATIC_STRUCT(DummyBackIOp, SelfType)
-        DECLARE_READ_PARENT
+      using ParamsType = typename Parent::ParamsType;
+      using ReadDataType = typename Parent::ReadDataType;
+      using InstanceType = typename Parent::InstanceType;
+      using OutputType = typename Parent::OutputType;
+      using OperationDataType = typename Parent::OperationDataType;
+      using InstantiableType = typename Parent::InstantiableType;
+      static constexpr bool IS_FUSED_OP = Parent::IS_FUSED_OP;
+      static constexpr bool THREAD_FUSION = Parent::THREAD_FUSION;
+      template <uint ELEMS_PER_THREAD = 1>
+      static constexpr inline auto exec(const Point thread, const OperationDataType &opData) {
+          if constexpr (std::bool_constant<THREAD_FUSION>::value) {
+              return exec<ELEMS_PER_THREAD>(thread, opData.params);
+          } else {
+              return exec(thread, opData.params);
+          }
+      }
+      static constexpr inline InstantiableType build(const OperationDataType &opData) { return {opData}; }
+      static constexpr inline InstantiableType build(const ParamsType &params) { return {{params}}; }
+      template <size_t B, typename... ArrayTypes>
+      static constexpr inline auto build_batch(const std::array<ArrayTypes, B> &...arrays) {
+          return BatchUtils::template build_batch<typename Parent::Child>(arrays...);
+      }
+      template <size_t B, typename... ArrayTypes>
+      static constexpr inline auto build(const std::array<ArrayTypes, B> &...arrays) {
+          const auto iOpArray = build_batch(arrays...);
+          return BatchRead<PlanePolicy::PROCESS_ALL>::build(iOpArray);
+      }
+      template <size_t B, typename DefaultValueType, typename... ArrayTypes>
+      static constexpr inline auto build(const int &usedPlanes, const DefaultValueType &defaultValue,
+                                         const std::array<ArrayTypes, B> &...arrays) {
+          const auto iOpArray = build_batch(arrays...);
+          return BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT>::build(iOpArray, usedPlanes, defaultValue);
+      }
         FK_HOST_DEVICE_FUSE OutputType exec(const fk::Point thread, const ParamsType& params) {
             return make_set<OutputType>(thread.x + thread.y); 
         }
