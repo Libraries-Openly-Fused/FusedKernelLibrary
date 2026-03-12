@@ -149,6 +149,8 @@ Operations are classified by their `InstanceType` member (defined in `operation_
 | `IncompleteReadBackType` | `` | ReadBackType that has no info on the BackIOp type and has no exec function, but can store params |
 | `TernaryType` | `OutputType exec(InputType, ParamsType, BackIOp)` | Compute with params and backward op |
 | `MidWriteType` | `InputType exec(Point, InputType, ParamsType)` | Writes and passes input through |
+| `OpenType` | `OutputType exec(Point, InputType, ParamsType)` | Gets the input in registers via InputType parameter, and returns result in registers with OutputType. It can have a MidWrite Operation internally |
+| `ClosedType` | `void exec(Point, ParamsType)` | Reads from memory and writes the results to memory, for the coordinate passed in Point. It effectively performs a transform on each coordinate. |
 
 ### Instantiable Operations (IOps)
 Operations are wrapped in `InstantiableOperation` structs that hold runtime parameters. Aliases:
