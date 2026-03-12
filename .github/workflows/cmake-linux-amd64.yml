@@ -21,10 +21,14 @@ jobs:
             cuda_toolkit: "12.9"
           - host_compiler: "g++-13"
             cuda_toolkit: "13.0"
+          - host_compiler: "g++-13"
+            cuda_toolkit: "13.2"                
           - host_compiler: "clang++-21"
             cuda_toolkit: "12.9"
           - host_compiler: "clang++-21"
             cuda_toolkit: "13.0"
+          - host_compiler: "clang++-21"
+            cuda_toolkit: "13.2"  
 
     steps:
       - uses: actions/checkout@v4

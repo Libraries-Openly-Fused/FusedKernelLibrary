@@ -326,22 +326,27 @@ namespace fk {
 
     namespace detail {
         template <typename F, typename TupleT, size_t... Is>
-        // decltype(auto) lets the compiler figure out the return type
-        FK_HOST_DEVICE_CNST decltype(auto) apply_impl(F &&f, TupleT &&t, std::index_sequence<Is...>) {
-
-            // We simply return the result of the function call.
+        FK_HOST_CNST decltype(auto) apply_impl(F &&f, TupleT&&t, std::index_sequence<Is...>) {
+            return std::forward<F>(f)(get<Is>(std::forward<TupleT>(t))...);
+        }
+        template <typename F, typename TupleT, size_t... Is>
+        FK_HOST_DEVICE_CNST decltype(auto) apply_d_impl(F &&f, TupleT&&t, std::index_sequence<Is...>) {
             return std::forward<F>(f)(get<Is>(std::forward<TupleT>(t))...);
         }
     } // namespace detail
 
-    template <typename F, typename... Ts>
-    FK_HOST_DEVICE_CNST decltype(auto) apply(F &&f, Tuple<Ts...> &t) {
-        return detail::apply_impl(std::forward<F>(f), t, std::make_index_sequence<sizeof...(Ts)>{});
+    template <typename F, typename TupleType>
+    FK_HOST_CNST decltype(auto) apply(F&& f, TupleType&& t) {
+        static_assert(isTuple_v<std::decay_t<TupleType>>, "fk::apply requires an fk::Tuple as second argument");
+        return detail::apply_impl(std::forward<F>(f), std::forward<TupleType>(t),
+            std::make_index_sequence<std::decay_t<TupleType>::size>{});
     }
 
-    template <typename F, typename... Ts>
-    FK_HOST_DEVICE_CNST decltype(auto) apply(F &&f, const Tuple<Ts...> &t) {
-        return detail::apply_impl(std::forward<F>(f), t, std::make_index_sequence<sizeof...(Ts)>{});
+    template <typename F, typename TupleType>
+    FK_HOST_DEVICE_CNST decltype(auto) apply_d(F&& f, TupleType&& t) {
+        static_assert(isTuple_v<std::decay_t<TupleType>>, "fk::apply_d requires an fk::Tuple as second argument");
+        return detail::apply_d_impl(std::forward<F>(f), std::forward<TupleType>(t),
+            std::make_index_sequence<std::decay_t<TupleType>::size>{});
     }
 
     // Struct to hold a parameter pack, and be able to pass it arround
@@ -355,12 +360,12 @@ namespace fk {
 
     // Function that fills the OperationSequence struct, from a parameter pack
     template <typename... IOpTypes>
-    FK_HOST_DEVICE_CNST auto buildOperationSequence(const IOpTypes&... instantiableOperationInstances) {
+    FK_HOST_CNST auto buildOperationSequence(const IOpTypes&... instantiableOperationInstances) {
         return InstantiableOperationSequence<IOpTypes...> {{instantiableOperationInstances...}};
     }
 
     template <typename... IOpTypes>
-    FK_HOST_DEVICE_CNST auto buildOperationSequence_tup(const Tuple<IOpTypes...>& instantiableOperationInstances) {
+    FK_HOST_CNST auto buildOperationSequence_tup(const Tuple<IOpTypes...>& instantiableOperationInstances) {
         return apply([](const auto&... args) {
             return buildOperationSequence(args...);
             }, instantiableOperationInstances);
@@ -368,12 +373,12 @@ namespace fk {
 
     // Util to insert an element before the last element of a tuple
     template <typename T, typename Tuple>
-    FK_HOST_DEVICE_CNST auto insert_before_last_tup(const T& t, const Tuple& args) {
+    FK_HOST_CNST auto insert_before_last_tup(const T& t, const Tuple& args) {
         return tuple_insert<Tuple::size - 1>(t, args);
     }
 
     template<typename T, typename... Args>
-    FK_HOST_DEVICE_CNST auto insert_before_last(const T& t, const Args&... args) {
+    FK_HOST_CNST auto insert_before_last(const T& t, const Args&... args) {
         return tuple_insert<sizeof...(Args) - 1>(t, Tuple<Args...>{args...});
     }
 
@@ -381,7 +386,7 @@ namespace fk {
     struct GetFirst {
         using OutputType = FirstType;
         template <int Idx>
-        static constexpr inline FirstType translate(const int& usedPlanes, const std::pair<FirstType, SecondType>& a_pair) {
+        FK_HOST_FUSE FirstType translate(const int& usedPlanes, const std::pair<FirstType, SecondType>& a_pair) {
             return a_pair.first;
         }
     };
@@ -390,7 +395,7 @@ namespace fk {
     struct GetSecond {
         using OutputType = SecondType;
         template <int Idx>
-        static constexpr inline SecondType translate(const int& usedPlanes, const std::pair<FirstType, SecondType>& a_pair) {
+        FK_HOST_FUSE SecondType translate(const int& usedPlanes, const std::pair<FirstType, SecondType>& a_pair) {
             return a_pair.second;
         }
     };
