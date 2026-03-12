@@ -155,7 +155,7 @@ Operations are wrapped in `InstantiableOperation` structs that hold runtime para
 - `fk::Read<Op>`, `fk::Write<Op>`, `fk::Unary<Op>`, `fk::Binary<Op>`, `fk::Ternary<Op>`, `fk::ReadBack<Op>`, `fk::MidWrite<Op>`, `fk::Open<Op>`, `fk::Closed<Op>`
 - Use `fk::Instantiable<Op>` to automatically select the right wrapper based on `Op::InstanceType`
  
-Instantible Operations (IOps) are constructed via a static `build(...)` method on each Operation that returns the wrapped IOp.
+Instantiable Operations (IOps) are constructed via a static `build(...)` method on each Operation that returns the wrapped IOp.
 
 ### Data Parallel Patterns (DPPs)
 DPPs determine how threads are organized. The main one is `TransformDPP<THREAD_FUSION>` (where `THREAD_FUSION` defaults to `false`). Pass the DPP as the first template argument to `executeOperations`.
