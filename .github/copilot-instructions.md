@@ -61,10 +61,10 @@ FusedKernelLibrary/
 ```bash
 #setup compilers
    
-export $PATH=/home/cudeiro/cmake-4.2.1-linux-aarch64/bin/:$PATH
-export $CUDACXX=/usr/local/cuda-12.9/bin/nvcc  #can be 13.0 or 13.2 but only on x86_64 linux
-export $CC=g++11 # e.g. "g++-13", "clang++-21" on x86_64; "g++-11", "clang++-21" on arm64
-export $CXX=g++11 # e.g. "g++-13", "clang++-21" on x86_64; "g++-11", "clang++-21" on arm64
+export PATH=/home/cudeiro/cmake-4.2.1-linux-aarch64/bin/:$PATH
+export CUDACXX=/usr/local/cuda-12.9/bin/nvcc  #can be 13.0 or 13.2 but only on x86_64 linux
+export CC=g++11 # e.g. "g++-13", "clang++-21" on x86_64; "g++-11", "clang++-21" on arm64
+export CXX=g++11 # e.g. "g++-13", "clang++-21" on x86_64; "g++-11", "clang++-21" on arm64
 # Configure
 cmake -G "Ninja" -B build -DCMAKE_BUILD_TYPE=Release -S .
 
@@ -171,8 +171,8 @@ auto fusedIOp = readIOp & unaryIOp1 & unaryIOp2 & writeIOp;
 
 ### Compiler Macros (`compiler_macros.h`)
 - `_MSC_VER_EXISTS` — 1 when compiling with MSVC
-- `CLANG_HOST_DEVICE` — 1 when clang compiles CUDA in host+device mode #deprecated, we only suppport nvcc for CUDA compilation now
-- `VS2017_COMPILER` / `NO_VS2017_COMPILER` — detect VS2017 compiler #deprecated, we only support VS2022+ now
+- `CLANG_HOST_DEVICE` — 1 when clang compiles CUDA in host+device mode #will be deprecated in a future version, we build and test with VS2022+ minimum now
+- `VS2017_COMPILER` / `NO_VS2017_COMPILER` — detect VS2017 compiler #will be deprecated in a future version, we build and test with VS2022+ minimum now
 - `FK_HOST_DEVICE_CNST`, `FK_HOST_FUSE`, `FK_DEVICE_FUSE`, etc. — cross-platform `__host__ __device__ __forceinline__ constexpr` equivalents defined in `utils.h`
 
 ### NVRTC Support
