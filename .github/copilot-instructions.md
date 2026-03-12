@@ -42,15 +42,15 @@ FusedKernelLibrary/
 ### Requirements
 - **CMake ≥ 3.24** (CI uses cmake 4.2.1 custom install)
 - **C++17** standard required (enforced via `CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO`)
-- **CUDA 12.x or 13.x** — CUDA 11 is **not** supported
-- **Host compilers**: `g++-13`, `g++-11` (ARM64), `clang++-21`, `cl` (MSVC 14.44), `clang-cl`
-- Only **nvcc** is supported as the CUDA compiler (clang-as-CUDA-compiler is not supported)
+- **CUDA 12.x or 13.x** 
+- **Host compilers**: `g++-13`, `g++-11` (ARM64), `clang++-21`, `cl` (MSVC 14.44,MSVC 14.50), `clang-cl`
+- Only **nvcc** is supported as the CUDA compiler 
 - **Ninja** generator is used in CI; Visual Studio generator also works on Windows
 
 ### CMake Options
 | Option | Default | Description |
 |---|---|---|
-| `ENABLE_CPU` | ON | Enable CPU backend (disabled for MSVC < 2019) |
+| `ENABLE_CPU` | ON | Enable CPU backend |
 | `ENABLE_CUDA` | ON (if nvcc found) | Enable CUDA backend |
 | `BUILD_TEST` | ON | Build integration tests under `tests/` |
 | `BUILD_UTEST` | ON | Build unit tests under `utests/` |
@@ -59,6 +59,12 @@ FusedKernelLibrary/
 
 ### Build Commands (Linux)
 ```bash
+#setup compilers
+   
+export $PATH=/home/cudeiro/cmake-4.2.1-linux-aarch64/bin/:$PATH
+export $CUDACXX=/usr/local/cuda-12.9/bin/nvcc  #can be 13.0 or 13.2 but only on x86_64 linux
+export $CC=g++11 # e.g. "g++-13", "clang++-21" on x86_64; "g++-11", "clang++-21" on arm64
+export $CXX=g++11 # e.g. "g++-13", "clang++-21" on x86_64; "g++-11", "clang++-21" on arm64
 # Configure
 cmake -G "Ninja" -B build -DCMAKE_BUILD_TYPE=Release -S .
 
@@ -72,6 +78,7 @@ cd build && ctest --build-config Release --output-junit test_results.xml
 ### Build Commands (Windows, in VS Developer Shell with Ninja)
 ```powershell
 # Set compilers via env vars (as CI does)
+# note:CUDA Toolkit v12.9 can also be 13.0 or 13.2 but only 13.2 supports 14.50 developer tools (MSVC 2026)
 $env:CUDACXX = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9\bin\nvcc.exe"
 $env:CC = "cl"  # or "clang-cl"
 $env:CXX = "cl"
