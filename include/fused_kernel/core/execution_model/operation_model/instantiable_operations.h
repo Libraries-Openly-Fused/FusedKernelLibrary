@@ -364,6 +364,16 @@ FK_HOST_CNST auto then(const ContinuationIOp& cIOp, const ContinuationIOps&... c
     };
 
     template <typename Operation>
+    struct InstantiableOperationType<Operation, std::enable_if_t<opIs<OpenType, Operation>>> {
+        using type = Open<Operation>;
+    };
+
+    template <typename Operation>
+    struct InstantiableOperationType<Operation, std::enable_if_t<opIs<ClosedType, Operation>>> {
+        using type = Closed<Operation>;
+    };
+
+    template <typename Operation>
     using Instantiable = typename InstantiableOperationType<Operation>::type;
 } // namespace fk
 
