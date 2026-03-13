@@ -39,6 +39,22 @@ namespace fk {
         else {
             Executor<TransformDPP<PA>>::executeOperations(stream, ReadSet<T>::build(value, outputPtr.dims()), PerThreadWrite<D, T>::build(output));
         }
+#elif HIP_HOST_DEVICE
+        if constexpr (PA == ParArch::GPU_AMD) {
+            if (outputPtr.getMemType() == MemType::Device || outputPtr.getMemType() == MemType::DeviceAndPinned) {
+                Executor<TransformDPP<ParArch::GPU_AMD>>::executeOperations(stream, ReadSet<T>::build(value, outputPtr.dims()), PerThreadWrite<D, T>::build(output));
+                if (outputPtr.getMemType() == MemType::DeviceAndPinned) {
+                    Stream_<ParArch::CPU> cpuStream;
+                    Executor<TransformDPP<ParArch::CPU>>::executeOperations(cpuStream, ReadSet<T>::build(value, outputPtr.dims()), PerThreadWrite<D, T>::build(outputPtr.ptrPinned()));
+                }
+            }
+            else {
+                Executor<TransformDPP<ParArch::GPU_AMD>>::executeOperations(stream, ReadSet<T>::build(value, outputPtr.dims()), PerThreadWrite<D, T>::build(output));
+            }
+        }
+        else {
+            Executor<TransformDPP<PA>>::executeOperations(stream, ReadSet<T>::build(value, outputPtr.dims()), PerThreadWrite<D, T>::build(output));
+        }
 #else
         Executor<TransformDPP<PA>>::executeOperations(stream, ReadSet<T>::build(value, outputPtr.dims()), PerThreadWrite<D, T>::build(outputPtr));
 #endif
