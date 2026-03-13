@@ -31,6 +31,13 @@ function (discover_tests DIR)
                 add_generated_test("${TARGET_NAME}"  "${TEST_SOURCE}" "cu"  "${DIR_RELATIVE_PATH}")
                 add_cuda_to_test("${TARGET_NAME}_cu")                           
             endif()
+        endif()
+
+        if (CMAKE_HIP_COMPILER AND ENABLE_HIP)
+            if (${POS_ONLY_CPU} EQUAL -1) #if the source file does not contain "__ONLY_CPU__"
+                add_generated_test("${TARGET_NAME}"  "${TEST_SOURCE}" "hip"  "${DIR_RELATIVE_PATH}")
+                add_hip_to_test("${TARGET_NAME}_hip")
+            endif()
         endif()         
     endforeach()   
 endfunction()

@@ -36,6 +36,16 @@ else()
     message(STATUS "CUDA compiler not found, CUDA support will be disabled.")     
 endif()
 
+check_language(HIP)
+if (CMAKE_HIP_COMPILER)
+    option (ENABLE_HIP "Enable HIP/ROCm AMD GPU support" ON)
+    if (${ENABLE_HIP})
+        include(cmake/hip_init.cmake)
+    endif()
+else()
+    message(STATUS "HIP compiler not found, HIP support will be disabled.")
+endif()
+
 add_subdirectory(include)
 add_subdirectory(lib)
 
