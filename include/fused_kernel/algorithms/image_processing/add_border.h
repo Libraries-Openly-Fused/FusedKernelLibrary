@@ -42,9 +42,9 @@ namespace fk {
     struct AddBorderComplete<AddBorderType::CONSTANT, BackIOp_> {
       private:
         using SelfType = AddBorderComplete<AddBorderType::CONSTANT, BackIOp_>;
-        using ParentType =
+        using Parent =
             ReadBackOperation<typename BackIOp_::Operation::OutputType,
-                              AddBorderParams<AddBorderType::CONSTANT>,
+                              AddBorderParams<AddBorderType::CONSTANT, typename BackIOp_::Operation::OutputType>,
                               BackIOp_,
                               typename BackIOp_::Operation::OutputType,
                               SelfType>;
@@ -80,8 +80,31 @@ namespace fk {
     template <typename BackIOp_>
     struct AddBorderComplete<AddBorderType::BORDER_READER, BackIOp_>
     {
-        using ParamsType =  AddBorderParams<AddBorderType::BORDER_READER, typename BackIOp_::Operation::OutputType>;
-        using BackIOp = BackIOp_;
+        private:
+        using SelfType = AddBorderComplete<AddBorderType::BORDER_READER, BackIOp_>;
+        using Parent =
+            ReadBackOperation<typename BackIOp_::Operation::OutputType,
+                              AddBorderParams<AddBorderType::BORDER_READER>,
+                              BackIOp_,
+                              typename BackIOp_::Operation::OutputType,
+                              SelfType>;
+      public:
+        FK_STATIC_STRUCT(AddBorderComplete, SelfType)
+        DECLARE_READBACK_PARENT
+
+        FK_HOST_DEVICE_FUSE OutputType exec(const Point thread, const ParamsType& params, const BackIOp& backIOp) {
+            return BackIOp::Operation::exec(Point{thread.x - params.left, thread.y - params.top, thread.z}, backIOp);
+        }
+
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
+            return opData.params.left + opData.params.right + BackIOp_::Operation::num_elems_x(thread, opData.backIOp);
+        }
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
+            return opData.params.top + opData.params.bottom + BackIOp_::Operation::num_elems_y(thread, opData.backIOp);
+        }
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
+            return 1;
+        }
     };
 
     // Incomplete
@@ -112,12 +135,12 @@ namespace fk {
     // Builder
     struct AddBorder {
         template <typename T, typename BackIOp>
-        FK_HOST_FUSE auto build(const int top, const int bottom, const int left, const int right, const T borderValue, const BackIOp& iOp)
+        FK_HOST_FUSE auto build(const BackIOp& iOp, const int top, const int bottom, const int left, const int right, const T borderValue)
         {
             return AddBorderComplete<AddBorderType::CONSTANT, BackIOp>{{{top, bottom, left, right, borderValue}, iOp}};
         }
         template <typename BackIOp>
-        FK_HOST_FUSE auto build(const int top, const int bottom, const int left, const int right, const BackIOp& iOp)
+        FK_HOST_FUSE auto build(const BackIOp& iOp, const int top, const int bottom, const int left, const int right)
         {
             return AddBorderComplete<AddBorderType::BORDER_READER, BackIOp>{{{top, bottom, left, right}, iOp}};
         }
@@ -125,9 +148,14 @@ namespace fk {
         template <typename T>
         FK_HOST_FUSE auto build(const int top, const int bottom, const int left, const int right, const T borderValue)
         {
-            return AddBorderIncomplete
+            return AddBorderIncomplete<AddBorderType::CONSTANT, T>::build(
+                AddBorderParams<AddBorderType::CONSTANT, T>{top, bottom, left, right, borderValue}, NullType{});
         }
-        FK_HOST_FUSE auto build(const int top, const int bottom, const int left, const int right);
+        FK_HOST_FUSE auto build(const int top, const int bottom, const int left, const int right)
+        {
+            return AddBorderIncomplete<AddBorderType::BORDER_READER>::build(
+                AddBorderParams<AddBorderType::BORDER_READER>{top, bottom, left, right}, NullType{});
+        }
     };
 } // namespace fk
 
