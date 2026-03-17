@@ -15,7 +15,7 @@
 #ifndef FK_INSTANTIABLE_DATA_PARALLEL_PATTERNS
 #define FK_INSTANTIABLE_DATA_PARALLEL_PATTERNS
 
-#if defined(__NVCC__) || defined(__NVRTC__)
+#if defined(__NVCC__)
 #include <cooperative_groups.h>
 namespace cooperative_groups {};
 namespace cg = cooperative_groups;
@@ -204,9 +204,8 @@ namespace fk { // namespace FusedKernel
     };
 
 // Note: there are no ParArch::GPU_NVIDIA_JIT DPP implementations, because
-// the DPP's are going to be compiled by NVRTC, which uses ParArch::GPU_NVIDIA
-// That is why we include defined(__NVRTC__) in the ifdef below.
-#if defined(__NVCC__) || defined(__NVRTC__)
+// the DPP's are going to be compiled by NVRTC, which uses ParArch::GPU_NVIDIA.
+#if defined(__NVCC__)
     template <typename DPPDetails, enum TF TFEN, bool THREAD_DIVISIBLE>
     struct TransformDPP<ParArch::GPU_NVIDIA, TFEN, DPPDetails, THREAD_DIVISIBLE, std::enable_if_t<!std::is_same_v<DPPDetails, void>, void>> {
     private:
@@ -236,7 +235,7 @@ namespace fk { // namespace FusedKernel
             }
         }
     };
-#endif // defined(__NVCC__) || defined(__NVRTC__)
+#endif // defined(__NVCC__)
 
     template <enum TF TFEN, typename DPPDetails, bool THREAD_DIVISIBLE>
     struct TransformDPP<ParArch::CPU, TFEN, DPPDetails, THREAD_DIVISIBLE, std::enable_if_t<!std::is_same_v<DPPDetails, void>, void>> {
