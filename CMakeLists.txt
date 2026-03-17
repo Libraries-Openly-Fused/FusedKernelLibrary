@@ -18,7 +18,6 @@ HOMEPAGE_URL "https://github.com/morousg/FusedKernelLibrary" )
 
 #cuda is optional, but if it is found, it will be used
 option(ENABLE_CPU "Enable CPU support" ON)
-  
 include(CheckLanguage)
 check_language(CUDA)
 if (CMAKE_CUDA_COMPILER)

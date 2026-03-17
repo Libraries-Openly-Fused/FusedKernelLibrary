@@ -145,7 +145,7 @@ int launch() {
 
     // noneAnyWriteType
     constexpr bool noneAnyWriteType_ = NoneAnyWriteType<NoAnyWrite>::value;
-    static_assert(fk::and_v<noneAnyWriteType_>, "Something wrong with isReadType");
+    static_assert(noneAnyWriteType_, "Something wrong with isReadType");
 
     // allUnaryTypes
     constexpr bool allUnaryTypes_v = test_allUnaryTypes();

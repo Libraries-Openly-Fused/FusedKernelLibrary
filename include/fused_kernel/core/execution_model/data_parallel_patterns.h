@@ -286,7 +286,7 @@ namespace fk { // namespace FusedKernel
                                                    const InstantiableOperationSequence<IOps...>& iOpSequence,
                                                    const IOpSequenceTypes&... iOpSequences) {
             if (OpSequenceNumber == SequenceSelector::at(z)) {
-                apply(launchTransformDPP<IOps...>, iOpSequence.iOps);
+                apply_d(launchTransformDPP<IOps...>, iOpSequence.iOps);
             } else if constexpr (sizeof...(iOpSequences) > 0) {
                 divergent_operate<OpSequenceNumber + 1>(z, iOpSequences...);
             }
