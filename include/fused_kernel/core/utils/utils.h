@@ -147,7 +147,7 @@ namespace fk {
 } // namespace fk
 
 #define gpuErrchk(ans) { fk::gpuAssert((ans), __FILE__, __LINE__, true); }
-#endif // (__NVCC__) || __HIP__ || NVRTC_ENABLED) && !defined(NVRTC_COMPILER)
+#endif // defined(__NVCC__)
 
 // Null type, used for Operation required aliases that can not still be known,
 // because they are deduced from a backwards operation that is till not defined.
