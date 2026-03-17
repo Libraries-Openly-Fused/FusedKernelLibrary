@@ -321,7 +321,7 @@ namespace fk { // namespace FusedKernel
             Parent::template divergent_operate<1>(z, iOpSequences...);
         }
     };
-#endif // defined(__NVCC__) || defined(__HIPCC__) || defined(__NVRTC__)
+#endif // defined(__NVCC__)
     template <typename SequenceSelector>
     struct DivergentBatchTransformDPP<ParArch::CPU, SequenceSelector> {
     private:
