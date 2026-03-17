@@ -111,18 +111,19 @@ namespace fk {
     template <AddBorderType ABT, typename CType = void>
     struct AddBorderIncomplete
     {
+        static_assert((std::is_same_v<CType, void> && (ABT == AddBorderType::BORDER_READER)) ||
+                          (!std::is_same_v<CType, void> && (ABT == AddBorderType::CONSTANT)),
+                      "If AddBorderType is CONSTANT, CType can not be void");
       private:
-        using SelfType = AddBorderIncomplete<ABT>;
-        using Parent = fk::IncompleteReadBackOperation<NullType,
-                                                       AddBorderParams<ABT, CType>,
-                                                       NullType,
-                                                       std::conditional_t<std::is_same_v<CType, void>, NullType, CType>,
-                                                       SelfType>;
+        using SelfType = AddBorderIncomplete<ABT, CType>;
+        using Parent =
+            fk::IncompleteReadBackOperation<NullType, AddBorderParams<ABT, CType>, NullType,
+                                            std::conditional_t<std::is_same_v<CType, void>, NullType, CType>, SelfType>;
       public:
         FK_STATIC_STRUCT(AddBorderIncomplete, SelfType)
         DECLARE_INCOMPLETEREADBACK_PARENT
-        template <typename NewBackIOp>
-        FK_HOST_FUSE auto build(const NewBackIOp& backIOp, const SelfType& selfIOp)
+        template <typename NewBackIOp, typename ShouldBeSelfType>
+        FK_HOST_FUSE auto build(const NewBackIOp& backIOp, const ShouldBeSelfType& selfIOp)
         {
             if constexpr (std::bool_constant<ABT == AddBorderType::CONSTANT>::value)
             {
@@ -137,17 +138,20 @@ namespace fk {
         template <typename T, typename BackIOp>
         FK_HOST_FUSE auto build(const BackIOp& iOp, const int top, const int bottom, const int left, const int right, const T borderValue)
         {
-            return AddBorderComplete<AddBorderType::CONSTANT, BackIOp>{{{top, bottom, left, right, borderValue}, iOp}};
+            return AddBorderComplete<AddBorderType::CONSTANT, BackIOp>::build(
+                AddBorderParams<AddBorderType::CONSTANT, T>{top, bottom, left, right, borderValue}, iOp);
         }
         template <typename BackIOp>
         FK_HOST_FUSE auto build(const BackIOp& iOp, const int top, const int bottom, const int left, const int right)
         {
-            return AddBorderComplete<AddBorderType::BORDER_READER, BackIOp>{{{top, bottom, left, right}, iOp}};
+            return AddBorderComplete<AddBorderType::BORDER_READER, BackIOp>::build(
+                AddBorderParams<AddBorderType::BORDER_READER>{top, bottom, left, right}, iOp);
         }
 
         template <typename T>
         FK_HOST_FUSE auto build(const int top, const int bottom, const int left, const int right, const T borderValue)
         {
+            static_assert(!std::is_same_v<T, void>, "Can't be");
             return AddBorderIncomplete<AddBorderType::CONSTANT, T>::build(
                 AddBorderParams<AddBorderType::CONSTANT, T>{top, bottom, left, right, borderValue}, NullType{});
         }

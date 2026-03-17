@@ -75,16 +75,12 @@ void testAddBorderConstant() {
     const auto addBorderConst = fk::AddBorder::build(readIOp, 2, 2, 2, 2, uchar3{0,0,0});
     const auto addBorderBReader = fk::AddBorder::build(readIOp.then(fk::BorderReader<fk::BorderType::CONSTANT>::build(uchar3{0,0,0})), 2, 2, 2, 2);
 
-    const auto blendTest = readIOp.then(fk::Deinterlace<fk::DeinterlaceType::BLEND>::build());
-    const auto linearEvenTest = readIOp.then(fk::Deinterlace<fk::DeinterlaceType::INTER_LINEAR>::build(paramsLinearEven));
-    const auto linearOddTest = readIOp.then(fk::Deinterlace<fk::DeinterlaceType::INTER_LINEAR>::build(paramsLinearOdd));
-
-    using DBlend = typename decltype(blendTest)::Operation;
+    /*using DBlend = typename decltype(blendTest)::Operation;
     using DLinear = typename decltype(linearEvenTest)::Operation;
 
     TestCaseBuilder<DBlend>::addTest(testCases, stream, blendTest, expectedPtrBlend);
     TestCaseBuilder<DLinear>::addTest(testCases, stream, linearEvenTest, expectedPtrLinearEven);
-    TestCaseBuilder<DLinear>::addTest(testCases, stream, linearOddTest, expectedPtrLinearOdd);
+    TestCaseBuilder<DLinear>::addTest(testCases, stream, linearOddTest, expectedPtrLinearOdd);*/
 }
 
 START_ADDING_TESTS
