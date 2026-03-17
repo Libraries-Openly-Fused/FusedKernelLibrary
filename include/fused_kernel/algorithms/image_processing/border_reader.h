@@ -87,7 +87,7 @@ namespace fk {
     template <typename T>
     struct BorderReader<BorderType::CONSTANT, BorderReaderParameters<BorderType::CONSTANT, T>> {
     private:
-        using SelfType = BorderReader<BorderType::CONSTANT>;
+        using SelfType = BorderReader<BorderType::CONSTANT, BorderReaderParameters<BorderType::CONSTANT, T>>;
     public:
         FK_STATIC_STRUCT(BorderReader, SelfType)
         using Parent = IncompleteReadBackOperation<NullType, BorderReaderParameters<BorderType::CONSTANT, T>, NullType, NullType, SelfType>;
