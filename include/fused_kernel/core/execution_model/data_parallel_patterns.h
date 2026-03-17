@@ -203,8 +203,6 @@ namespace fk { // namespace FusedKernel
         }
     };
 
-// Note: there are no ParArch::GPU_NVIDIA_JIT DPP implementations, because
-// the DPP's are going to be compiled by NVRTC, which uses ParArch::GPU_NVIDIA.
 #if defined(__NVCC__)
     template <typename DPPDetails, enum TF TFEN, bool THREAD_DIVISIBLE>
     struct TransformDPP<ParArch::GPU_NVIDIA, TFEN, DPPDetails, THREAD_DIVISIBLE, std::enable_if_t<!std::is_same_v<DPPDetails, void>, void>> {
