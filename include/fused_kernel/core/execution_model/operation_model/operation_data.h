@@ -84,15 +84,13 @@ namespace fk {
 
     template <typename Operation>
     struct OperationData<Operation, std::enable_if_t<one_of_v<typename Operation::InstanceType, ParamsTypes>>> {
-        FK_HOST_DEVICE_CNST OperationData() {};
-        FK_HOST_DEVICE_CNST OperationData(const typename Operation::ParamsType &params_) : params(params_) {}
+        // No constructor, because we want OperationData to be an aggregate type.
         typename Operation::ParamsType params{};
     };
 
     template <typename Operation>
     struct OperationData<Operation, std::enable_if_t<one_of_v<typename Operation::InstanceType, ParamsAndBackIOpTypes>>> {
-        FK_HOST_DEVICE_CNST OperationData() {};
-        FK_HOST_DEVICE_CNST OperationData(const typename Operation::ParamsType& params_, const typename Operation::BackIOp& backIOp_) : params(params_), backIOp(backIOp_) {}
+        // No constructor, because we want OperationData to be an aggregate type.
         typename Operation::ParamsType params{};
         typename Operation::BackIOp backIOp{};
     };
