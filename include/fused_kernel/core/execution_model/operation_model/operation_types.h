@@ -132,20 +132,7 @@ namespace fk {
 
     template <typename... OpsOrIOps>
     constexpr bool atLeastOneMidWriteType = or_v<opIs<MidWriteType, OpsOrIOps>...>;
-
-    template <typename = void, typename... OpsOrIOps>
-    struct NotAllUnary final : public std::false_type {};
-
-    // This intermediate step is needed to avoid VS2017 crashing with an unespecified error
-    template <typename... OpsOrIOps>
-    constexpr bool notAllUnaryTypesNoSFINAE = ((!std::is_same_v<typename OpsOrIOps::InstanceType, UnaryType>) || ...);
-
-    template <typename... OpsOrIOps>
-    struct NotAllUnary<std::enable_if_t<notAllUnaryTypesNoSFINAE<OpsOrIOps...>, void>, OpsOrIOps...> final : public std::true_type {};
-
-    template <typename... OpsOrIOps>
-    constexpr bool notAllUnaryTypes = NotAllUnary<void, OpsOrIOps...>::value;
-
+        
     template <typename Enabler, typename... OpsOrIOps>
     struct are_all_unary_types : std::false_type {};
 

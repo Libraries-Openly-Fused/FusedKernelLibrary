@@ -259,7 +259,7 @@ namespace fk {
     };
 } // namespace fk
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
 #include <vector_types.h>
 #else
 using char1 = fk::Char1;
