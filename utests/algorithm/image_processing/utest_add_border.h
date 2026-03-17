@@ -61,7 +61,7 @@ void testAddBorderConstant() {
 
     for (int y = 0; y < outputRes.height; ++y) {
         for (int x = 0; x < outputRes.width; ++x) {
-            expectedPtrConstant.at(x, y) = ptr[y * outputRes.width + x];
+            expectedPtrConstant.at(x, y) = ptrExpectedConstant[(y * outputRes.width) + x];
         }
     }
 
@@ -70,20 +70,26 @@ void testAddBorderConstant() {
     
     const auto readIOp = fk::PerThreadRead<fk::ND::_2D, uchar3>::build(inputPtr.ptr());
 
-    const auto addBorderConstThen = readIOp.then(fk::AddBorder::build(2, 2, 2, 2, uchar3{0,0,0}));
+    const auto addBorderConstThen = readIOp.then(fk::AddBorder::build(2, 2, 2, 2, uchar3{0, 0, 0}));
     const auto addBorderBReaderThen = readIOp.then(fk::BorderReader<fk::BorderType::CONSTANT>::build(uchar3{0,0,0})).then(fk::AddBorder::build(2, 2, 2, 2));
     const auto addBorderConst = fk::AddBorder::build(readIOp, 2, 2, 2, 2, uchar3{0,0,0});
     const auto addBorderBReader = fk::AddBorder::build(readIOp.then(fk::BorderReader<fk::BorderType::CONSTANT>::build(uchar3{0,0,0})), 2, 2, 2, 2);
 
-    /*using DBlend = typename decltype(blendTest)::Operation;
-    using DLinear = typename decltype(linearEvenTest)::Operation;
+    using BorderConstThen = typename decltype(addBorderConstThen)::Operation;
+    using BorderBReaderThen = typename decltype(addBorderBReaderThen)::Operation;
+    using BorderConst = typename decltype(addBorderConst)::Operation;
+    using BorderBReader = typename decltype(addBorderBReader)::Operation;
+    
+    TestCaseBuilder<BorderConstThen>::addTest(testCases, stream, addBorderConstThen, expectedPtrConstant);
 
+    /*
     TestCaseBuilder<DBlend>::addTest(testCases, stream, blendTest, expectedPtrBlend);
     TestCaseBuilder<DLinear>::addTest(testCases, stream, linearEvenTest, expectedPtrLinearEven);
     TestCaseBuilder<DLinear>::addTest(testCases, stream, linearOddTest, expectedPtrLinearOdd);*/
 }
 
 START_ADDING_TESTS
+testAddBorderConstant();
 STOP_ADDING_TESTS
 
 int launch() {
