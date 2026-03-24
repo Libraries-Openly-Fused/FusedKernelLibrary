@@ -19,16 +19,16 @@ jobs:
         include:
           - host_compiler: "g++-11"
             cuda_toolkit: "12.9"
-            cuda_ldpath: "$LD_LIBRARY_PATH"
+            cuda_ldpath: "cuda-12.9"
           - host_compiler: "clang++-21"
             cuda_toolkit: "12.9"
-            cuda_ldpath: "$LD_LIBRARY_PATH"
+            cuda_ldpath: "cuda-12.9"
           - host_compiler: "g++-11"
             cuda_toolkit: "13.2"
-            cuda_ldpath: "$HOME/cuda-compat-orin/extracted/usr/local/cuda-13.2/compat_orin" 
+            cuda_ldpath: "cuda-13.2/compat_orin" 
           - host_compiler: "clang++-21"
             cuda_toolkit: "13.2"  
-            cuda_ldpath: "$HOME/cuda-compat-orin/extracted/usr/local/cuda-13.2/compat_orin" 
+            cuda_ldpath: "cuda-13.2/compat_orin" 
  
     steps:
       - uses: actions/checkout@v4
@@ -40,13 +40,9 @@ jobs:
           echo "PATH=$HOME/cmake-4.2.1-linux-aarch64/bin/:$PATH" >> "$GITHUB_ENV"
           echo "CUDACXX=/usr/local/cuda-${{matrix.cuda_toolkit}}/bin/nvcc" >> "$GITHUB_ENV"
           echo "CC=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
-          echo "CXX=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
-          if [ -n "${{ matrix.cuda_ldpath }}" ]; then
-            echo "LD_LIBRARY_PATH=${{ matrix.cuda_ldpath }}:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
-          else
-            echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
-          fi
-
+          echo "CXX=${{matrix.host_compiler}}" >> "$GITHUB_ENV"          
+          echo "LD_LIBRARY_PATH=/usr/local/${{matrix.cuda_ldpath}}:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+          
       - name: Configure CMake
         run: |
 
