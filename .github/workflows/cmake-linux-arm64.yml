@@ -41,7 +41,11 @@ jobs:
           echo "CUDACXX=/usr/local/cuda-${{matrix.cuda_toolkit}}/bin/nvcc" >> "$GITHUB_ENV"
           echo "CC=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
           echo "CXX=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=${{matrix.cuda_ldpath}}:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+          if [ -n "${{ matrix.cuda_ldpath }}" ]; then
+            echo "LD_LIBRARY_PATH=${{ matrix.cuda_ldpath }}:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+          else
+            echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+          fi
 
       - name: Configure CMake
         run: |
