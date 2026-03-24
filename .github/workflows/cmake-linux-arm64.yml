@@ -19,9 +19,17 @@ jobs:
         include:
           - host_compiler: "g++-11"
             cuda_toolkit: "12.9"
+            cuda_ldpath: ""
           - host_compiler: "clang++-21"
             cuda_toolkit: "12.9"
-        #
+            cuda_ldpath: ""
+          - host_compiler: "g++-11"
+            cuda_toolkit: "13.2"
+            cuda_ldpath: "/home/cudeiro/cuda-compat-orin/extracted/usr/local/cuda-13.2/compat_orin" 
+          - host_compiler: "clang++-21"
+            cuda_toolkit: "13.2"  
+            cuda_ldpath: "/home/cudeiro/cuda-compat-orin/extracted/usr/local/cuda-13.2/compat_orin" 
+ 
     steps:
       - uses: actions/checkout@v4
       - name: Set reusable strings
@@ -33,6 +41,7 @@ jobs:
           echo "CUDACXX=/usr/local/cuda-${{matrix.cuda_toolkit}}/bin/nvcc" >> "$GITHUB_ENV"
           echo "CC=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
           echo "CXX=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=${{matrix.cuda_ldpath}}:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
 
       - name: Configure CMake
         run: |
