@@ -259,7 +259,7 @@ namespace fk {
     };
 } // namespace fk
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
 #include <vector_types.h>
 #elif HIP_HOST_DEVICE
 // hip_runtime.h (included via utils.h) provides HIP vector types (char1, uchar1, etc.)

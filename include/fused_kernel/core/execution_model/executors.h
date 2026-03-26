@@ -23,13 +23,13 @@
 #include <fused_kernel/algorithms/basic_ops/set.h>
 #include <fused_kernel/core/execution_model/stream.h>
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE || HIP_HOST_DEVICE
+#if defined(__NVCC__) || HIP_HOST_DEVICE
 #include <fused_kernel/core/execution_model/executor_details/executor_kernels.h>
 #endif
 
 namespace fk {
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE || HIP_HOST_DEVICE
+#if defined(__NVCC__) || HIP_HOST_DEVICE
     struct CtxDim3 {
         uint x;
         uint y;
@@ -189,7 +189,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         DECLARE_EXECUTOR_PARENT_IMPL
     };
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE || HIP_HOST_DEVICE
+#if defined(__NVCC__) || HIP_HOST_DEVICE
     struct ComputeBestSolutionBase {
         FK_HOST_FUSE uint computeDiscardedThreads(const uint width, const uint height, const uint blockDimx, const uint blockDimy) {
             const uint modX = width % blockDimx;
@@ -258,7 +258,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         return CtxDim3(blockDimX[bxS], blockDimY[byS][bxS]);
     }
 #endif
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
     template <enum TF TFEN>
     struct Executor<TransformDPP<ParArch::GPU_NVIDIA, TFEN>> {
     private:

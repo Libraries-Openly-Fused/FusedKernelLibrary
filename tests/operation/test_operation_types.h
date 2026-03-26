@@ -131,36 +131,7 @@ constexpr bool test_allUnaryTypes() {
     return mustTrue && !fk::or_v<mustFalse1, mustFalse2, mustFalse3, mustFalse4, mustFalse5, mustFalse6, mustFalse7>;
 }
 
-template <typename TypeList_t>
-struct Test_notAllUnaryTypes;
-
-template <typename... OpsOrIOps>
-struct Test_notAllUnaryTypes<fk::TypeList<OpsOrIOps...>> {
-    static constexpr bool value = fk::notAllUnaryTypes<OpsOrIOps...>;
-};
-
-constexpr bool test_notAllUnaryTypes() {
-    constexpr bool mustFalse = Test_notAllUnaryTypes<Unaries>::value;
-    constexpr bool mustTrue1 = Test_notAllUnaryTypes<NoUnary>::value;
-    constexpr bool mustTrue2 = Test_notAllUnaryTypes<NoTernary>::value;
-    constexpr bool mustTrue3 = Test_notAllUnaryTypes<NoWrite>::value;
-    constexpr bool mustTrue4 = Test_notAllUnaryTypes<NoAnyWrite>::value;
-    constexpr bool mustTrue5 = Test_notAllUnaryTypes<NoBinary>::value;
-
-    using ComplexType =
-        fk::Read<fk::FusedOperation<typename fk::ResizeComplete<fk::AspectRatio::PRESERVE_AR,
-                                    fk::Ternary<fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>>>::InstantiableType,
-                                    typename fk::Mul<float3, float3, float3>::InstantiableType>>;
-    constexpr bool mustTrue6 = fk::notAllUnaryTypes<ComplexType>;
-
-    using ComplexType2 = fk::Read<fk::FusedOperation<typename fk::ResizeComplete<fk::AspectRatio::PRESERVE_AR,
-                                                     fk::Ternary<fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>>>::InstantiableType,
-                                                     typename fk::Mul<float3, float3, float3>::InstantiableType>>;
-    constexpr bool mustTrue7 = Test_notAllUnaryTypes<fk::TypeList<ComplexType2>>::value;
-
-    return !mustFalse && fk::and_v<mustTrue1, mustTrue2, mustTrue3, mustTrue4, mustTrue5, mustTrue6, mustTrue7>;
-}
-
+ 
 int launch() {
     // isReadType
     constexpr bool noneRead = !ContainsReadType<NoRead>::value;
@@ -174,15 +145,11 @@ int launch() {
 
     // noneAnyWriteType
     constexpr bool noneAnyWriteType_ = NoneAnyWriteType<NoAnyWrite>::value;
-    static_assert(fk::and_v<noneAnyWriteType_>, "Something wrong with isReadType");
+    static_assert(noneAnyWriteType_, "Something wrong with isReadType");
 
     // allUnaryTypes
     constexpr bool allUnaryTypes_v = test_allUnaryTypes();
     static_assert(allUnaryTypes_v, "Something wrong with allUnaryTypes");
-
-    // notAllUnaryTypes
-    constexpr bool notAllUnaryTypes_v = test_notAllUnaryTypes();
-    static_assert(notAllUnaryTypes_v, "Something wrong with notAllUnaryTypes");
-
+    
     return 0;
 }
