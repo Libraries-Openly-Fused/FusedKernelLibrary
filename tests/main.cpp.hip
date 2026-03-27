@@ -1,5 +1,5 @@
-/* Copyright 2025 Oscar Amoros Huguet
-   Copyright 2025 Albert Andaluz Gonzalez
+﻿/* Copyright 2023 Oscar Amoros Huguet
+   Copyright 2023 Albert Andaluz Gonzalez
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -13,20 +13,11 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
-#ifndef COMPILER_MACROS_H
-#define COMPILER_MACROS_H
+ 
 
-#if defined(_MSC_VER)
-#define _MSC_VER_EXISTS 1
-#else
-#define _MSC_VER_EXISTS 0
-#endif
+#include <hip/hip_runtime.h>
+#include <tests/main.h>
+int main(int argc, char **argv) {
+ return launch();
+}
 
-// HIP platform detection: __HIP__ is defined by clang when compiling HIP code
-#if defined(__HIP__)
-#define HIP_HOST_DEVICE 1
-#else
-#define HIP_HOST_DEVICE 0
-#endif
-
-#endif // COMPILER_MACROS_H

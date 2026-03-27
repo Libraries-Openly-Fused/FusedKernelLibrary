@@ -48,7 +48,12 @@ namespace fk {
 #undef PARALLEL_ARCHITECTURES
 
 #if defined(__NVCC__)
+#ifndef HIP_HOST_DEVICE
+static_assert(false);
+#endif
     constexpr ParArch defaultParArch = ParArch::GPU_NVIDIA;
+#elif HIP_HOST_DEVICE == 1
+    constexpr ParArch defaultParArch = ParArch::GPU_AMD;
 #else
     constexpr ParArch defaultParArch = ParArch::CPU;
 #endif

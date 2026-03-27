@@ -261,6 +261,9 @@ namespace fk {
 
 #if defined(__NVCC__)
 #include <vector_types.h>
+#elif HIP_HOST_DEVICE
+// hip_runtime.h (included via utils.h) provides HIP vector types (char1, uchar1, etc.)
+// via <hip/hip_vector_types.h>, so no additional includes needed here.
 #else
 using char1 = fk::Char1;
 using uchar1 = fk::Uchar1;

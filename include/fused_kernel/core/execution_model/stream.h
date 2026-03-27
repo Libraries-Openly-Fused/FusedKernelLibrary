@@ -20,8 +20,8 @@
 
 #if defined(__NVCC__)
 #include <fused_kernel/core/utils/utils.h>
-#elif defined(__HIP__)
-#include <hip/hip_runtime.h>
+#elif HIP_HOST_DEVICE
+#include <fused_kernel/core/utils/utils.h>
 #endif
 
 namespace fk {
@@ -105,6 +105,67 @@ namespace fk {
         };
         static constexpr inline enum ParArch parArch() {
             return ParArch::GPU_NVIDIA;
+        }
+    };
+#endif
+
+#if HIP_HOST_DEVICE
+    template <>
+    class Stream_<ParArch::GPU_AMD> final : public BaseStream {
+        hipStream_t m_stream;
+        bool m_isMine{ false };
+
+        inline void initFromOther(const Stream_<ParArch::GPU_AMD>& other) {
+            m_stream = other.m_stream;
+            m_isMine = other.m_isMine;
+        }
+
+    public:
+        Stream_() : BaseStream() {
+            gpuErrchk(hipStreamCreate(&m_stream));
+            m_isMine = true;
+        }
+        Stream_(const Stream_<ParArch::GPU_AMD>& other) : BaseStream(other) {
+            initFromOther(other);
+        }
+        explicit Stream_<ParArch::GPU_AMD>(const hipStream_t& stream) : m_stream(stream), BaseStream() {}
+
+        hipStream_t operator()() const {
+            return m_stream;
+        }
+
+        Stream_<ParArch::GPU_AMD>& operator=(const Stream_<ParArch::GPU_AMD>& other) {
+            if (this != &other) {
+                BaseStream::operator=(other);
+                initFromOther(other);
+            }
+            return *this;
+        }
+
+        Stream_(Stream_<ParArch::GPU_AMD>&&) = delete;
+        Stream_<ParArch::GPU_AMD>& operator=(Stream_<ParArch::GPU_AMD>&&) = delete;
+
+        ~Stream_() {
+            if ( this->getRefCount() == 0 && m_stream != 0 && m_isMine) {
+                sync();
+                gpuErrchk(hipStreamDestroy(m_stream));
+            }
+        }
+
+        operator hipStream_t() const {
+            return m_stream;
+        }
+        inline hipStream_t getHIPStream() const {
+            return m_stream;
+        }
+        inline void sync() final {
+            gpuErrchk(hipStreamSynchronize(m_stream));
+        }
+        constexpr inline enum ParArch getParArch() const {
+            return ParArch::GPU_AMD;
+        };
+        static constexpr inline enum ParArch parArch() {
+            return ParArch::GPU_AMD;
         }
     };
 #endif

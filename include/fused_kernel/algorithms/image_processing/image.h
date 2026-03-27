@@ -66,7 +66,7 @@ namespace fk {
             return Image<PF>(data.crop(dataPoint, newDataDims), newWidth, newHeight);
         }
 #if !defined(NVRTC_COMPILER)
-#if defined(__NVCC__)
+#if defined(__NVCC__) || HIP_HOST_DEVICE
         inline void uploadTo(Image& other, cudaStream_t stream = 0) {
             data.uploadTo(other.data, stream);
         }
@@ -74,17 +74,25 @@ namespace fk {
         inline void downloadTo(Image& other, cudaStream_t stream = 0) {
             data.downloadTo(other.data, stream);
         }
-
+#endif
+#if defined(__NVCC__) || CLANG_HOST_DEVICE
         inline void upload(Stream_<ParArch::GPU_NVIDIA>& stream) {
             data.upload(stream);
         }
         inline void download(Stream_<ParArch::GPU_NVIDIA>& stream) {
             data.download(stream);
         }
+#elif HIP_HOST_DEVICE
+        inline void upload(Stream_<ParArch::GPU_AMD>& stream) {
+            data.upload(stream);
+        }
+        inline void download(Stream_<ParArch::GPU_AMD>& stream) {
+            data.download(stream);
+        }
 #else
         inline void upload(Stream& stream) {}
         inline void download(Stream& stream) {}
-#endif // defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED)
+#endif // defined(__NVCC__) || CLANG_HOST_DEVICE || HIP_HOST_DEVICE
 #endif // defined(NVRTC_COMPILER)
 
         FK_HOST_CNST VectorType_t<BaseType, PixelFormatTraits<PF>::cn> readAt(const Point p) const {
