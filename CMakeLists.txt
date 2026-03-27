@@ -30,14 +30,16 @@ else()
 endif()
 
 #HIP support is only testedon Linux.
-if (UNIX AND NOT APPLE)
+check_language(HIP)
+if (CMAKE_HIP_COMPILER)
     option (ENABLE_HIP "Enable HIP/ROCm AMD GPU support" ON)
-    if (${ENABLE_HIP})
-        check_language(HIP)
+    if (${ENABLE_HIP})    
         include(cmake/hip_init.cmake)
     endif()
-
+else()
+    message(STATUS "HIP compiler not found, HIP support will be disabled.")     
 endif()
+
 add_subdirectory(include)
 add_subdirectory(lib)
 
