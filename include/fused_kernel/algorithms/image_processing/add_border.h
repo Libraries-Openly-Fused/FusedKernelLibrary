@@ -54,8 +54,8 @@ namespace fk {
 
         FK_HOST_DEVICE_FUSE OutputType exec(const Point thread, const ParamsType& params, const BackIOp& backIOp) {
             OutputType result{};
-            if (thread.x < params.left || thread.x >= params.left + BackIOp_::Operation::num_elems_x(thread, backIOp) ||
-                thread.y < params.top  || thread.y >= params.top + BackIOp_::Operation::num_elems_y(thread, backIOp))
+            if (thread.x < params.left || (thread.x >= (params.left + BackIOp_::Operation::num_elems_x(thread, backIOp))) ||
+                thread.y < params.top  || (thread.y >= (params.top + BackIOp_::Operation::num_elems_y(thread, backIOp))))
             {
                 result = params.borderValue;
             } 

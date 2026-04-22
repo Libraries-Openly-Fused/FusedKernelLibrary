@@ -67,20 +67,26 @@ void testAddBorderConstant() {
 
     // Upload inputPtr to device
     inputPtr.upload(stream);
+    stream.sync();
     
     const auto readIOp = fk::PerThreadRead<fk::ND::_2D, uchar3>::build(inputPtr.ptr());
 
     const auto addBorderConstThen = readIOp.then(fk::AddBorder::build(2, 2, 2, 2, uchar3{0, 0, 0}));
-    const auto addBorderBReaderThen = readIOp.then(fk::BorderReader<fk::BorderType::CONSTANT>::build(uchar3{0,0,0})).then(fk::AddBorder::build(2, 2, 2, 2));
+    /*const auto addBorderBReaderThen = readIOp.then(fk::BorderReader<fk::BorderType::CONSTANT>::build(uchar3{0,0,0})).then(fk::AddBorder::build(2, 2, 2, 2));
     const auto addBorderConst = fk::AddBorder::build(readIOp, 2, 2, 2, 2, uchar3{0,0,0});
-    const auto addBorderBReader = fk::AddBorder::build(readIOp.then(fk::BorderReader<fk::BorderType::CONSTANT>::build(uchar3{0,0,0})), 2, 2, 2, 2);
+    const auto addBorderBReader = fk::AddBorder::build(readIOp.then(fk::BorderReader<fk::BorderType::CONSTANT>::build(uchar3{0,0,0})), 2, 2, 2, 2);*/
 
     using BorderConstThen = typename decltype(addBorderConstThen)::Operation;
-    using BorderBReaderThen = typename decltype(addBorderBReaderThen)::Operation;
+    /*using BorderBReaderThen = typename decltype(addBorderBReaderThen)::Operation;
     using BorderConst = typename decltype(addBorderConst)::Operation;
-    using BorderBReader = typename decltype(addBorderBReader)::Operation;
-    
-    TestCaseBuilder<BorderConstThen>::addTest(testCases, stream, addBorderConstThen, expectedPtrConstant);
+    using BorderBReader = typename decltype(addBorderBReader)::Operation;*/
+
+    typename decltype(addBorderConstThen)::Operation::OperationDataType inputAddBorderConstThen = addBorderConstThen;
+
+    std::array<decltype(inputAddBorderConstThen), 1> inputs {inputAddBorderConstThen};
+    std::array<fk::Ptr<fk::ND::_2D, uchar3>, 1> outputs {expectedPtrConstant};
+
+    TestCaseBuilder<BorderConstThen>::addTest(testCases, stream, inputs, outputs);
 
     /*
     TestCaseBuilder<DBlend>::addTest(testCases, stream, blendTest, expectedPtrBlend);

@@ -345,6 +345,10 @@ namespace test_case_builder::detail {
     auto launchRead(const std::string& testName, fk::Stream stream,
                     const std::array<BuildParams, N>& inputElems) {
         using OutputType = typename Operation::OutputType;
+        std::cout << "Element 2,2,0 of the input matrix in launchRead: "
+            << static_cast<int>((*fk::PtrAccessor<fk::ND::_2D>::cr_point(fk::Point{2,2,0}, inputElems[0].backIOp.params)).x)
+            << std::endl;
+
 
         auto readOps = fk::transformArray(inputElems,
             [](const BuildParams& input) {
@@ -377,10 +381,8 @@ namespace test_case_builder::detail {
             }
         );
 
-        std::cout << "Running test for " << "\033[1;33m" << testName << "\033[1;33m" << ": ";
-        
+        std::cout << "Running test for " << "\033[1;33m" << testName << "\033[1;33m" << ": " << std::endl;
         for (int i = 0; i < N; ++i) {
-            const auto activeThreads = std::decay_t<decltype(readOps[i])>::Operation::getActiveThreads(readOps[i]);
             fk::Executor<fk::TransformDPP<>>::executeOperations(stream, readOps[i], writeOps[i]);
         }
         for (auto&& output : outputElems) {
@@ -480,6 +482,8 @@ struct TestCaseBuilder<Operation, std::enable_if_t<fk::OpIs<fk::ReadType, Operat
                                fk::Stream& stream,
                                const std::array<BuildParams, N>& inputElems,
                                const std::array<fk::Ptr<D, typename Operation::OutputType>, N>& expectedElems) {
+        std::cout << "Element 2,2,0 of the input matrix in addTest: " << static_cast<int>((*fk::PtrAccessor<fk::ND::_2D>::cr_point(fk::Point{2,2,0}, inputElems[0].backIOp.params)).x) << std::endl;
+
         const std::string testName = fk::typeToString<Operation>();
         testCases[testName] = [testName, stream, inputElems, expectedElems]() -> bool {
             const auto outArray = test_case_builder::detail::launchRead<Operation, D>(testName, stream, inputElems);
