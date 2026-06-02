@@ -22,9 +22,10 @@ jobs:
           - host_compiler: "cl"
             msvc_env_version: "14.44"
             cuda_version: "13.0"
+            
           - host_compiler: "cl"
-            msvc_env_version: "14.50"
-            cuda_version: "13.2"            
+            msvc_env_version: "14.51"
+            cuda_version: "13.3"            
 
           - host_compiler: "clang-cl"
             msvc_env_version: "14.44"
@@ -33,9 +34,10 @@ jobs:
           - host_compiler: "clang-cl"
             msvc_env_version: "14.44"
             cuda_version: "13.0"
+
           - host_compiler: "clang-cl"
-            msvc_env_version: "14.50"
-            cuda_version: "13.2"            
+            msvc_env_version: "14.51"
+            cuda_version: "13.3"            
 
     steps:
       - uses: actions/checkout@v4
