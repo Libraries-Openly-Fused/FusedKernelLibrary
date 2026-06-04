@@ -47,10 +47,10 @@ FusedKernelLibrary/
 - **Git Ignore:** As a consequence of the previous two rules, under no circumstances should you modify, append to, or suggest changes to the `.gitignore` file.
 
 ### Requirements
-- **CMake ≥ 3.24** (CI uses cmake 4.2.1 custom install)
+- **CMake ≥ 3.28** (CI uses cmake 4.3.3 custom install)
 - **C++17** standard required (enforced via `CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO`)
 - **CUDA 12.x or 13.x** 
-- **Host compilers**: `g++-13`, `g++-11` (ARM64), `clang++-21`, `cl` (MSVC 14.44,MSVC 14.50), `clang-cl`
+- **Host compilers**: ``g++-13` (ARM64),g++-15` (x86_64), `clang++-21`, `cl` (MSVC 14.44,MSVC 14.50, MSVC 14.51), `clang-cl`
 - Only **nvcc** is supported as the CUDA compiler 
 - **Ninja** generator is used in CI; Visual Studio generator also works on Windows
 
@@ -68,10 +68,10 @@ FusedKernelLibrary/
 ```bash
 #setup compilers
    
-export PATH=/home/cudeiro/cmake-4.2.1-linux-aarch64/bin/:$PATH
-export CUDACXX=/usr/local/cuda-12.9/bin/nvcc  #can be 13.0 or 13.2 but only on x86_64 linux
-export CC=g++-11 # e.g. "g++-13", "clang++-21" on x86_64; "g++-11", "clang++-21" on arm64
-export CXX=g++-11 # e.g. "g++-13", "clang++-21" on x86_64; "g++-11", "clang++-21" on arm64
+export PATH=/home/cudeiro/cmake-4.3.3-linux-aarch64/bin/:$PATH #update with linux-aarch64 for arm64, linux-x86_64 for x86_64
+export CUDACXX=/usr/local/cuda-12.9/bin/nvcc  #can be 13.0 or 13.3 
+export CC=gcc-13 # e.g. "gcc-13" (gcc15 for x86_64), "clang++-21" 
+export CXX=g++-13 # e.g. "g++-13 (g++15 for x86_64)", "clang++-21"
 # Configure
 cmake -G "Ninja" -B build -DCMAKE_BUILD_TYPE=Release -S .
 
@@ -85,7 +85,7 @@ cd build && ctest --build-config Release --output-junit test_results.xml
 ### Build Commands (Windows, in VS Developer Shell with Ninja)
 ```powershell
 # Set compilers via env vars (as CI does)
-# note:CUDA Toolkit v12.9 can also be 13.0 or 13.2 but only 13.2 supports 14.50 developer tools (MSVC 2026)
+# note:CUDA Toolkit v12.9 can also be 13.0 or 13.3 but only >=13.2 supports >=14.50 developer tools (MSVC 2026)
 $env:CUDACXX = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9\bin\nvcc.exe"
 $env:CC = "cl"  # or "clang-cl"
 $env:CXX = "cl"
@@ -106,9 +106,9 @@ Workflows trigger on **pull requests** targeting branches matching `LTS-C*`. All
 
 | Workflow | Runner | Compilers | CUDA versions |
 |---|---|---|---|
-| `cmake-linux-amd64.yml` | `linux, x64` | `g++-13`, `clang++-21` | 12.9,13.0,13.2 |
-| `cmake-linux-arm64.yml` | `linux, arm64` | `g++-11`, `clang++-21` | 12.9 |
-| `cmake-windows-amd64.yml` | `windows, x64` | `cl`, `clang-cl` (LLVM 21.1.0) | 12.9,13.0,13.2 |
+| `cmake-linux-amd64.yml` | `linux, x64` | `g++-15`, `clang++-21` | 12.9, 13.3 |
+| `cmake-linux-arm64.yml` | `linux, arm64` | `g++-13`, `clang++-21` | 12.9, 13.3 |
+| `cmake-windows-amd64.yml` | `windows, x64` | `cl`, `clang-cl` (LLVM 21.1.0) | 12.9, 13.0, 13.3 |
 
 Compilers are set via `CC`, `CXX`, `CUDACXX` environment variables in the "Set reusable strings" step — not as CMake `-D` flags.
 
