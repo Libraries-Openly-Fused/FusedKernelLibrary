@@ -17,18 +17,18 @@ jobs:
 
       matrix: 
         include:
-          - host_compiler: "g++-11"
+          - host_compiler: "g++-13"
             cuda_toolkit: "12.9"
             cuda_ldpath: "cuda-12.9"
           - host_compiler: "clang++-21"
             cuda_toolkit: "12.9"
             cuda_ldpath: "cuda-12.9"
-          - host_compiler: "g++-11"
-            cuda_toolkit: "13.2"
-            cuda_ldpath: "cuda-13.2/compat_orin" 
+          - host_compiler: "g++-13"
+            cuda_toolkit: "13.3"
+            cuda_ldpath: "cuda-13.3" 
           - host_compiler: "clang++-21"
-            cuda_toolkit: "13.2"  
-            cuda_ldpath: "cuda-13.2/compat_orin" 
+            cuda_toolkit: "13.3"  
+            cuda_ldpath: "cuda-13.3" 
  
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +37,7 @@ jobs:
         id: strings
         run: |
           echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"      
-          echo "PATH=$HOME/cmake-4.2.1-linux-aarch64/bin/:$PATH" >> "$GITHUB_ENV"
+          echo "PATH=$HOME/cmake-4.3.3-linux-aarch64/bin/:$PATH" >> "$GITHUB_ENV"
           echo "CUDACXX=/usr/local/cuda-${{matrix.cuda_toolkit}}/bin/nvcc" >> "$GITHUB_ENV"
           echo "CC=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
           echo "CXX=${{matrix.host_compiler}}" >> "$GITHUB_ENV"          
