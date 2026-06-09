@@ -35,7 +35,7 @@ FusedKernelLibrary/
 ├── tests/                   # Integration tests (discovered from .h files by CMake)
 ├── utests/                  # Unit tests (discovered from .h files by CMake)
 ├── benchmarks/              # Performance benchmarks (off by default)
-├── CMakeLists.txt           # Root CMake, version 0.1.14, requires CMake 3.24+
+├── CMakeLists.txt           # Root CMake, version 0.1.14, requires CMake 3.28+
 └── .clang-format            # LLVM-based style, 4-space indent, 120 column limit
 ```
 
@@ -50,7 +50,7 @@ FusedKernelLibrary/
 - **CMake ≥ 3.28** (CI uses cmake 4.3.3 custom install)
 - **C++17** standard required (enforced via `CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO`)
 - **CUDA 12.x or 13.x** 
-- **Host compilers**: `g++-13` (ARM64), `g++-15` (x86_64), `clang++-21`, `cl` (MSVC 14.44, MSVC 14.50, MSVC 14.51), `clang-cl`
+- **Host compilers**: ``g++-13` (ARM64),g++-15` (x86_64), `clang++-21`, `cl` (MSVC 14.44, MSVC 14.51), `clang-cl`
 - Only **nvcc** is supported as the CUDA compiler 
 - **Ninja** generator is used in CI; Visual Studio generator also works on Windows
 
@@ -69,10 +69,9 @@ FusedKernelLibrary/
 #setup compilers
    
 export PATH=/home/cudeiro/cmake-4.3.3-linux-aarch64/bin/:$PATH #update with linux-aarch64 for arm64, linux-x86_64 for x86_64
-export CUDACXX=/usr/local/cuda-12.9/bin/nvcc  #can be 13.0 or 13.3 
-export CC=gcc-13 # e.g. "gcc-13" (gcc15 for x86_64), "clang++-21" 
-export CXX=g++-13 # e.g. "g++-13 (g++15 for x86_64)", "clang++-21"
-# Configure
+export CUDACXX=/usr/local/cuda-12.9/bin/nvcc  # can be 13.3 as well
+export CC=g++-13 # e.g. "g++-13" (ARM64), "g++-15" (x86_64), "clang++-21"
+export CXX=g++-13 # e.g. "g++-13" (ARM64), "g++-15" (x86_64), "clang++-21"
 cmake -G "Ninja" -B build -DCMAKE_BUILD_TYPE=Release -S .
 
 # Build
