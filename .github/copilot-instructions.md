@@ -108,7 +108,7 @@ Workflows trigger on **pull requests** targeting branches matching `LTS-C*`. All
 |---|---|---|---|
 | `cmake-linux-amd64.yml` | `linux, x64` | `g++-15`, `clang++-21` | 12.9, 13.3 |
 | `cmake-linux-arm64.yml` | `linux, arm64` | `g++-13`, `clang++-21` | 12.9, 13.3 |
-| `cmake-windows-amd64.yml` | `windows, x64` | `cl`, `clang-cl` (LLVM 21.1.0) | 12.9, 13.0, 13.3 |
+| `cmake-windows-amd64.yml` | `windows, x64` | `cl`, `clang-cl` (LLVM 21.1.0) | 12.9, 13.3 |
 
 Compilers are set via `CC`, `CXX`, `CUDACXX` environment variables in the "Set reusable strings" step — not as CMake `-D` flags.
 
