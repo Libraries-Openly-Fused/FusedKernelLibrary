@@ -55,8 +55,9 @@ public:
 
     struct Params {
         QIOp q; KIOp k; VIOp v;
-        float* partial;      // workspace [bh, splits, HEAD_DIM+2]
-        OT* o;               // final [bh, 1, HEAD_DIM] (used when splits==1)
+        float* partial;      // workspace [bh, splits, (HEAD_DIM+2)] + counters
+        unsigned int* counters;  // [bh] arrival counters (self-resetting)
+        OT* o;               // final [bh, 1, HEAD_DIM]
         int seq_k;
         int splits;
         float scale;
@@ -124,16 +125,19 @@ public:
         const int chunk = (p.seq_k + p.splits - 1) / p.splits;
         const int kvBegin = split * chunk;
         const int kvEnd = ::min(p.seq_k, kvBegin + chunk);
-        if (kvBegin >= kvEnd) {
-            // empty split: emit a neutral partial
+        const bool emptySplit = kvBegin >= kvEnd;
+        if (emptySplit) {
+            // empty split: emit a neutral partial, then STILL participate in
+            // the arrival counter below (otherwise the fused merge never fires)
             if (threadIdx.x == 0 && p.splits > 1) {
                 float* dst = p.partial + ((long)bh * p.splits + split) * (HEAD_DIM + 2);
                 dst[HEAD_DIM] = -FLT_MAX; dst[HEAD_DIM + 1] = 0.f;
                 for (int dd = 0; dd < HEAD_DIM; ++dd) dst[dd] = 0.f;
             }
-            return;
+            if (p.splits == 1) return;
         }
 
+        if (!emptySplit) {
         // q -> registers; lane owns elements [ELEMS*lane, ELEMS*lane+ELEMS)
         float qReg[ELEMS];
         #pragma unroll
@@ -206,6 +210,41 @@ public:
                 if (lane == 0) { dst[HEAD_DIM] = gm; dst[HEAD_DIM + 1] = gl; }
             }
         }
+        } // !emptySplit
+        if (p.splits == 1) return;
+
+        // ---- FUSED split merge: last CTA to arrive merges (no 2nd kernel).
+        // GPU-side fusion of the tiny epilogue kernel that profiling showed
+        // wasting a full launch (~1.5us+gap) per decode step.
+        __shared__ bool amLast;
+        __threadfence();                       // partials visible device-wide
+        __syncthreads();
+        if (threadIdx.x == 0) {
+            const unsigned int arrived =
+                atomicAdd(&p.counters[bh], 1u);
+            amLast = (arrived == (unsigned int)p.splits - 1u);
+            if (amLast) p.counters[bh] = 0u;   // self-reset for next call
+        }
+        __syncthreads();
+        if (!amLast) return;
+
+        // merge all splits for this bh row: thread d owns output element d.
+        const float* base = p.partial + (long)bh * p.splits * (HEAD_DIM + 2);
+        for (int d = threadIdx.x; d < HEAD_DIM; d += THREADS) {
+            float gm2 = -FLT_MAX;
+            for (int s = 0; s < p.splits; ++s)
+                gm2 = fmaxf(gm2, base[s * (HEAD_DIM + 2) + HEAD_DIM]);
+            float gl2 = 0.f, acc = 0.f;
+            for (int s = 0; s < p.splits; ++s) {
+                const float sm = base[s * (HEAD_DIM + 2) + HEAD_DIM];
+                const float sl = base[s * (HEAD_DIM + 2) + HEAD_DIM + 1];
+                const float c = (sm == -FLT_MAX) ? 0.f : __expf(sm - gm2);
+                gl2 += sl * c;
+                acc += base[s * (HEAD_DIM + 2) + d] * c;
+            }
+            const float inv = gl2 > 0.f ? 1.f / gl2 : 0.f;
+            p.o[(long)bh * HEAD_DIM + d] = attnFromF32<OT>(acc * inv);
+        }
     }
 };
 
@@ -250,11 +289,20 @@ inline int flashDecodeSplits(const int batchHeads, const int seqK) {
     return ::max(1, splits);
 }
 
+// workspace floats needed for a decode call (partials + arrival counters).
+// IMPORTANT: zero the workspace ONCE after allocation (counters start at 0
+// and self-reset after every call, so one memset at alloc time is enough).
+inline size_t flashDecodeWorkspaceFloats(const int batchHeads, const int splits,
+                                         const int headDim) {
+    return (size_t)batchHeads * splits * (headDim + 2) + batchHeads;
+}
+
 template <int HEAD_DIM, int NUM_WARPS = 8, typename OT = float,
           typename QIOp, typename KIOp, typename VIOp>
 inline void executeFlashDecode(
         const QIOp& q, const KIOp& k, const VIOp& v, OT* o,
-        float* workspace /* bh*splits*(HEAD_DIM+2) floats, nullptr ok if splits==1 */,
+        float* workspace /* flashDecodeWorkspaceFloats(); zeroed at alloc;
+                            nullptr ok if splits==1 */,
         const int batchHeads, const int seqK,
         Stream_<ParArch::GPU_NVIDIA>& stream,
         const float scaleOverride = -1.f, const int splitsOverride = 0) {
@@ -263,16 +311,20 @@ inline void executeFlashDecode(
                                             : rsqrtf(static_cast<float>(HEAD_DIM));
     const int splits = splitsOverride > 0 ? splitsOverride
                                           : flashDecodeSplits(batchHeads, seqK);
-    const typename DPP::Params params{ q, k, v, workspace, o, seqK, splits, scale };
+    // counters live after the partials (reinterpreted as uint32)
+    unsigned int* counters = (splits > 1)
+        ? reinterpret_cast<unsigned int*>(
+              workspace + (size_t)batchHeads * splits * (HEAD_DIM + 2))
+        : nullptr;
+    const typename DPP::Params params{ q, k, v, workspace, counters, o,
+                                       seqK, splits, scale };
     const dim3 grid(splits, batchHeads, 1);
+    // single kernel: the split merge is FUSED (last-CTA-arrives pattern) —
+    // profiling showed the separate 1.4us merge kernel + launch gap was pure
+    // overhead at decode latencies.
     launchFlashDecodeDPP_Kernel<OT, HEAD_DIM, QIOp, KIOp, VIOp, NUM_WARPS>
         <<<grid, DPP::THREADS, 0, stream.getCUDAStream()>>>(params);
     gpuErrchk(cudaGetLastError());
-    if (splits > 1) {
-        flashDecodeMerge_Kernel<OT, HEAD_DIM>
-            <<<batchHeads, HEAD_DIM, 0, stream.getCUDAStream()>>>(workspace, o, splits);
-        gpuErrchk(cudaGetLastError());
-    }
 }
 
 } // namespace fk
