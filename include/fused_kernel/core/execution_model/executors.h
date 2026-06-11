@@ -318,7 +318,12 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         FK_HOST_FUSE ActiveThreads getActiveThreads(const IOpSequenceTypes&... iOpSequences) {
             const uint x = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().x...);
             const uint y = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().y...);
-            const uint z = cxp::sum::f(get<0>(iOpSequences.iOps).getActiveThreads().z...);
+            // z must be the MAX of the sequences' z extents, not the sum: the
+            // kernel hands the GLOBAL plane index z to whichever sequence the
+            // SequenceSelector picks, so all sequences index the same global
+            // plane space. Summing launched planes beyond every sequence's
+            // extent, producing out-of-bounds reads/writes (issue #250).
+            const uint z = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().z...);
             return ActiveThreads{ x, y, z }; 
         }
 
