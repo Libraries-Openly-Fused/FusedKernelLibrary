@@ -22,7 +22,7 @@ The library has CPU and CUDA backends. HIP support is architecturally possible b
 FusedKernelLibrary/
 ├── .clang-format               # LLVM-based style, 4-space indent, 120-char column limit
 ├── .github/workflows/          # CI: cmake-linux-amd64.yml, cmake-linux-arm64.yml, cmake-windows-amd64.yml
-├── CMakeLists.txt              # Root build (v0.2.0, requires CMake >= 3.24, C++ and optional CUDA)
+├── CMakeLists.txt              # Root build (v0.2.0, requires CMake >= 3.28 C++ and optional CUDA)
 ├── cmake/                      # CMake helpers: arch flags, CUDA init, test discovery, generators
 │   ├── archflags.cmake         # CPU SIMD flags (AVX2 default on MSVC x64, native on Unix)
 │   ├── cmake_init.cmake        # Global CMake settings
@@ -49,7 +49,7 @@ FusedKernelLibrary/
 ## Build System
 
 ### Requirements
-- **CMake** >= 3.24
+- **CMake** >= 3.28
 - **C++ compiler** with C++20 support
 - **CUDA** (optional): requires NVCC. **Only nvcc is supported as the CUDA compiler**; clang-as-CUDA-compiler is not supported despite `CLANG_HOST_DEVICE` macro existing.
 - **MSVC**: Visual Studio 2019+ (MSVC_VERSION >= 1920) required; older versions disable the CPU backend.
@@ -220,15 +220,15 @@ All three workflow files trigger on **pull requests to `main`** (push triggers a
 
 ### Linux (cmake-linux-amd64.yml, cmake-linux-arm64.yml)
 - **Compilers**: `g++-13`, `clang++-21`
-- **CUDA**: 12.9, 13.2 (via `/usr/local/cuda-<version>/bin/nvcc`)
-- **CMake**: Custom installation at `/home/cudeiro/cmake-4.2.1-linux-x86_64/bin/` (added to PATH)
+- **CUDA**: 12.9, 13.3 (via `/usr/local/cuda-<version>/bin/nvcc`)
+- **CMake**: Custom installation at `/home/cudeiro/cmake-4.3.3-linux-x86_64/bin/` (added to PATH)
 - **Generator**: Ninja
 - **Build type**: Release
 
 ### Windows (cmake-windows-amd64.yml)
 - **Host compilers**: `cl` (MSVC), `clang-cl`
-- **MSVC versions**: 14.44, 14.50 (via `-vcvars_ver`)
-- **CUDA**: 12.9, 13.2 (NVCC at `%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v<version>\bin\nvcc.exe`)
+- **MSVC versions**: 14.44, 14.51 (via `-vcvars_ver`)
+- **CUDA**: 12.9, 13.3 (NVCC at `%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v<version>\bin\nvcc.exe`)
 - **LLVM**: `D:/clang+llvm-21.1.0-x86_64-pc-windows-msvc/bin/` (added to PATH)
 - **Generator**: Ninja
 - **Workaround**: After CMake configure, `rules.ninja` may contain an empty NVCC path that is patched with PowerShell string replacement.
