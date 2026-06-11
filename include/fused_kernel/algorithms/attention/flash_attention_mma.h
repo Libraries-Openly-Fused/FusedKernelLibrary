@@ -100,6 +100,16 @@ inline auto makeAttentionRead(const __nv_bfloat16* data, const int batchHeads,
 template <typename IOp>
 constexpr bool isRawBf16Read = std::is_same_v<typename IOp::Operation, Bf16AttentionRead>;
 
+#ifdef FK_HAS_FP8
+template <typename IOp>
+constexpr bool isFp8KVRead = std::is_same_v<typename IOp::Operation, Fp8TokenDequantRead>;
+#else
+template <typename IOp>
+constexpr bool isFp8KVRead = false;
+#endif
+template <typename IOp>
+constexpr bool isInt8KVRead = std::is_same_v<typename IOp::Operation, Int8TokenDequantRead>;
+
 namespace attention_mma_detail {
 
 __device__ __forceinline__ void ldmatrix_x4(uint32_t regs[4], uint32_t addr) {
@@ -128,6 +138,12 @@ __device__ __forceinline__ void mma_m16n8k16(const uint32_t A[4], const uint32_t
 __device__ __forceinline__ void cp_async_16(uint32_t dst, const void* src,
                                             const int srcSize) {
     asm volatile("cp.async.cg.shared.global [%0], [%1], 16, %2;"
+                 :: "r"(dst), "l"(src), "r"(srcSize));
+}
+// 8-byte async copy (ca path; cg only supports 16B).
+__device__ __forceinline__ void cp_async_8(uint32_t dst, const void* src,
+                                           const int srcSize) {
+    asm volatile("cp.async.ca.shared.global [%0], [%1], 8, %2;"
                  :: "r"(dst), "l"(src), "r"(srcSize));
 }
 __device__ __forceinline__ void cp_async_commit() {
@@ -176,6 +192,11 @@ public:
     // RAW = identity bf16 reads -> real cp.async streaming (fa-5090 v5).
     static constexpr bool RAW_KV = isRawBf16Read<KIOp> && isRawBf16Read<VIOp>;
     static constexpr bool RAW_Q = isRawBf16Read<QIOp>;
+    // QUANT_KV = fp8/int8 per-token KV -> cp.async the RAW QUANTIZED bytes
+    // (HALF the global traffic of bf16!) + smem->smem dequant pass.
+    static constexpr bool QUANT_KV =
+        (isFp8KVRead<KIOp> && isFp8KVRead<VIOp>) ||
+        (isInt8KVRead<KIOp> && isInt8KVRead<VIOp>);
 
     static constexpr int STRIDE_B = HEAD_DIM * (int)sizeof(__nv_bfloat16);
     static constexpr int Q_GROUPS = BLOCK_Q * HEAD_DIM / (THREADS * 8);
@@ -186,11 +207,14 @@ public:
                   "BLOCK_KV*HEAD_DIM must be a multiple of THREADS*8");
 
     static constexpr int KV_BUF_B = BLOCK_KV * STRIDE_B;
-    // both schedules: K double + V double (4 buffers).
+    // both schedules: K double + V double (4 bf16 buffers). QUANT_KV adds
+    // 4 byte-staging buffers (half size) for the raw quantized bytes.
     static constexpr int KV_BUFS = 4;
+    static constexpr int Q_STAGE_B = QUANT_KV ? 4 * (KV_BUF_B / 2) : 0;
     static constexpr int SMEM_BYTES =
-        (BLOCK_Q * STRIDE_B > KV_BUFS * KV_BUF_B ? BLOCK_Q * STRIDE_B
-                                                 : KV_BUFS * KV_BUF_B);
+        (BLOCK_Q * STRIDE_B > KV_BUFS * KV_BUF_B + Q_STAGE_B
+             ? BLOCK_Q * STRIDE_B
+             : KV_BUFS * KV_BUF_B + Q_STAGE_B);
 
     struct Params {
         QIOp q; KIOp k; VIOp v;
@@ -217,6 +241,11 @@ public:
     FK_DEVICE_FUSE void prefetchTile(const IOp& iop, const int rowBase,
                                      const int seqLen, const int bh,
                                      float (&regs)[GROUPS][8]) {
+        // VECTORIZED FAST PATH for the quantized KV prologues: ONE 8-byte
+        // load per thread-group (vs 8 scattered byte loads) + the per-token
+        // scale hoisted out of the element loop. Generic IOps keep the
+        // element-wise path (they may fuse arbitrary compute chains).
+        constexpr bool QUANT8 = isFp8KVRead<IOp> || isInt8KVRead<IOp>;
         #pragma unroll
         for (int g = 0; g < GROUPS; ++g) {
             const int idx = (g * THREADS + (int)threadIdx.x) * 8;
@@ -224,9 +253,32 @@ public:
             const int c = idx % HEAD_DIM;
             const int row = rowBase + r;
             if (row < seqLen) {
-                #pragma unroll
-                for (int e = 0; e < 8; ++e)
-                    regs[g][e] = readElem(iop, c + e, row, bh);
+                if constexpr (QUANT8) {
+                    const auto& prm = iop.params;
+                    const int seq = static_cast<int>(prm.data.dims.height);
+                    const float sc = prm.scales[(long)bh * seq + row];
+                    const int8_t* base = reinterpret_cast<const int8_t*>(prm.data.data)
+                                       + ((long)bh * seq + row) * HEAD_DIM + c;
+                    // one coalesced 8-byte load
+                    const uint64_t packed = *reinterpret_cast<const uint64_t*>(base);
+                    #pragma unroll
+                    for (int e = 0; e < 8; ++e) {
+                        const int8_t b = static_cast<int8_t>((packed >> (8 * e)) & 0xFF);
+                        if constexpr (isFp8KVRead<IOp>) {
+#ifdef FK_HAS_FP8
+                            __nv_fp8_e4m3 f8;
+                            f8.__x = static_cast<__nv_fp8_storage_t>(b);
+                            regs[g][e] = static_cast<float>(f8) * sc;
+#endif
+                        } else {
+                            regs[g][e] = static_cast<float>(b) * sc;
+                        }
+                    }
+                } else {
+                    #pragma unroll
+                    for (int e = 0; e < 8; ++e)
+                        regs[g][e] = readElem(iop, c + e, row, bh);
+                }
             } else {
                 #pragma unroll
                 for (int e = 0; e < 8; ++e) regs[g][e] = 0.f;
@@ -267,6 +319,68 @@ public:
             const int safeRow = ok ? row : (seqLen > 0 ? seqLen - 1 : 0);
             cp_async_16(dstBase + swz(idx * (uint32_t)sizeof(__nv_bfloat16)),
                         srcPlane + (long)safeRow * HEAD_DIM + c, ok ? 16 : 0);
+        }
+    }
+
+    // ---- quantized staging: cp.async the RAW BYTES (half the traffic) ------
+    template <int GROUPS>
+    FK_DEVICE_FUSE void cpasyncQuantTile(const uint32_t dstBase,
+                                         const int8_t* srcPlane, const int rowBase,
+                                         const int seqLen) {
+        using namespace attention_mma_detail;
+        #pragma unroll
+        for (int g = 0; g < GROUPS; ++g) {
+            const int idx = (g * THREADS + (int)threadIdx.x) * 8;
+            const int r = idx / HEAD_DIM;
+            const int c = idx % HEAD_DIM;
+            const int row = rowBase + r;
+            const bool ok = row < seqLen;
+            const int safeRow = ok ? row : (seqLen > 0 ? seqLen - 1 : 0);
+            // unswizzled byte staging: 8B per thread-group
+            cp_async_8(dstBase + (uint32_t)idx,
+                       srcPlane + (long)safeRow * HEAD_DIM + c, ok ? 8 : 0);
+        }
+    }
+
+    /* smem bytes -> swizzled bf16 smem, dequantizing in-register. scales
+       read from global (coalesced; BLOCK_KV floats per tile). */
+    template <int GROUPS, bool FP8>
+    FK_DEVICE_FUSE void dequantTile(char* smemBytes, const uint32_t stageOff,
+                                    const uint32_t bf16Off, const float* scales,
+                                    const int rowBase, const int seqLen) {
+        using attention_mma_detail::Bf16x8;
+        #pragma unroll
+        for (int g = 0; g < GROUPS; ++g) {
+            const int idx = (g * THREADS + (int)threadIdx.x) * 8;
+            const int r = idx / HEAD_DIM;
+            const int row = rowBase + r;
+            const float sc = (row < seqLen) ? scales[row] : 0.f;
+            const uint64_t packed =
+                *reinterpret_cast<const uint64_t*>(smemBytes + stageOff + idx);
+            Bf16x8 out;
+            #pragma unroll
+            for (int h = 0; h < 4; ++h) {
+                float lo, hi;
+                const int8_t b0 = static_cast<int8_t>((packed >> (16 * h)) & 0xFF);
+                const int8_t b1 = static_cast<int8_t>((packed >> (16 * h + 8)) & 0xFF);
+                if constexpr (FP8) {
+#ifdef FK_HAS_FP8
+                    __nv_fp8_e4m3 f0, f1;
+                    f0.__x = static_cast<__nv_fp8_storage_t>(b0);
+                    f1.__x = static_cast<__nv_fp8_storage_t>(b1);
+                    lo = static_cast<float>(f0) * sc;
+                    hi = static_cast<float>(f1) * sc;
+#else
+                    lo = hi = 0.f;
+#endif
+                } else {
+                    lo = static_cast<float>(b0) * sc;
+                    hi = static_cast<float>(b1) * sc;
+                }
+                out.h[h] = __float22bfloat162_rn({ lo, hi });
+            }
+            *reinterpret_cast<Bf16x8*>(
+                smemBytes + bf16Off + swz(idx * (uint32_t)sizeof(__nv_bfloat16))) = out;
         }
     }
 
@@ -573,6 +687,75 @@ public:
 
                 // wait V[kv] (1 group outstanding: K[kv+1])
                 cp_async_wait<1>();
+                __syncthreads();
+
+                uint32_t vReg[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2];
+                loadVFrags(smemBase + vBufOff, vThread, vReg);
+                pvMma(pReg, vReg, oAcc);
+            }
+        } else if constexpr (QUANT_KV) {
+            // ====== quantized cp.async schedule: stream RAW BYTES (2x less
+            // global traffic than bf16), dequantize smem->smem in-register.
+            // Same v5 staggering as the raw path.
+            constexpr bool IS_FP8 = isFp8KVRead<KIOp>;
+            const int seqK = static_cast<int>(p.k.params.data.dims.height);
+            const int8_t* kPlane = reinterpret_cast<const int8_t*>(p.k.params.data.data)
+                                   + (long)bh * seqK * HEAD_DIM;
+            const int8_t* vPlane = reinterpret_cast<const int8_t*>(p.v.params.data.data)
+                                   + (long)bh * seqK * HEAD_DIM;
+            const float* kScales = p.k.params.scales + (long)bh * seqK;
+            const float* vScales = p.v.params.scales + (long)bh * seqK;
+
+            const auto kBuf = [&](int i) { return (uint32_t)(i % 2) * KV_BUF_B; };
+            const uint32_t vBufOff = 2 * KV_BUF_B;
+            // byte staging area after the 4 bf16 buffers
+            const uint32_t stageBase = 4 * KV_BUF_B;
+            const auto kStage = [&](int i) {
+                return stageBase + (uint32_t)(i % 2) * (KV_BUF_B / 2); };
+            const uint32_t vStage = stageBase + 2 * (KV_BUF_B / 2);
+
+            // prefetch K0 bytes
+            cpasyncQuantTile<KV_GROUPS>(smemBase + kStage(0), kPlane, 0, p.seq_k);
+            cp_async_commit();
+
+            for (int kv = 0; kv < numIter; ++kv) {
+                const int offKV = kv * BLOCK_KV;
+
+                __syncthreads();
+                cpasyncQuantTile<KV_GROUPS>(smemBase + vStage, vPlane, offKV, p.seq_k);
+                cp_async_commit();
+
+                cp_async_wait<1>();   // K bytes ready
+                __syncthreads();
+                dequantTile<KV_GROUPS, IS_FP8>(smemBytes, kStage(kv), kBuf(kv),
+                                               kScales, offKV, p.seq_k);
+                __syncthreads();
+
+                uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
+                loadKFrags(smemBase + kBuf(kv), kThread, kReg);
+
+                float sReg[WARP_Q / MMA_M][BLOCK_KV / MMA_N][4] = {};
+                sMma(qReg, kReg, sReg);
+
+                if (kv + 1 < numIter) {
+                    cpasyncQuantTile<KV_GROUPS>(smemBase + kStage(kv + 1), kPlane,
+                                                offKV + BLOCK_KV, p.seq_k);
+                }
+                cp_async_commit();
+
+                uint32_t pReg[WARP_Q / MMA_M][BLOCK_KV / MMA_K][4];
+                if (tileNeedsMask(offKV)) {
+                    softmaxTile<false>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
+                                       qBlockBase, warpId, laneId);
+                } else {
+                    softmaxTile<true>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
+                                      qBlockBase, warpId, laneId);
+                }
+
+                cp_async_wait<1>();   // V bytes ready
+                __syncthreads();
+                dequantTile<KV_GROUPS, IS_FP8>(smemBytes, vStage, vBufOff,
+                                               vScales, offKV, p.seq_k);
                 __syncthreads();
 
                 uint32_t vReg[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2];

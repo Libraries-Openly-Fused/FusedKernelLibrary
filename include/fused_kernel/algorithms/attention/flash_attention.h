@@ -355,4 +355,102 @@ inline void quantizeKVCacheHost(const T* dense, int8_t* q8, float* scales,
 
 } // namespace fk
 
+// ============================ FP8 KV CACHE ==================================
+// fp8 e4m3 per-token-scaled KV cache (the FA4-sm12x / PR #2634 recipe,
+// expressed as a prologue Read IOp). Same 2x-vs-bf16 memory saving as int8
+// but the e4m3 grid is non-uniform (more precision near 0), which suits
+// attention tails. Storage: data fp8 e4m3, one fp32 scale per token
+// (scale = max|row| / 448, e4m3 max normal = 448).
+#if __has_include(<cuda_fp8.h>)
+#include <cuda_fp8.h>
+#define FK_HAS_FP8 1
+
+namespace fk {
+
+struct Fp8TokenDequantReadParams {
+    RawPtr<ND::_3D, int8_t> data;   // raw e4m3 bytes (int8_t storage)
+    const float* scales;            // one fp32 scale per token
+};
+
+struct Fp8TokenDequantRead {
+private:
+    using Parent = ReadOperation<int8_t, Fp8TokenDequantReadParams, float,
+                                 TF::DISABLED, Fp8TokenDequantRead>;
+    using SelfType = Fp8TokenDequantRead;
+public:
+    FK_STATIC_STRUCT(Fp8TokenDequantRead, SelfType)
+    DECLARE_READ_PARENT
+
+    // NOTE: plain static (not FK_HOST_DEVICE_FUSE): fp8 conversion ops are
+    // not constexpr (same trap as __shared__ in cooperative DPP exec).
+    static __host__ __device__ __forceinline__
+    float exec(const Point thread, const ParamsType& params) {
+        const int8_t raw = *PtrAccessor<ND::_3D>::cr_point(thread, params.data);
+        const int seq = static_cast<int>(params.data.dims.height);
+        const float sc = params.scales[(long)thread.z * seq + thread.y];
+#if defined(__CUDA_ARCH__)
+        const __nv_fp8_e4m3* f8 = reinterpret_cast<const __nv_fp8_e4m3*>(&raw);
+        return static_cast<float>(*f8) * sc;
+#else
+        __nv_fp8_e4m3 f8;
+        f8.__x = static_cast<__nv_fp8_storage_t>(raw);
+        return static_cast<float>(f8) * sc;
+#endif
+    }
+
+    FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
+        return opData.params.data.dims.width;
+    }
+    FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
+        return opData.params.data.dims.height;
+    }
+    FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
+        return opData.params.data.dims.planes;
+    }
+    FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {
+        return opData.params.data.dims.pitch;
+    }
+    FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
+        return { num_elems_x(Point{0,0,0}, opData),
+                 num_elems_y(Point{0,0,0}, opData),
+                 num_elems_z(Point{0,0,0}, opData) };
+    }
+};
+
+// fp8-per-token compressed K or V cache as a dequantizing Read IOp.
+inline auto makeFp8KVRead(const void* data, const float* scales,
+                          const int batchHeads, const int seq,
+                          const int headDim) {
+    const RawPtr<ND::_3D, int8_t> ptr{
+        const_cast<int8_t*>(static_cast<const int8_t*>(data)),
+        PtrDims<ND::_3D>(static_cast<uint>(headDim), static_cast<uint>(seq),
+                         static_cast<uint>(batchHeads), 1,
+                         static_cast<uint>(headDim)) };
+    return Fp8TokenDequantRead::build(Fp8TokenDequantReadParams{ ptr, scales });
+}
+
+// host-side reference packing: scale[t] = max|row|/448 (e4m3 max normal).
+template <typename T>
+inline void quantizeKVCacheFp8Host(const T* dense, void* f8out, float* scales,
+                                   const int tokens, const int headDim) {
+    int8_t* out = static_cast<int8_t*>(f8out);
+    for (int t = 0; t < tokens; ++t) {
+        float mx = 0.f;
+        for (int d = 0; d < headDim; ++d) {
+            mx = std::max(mx, std::abs(attnToF32(dense[(long)t * headDim + d])));
+        }
+        const float sc = mx > 0.f ? mx / 448.f : 1.f;
+        scales[t] = sc;
+        for (int d = 0; d < headDim; ++d) {
+            const float x = attnToF32(dense[(long)t * headDim + d]) / sc;
+            const __nv_fp8_e4m3 f8(x);
+            out[(long)t * headDim + d] = static_cast<int8_t>(f8.__x);
+        }
+    }
+}
+
+} // namespace fk
+
+#endif // __has_include(<cuda_fp8.h>)
+
 #endif // FK_ATTENTION_FLASH_ATTENTION_H
