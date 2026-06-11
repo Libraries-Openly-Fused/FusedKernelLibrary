@@ -150,7 +150,7 @@ public:
             // PROLOGUE: element read through the IOp (pass 1)
             const float v = readElem(p.input, x, row);
             const float m = attnMaxF(st.m, v);
-            st.l = st.l * attnExpF(st.m - m) + expf(v - m);
+            st.l = st.l * attnExpF(st.m - m) + attnExpF(v - m);
             st.m = m;
         }
         states[tid] = st;
