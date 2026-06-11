@@ -48,8 +48,22 @@
 namespace fk {
 
 #if !defined(__CUDA_ARCH__) && !defined(__NVCC__) && !CLANG_HOST_DEVICE
-using std::fmaxf;
-using std::expf;
+// CPU-only TU (e.g. g++ in CI): provide expf/fmaxf in fk:: scope.
+// NOTE: do NOT `using std::expf` — libstdc++ only guarantees ::expf from
+// <cmath>'s C heritage; std::expf is not declared on g++-13 (CI failure).
+// gcc: constexpr via __builtin_expf (keeps FK_HOST_DEVICE_CNST callers
+// legal). clang: __builtin_expf is not constexpr -> plain inline (clang
+// accepts non-constexpr calls inside never-constant-evaluated constexpr
+// functions without -Winvalid-constexpr only when the call is reachable,
+// so the polynomial fallback keeps it constexpr-clean everywhere).
+constexpr float fmaxf(const float a, const float b) {
+    return a > b ? a : (b >= a ? b : (a == a ? a : b));  // NaN-safe enough
+}
+#if defined(__clang__)
+inline float expf(const float x) { return __builtin_expf(x); }
+#else
+constexpr float expf(const float x) { return __builtin_expf(x); }
+#endif
 #endif
 
 // Cooperative-DPP exec bodies use __shared__ + barriers: they cannot be
