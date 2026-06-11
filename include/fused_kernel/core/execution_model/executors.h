@@ -324,7 +324,13 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
 
         template <typename... IOps>
         FK_HOST_FUSE auto fuseBackSequence(const IOpSequence<IOps...>& iOpSeq) {
-            return buildOperationSequence_tup(apply(BackFuser::fuse_back<IOps...>, iOpSeq.iOps));
+            // NOTE: do not pass explicit template arguments to fuse_back here.
+            // With explicit args its IOps&&... parameters become rvalue
+            // references, which cannot bind to the const lvalues stored in
+            // the sequence tuple. Let the compiler deduce (forwarding refs).
+            return buildOperationSequence_tup(apply(
+                [](const auto&... iOps) { return BackFuser::fuse_back(iOps...); },
+                iOpSeq.iOps));
         }
 
         template <typename... IOpSequenceTypes>
