@@ -569,14 +569,14 @@ namespace fk {
     // Will work for ColorConversionCodes::COLOR_RGB2BGRA too
     template <typename I, typename O, ColorDepth CD>
     struct ColorConversionType<ColorConversionCodes::COLOR_BGR2RGBA, I, O, CD> {
-        using type = FusedOperation<VectorReorder<I, 2, 1, 0>, AddOpaqueAlpha<I, CD>>;
+        using type = FusedOperation<Unary<VectorReorder<I, 2, 1, 0>>, Unary<AddOpaqueAlpha<I, CD>>>;
     };
 
     // Will work for COLOR_RGBA2BGR too
     template <typename I, typename O, ColorDepth CD>
     struct ColorConversionType<ColorConversionCodes::COLOR_BGRA2RGB, I, O, CD> {
-        using type = FusedOperation<VectorReorder<I, 2, 1, 0, 3>,
-                           Discard<I, VectorType_t<VBase<I>, 3>>>;
+        using type = FusedOperation<Unary<VectorReorder<I, 2, 1, 0, 3>>,
+                           Unary<Discard<I, VectorType_t<VBase<I>, 3>>>>;
     };
 
     // Will work for ColorConversionCodes::COLOR_RGB2BGR too
@@ -598,7 +598,7 @@ namespace fk {
 
     template <typename I, typename O, ColorDepth CD>
     struct ColorConversionType<ColorConversionCodes::COLOR_BGR2GRAY, I, O, CD> {
-        using type = FusedOperation<VectorReorder<I, 2, 1, 0>, RGB2Gray<I, O>>;
+        using type = FusedOperation<Unary<VectorReorder<I, 2, 1, 0>>, Unary<RGB2Gray<I, O>>>;
     };
 
     template <typename I, typename O, ColorDepth CD>
@@ -608,7 +608,7 @@ namespace fk {
 
     template <typename I, typename O, ColorDepth CD>
     struct ColorConversionType<ColorConversionCodes::COLOR_BGRA2GRAY, I, O, CD> {
-        using type = FusedOperation<VectorReorder<I, 2, 1, 0, 3>, RGB2Gray<I, O>>;
+        using type = FusedOperation<Unary<VectorReorder<I, 2, 1, 0, 3>>, Unary<RGB2Gray<I, O>>>;
     };
 
     template <ColorConversionCodes code, typename I, typename O, ColorDepth CD = ColorDepth::p8bit>
