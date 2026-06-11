@@ -245,9 +245,9 @@ public:
                 }
                 const float s = partial * p.scale;
 
-                const float mNew = fmaxf(m, s);
-                const float corr = expf(m - mNew);
-                const float pj = expf(s - mNew);
+                const float mNew = attnMaxF(m, s);
+                const float corr = attnExpF(m - mNew);
+                const float pj = attnExpF(s - mNew);
                 l = l * corr + pj;
                 #pragma unroll
                 for (int e = 0; e < ELEMS_PER_LANE; ++e) {

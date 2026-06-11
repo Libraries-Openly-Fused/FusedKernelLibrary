@@ -47,23 +47,30 @@
 
 namespace fk {
 
-#if !defined(__CUDA_ARCH__) && !defined(__NVCC__) && !CLANG_HOST_DEVICE
-// CPU-only TU (e.g. g++ in CI): provide expf/fmaxf in fk:: scope.
-// NOTE: do NOT `using std::expf` — libstdc++ only guarantees ::expf from
-// <cmath>'s C heritage; std::expf is not declared on g++-13 (CI failure).
-// gcc: constexpr via __builtin_expf (keeps FK_HOST_DEVICE_CNST callers
-// legal). clang: __builtin_expf is not constexpr -> plain inline (clang
-// accepts non-constexpr calls inside never-constant-evaluated constexpr
-// functions without -Winvalid-constexpr only when the call is reachable,
-// so the polynomial fallback keeps it constexpr-clean everywhere).
-constexpr float fmaxf(const float a, const float b) {
-    return a > b ? a : (b >= a ? b : (a == a ? a : b));  // NaN-safe enough
+/* Portable math shims for the attention DPPs. Three compiler worlds:
+ *  - device code: __expf-class intrinsics are fine inside kernels but the
+ *    shared host/device helpers below must compile on the HOST pass too;
+ *  - g++ CPU-only TUs: std::expf is NOT declared by libstdc++ (<cmath>
+ *    only guarantees ::expf) — broke utest_*_cpp on the g++-13 runners;
+ *  - MSVC: __builtin_expf does not exist (C3861), and calling ::fmaxf
+ *    inside a constexpr function is rejected (C3615).
+ * Solution: never reference expf/fmaxf by unqualified name. attnMaxF is
+ * a constexpr ternary (legal everywhere); attnExpF is a NON-constexpr
+ * host+device inline that maps to the right primitive per target. */
+FK_HOST_DEVICE_CNST float attnMaxF(const float a, const float b) {
+    return a > b ? a : (b >= a ? b : (a == a ? a : b));  // NaN -> other arg
 }
-#if defined(__clang__)
-inline float expf(const float x) { return __builtin_expf(x); }
+
+#if defined(__NVCC__) || CLANG_HOST_DEVICE
+__host__ __device__ __forceinline__ float attnExpF(const float x) {
+#if defined(__CUDA_ARCH__)
+    return ::expf(x);     // device fast path (correctly-rounded enough here)
 #else
-constexpr float expf(const float x) { return __builtin_expf(x); }
+    return ::expf(x);     // host pass of nvcc/clang-cuda
 #endif
+}
+#else
+inline float attnExpF(const float x) { return ::expf(x); }  // pure CPU TU
 #endif
 
 // Cooperative-DPP exec bodies use __shared__ + barriers: they cannot be
@@ -91,11 +98,17 @@ struct OnlineSoftmaxState {
     float l;  // running sum of exp(x - m)
 };
 
-FK_HOST_DEVICE_CNST OnlineSoftmaxState mergeSoftmaxStates(const OnlineSoftmaxState& a,
+// NOT constexpr: attnExpF maps to ::expf (non-constexpr on MSVC/clang).
+#if defined(__NVCC__) || CLANG_HOST_DEVICE
+__host__ __device__ __forceinline__
+#else
+inline
+#endif
+OnlineSoftmaxState mergeSoftmaxStates(const OnlineSoftmaxState& a,
                                                           const OnlineSoftmaxState& b) {
-    const float m = fmaxf(a.m, b.m);
-    const float la = a.l == 0.f ? 0.f : a.l * expf(a.m - m);
-    const float lb = b.l == 0.f ? 0.f : b.l * expf(b.m - m);
+    const float m = attnMaxF(a.m, b.m);
+    const float la = a.l == 0.f ? 0.f : a.l * attnExpF(a.m - m);
+    const float lb = b.l == 0.f ? 0.f : b.l * attnExpF(b.m - m);
     return { m, la + lb };
 }
 
@@ -136,8 +149,8 @@ public:
         for (int x = tid; x < width; x += BLOCK_SIZE) {
             // PROLOGUE: element read through the IOp (pass 1)
             const float v = readElem(p.input, x, row);
-            const float m = fmaxf(st.m, v);
-            st.l = st.l * expf(st.m - m) + expf(v - m);
+            const float m = attnMaxF(st.m, v);
+            st.l = st.l * attnExpF(st.m - m) + expf(v - m);
             st.m = m;
         }
         states[tid] = st;
@@ -154,7 +167,7 @@ public:
 
         for (int x = tid; x < width; x += BLOCK_SIZE) {
             // PROLOGUE: element read through the IOp (pass 2)
-            out[x] = attnFromF32<OT>(expf(readElem(p.input, x, row) - m) * invL);
+            out[x] = attnFromF32<OT>(attnExpF(readElem(p.input, x, row) - m) * invL);
         }
     }
 };
