@@ -47,6 +47,7 @@
 #if (defined(__NVCC__) || CLANG_HOST_DEVICE)
 
 #include <cuda_bf16.h>
+#include <vector>
 
 namespace fk {
 
@@ -152,6 +153,34 @@ struct BlockSparsity {
     int nQBlocks = 0, nKVBlocks = 0;
     int maskBQ = 128, maskBKV = 128;
 };
+
+/* Host helper: build a sliding-window block mask at (blockQ x blockKV)
+ * granularity. Tile (qb, kb) is active iff ANY (q, k) pair inside it
+ * satisfies causal q >= k AND q - k < window. Finer blocks (e.g. 64 to
+ * match the raw-path kernel tiles) skip more tiles -> faster. The exact
+ * per-element window edge is enforced by SlidingWindowMask (score mod);
+ * compose both: mask for the skip, mod for the edge. */
+inline std::vector<unsigned char>
+makeSlidingWindowBlockMask(const int batchHeads, const int seqQ, const int seqK,
+                           const int window, const int blockQ, const int blockKV) {
+    const int nQB = (seqQ + blockQ - 1) / blockQ;
+    const int nKB = (seqK + blockKV - 1) / blockKV;
+    std::vector<unsigned char> m((size_t)batchHeads * nQB * nKB, 0);
+    for (int qb = 0; qb < nQB; ++qb) {
+        const int qLo = qb * blockQ;
+        const int qHi = ::min(seqQ - 1, qLo + blockQ - 1);
+        for (int kb = 0; kb < nKB; ++kb) {
+            const int kLo = kb * blockKV;
+            // active iff intervals [kLo, kHi] and [qHi-window+1, qHi] overlap
+            // under causality (k <= qHi) — widest query row decides.
+            const bool active = (kLo <= qHi) && (kLo + blockKV - 1 >= qLo - window + 1);
+            if (active)
+                for (int b = 0; b < batchHeads; ++b)
+                    m[((size_t)b * nQB + qb) * nKB + kb] = 1;
+        }
+    }
+    return m;
+}
 
 namespace attention_mma_detail {
 
@@ -703,6 +732,27 @@ public:
             return p.sparse.mask[((long)bh * p.sparse.nQBlocks + qb)
                                  * p.sparse.nKVBlocks + kb] != 0;
         };
+        // ITERATION-RANGE TRIM: with a mask, scan this q-block's row once and
+        // iterate only [itBegin, itEnd) — skipped iterations otherwise still
+        // pay syncthreads + empty commit overhead (measured: a w=512 sliding
+        // window at s4096 wastes ~85% of iterations without this).
+        int itBegin = 0, itEnd = numIter;
+        if (p.sparse.mask != nullptr) {
+            const int qb = qBlockBase / p.sparse.maskBQ;
+            const unsigned char* row = p.sparse.mask
+                + ((long)bh * p.sparse.nQBlocks + qb) * p.sparse.nKVBlocks;
+            const int tilesPerMask = p.sparse.maskBKV / BLOCK_KV;
+            int first = -1, last = -1;
+            for (int kb = 0; kb < p.sparse.nKVBlocks; ++kb) {
+                if (row[kb]) { if (first < 0) first = kb; last = kb; }
+            }
+            if (first < 0) {
+                itBegin = itEnd = 0;     // fully masked row -> zero output
+            } else {
+                itBegin = ::min(numIter, first * tilesPerMask);
+                itEnd = ::min(numIter, (last + 1) * tilesPerMask);
+            }
+        }
 
         if constexpr (RAW_KV) {
             // ============= cp.async schedule (fa-5090 v5 staggering) =========
@@ -713,13 +763,14 @@ public:
             const auto kBuf = [&](int i) { return (uint32_t)(i % 2) * KV_BUF_B; };
             const uint32_t vBufOff = 2 * KV_BUF_B;  // single V buffer
 
-            // prefetch K0
-            if (tileActive(0)) {
-                cpasyncTile<KV_GROUPS>(smemBase + kBuf(0), kPlane, 0, p.seq_k);
+            // prefetch first in-range tile
+            if (itBegin < itEnd && tileActive(itBegin * BLOCK_KV)) {
+                cpasyncTile<KV_GROUPS>(smemBase + kBuf(itBegin), kPlane,
+                                       itBegin * BLOCK_KV, p.seq_k);
             }
             cp_async_commit();
 
-            for (int kv = 0; kv < numIter; ++kv) {
+            for (int kv = itBegin; kv < itEnd; ++kv) {
                 const int offKV = kv * BLOCK_KV;
                 const bool act = tileActive(offKV);
 
@@ -742,7 +793,7 @@ public:
                 }
 
                 // prefetch K[kv+1] (overlaps softmax + PV, v5 staggering)
-                if (kv + 1 < numIter && tileActive(offKV + BLOCK_KV)) {
+                if (kv + 1 < itEnd && tileActive(offKV + BLOCK_KV)) {
                     cpasyncTile<KV_GROUPS>(smemBase + kBuf(kv + 1), kPlane,
                                            offKV + BLOCK_KV, p.seq_k);
                 }
@@ -790,13 +841,14 @@ public:
                 return stageBase + (uint32_t)(i % 2) * (KV_BUF_B / 2); };
             const uint32_t vStage = stageBase + 2 * (KV_BUF_B / 2);
 
-            // prefetch K0 bytes
-            if (tileActive(0)) {
-                cpasyncQuantTile<KV_GROUPS>(smemBase + kStage(0), kPlane, 0, p.seq_k);
+            // prefetch first in-range tile bytes
+            if (itBegin < itEnd && tileActive(itBegin * BLOCK_KV)) {
+                cpasyncQuantTile<KV_GROUPS>(smemBase + kStage(itBegin), kPlane,
+                                            itBegin * BLOCK_KV, p.seq_k);
             }
             cp_async_commit();
 
-            for (int kv = 0; kv < numIter; ++kv) {
+            for (int kv = itBegin; kv < itEnd; ++kv) {
                 const int offKV = kv * BLOCK_KV;
                 const bool act = tileActive(offKV);
 
@@ -821,7 +873,7 @@ public:
                     sMma(qReg, kReg, sReg);
                 }
 
-                if (kv + 1 < numIter && tileActive(offKV + BLOCK_KV)) {
+                if (kv + 1 < itEnd && tileActive(offKV + BLOCK_KV)) {
                     cpasyncQuantTile<KV_GROUPS>(smemBase + kStage(kv + 1), kPlane,
                                                 offKV + BLOCK_KV, p.seq_k);
                 }
@@ -858,16 +910,18 @@ public:
             const auto vBuf = [](int i) -> uint32_t { return (2 + (i % 2)) * KV_BUF_B; };
 
             float kPre[KV_GROUPS][8], vPre[KV_GROUPS][8];
-            prefetchTile<KV_GROUPS>(p.k, 0, p.seq_k, bh, kPre);
-            prefetchTile<KV_GROUPS>(p.v, 0, p.seq_k, bh, vPre);
-            storeTile<KV_GROUPS>(smemBytes, kBuf(0), kPre);
-            storeTile<KV_GROUPS>(smemBytes, vBuf(0), vPre);
+            if (itBegin < itEnd) {
+                prefetchTile<KV_GROUPS>(p.k, itBegin * BLOCK_KV, p.seq_k, bh, kPre);
+                prefetchTile<KV_GROUPS>(p.v, itBegin * BLOCK_KV, p.seq_k, bh, vPre);
+                storeTile<KV_GROUPS>(smemBytes, kBuf(itBegin), kPre);
+                storeTile<KV_GROUPS>(smemBytes, vBuf(itBegin), vPre);
+            }
             __syncthreads();
 
-            for (int kv = 0; kv < numIter; ++kv) {
+            for (int kv = itBegin; kv < itEnd; ++kv) {
                 const int offKV = kv * BLOCK_KV;
                 const bool act = tileActive(offKV);
-                const bool nextAct = (kv + 1) < numIter && tileActive(offKV + BLOCK_KV);
+                const bool nextAct = (kv + 1) < itEnd && tileActive(offKV + BLOCK_KV);
                 if (nextAct) {
                     prefetchTile<KV_GROUPS>(p.k, offKV + BLOCK_KV, p.seq_k, bh, kPre);
                     prefetchTile<KV_GROUPS>(p.v, offKV + BLOCK_KV, p.seq_k, bh, vPre);
