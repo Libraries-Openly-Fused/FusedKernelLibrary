@@ -283,9 +283,10 @@ public:
                   "BLOCK_KV*HEAD_DIM must be a multiple of THREADS*8");
 
     static constexpr int KV_BUF_B = BLOCK_KV * STRIDE_B;
-    // both schedules: K double + V double (4 bf16 buffers). QUANT_KV adds
-    // 4 byte-staging buffers (half size) for the raw quantized bytes.
-    static constexpr int KV_BUFS = 4;
+    // RAW schedule uses K double + V single (3 bf16 buffers) — keeping smem
+    // at 3 bufs is REQUIRED for 4 blocks/SM (ncu: smem limited occupancy to
+    // 3 blocks at 4 bufs). QUANT/register-prefetch use 4 (+byte staging).
+    static constexpr int KV_BUFS = RAW_KV ? 3 : 4;
     static constexpr int Q_STAGE_B = QUANT_KV ? 4 * (KV_BUF_B / 2) : 0;
     static constexpr int SMEM_BYTES =
         (BLOCK_Q * STRIDE_B > KV_BUFS * KV_BUF_B + Q_STAGE_B
@@ -606,6 +607,35 @@ public:
                     mma_m16n8k16(qReg[mq][md], kReg[mkv][md], sReg[mq][mkv]);
     }
 
+    /* REGISTER-PRESSURE-FUSED QK^T: stream K fragments from smem with
+     * ldmatrix.x4 immediately before their mma instead of staging the whole
+     * tile (kReg was 64 regs/thread live across the loop -> now 4). ncu
+     * showed 154 regs/thread capped occupancy at 3 blocks/SM; this fusion
+     * (+V below, +3 smem bufs) unlocks the 4th block. */
+    FK_DEVICE_FUSE void sMmaStream(const uint32_t (&qReg)[WARP_Q / MMA_M][HEAD_DIM / MMA_K][4],
+                                   const uint32_t base, const uint32_t kThread,
+                                   float (&sReg)[WARP_Q / MMA_M][BLOCK_KV / MMA_N][4]) {
+        using namespace attention_mma_detail;
+        #pragma unroll
+        for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv) {
+            #pragma unroll
+            for (int md = 0; md < HEAD_DIM / MMA_K; md += 2) {
+                // identical x4 pattern to loadKFrags: one mkv row, fragments
+                // for md (regs 0-1) and md+1 (regs 2-3).
+                uint32_t frag[4];
+                uint32_t addr = base + kThread;
+                addr += mkv * MMA_N * STRIDE_B;
+                addr ^= md * MMA_K * sizeof(__nv_bfloat16);
+                ldmatrix_x4(frag, addr);
+                #pragma unroll
+                for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
+                    mma_m16n8k16(qReg[mq][md],     frag + 0, sReg[mq][mkv]);
+                    mma_m16n8k16(qReg[mq][md + 1], frag + 2, sReg[mq][mkv]);
+                }
+            }
+        }
+    }
+
     FK_DEVICE_FUSE void pvMma(const uint32_t (&pReg)[WARP_Q / MMA_M][BLOCK_KV / MMA_K][4],
                               const uint32_t (&vReg)[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2],
                               float (&oAcc)[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4]) {
@@ -617,6 +647,30 @@ public:
                 #pragma unroll
                 for (int mkv = 0; mkv < BLOCK_KV / MMA_K; ++mkv)
                     mma_m16n8k16(pReg[mq][mkv], vReg[mkv][md], oAcc[mq][md]);
+    }
+
+    /* Same fusion for P·V: stream V fragments (trans ldmatrix.x4) right
+     * before use. vReg was another 32-64 live regs. */
+    FK_DEVICE_FUSE void pvMmaStream(const uint32_t (&pReg)[WARP_Q / MMA_M][BLOCK_KV / MMA_K][4],
+                                    const uint32_t base, const uint32_t vThread,
+                                    float (&oAcc)[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4]) {
+        using namespace attention_mma_detail;
+        #pragma unroll
+        for (int mkv = 0; mkv < BLOCK_KV / MMA_K; ++mkv) {
+            #pragma unroll
+            for (int md = 0; md < HEAD_DIM / MMA_N; md += 2) {
+                uint32_t frag[4];
+                uint32_t addr = base + vThread;
+                addr += mkv * MMA_K * STRIDE_B;
+                addr ^= md * MMA_N * sizeof(__nv_bfloat16);
+                ldmatrix_x4_trans(frag, addr);
+                #pragma unroll
+                for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
+                    mma_m16n8k16(pReg[mq][mkv], frag + 0, oAcc[mq][md]);
+                    mma_m16n8k16(pReg[mq][mkv], frag + 2, oAcc[mq][md + 1]);
+                }
+            }
+        }
     }
 
     FK_DEVICE_FUSE void writeOut(const float (&oAcc)[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4],
@@ -815,9 +869,8 @@ public:
                 __syncthreads();
 
                 if (act) {
-                    uint32_t vReg[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2];
-                    loadVFrags(smemBase + vBufOff, vThread, vReg);
-                    pvMma(pReg, vReg, oAcc);
+                    // stream V frags ldmatrix->mma (no vReg staging)
+                    pvMmaStream(pReg, smemBase + vBufOff, vThread, oAcc);
                 }
             }
         } else if constexpr (QUANT_KV) {
