@@ -281,11 +281,16 @@ __global__ void flashDecodeMerge_Kernel(const float* partial, OT* o,
 /* Decode workspace: caller-owned, reusable across steps.
    Size: batchHeads * splits * (HEAD_DIM+2) floats. */
 inline int flashDecodeSplits(const int batchHeads, const int seqK) {
-    // target >= 2 blocks per SM on mainstream parts; clamp chunk >= 256 tokens
-    const int targetBlocks = 384;
+    // Swept on RTX PRO 6000 (188 SMs, benchmarks/sweep_decode_splits.py):
+    // best split counts cluster around bh*splits ~ 2048 blocks — the old
+    // target of 384 left 2-5x perf on the table for bf16 KV (which moves
+    // 2x the bytes of fp8 and needs the extra memory parallelism).
+    // Cap at 128 splits (FA splitkv-style) and keep chunks >= 256 tokens.
+    const int targetBlocks = 2048;
     int splits = (targetBlocks + batchHeads - 1) / batchHeads;
     const int maxSplits = (seqK + 255) / 256;
     splits = ::min(splits, maxSplits);
+    splits = ::min(splits, 128);
     return ::max(1, splits);
 }
 

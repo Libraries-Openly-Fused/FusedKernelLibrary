@@ -184,6 +184,18 @@ makeSlidingWindowBlockMask(const int batchHeads, const int seqQ, const int seqK,
 
 namespace attention_mma_detail {
 
+/* FP8 tensor-core path (QK^T directly on e4m3 KV-cache bytes, no K dequant
+ * pass). kind::f8f6f4 m16n8k32 requires the arch-specific feature set
+ * (sm_120a / sm_121a) — plain sm_120 ptxas rejects it, so the path is
+ * compiled out unless the TU targets compute_120a. Measured on RTX PRO
+ * 6000 (spike_fp8_mma.cu): 1006 TFLOPS vs 551 bf16 = 1.83x raw mma. */
+#if defined(__CUDA_ARCH__) && defined(FK_HAS_FP8) && \
+    (defined(__CUDA_ARCH_FEAT_SM120_ALL) || defined(__CUDA_ARCH_FEAT_SM121_ALL))
+#define FK_FP8_QK_MMA 1
+#else
+#define FK_FP8_QK_MMA 0
+#endif
+
 __device__ __forceinline__ void ldmatrix_x4(uint32_t regs[4], uint32_t addr) {
     asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];"
                  : "=r"(regs[0]), "=r"(regs[1]), "=r"(regs[2]), "=r"(regs[3])
