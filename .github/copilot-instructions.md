@@ -22,7 +22,7 @@ The library has CPU and CUDA backends. HIP support is architecturally possible b
 FusedKernelLibrary/
 ├── .clang-format               # LLVM-based style, 4-space indent, 120-char column limit
 ├── .github/workflows/          # CI: cmake-linux-amd64.yml, cmake-linux-arm64.yml, cmake-windows-amd64.yml
-├── CMakeLists.txt              # Root build (v0.2.0, requires CMake >= 3.24, C++ and optional CUDA)
+├── CMakeLists.txt              # Root build (v0.2.0, requires CMake >= 3.28 C++ and optional CUDA)
 ├── cmake/                      # CMake helpers: arch flags, CUDA init, test discovery, generators
 │   ├── archflags.cmake         # CPU SIMD flags (AVX2 default on MSVC x64, native on Unix)
 │   ├── cmake_init.cmake        # Global CMake settings
