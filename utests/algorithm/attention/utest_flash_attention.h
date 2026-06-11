@@ -198,6 +198,78 @@ static void testFusedEpilogue() {
     report("FlashAttention fused epilogue Mul(2).then(Add(0.5))", maxErr, 1e-6);
 }
 
+static void testFusedPrologue() {
+    /* PROLOGUE = a Read IOp (possibly fused with .then chains); the DPP
+       reads every element through it. Verifiable algebra:
+       Q prologue read.then(Mul(2)): compare against oracle on 2*Q.
+       V prologue read.then(Mul(3)).then(Add(1)): out = 3*(sum p_j v_j) + 1
+       since sum p_j = 1 — compare against 3*oracle + 1. */
+    constexpr int HEAD_DIM = 32, BH = 2, SQ = 24, SK = 48;
+    std::mt19937 rng(123);
+    std::uniform_real_distribution<float> dist(-1.f, 1.f);
+    const size_t nQ = (size_t)BH * SQ * HEAD_DIM, nK = (size_t)BH * SK * HEAD_DIM;
+    std::vector<float> hq(nQ), hk(nK), hv(nK);
+    for (auto& x : hq) x = dist(rng);
+    for (auto& x : hk) x = dist(rng);
+    for (auto& x : hv) x = dist(rng);
+
+    float *q, *k, *v, *o;
+    gpuErrchk(cudaMalloc(&q, nQ * sizeof(float)));
+    gpuErrchk(cudaMalloc(&k, nK * sizeof(float)));
+    gpuErrchk(cudaMalloc(&v, nK * sizeof(float)));
+    gpuErrchk(cudaMalloc(&o, nQ * sizeof(float)));
+    gpuErrchk(cudaMemcpy(q, hq.data(), nQ * sizeof(float), cudaMemcpyHostToDevice));
+    gpuErrchk(cudaMemcpy(k, hk.data(), nK * sizeof(float), cudaMemcpyHostToDevice));
+    gpuErrchk(cudaMemcpy(v, hv.data(), nK * sizeof(float), cudaMemcpyHostToDevice));
+
+    Stream stream;
+    const double scl = 1.0 / std::sqrt((double)HEAD_DIM);
+    std::vector<double> dq(nQ), dk(nK), dv(nK), ref;
+    for (size_t i = 0; i < nK; ++i) dk[i] = hk[i];
+    for (size_t i = 0; i < nK; ++i) dv[i] = hv[i];
+
+    // --- Q prologue: Read IOp fused with Mul(2) ---
+    {
+        const auto qIOp = makeAttentionRead(q, BH, SQ, HEAD_DIM)
+                              .then(Mul<float>::build(2.f));
+        const auto kIOp = makeAttentionRead(k, BH, SK, HEAD_DIM);
+        const auto vIOp = makeAttentionRead(v, BH, SK, HEAD_DIM);
+        executeFlashAttention<HEAD_DIM>(qIOp, kIOp, vIOp, o, BH, SQ, SK,
+                                        false, stream);
+        stream.sync();
+        std::vector<float> got(nQ);
+        gpuErrchk(cudaMemcpy(got.data(), o, nQ * sizeof(float), cudaMemcpyDeviceToHost));
+        for (size_t i = 0; i < nQ; ++i) dq[i] = 2.0 * hq[i];   // host-applied
+        cpuAttention(dq, dk, dv, ref, BH, SQ, SK, HEAD_DIM, scl, false);
+        double maxErr = 0.0;
+        for (size_t i = 0; i < nQ; ++i)
+            maxErr = std::max(maxErr, std::abs((double)got[i] - ref[i]));
+        report("FlashAttention Q-prologue ReadIOp.then(Mul(2))", maxErr, 5e-6);
+    }
+
+    // --- V prologue: Read IOp fused with Mul(3).then(Add(1)) => 3*out + 1 ---
+    {
+        const auto qIOp = makeAttentionRead(q, BH, SQ, HEAD_DIM);
+        const auto kIOp = makeAttentionRead(k, BH, SK, HEAD_DIM);
+        const auto vIOp = makeAttentionRead(v, BH, SK, HEAD_DIM)
+                              .then(Mul<float>::build(3.f))
+                              .then(Add<float>::build(1.f));
+        executeFlashAttention<HEAD_DIM>(qIOp, kIOp, vIOp, o, BH, SQ, SK,
+                                        false, stream);
+        stream.sync();
+        std::vector<float> got(nQ);
+        gpuErrchk(cudaMemcpy(got.data(), o, nQ * sizeof(float), cudaMemcpyDeviceToHost));
+        for (size_t i = 0; i < nQ; ++i) dq[i] = hq[i];
+        cpuAttention(dq, dk, dv, ref, BH, SQ, SK, HEAD_DIM, scl, false);
+        double maxErr = 0.0;
+        for (size_t i = 0; i < nQ; ++i)
+            maxErr = std::max(maxErr, std::abs((double)got[i] - (3.0 * ref[i] + 1.0)));
+        report("FlashAttention V-prologue ReadIOp.then(Mul(3)).then(Add(1))", maxErr, 5e-6);
+    }
+
+    cudaFree(q); cudaFree(k); cudaFree(v); cudaFree(o);
+}
+
 int launch() {
     testDense<64>("FA dense d64 b2 s64 causal", 2, 64, 64, true, 5e-6, 1);
     testDense<64>("FA dense d64 ragged s67/s131", 2, 67, 131, false, 5e-6, 2);
@@ -206,6 +278,7 @@ int launch() {
     testInt8KV<64>("FA int8-KV d64 b2 s64 causal", 2, 64, 64, true, 5e-6, 5);
     testInt8KV<64>("FA int8-KV d64 ragged s50/s100", 2, 50, 100, false, 5e-6, 6);
     testFusedEpilogue();
+    testFusedPrologue();
     if (failures == 0) { return 0; }
     std::cout << failures << " attention test(s) FAILED" << std::endl;
     return -1;
