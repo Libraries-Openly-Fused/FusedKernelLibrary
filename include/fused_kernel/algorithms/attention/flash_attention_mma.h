@@ -575,12 +575,20 @@ public:
             float corr[2];
             corr[0] = attention_mma_detail::fastExp(rowMax[mq][0] - mNew[0]);
             corr[1] = attention_mma_detail::fastExp(rowMax[mq][1] - mNew[1]);
-            #pragma unroll
-            for (int md = 0; md < HEAD_DIM / MMA_N; ++md) {
-                oAcc[mq][md][0] *= corr[0];
-                oAcc[mq][md][1] *= corr[0];
-                oAcc[mq][md][2] *= corr[1];
-                oAcc[mq][md][3] *= corr[1];
+            // FA4-style rescale skip: at long seq most KV tiles do NOT move
+            // the running max (rowMax == mNew -> corr == 1), so the
+            // HEAD_DIM/MMA_N*4 FMULs over oAcc are identity work. The
+            // condition is uniform within each lane quad (rows are shared
+            // across laneId%4 after the shfl reduction), so divergence cost
+            // is one predicated branch.
+            if (rowMax[mq][0] != mNew[0] || rowMax[mq][1] != mNew[1]) {
+                #pragma unroll
+                for (int md = 0; md < HEAD_DIM / MMA_N; ++md) {
+                    oAcc[mq][md][0] *= corr[0];
+                    oAcc[mq][md][1] *= corr[0];
+                    oAcc[mq][md][2] *= corr[1];
+                    oAcc[mq][md][3] *= corr[1];
+                }
             }
             rowMax[mq][0] = mNew[0];
             rowMax[mq][1] = mNew[1];
