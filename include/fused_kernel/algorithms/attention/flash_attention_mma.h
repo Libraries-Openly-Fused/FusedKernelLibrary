@@ -110,6 +110,49 @@ constexpr bool isFp8KVRead = false;
 template <typename IOp>
 constexpr bool isInt8KVRead = std::is_same_v<typename IOp::Operation, Int8TokenDequantRead>;
 
+// ---- FLEX ATTENTION: score mods (FlexAttention-style score_mod) ------------
+// A score mod is a tiny device functor applied to each attention score
+// AFTER scaling and bounds/causal masking, BEFORE the online softmax:
+//     s' = mod(s, q_idx, kv_idx)
+// Return -FLT_MAX to mask a position (mask_mod semantics). Composable with
+// everything else (prologues, epilogues, compressed KV, block sparsity).
+struct NoScoreMod {
+    __device__ __forceinline__ float operator()(const float s, const int,
+                                                const int) const { return s; }
+};
+struct ALiBiScoreMod {              // s - slope * (q - k)
+    float slope;
+    __device__ __forceinline__ float operator()(const float s, const int q,
+                                                const int k) const {
+        return s - slope * static_cast<float>(q - k);
+    }
+};
+struct SoftCapScoreMod {            // Gemma-2 style logit soft capping
+    float cap;
+    __device__ __forceinline__ float operator()(const float s, const int,
+                                                const int) const {
+        return cap * tanhf(s / cap);
+    }
+};
+struct SlidingWindowMask {          // mask_mod: keep only last `window` keys
+    int window;
+    __device__ __forceinline__ float operator()(const float s, const int q,
+                                                const int k) const {
+        return (q - k) >= window ? -FLT_MAX : s;
+    }
+};
+
+/* BLOCK-SPARSE ATTENTION: a (bh, nQBlocks, nKVBlocks) uint8 mask at
+ * (maskBQ x maskBKV) granularity. Inactive KV tiles are SKIPPED ENTIRELY —
+ * no global reads, no mma, no softmax (both bandwidth and compute scale
+ * with the sparsity). nullptr = dense. Requirements (checked at launch):
+ * maskBQ % BLOCK_Q == 0 and maskBKV % BLOCK_KV == 0. */
+struct BlockSparsity {
+    const unsigned char* mask = nullptr;   // nullptr = dense
+    int nQBlocks = 0, nKVBlocks = 0;
+    int maskBQ = 128, maskBKV = 128;
+};
+
 namespace attention_mma_detail {
 
 __device__ __forceinline__ void ldmatrix_x4(uint32_t regs[4], uint32_t addr) {
@@ -171,11 +214,15 @@ template <typename OT, int HEAD_DIM,
           typename QIOp, typename KIOp, typename VIOp,
           typename EpilogueIOp = AttentionIdentityEpilogue,
           int BLOCK_Q = (HEAD_DIM <= 64 ? 128 : 64), int BLOCK_KV = 32,
-          int NUM_WARPS = 4>
+          int NUM_WARPS = 4, typename ScoreModOp = NoScoreMod>
 struct FlashAttentionMmaDPP {
 private:
     using SelfType = FlashAttentionMmaDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp,
-                                          EpilogueIOp, BLOCK_Q, BLOCK_KV, NUM_WARPS>;
+                                          EpilogueIOp, BLOCK_Q, BLOCK_KV, NUM_WARPS,
+                                          ScoreModOp>;
+public:
+    static constexpr bool HAS_SCORE_MOD = !std::is_same_v<ScoreModOp, NoScoreMod>;
+private:
 public:
     FK_STATIC_STRUCT(FlashAttentionMmaDPP, SelfType)
 
@@ -223,6 +270,8 @@ public:
         float scale;
         bool causal;
         EpilogueIOp epilogue;
+        ScoreModOp scoreMod;     // flex-attention score_mod / mask_mod
+        BlockSparsity sparse;    // block-sparse tile skipping (nullptr = dense)
     };
 
     FK_DEVICE_FUSE uint32_t swz(const uint32_t byteOff) {
@@ -435,17 +484,24 @@ public:
             #pragma unroll
             for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv) {
                 float* r = sReg[mq][mkv];
-                if constexpr (NO_MASK) {
+                const int colBase = offKV + mkv * MMA_N + (laneId % 4) * 2;
+                if constexpr (NO_MASK && !HAS_SCORE_MOD) {
                     #pragma unroll
                     for (int e = 0; e < 4; ++e) r[e] *= p.scale;
                 } else {
-                    const int colBase = offKV + mkv * MMA_N + (laneId % 4) * 2;
                     #pragma unroll
                     for (int e = 0; e < 4; ++e) {
                         const int col = colBase + (e & 1);
                         const int row = (e < 2) ? rowA : rowB;
-                        const bool dead = (col >= p.seq_k) || (p.causal && col > row);
-                        r[e] = dead ? -FLT_MAX : r[e] * p.scale;
+                        bool dead;
+                        if constexpr (NO_MASK) { dead = false; }
+                        else { dead = (col >= p.seq_k) || (p.causal && col > row); }
+                        float s = r[e] * p.scale;
+                        if constexpr (HAS_SCORE_MOD) {
+                            // flex score_mod / mask_mod: AFTER scaling
+                            if (!dead) s = p.scoreMod(s, row, col);
+                        }
+                        r[e] = dead ? -FLT_MAX : s;
                     }
                 }
             }
@@ -481,7 +537,7 @@ public:
             #pragma unroll
             for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv) {
                 float* r = sReg[mq][mkv];
-                if constexpr (NO_MASK) {
+                if constexpr (NO_MASK && !HAS_SCORE_MOD) {
                     r[0] = attention_mma_detail::fastExp(r[0] - mNew[0]);
                     r[1] = attention_mma_detail::fastExp(r[1] - mNew[0]);
                     r[2] = attention_mma_detail::fastExp(r[2] - mNew[1]);
@@ -637,6 +693,16 @@ public:
             if (p.causal && offKV + BLOCK_KV - 1 > firstRowOfBlock) return true;
             return false;
         };
+        // BLOCK SPARSITY: inactive KV tiles skip loads AND math entirely.
+        // commit/wait groups still run (possibly empty) to keep counting sane.
+        const auto tileActive = [&](const int offKV) -> bool {
+            if (offKV >= kvEnd) return false;
+            if (p.sparse.mask == nullptr) return true;
+            const int qb = qBlockBase / p.sparse.maskBQ;
+            const int kb = offKV / p.sparse.maskBKV;
+            return p.sparse.mask[((long)bh * p.sparse.nQBlocks + qb)
+                                 * p.sparse.nKVBlocks + kb] != 0;
+        };
 
         if constexpr (RAW_KV) {
             // ============= cp.async schedule (fa-5090 v5 staggering) =========
@@ -648,50 +714,60 @@ public:
             const uint32_t vBufOff = 2 * KV_BUF_B;  // single V buffer
 
             // prefetch K0
-            cpasyncTile<KV_GROUPS>(smemBase + kBuf(0), kPlane, 0, p.seq_k);
+            if (tileActive(0)) {
+                cpasyncTile<KV_GROUPS>(smemBase + kBuf(0), kPlane, 0, p.seq_k);
+            }
             cp_async_commit();
 
             for (int kv = 0; kv < numIter; ++kv) {
                 const int offKV = kv * BLOCK_KV;
+                const bool act = tileActive(offKV);
 
                 // V uses a single buffer: previous PV must be done.
                 __syncthreads();
-                cpasyncTile<KV_GROUPS>(smemBase + vBufOff, vPlane, offKV, p.seq_k);
+                if (act) {
+                    cpasyncTile<KV_GROUPS>(smemBase + vBufOff, vPlane, offKV, p.seq_k);
+                }
                 cp_async_commit();
 
                 // wait K[kv] (1 group outstanding: V[kv])
                 cp_async_wait<1>();
                 __syncthreads();
 
-                uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
-                loadKFrags(smemBase + kBuf(kv), kThread, kReg);
-
                 float sReg[WARP_Q / MMA_M][BLOCK_KV / MMA_N][4] = {};
-                sMma(qReg, kReg, sReg);
+                if (act) {
+                    uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
+                    loadKFrags(smemBase + kBuf(kv), kThread, kReg);
+                    sMma(qReg, kReg, sReg);
+                }
 
-                // prefetch K[kv+1] (overlaps softmax + PV)
-                if (kv + 1 < numIter) {
+                // prefetch K[kv+1] (overlaps softmax + PV, v5 staggering)
+                if (kv + 1 < numIter && tileActive(offKV + BLOCK_KV)) {
                     cpasyncTile<KV_GROUPS>(smemBase + kBuf(kv + 1), kPlane,
                                            offKV + BLOCK_KV, p.seq_k);
                 }
                 cp_async_commit();
 
                 uint32_t pReg[WARP_Q / MMA_M][BLOCK_KV / MMA_K][4];
-                if (tileNeedsMask(offKV)) {
-                    softmaxTile<false>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
-                                       qBlockBase, warpId, laneId);
-                } else {
-                    softmaxTile<true>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
-                                      qBlockBase, warpId, laneId);
+                if (act) {
+                    if (tileNeedsMask(offKV)) {
+                        softmaxTile<false>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
+                                           qBlockBase, warpId, laneId);
+                    } else {
+                        softmaxTile<true>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
+                                          qBlockBase, warpId, laneId);
+                    }
                 }
 
                 // wait V[kv] (1 group outstanding: K[kv+1])
                 cp_async_wait<1>();
                 __syncthreads();
 
-                uint32_t vReg[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2];
-                loadVFrags(smemBase + vBufOff, vThread, vReg);
-                pvMma(pReg, vReg, oAcc);
+                if (act) {
+                    uint32_t vReg[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2];
+                    loadVFrags(smemBase + vBufOff, vThread, vReg);
+                    pvMma(pReg, vReg, oAcc);
+                }
             }
         } else if constexpr (QUANT_KV) {
             // ====== quantized cp.async schedule: stream RAW BYTES (2x less
@@ -715,52 +791,66 @@ public:
             const uint32_t vStage = stageBase + 2 * (KV_BUF_B / 2);
 
             // prefetch K0 bytes
-            cpasyncQuantTile<KV_GROUPS>(smemBase + kStage(0), kPlane, 0, p.seq_k);
+            if (tileActive(0)) {
+                cpasyncQuantTile<KV_GROUPS>(smemBase + kStage(0), kPlane, 0, p.seq_k);
+            }
             cp_async_commit();
 
             for (int kv = 0; kv < numIter; ++kv) {
                 const int offKV = kv * BLOCK_KV;
+                const bool act = tileActive(offKV);
 
                 __syncthreads();
-                cpasyncQuantTile<KV_GROUPS>(smemBase + vStage, vPlane, offKV, p.seq_k);
+                if (act) {
+                    cpasyncQuantTile<KV_GROUPS>(smemBase + vStage, vPlane, offKV, p.seq_k);
+                }
                 cp_async_commit();
 
                 cp_async_wait<1>();   // K bytes ready
                 __syncthreads();
-                dequantTile<KV_GROUPS, IS_FP8>(smemBytes, kStage(kv), kBuf(kv),
-                                               kScales, offKV, p.seq_k);
+                if (act) {
+                    dequantTile<KV_GROUPS, IS_FP8>(smemBytes, kStage(kv), kBuf(kv),
+                                                   kScales, offKV, p.seq_k);
+                }
                 __syncthreads();
 
-                uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
-                loadKFrags(smemBase + kBuf(kv), kThread, kReg);
-
                 float sReg[WARP_Q / MMA_M][BLOCK_KV / MMA_N][4] = {};
-                sMma(qReg, kReg, sReg);
+                if (act) {
+                    uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
+                    loadKFrags(smemBase + kBuf(kv), kThread, kReg);
+                    sMma(qReg, kReg, sReg);
+                }
 
-                if (kv + 1 < numIter) {
+                if (kv + 1 < numIter && tileActive(offKV + BLOCK_KV)) {
                     cpasyncQuantTile<KV_GROUPS>(smemBase + kStage(kv + 1), kPlane,
                                                 offKV + BLOCK_KV, p.seq_k);
                 }
                 cp_async_commit();
 
                 uint32_t pReg[WARP_Q / MMA_M][BLOCK_KV / MMA_K][4];
-                if (tileNeedsMask(offKV)) {
-                    softmaxTile<false>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
-                                       qBlockBase, warpId, laneId);
-                } else {
-                    softmaxTile<true>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
-                                      qBlockBase, warpId, laneId);
+                if (act) {
+                    if (tileNeedsMask(offKV)) {
+                        softmaxTile<false>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
+                                           qBlockBase, warpId, laneId);
+                    } else {
+                        softmaxTile<true>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
+                                          qBlockBase, warpId, laneId);
+                    }
                 }
 
                 cp_async_wait<1>();   // V bytes ready
                 __syncthreads();
-                dequantTile<KV_GROUPS, IS_FP8>(smemBytes, vStage, vBufOff,
-                                               vScales, offKV, p.seq_k);
+                if (act) {
+                    dequantTile<KV_GROUPS, IS_FP8>(smemBytes, vStage, vBufOff,
+                                                   vScales, offKV, p.seq_k);
+                }
                 __syncthreads();
 
-                uint32_t vReg[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2];
-                loadVFrags(smemBase + vBufOff, vThread, vReg);
-                pvMma(pReg, vReg, oAcc);
+                if (act) {
+                    uint32_t vReg[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2];
+                    loadVFrags(smemBase + vBufOff, vThread, vReg);
+                    pvMma(pReg, vReg, oAcc);
+                }
             }
         } else {
             // ============== register-prefetch schedule (fused prologues) =====
@@ -776,32 +866,35 @@ public:
 
             for (int kv = 0; kv < numIter; ++kv) {
                 const int offKV = kv * BLOCK_KV;
-                const bool havePrefetch = (kv + 1) < numIter;
-                if (havePrefetch) {
+                const bool act = tileActive(offKV);
+                const bool nextAct = (kv + 1) < numIter && tileActive(offKV + BLOCK_KV);
+                if (nextAct) {
                     prefetchTile<KV_GROUPS>(p.k, offKV + BLOCK_KV, p.seq_k, bh, kPre);
                     prefetchTile<KV_GROUPS>(p.v, offKV + BLOCK_KV, p.seq_k, bh, vPre);
                 }
 
-                uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
-                loadKFrags(smemBase + kBuf(kv), kThread, kReg);
+                if (act) {
+                    uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
+                    loadKFrags(smemBase + kBuf(kv), kThread, kReg);
 
-                float sReg[WARP_Q / MMA_M][BLOCK_KV / MMA_N][4] = {};
-                sMma(qReg, kReg, sReg);
+                    float sReg[WARP_Q / MMA_M][BLOCK_KV / MMA_N][4] = {};
+                    sMma(qReg, kReg, sReg);
 
-                uint32_t pReg[WARP_Q / MMA_M][BLOCK_KV / MMA_K][4];
-                if (tileNeedsMask(offKV)) {
-                    softmaxTile<false>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
-                                       qBlockBase, warpId, laneId);
-                } else {
-                    softmaxTile<true>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
-                                      qBlockBase, warpId, laneId);
+                    uint32_t pReg[WARP_Q / MMA_M][BLOCK_KV / MMA_K][4];
+                    if (tileNeedsMask(offKV)) {
+                        softmaxTile<false>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
+                                           qBlockBase, warpId, laneId);
+                    } else {
+                        softmaxTile<true>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
+                                          qBlockBase, warpId, laneId);
+                    }
+
+                    uint32_t vReg[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2];
+                    loadVFrags(smemBase + vBuf(kv), vThread, vReg);
+                    pvMma(pReg, vReg, oAcc);
                 }
 
-                uint32_t vReg[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2];
-                loadVFrags(smemBase + vBuf(kv), vThread, vReg);
-                pvMma(pReg, vReg, oAcc);
-
-                if (havePrefetch) {
+                if (nextAct) {
                     storeTile<KV_GROUPS>(smemBytes, kBuf(kv + 1), kPre);
                     storeTile<KV_GROUPS>(smemBytes, vBuf(kv + 1), vPre);
                 }
@@ -814,13 +907,14 @@ public:
 };
 
 template <typename OT, int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp,
-          typename EpilogueIOp, int BLOCK_Q, int BLOCK_KV, int NUM_WARPS>
+          typename EpilogueIOp, int BLOCK_Q, int BLOCK_KV, int NUM_WARPS,
+          typename ScoreModOp>
 __global__ void launchFlashAttentionMmaDPP_Kernel(
         const __grid_constant__ typename FlashAttentionMmaDPP<
             OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp,
-            BLOCK_Q, BLOCK_KV, NUM_WARPS>::Params params) {
+            BLOCK_Q, BLOCK_KV, NUM_WARPS, ScoreModOp>::Params params) {
     FlashAttentionMmaDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp,
-                         BLOCK_Q, BLOCK_KV, NUM_WARPS>::exec(params);
+                         BLOCK_Q, BLOCK_KV, NUM_WARPS, ScoreModOp>::exec(params);
 }
 
 /* IOp-first API. The DPP auto-selects cp.async streaming (raw bf16
@@ -830,27 +924,39 @@ __global__ void launchFlashAttentionMmaDPP_Kernel(
  * fused-prologue path prefers BQ128/BKV32 (register headroom). */
 template <int HEAD_DIM, int BLOCK_Q = 0, int BLOCK_KV = 0, int NUM_WARPS = 4,
           typename OT = float, typename QIOp, typename KIOp, typename VIOp,
-          typename EpilogueIOp = AttentionIdentityEpilogue>
+          typename EpilogueIOp = AttentionIdentityEpilogue,
+          typename ScoreModOp = NoScoreMod>
 inline void executeFlashAttentionMma(
         const QIOp& q, const KIOp& k, const VIOp& v, OT* o,
         const int batchHeads, const int seqQ, const int seqK,
         const bool causal, Stream_<ParArch::GPU_NVIDIA>& stream,
-        const float scaleOverride = -1.f, const EpilogueIOp& epilogue = {}) {
+        const float scaleOverride = -1.f, const EpilogueIOp& epilogue = {},
+        const ScoreModOp& scoreMod = {}, const BlockSparsity& sparse = {}) {
     constexpr bool RAW = isRawBf16Read<KIOp> && isRawBf16Read<VIOp>;
     constexpr int BQ = BLOCK_Q > 0 ? BLOCK_Q
                                    : (RAW ? 64 : (HEAD_DIM <= 64 ? 128 : 64));
     constexpr int BKV = BLOCK_KV > 0 ? BLOCK_KV
                                      : (RAW ? (HEAD_DIM <= 64 ? 64 : 32) : 32);
     using DPP = FlashAttentionMmaDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp,
-                                     EpilogueIOp, BQ, BKV, NUM_WARPS>;
+                                     EpilogueIOp, BQ, BKV, NUM_WARPS, ScoreModOp>;
     const float scale = scaleOverride > 0.f ? scaleOverride
                                             : rsqrtf(static_cast<float>(HEAD_DIM));
-    const typename DPP::Params params{ q, k, v, o, seqQ, seqK, scale, causal, epilogue };
+    if (sparse.mask != nullptr) {
+        // block-sparse mask granularity must contain whole kernel tiles
+        if (sparse.maskBQ % BQ != 0 || sparse.maskBKV % BKV != 0) {
+            throw std::invalid_argument(
+                "BlockSparsity: maskBQ/maskBKV must be multiples of the kernel "
+                "tiles (BQ=" + std::to_string(BQ) + ", BKV=" + std::to_string(BKV) + ")");
+        }
+    }
+    const typename DPP::Params params{ q, k, v, o, seqQ, seqK, scale, causal,
+                                       epilogue, scoreMod, sparse };
     const dim3 grid((seqQ + BQ - 1) / BQ, batchHeads, 1);
     const dim3 block(DPP::THREADS, 1, 1);
     const int smemBytes = DPP::SMEM_BYTES;
     auto* kernel = launchFlashAttentionMmaDPP_Kernel<OT, HEAD_DIM, QIOp, KIOp, VIOp,
-                                                     EpilogueIOp, BQ, BKV, NUM_WARPS>;
+                                                     EpilogueIOp, BQ, BKV, NUM_WARPS,
+                                                     ScoreModOp>;
     if (smemBytes > 48000) {
         gpuErrchk(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
                                        smemBytes));
