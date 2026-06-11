@@ -237,6 +237,15 @@ __device__ __forceinline__ float fastExp(const float x) {
 #endif
 }
 
+// pack two fp32 into one bf16x2 register (uint32_t) — used by the in-place
+// S/P union pack in softmaxTile.
+__device__ __forceinline__ uint32_t packBf162(const float lo, const float hi) {
+    const __nv_bfloat162 h = __float22bfloat162_rn({ lo, hi });
+    uint32_t r;
+    memcpy(&r, &h, sizeof(r));
+    return r;
+}
+
 } // namespace attention_mma_detail
 
 template <typename OT, int HEAD_DIM,
@@ -494,12 +503,25 @@ public:
         }
     }
 
+    /* Fused S/P register tile. The fp32 scores (s) and the packed bf16x2
+     * probabilities (p) used to live in SEPARATE arrays (32 + 16 regs at
+     * BKV=64), but their live ranges only overlap inside softmaxTile, and
+     * the pack is strictly in-place-safe: iteration mkv writes p bytes
+     * [8*mkv, 8*mkv+8) while s reads touch [16*mkv, 16*mkv+16) — the write
+     * head never catches the read head (only mkv==0 overlaps, and there the
+     * statement order consumes s[0..1] before overwriting them). Overlaying
+     * p on the first half of s saves BLOCK_KV/4 regs/thread (16 at BKV=64):
+     * 138 -> target ~122. */
+    union SPTile {
+        float    s[BLOCK_KV / MMA_N][4];   // QK^T scores / exp(s - m), fp32
+        uint32_t p[BLOCK_KV / MMA_K][4];   // packed bf16x2 P (first half of s)
+    };
+
     /* mask + online softmax + P pack for one KV tile (shared by both
        schedules). noMask: compile-out the bounds/causal branch for interior
        tiles (the common case at long seq). */
     template <bool NO_MASK>
-    FK_DEVICE_FUSE void softmaxTile(float (&sReg)[WARP_Q / MMA_M][BLOCK_KV / MMA_N][4],
-                                    uint32_t (&pReg)[WARP_Q / MMA_M][BLOCK_KV / MMA_K][4],
+    FK_DEVICE_FUSE void softmaxTile(SPTile (&sp)[WARP_Q / MMA_M],
                                     float (&oAcc)[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4],
                                     float (&rowMax)[WARP_Q / MMA_M][2],
                                     float (&rowSum)[WARP_Q / MMA_M][2],
@@ -513,7 +535,7 @@ public:
 
             #pragma unroll
             for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv) {
-                float* r = sReg[mq][mkv];
+                float* r = sp[mq].s[mkv];
                 const int colBase = offKV + mkv * MMA_N + (laneId % 4) * 2;
                 if constexpr (NO_MASK && !HAS_SCORE_MOD) {
                     #pragma unroll
@@ -539,7 +561,7 @@ public:
             float mNew[2] = { -FLT_MAX, -FLT_MAX };
             #pragma unroll
             for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv) {
-                const float* r = sReg[mq][mkv];
+                const float* r = sp[mq].s[mkv];
                 mNew[0] = fmaxf(mNew[0], fmaxf(r[0], r[1]));
                 mNew[1] = fmaxf(mNew[1], fmaxf(r[2], r[3]));
             }
@@ -566,24 +588,34 @@ public:
             float lNew[2] = {};
             #pragma unroll
             for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv) {
-                float* r = sReg[mq][mkv];
+                // Read scores BEFORE packing: iteration mkv packs into union
+                // bytes [8*mkv, 8*mkv+8) while reading s bytes
+                // [16*mkv, 16*mkv+16) — the pack write head never reaches
+                // unread scores (s[mkv'] for mkv' > mkv starts at byte
+                // 16*mkv+16 > 8*mkv+8). exp values live only in `e` locals;
+                // s is dead after this loop, so nothing is written back.
+                const float* r = sp[mq].s[mkv];
+                float e[4];
                 if constexpr (NO_MASK && !HAS_SCORE_MOD) {
-                    r[0] = attention_mma_detail::fastExp(r[0] - mNew[0]);
-                    r[1] = attention_mma_detail::fastExp(r[1] - mNew[0]);
-                    r[2] = attention_mma_detail::fastExp(r[2] - mNew[1]);
-                    r[3] = attention_mma_detail::fastExp(r[3] - mNew[1]);
+                    e[0] = attention_mma_detail::fastExp(r[0] - mNew[0]);
+                    e[1] = attention_mma_detail::fastExp(r[1] - mNew[0]);
+                    e[2] = attention_mma_detail::fastExp(r[2] - mNew[1]);
+                    e[3] = attention_mma_detail::fastExp(r[3] - mNew[1]);
                 } else {
-                    r[0] = (r[0] == -FLT_MAX) ? 0.f : attention_mma_detail::fastExp(r[0] - mNew[0]);
-                    r[1] = (r[1] == -FLT_MAX) ? 0.f : attention_mma_detail::fastExp(r[1] - mNew[0]);
-                    r[2] = (r[2] == -FLT_MAX) ? 0.f : attention_mma_detail::fastExp(r[2] - mNew[1]);
-                    r[3] = (r[3] == -FLT_MAX) ? 0.f : attention_mma_detail::fastExp(r[3] - mNew[1]);
+                    e[0] = (r[0] == -FLT_MAX) ? 0.f : attention_mma_detail::fastExp(r[0] - mNew[0]);
+                    e[1] = (r[1] == -FLT_MAX) ? 0.f : attention_mma_detail::fastExp(r[1] - mNew[0]);
+                    e[2] = (r[2] == -FLT_MAX) ? 0.f : attention_mma_detail::fastExp(r[2] - mNew[1]);
+                    e[3] = (r[3] == -FLT_MAX) ? 0.f : attention_mma_detail::fastExp(r[3] - mNew[1]);
                 }
-                lNew[0] += r[0] + r[1];
-                lNew[1] += r[2] + r[3];
+                lNew[0] += e[0] + e[1];
+                lNew[1] += e[2] + e[3];
 
-                __nv_bfloat162* pp = reinterpret_cast<__nv_bfloat162*>(pReg[mq][mkv / 2]);
-                pp[(mkv % 2) * 2]     = __float22bfloat162_rn({ r[0], r[1] });
-                pp[(mkv % 2) * 2 + 1] = __float22bfloat162_rn({ r[2], r[3] });
+                // Store through the union member (NOT a reinterpret_cast'ed
+                // pointer): reads (.s) and writes (.p) share the same union
+                // lvalue base, so the compiler cannot reorder the pack store
+                // ahead of the score loads via type-based alias analysis.
+                sp[mq].p[mkv / 2][(mkv % 2) * 2]     = attention_mma_detail::packBf162(e[0], e[1]);
+                sp[mq].p[mkv / 2][(mkv % 2) * 2 + 1] = attention_mma_detail::packBf162(e[2], e[3]);
             }
             #pragma unroll
             for (int half = 0; half < 2; ++half) {
@@ -596,7 +628,7 @@ public:
 
     FK_DEVICE_FUSE void sMma(const uint32_t (&qReg)[WARP_Q / MMA_M][HEAD_DIM / MMA_K][4],
                              const uint32_t (&kReg)[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2],
-                             float (&sReg)[WARP_Q / MMA_M][BLOCK_KV / MMA_N][4]) {
+                             SPTile (&sp)[WARP_Q / MMA_M]) {
         using namespace attention_mma_detail;
         #pragma unroll
         for (int mq = 0; mq < WARP_Q / MMA_M; ++mq)
@@ -604,7 +636,7 @@ public:
             for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv)
                 #pragma unroll
                 for (int md = 0; md < HEAD_DIM / MMA_K; ++md)
-                    mma_m16n8k16(qReg[mq][md], kReg[mkv][md], sReg[mq][mkv]);
+                    mma_m16n8k16(qReg[mq][md], kReg[mkv][md], sp[mq].s[mkv]);
     }
 
     /* REGISTER-PRESSURE-FUSED QK^T: stream K fragments from smem with
@@ -614,7 +646,7 @@ public:
      * (+V below, +3 smem bufs) unlocks the 4th block. */
     FK_DEVICE_FUSE void sMmaStream(const uint32_t (&qReg)[WARP_Q / MMA_M][HEAD_DIM / MMA_K][4],
                                    const uint32_t base, const uint32_t kThread,
-                                   float (&sReg)[WARP_Q / MMA_M][BLOCK_KV / MMA_N][4]) {
+                                   SPTile (&sp)[WARP_Q / MMA_M]) {
         using namespace attention_mma_detail;
         #pragma unroll
         for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv) {
@@ -629,14 +661,14 @@ public:
                 ldmatrix_x4(frag, addr);
                 #pragma unroll
                 for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
-                    mma_m16n8k16(qReg[mq][md],     frag + 0, sReg[mq][mkv]);
-                    mma_m16n8k16(qReg[mq][md + 1], frag + 2, sReg[mq][mkv]);
+                    mma_m16n8k16(qReg[mq][md],     frag + 0, sp[mq].s[mkv]);
+                    mma_m16n8k16(qReg[mq][md + 1], frag + 2, sp[mq].s[mkv]);
                 }
             }
         }
     }
 
-    FK_DEVICE_FUSE void pvMma(const uint32_t (&pReg)[WARP_Q / MMA_M][BLOCK_KV / MMA_K][4],
+    FK_DEVICE_FUSE void pvMma(const SPTile (&sp)[WARP_Q / MMA_M],
                               const uint32_t (&vReg)[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2],
                               float (&oAcc)[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4]) {
         using namespace attention_mma_detail;
@@ -646,12 +678,12 @@ public:
             for (int md = 0; md < HEAD_DIM / MMA_N; ++md)
                 #pragma unroll
                 for (int mkv = 0; mkv < BLOCK_KV / MMA_K; ++mkv)
-                    mma_m16n8k16(pReg[mq][mkv], vReg[mkv][md], oAcc[mq][md]);
+                    mma_m16n8k16(sp[mq].p[mkv], vReg[mkv][md], oAcc[mq][md]);
     }
 
     /* Same fusion for P·V: stream V fragments (trans ldmatrix.x4) right
      * before use. vReg was another 32-64 live regs. */
-    FK_DEVICE_FUSE void pvMmaStream(const uint32_t (&pReg)[WARP_Q / MMA_M][BLOCK_KV / MMA_K][4],
+    FK_DEVICE_FUSE void pvMmaStream(const SPTile (&sp)[WARP_Q / MMA_M],
                                     const uint32_t base, const uint32_t vThread,
                                     float (&oAcc)[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4]) {
         using namespace attention_mma_detail;
@@ -666,8 +698,8 @@ public:
                 ldmatrix_x4_trans(frag, addr);
                 #pragma unroll
                 for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
-                    mma_m16n8k16(pReg[mq][mkv], frag + 0, oAcc[mq][md]);
-                    mma_m16n8k16(pReg[mq][mkv], frag + 2, oAcc[mq][md + 1]);
+                    mma_m16n8k16(sp[mq].p[mkv], frag + 0, oAcc[mq][md]);
+                    mma_m16n8k16(sp[mq].p[mkv], frag + 2, oAcc[mq][md + 1]);
                 }
             }
         }
@@ -839,11 +871,11 @@ public:
                 cp_async_wait<1>();
                 __syncthreads();
 
-                float sReg[WARP_Q / MMA_M][BLOCK_KV / MMA_N][4] = {};
+                SPTile sp[WARP_Q / MMA_M] = {};
                 if (act) {
                     uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
                     loadKFrags(smemBase + kBuf(kv), kThread, kReg);
-                    sMma(qReg, kReg, sReg);
+                    sMma(qReg, kReg, sp);
                 }
 
                 // prefetch K[kv+1] (overlaps softmax + PV, v5 staggering)
@@ -853,13 +885,12 @@ public:
                 }
                 cp_async_commit();
 
-                uint32_t pReg[WARP_Q / MMA_M][BLOCK_KV / MMA_K][4];
                 if (act) {
                     if (tileNeedsMask(offKV)) {
-                        softmaxTile<false>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
+                        softmaxTile<false>(sp, oAcc, rowMax, rowSum, p, offKV,
                                            qBlockBase, warpId, laneId);
                     } else {
-                        softmaxTile<true>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
+                        softmaxTile<true>(sp, oAcc, rowMax, rowSum, p, offKV,
                                           qBlockBase, warpId, laneId);
                     }
                 }
@@ -870,7 +901,7 @@ public:
 
                 if (act) {
                     // stream V frags ldmatrix->mma (no vReg staging)
-                    pvMmaStream(pReg, smemBase + vBufOff, vThread, oAcc);
+                    pvMmaStream(sp, smemBase + vBufOff, vThread, oAcc);
                 }
             }
         } else if constexpr (QUANT_KV) {
@@ -919,11 +950,11 @@ public:
                 }
                 __syncthreads();
 
-                float sReg[WARP_Q / MMA_M][BLOCK_KV / MMA_N][4] = {};
+                SPTile sp[WARP_Q / MMA_M] = {};
                 if (act) {
                     uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
                     loadKFrags(smemBase + kBuf(kv), kThread, kReg);
-                    sMma(qReg, kReg, sReg);
+                    sMma(qReg, kReg, sp);
                 }
 
                 if (kv + 1 < itEnd && tileActive(offKV + BLOCK_KV)) {
@@ -932,13 +963,12 @@ public:
                 }
                 cp_async_commit();
 
-                uint32_t pReg[WARP_Q / MMA_M][BLOCK_KV / MMA_K][4];
                 if (act) {
                     if (tileNeedsMask(offKV)) {
-                        softmaxTile<false>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
+                        softmaxTile<false>(sp, oAcc, rowMax, rowSum, p, offKV,
                                            qBlockBase, warpId, laneId);
                     } else {
-                        softmaxTile<true>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
+                        softmaxTile<true>(sp, oAcc, rowMax, rowSum, p, offKV,
                                           qBlockBase, warpId, laneId);
                     }
                 }
@@ -954,7 +984,7 @@ public:
                 if (act) {
                     uint32_t vReg[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2];
                     loadVFrags(smemBase + vBufOff, vThread, vReg);
-                    pvMma(pReg, vReg, oAcc);
+                    pvMma(sp, vReg, oAcc);
                 }
             }
         } else {
@@ -984,21 +1014,20 @@ public:
                     uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
                     loadKFrags(smemBase + kBuf(kv), kThread, kReg);
 
-                    float sReg[WARP_Q / MMA_M][BLOCK_KV / MMA_N][4] = {};
-                    sMma(qReg, kReg, sReg);
+                    SPTile sp[WARP_Q / MMA_M] = {};
+                    sMma(qReg, kReg, sp);
 
-                    uint32_t pReg[WARP_Q / MMA_M][BLOCK_KV / MMA_K][4];
                     if (tileNeedsMask(offKV)) {
-                        softmaxTile<false>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
+                        softmaxTile<false>(sp, oAcc, rowMax, rowSum, p, offKV,
                                            qBlockBase, warpId, laneId);
                     } else {
-                        softmaxTile<true>(sReg, pReg, oAcc, rowMax, rowSum, p, offKV,
+                        softmaxTile<true>(sp, oAcc, rowMax, rowSum, p, offKV,
                                           qBlockBase, warpId, laneId);
                     }
 
                     uint32_t vReg[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2];
                     loadVFrags(smemBase + vBuf(kv), vThread, vReg);
-                    pvMma(pReg, vReg, oAcc);
+                    pvMma(sp, vReg, oAcc);
                 }
 
                 if (nextAct) {
@@ -1027,7 +1056,8 @@ __global__ void launchFlashAttentionMmaDPP_Kernel(
 /* IOp-first API. The DPP auto-selects cp.async streaming (raw bf16
  * prologues) or register prefetch (fused prologues) at compile time, and
  * auto-tunes tile sizes per schedule (pass BLOCK_Q/BLOCK_KV > 0 to
- * override): raw path prefers BQ64/BKV64 (deep cp.async overlap),
+ * override): raw path prefers BQ64/BKV64 (deep cp.async overlap; with the
+ * S/P union d128 fits at 174 regs and BKV64 beats BKV32 by ~13%),
  * fused-prologue path prefers BQ128/BKV32 (register headroom). */
 template <int HEAD_DIM, int BLOCK_Q = 0, int BLOCK_KV = 0, int NUM_WARPS = 4,
           typename OT = float, typename QIOp, typename KIOp, typename VIOp,
@@ -1042,8 +1072,7 @@ inline void executeFlashAttentionMma(
     constexpr bool RAW = isRawBf16Read<KIOp> && isRawBf16Read<VIOp>;
     constexpr int BQ = BLOCK_Q > 0 ? BLOCK_Q
                                    : (RAW ? 64 : (HEAD_DIM <= 64 ? 128 : 64));
-    constexpr int BKV = BLOCK_KV > 0 ? BLOCK_KV
-                                     : (RAW ? (HEAD_DIM <= 64 ? 64 : 32) : 32);
+    constexpr int BKV = BLOCK_KV > 0 ? BLOCK_KV : (RAW ? 64 : 32);
     using DPP = FlashAttentionMmaDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp,
                                      EpilogueIOp, BQ, BKV, NUM_WARPS, ScoreModOp>;
     const float scale = scaleOverride > 0.f ? scaleOverride
