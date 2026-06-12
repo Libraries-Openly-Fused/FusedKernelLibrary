@@ -534,10 +534,21 @@ public:
      * head never catches the read head (only mkv==0 overlaps, and there the
      * statement order consumes s[0..1] before overwriting them). Overlaying
      * p on the first half of s saves BLOCK_KV/4 regs/thread (16 at BKV=64). */
-    union SPTile {
-        float    s[BLOCK_KV / MMA_N][4];   // QK^T scores / exp(s - m), fp32
-        uint32_t p[BLOCK_KV / MMA_K][4];   // packed bf16x2 P (first half of s)
+    template <int SPAN>
+    union SPTileT {
+        float    s[SPAN / MMA_N][4];   // QK^T scores / exp(s - m), fp32
+        uint32_t p[SPAN / MMA_K][4];   // packed bf16x2 P (first half of s)
     };
+    using SPTile = SPTileT<BLOCK_KV>;
+    // SPLIT-S (bucket-A attempt, MEASURED INEFFECTIVE — kept off): halving
+    // the live score tile did NOT lower ptxas regs (134 either way — the
+    // allocator already overlaps sp with the kReg/frag staging), and dense
+    // throughput dropped ~2% from the extra zero-fill + second softmax tail.
+    // Re-enable only if a future change makes the score tile the real
+    // live-range ceiling.
+    static constexpr bool SPLIT_S = false;
+    static constexpr int KV_SPAN = SPLIT_S ? BLOCK_KV / 2 : BLOCK_KV;
+    using SPSpan = SPTileT<KV_SPAN>;
 
     // Q8 stage layout (Q-phase only; dead once qReg8/qs are in registers):
     //   [BLOCK_Q*STRIDE_B, +BLOCK_Q*HEAD_DIM)        row-major e4m3 Q bytes
@@ -696,8 +707,8 @@ public:
     /* mask + online softmax + P pack for one KV tile (shared by both
        schedules). noMask: compile-out the bounds/causal branch for interior
        tiles (the common case at long seq). */
-    template <bool NO_MASK>
-    FK_DEVICE_FUSE void softmaxTile(SPTile (&sp)[WARP_Q / MMA_M],
+    template <bool NO_MASK, int SPAN = BLOCK_KV>
+    FK_DEVICE_FUSE void softmaxTile(SPTileT<SPAN> (&sp)[WARP_Q / MMA_M],
                                     float (&oAcc)[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4],
                                     float (&rowMax)[WARP_Q / MMA_M][2],
                                     float (&rowSum)[WARP_Q / MMA_M][2],
@@ -710,7 +721,7 @@ public:
             const int rowB = rowA + 8;
 
             #pragma unroll
-            for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv) {
+            for (int mkv = 0; mkv < SPAN / MMA_N; ++mkv) {
                 float* r = sp[mq].s[mkv];
                 const int colBase = offKV + mkv * MMA_N + (laneId % 4) * 2;
                 if constexpr (NO_MASK && (!HAS_SCORE_MOD || IS_ALIBI)) {
@@ -751,7 +762,7 @@ public:
 
             float mNew[2] = { -FLT_MAX, -FLT_MAX };
             #pragma unroll
-            for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv) {
+            for (int mkv = 0; mkv < SPAN / MMA_N; ++mkv) {
                 const float* r = sp[mq].s[mkv];
                 mNew[0] = fmaxf(mNew[0], fmaxf(r[0], r[1]));
                 mNew[1] = fmaxf(mNew[1], fmaxf(r[2], r[3]));
@@ -786,7 +797,7 @@ public:
 
             float lNew[2] = {};
             #pragma unroll
-            for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv) {
+            for (int mkv = 0; mkv < SPAN / MMA_N; ++mkv) {
                 // Read scores BEFORE packing: iteration mkv packs into union
                 // bytes [8*mkv, 8*mkv+8) while reading s bytes
                 // [16*mkv, 16*mkv+16) — the pack write head never reaches
@@ -844,20 +855,23 @@ public:
      * ldmatrix.x4 immediately before their mma instead of staging the whole
      * tile (kReg was 64 regs/thread live across the loop -> now 4). ncu
      * showed 154 regs/thread capped occupancy at 3 blocks/SM; this fusion
-     * (+V below, +3 smem bufs) unlocks the 4th block. */
+     * (+V below, +3 smem bufs) unlocks the 4th block.
+     * SPAN/tokOff: split-S processes the smem tile in KV_SPAN-token spans. */
+    template <int SPAN = BLOCK_KV>
     FK_DEVICE_FUSE void sMmaStream(const uint32_t (&qReg)[WARP_Q / MMA_M][HEAD_DIM / MMA_K][4],
                                    const uint32_t base, const uint32_t kThread,
-                                   SPTile (&sp)[WARP_Q / MMA_M]) {
+                                   SPTileT<SPAN> (&sp)[WARP_Q / MMA_M],
+                                   const int tokOff = 0) {
         using namespace attention_mma_detail;
         #pragma unroll
-        for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv) {
+        for (int mkv = 0; mkv < SPAN / MMA_N; ++mkv) {
             #pragma unroll
             for (int md = 0; md < HEAD_DIM / MMA_K; md += 2) {
                 // identical x4 pattern to loadKFrags: one mkv row, fragments
                 // for md (regs 0-1) and md+1 (regs 2-3).
                 uint32_t frag[4];
                 uint32_t addr = base + kThread;
-                addr += mkv * MMA_N * STRIDE_B;
+                addr += (tokOff + mkv * MMA_N) * STRIDE_B;
                 addr ^= md * MMA_K * sizeof(__nv_bfloat16);
                 ldmatrix_x4(frag, addr);
                 #pragma unroll
@@ -884,17 +898,19 @@ public:
 
     /* Same fusion for P·V: stream V fragments (trans ldmatrix.x4) right
      * before use. vReg was another 32-64 live regs. */
-    FK_DEVICE_FUSE void pvMmaStream(const SPTile (&sp)[WARP_Q / MMA_M],
+    template <int SPAN = BLOCK_KV>
+    FK_DEVICE_FUSE void pvMmaStream(const SPTileT<SPAN> (&sp)[WARP_Q / MMA_M],
                                     const uint32_t base, const uint32_t vThread,
-                                    float (&oAcc)[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4]) {
+                                    float (&oAcc)[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4],
+                                    const int tokOff = 0) {
         using namespace attention_mma_detail;
         #pragma unroll
-        for (int mkv = 0; mkv < BLOCK_KV / MMA_K; ++mkv) {
+        for (int mkv = 0; mkv < SPAN / MMA_K; ++mkv) {
             #pragma unroll
             for (int md = 0; md < HEAD_DIM / MMA_N; md += 2) {
                 uint32_t frag[4];
                 uint32_t addr = base + vThread;
-                addr += mkv * MMA_K * STRIDE_B;
+                addr += (tokOff + mkv * MMA_K) * STRIDE_B;
                 addr ^= md * MMA_N * sizeof(__nv_bfloat16);
                 ldmatrix_x4_trans(frag, addr);
                 #pragma unroll
@@ -954,7 +970,16 @@ public:
         const int warpId = tid / 32;
         const int laneId = tid % 32;
         const int bh = blockIdx.y;
-        const int qBlockBase = blockIdx.x * BLOCK_Q;
+        // CAUSAL LOAD-BALANCE: q-block i does O(i) KV tiles of work, so the
+        // natural launch order puts the heaviest blocks LAST and leaves a
+        // long single-block tail (ncu: achieved occupancy 10.9% vs 33%
+        // theoretical on s2048 causal). GPUs schedule blocks roughly in
+        // launch order -> reversing the raster for causal starts the heavy
+        // blocks first and the light ones fill the tail. Dense work is
+        // uniform; keep natural order (better L2 locality on K/V).
+        const int qBlockIdx = p.causal ? (int)(gridDim.x - 1 - blockIdx.x)
+                                       : (int)blockIdx.x;
+        const int qBlockBase = qBlockIdx * BLOCK_Q;
 
         const uint32_t qThread = swz(((warpId * WARP_Q + laneId % 16) * HEAD_DIM
                                       + (laneId / 16) * 8) * sizeof(__nv_bfloat16));
@@ -1084,37 +1109,106 @@ public:
                 cp_async_wait<1>();
                 __syncthreads();
 
-                SPTile sp[WARP_Q / MMA_M] = {};
-                if (act) {
-                    uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
-                    loadKFrags(smemBase + kBuf(kv), kThread, kReg);
-                    sMma(qReg, kReg, sp);
-                }
+                if constexpr (SPLIT_S) {
+                    // ============== split-S: two SEQUENTIAL KV_SPAN passes ==
+                    // Only ONE SPSpan (16 fp32 regs at BKV64) is live at a
+                    // time: span0 runs QK^T->softmax->PV to completion before
+                    // span1 starts. Safe because K[kv] is double-buffered
+                    // (K[kv+1] streams into the OTHER buffer) and V[kv] is
+                    // single-buffered but only overwritten after the next
+                    // iteration's __syncthreads. The K[kv+1] prefetch is
+                    // issued between span0's QK^T and softmax (v5 stagger);
+                    // V wait happens before span0's PV, so span1 runs with
+                    // both tiles resident — zero extra syncs vs the fused
+                    // tile.
+                    // span 0 ---------------------------------------------
+                    SPSpan sp[WARP_Q / MMA_M] = {};
+                    if (act) sMmaStream<KV_SPAN>(qReg, smemBase + kBuf(kv),
+                                                 kThread, sp, 0);
 
-                // prefetch K[kv+1] (overlaps softmax + PV, v5 staggering)
-                if (kv + 1 < itEnd && tileActive(offKV + BLOCK_KV)) {
-                    cpasyncTile<KV_GROUPS>(smemBase + kBuf(kv + 1), kPlane,
-                                           offKV + BLOCK_KV, p.seq_k);
-                }
-                cp_async_commit();
-
-                if (act) {
-                    if (tileNeedsMask(offKV)) {
-                        softmaxTile<false>(sp, oAcc, rowMax, rowSum, p, offKV,
-                                           qBlockBase, warpId, laneId);
-                    } else {
-                        softmaxTile<true>(sp, oAcc, rowMax, rowSum, p, offKV,
-                                          qBlockBase, warpId, laneId);
+                    // prefetch K[kv+1] (overlaps softmax + PV, v5 staggering)
+                    if (kv + 1 < itEnd && tileActive(offKV + BLOCK_KV)) {
+                        cpasyncTile<KV_GROUPS>(smemBase + kBuf(kv + 1), kPlane,
+                                               offKV + BLOCK_KV, p.seq_k);
                     }
-                }
+                    cp_async_commit();
 
-                // wait V[kv] (1 group outstanding: K[kv+1])
-                cp_async_wait<1>();
-                __syncthreads();
+                    const bool needsMask = tileNeedsMask(offKV);
+                    if (act) {
+                        if (needsMask) {
+                            softmaxTile<false, KV_SPAN>(sp, oAcc, rowMax, rowSum,
+                                                        p, offKV, qBlockBase,
+                                                        warpId, laneId);
+                        } else {
+                            softmaxTile<true, KV_SPAN>(sp, oAcc, rowMax, rowSum,
+                                                       p, offKV, qBlockBase,
+                                                       warpId, laneId);
+                        }
+                    }
 
-                if (act) {
-                    // stream V frags ldmatrix->mma (no vReg staging)
-                    pvMmaStream(sp, smemBase + vBufOff, vThread, oAcc);
+                    // wait V[kv] (1 group outstanding: K[kv+1])
+                    cp_async_wait<1>();
+                    __syncthreads();
+
+                    if (act) {
+                        pvMmaStream<KV_SPAN>(sp, smemBase + vBufOff, vThread,
+                                             oAcc, 0);
+                        // span 1 ------------------------------------------
+                        // reuses the same sp storage; K[kv]/V[kv] still
+                        // resident (see buffer-lifetime note above).
+                        #pragma unroll
+                        for (int mq = 0; mq < WARP_Q / MMA_M; ++mq)
+                            #pragma unroll
+                            for (int i = 0; i < KV_SPAN / MMA_N; ++i)
+                                #pragma unroll
+                                for (int e = 0; e < 4; ++e) sp[mq].s[i][e] = 0.f;
+                        sMmaStream<KV_SPAN>(qReg, smemBase + kBuf(kv),
+                                            kThread, sp, KV_SPAN);
+                        if (needsMask) {
+                            softmaxTile<false, KV_SPAN>(sp, oAcc, rowMax, rowSum,
+                                                        p, offKV + KV_SPAN,
+                                                        qBlockBase, warpId, laneId);
+                        } else {
+                            softmaxTile<true, KV_SPAN>(sp, oAcc, rowMax, rowSum,
+                                                       p, offKV + KV_SPAN,
+                                                       qBlockBase, warpId, laneId);
+                        }
+                        pvMmaStream<KV_SPAN>(sp, smemBase + vBufOff, vThread,
+                                             oAcc, KV_SPAN);
+                    }
+                } else {
+                    SPTile sp[WARP_Q / MMA_M] = {};
+                    if (act) {
+                        uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
+                        loadKFrags(smemBase + kBuf(kv), kThread, kReg);
+                        sMma(qReg, kReg, sp);
+                    }
+
+                    // prefetch K[kv+1] (overlaps softmax + PV, v5 staggering)
+                    if (kv + 1 < itEnd && tileActive(offKV + BLOCK_KV)) {
+                        cpasyncTile<KV_GROUPS>(smemBase + kBuf(kv + 1), kPlane,
+                                               offKV + BLOCK_KV, p.seq_k);
+                    }
+                    cp_async_commit();
+
+                    if (act) {
+                        if (tileNeedsMask(offKV)) {
+                            softmaxTile<false>(sp, oAcc, rowMax, rowSum, p, offKV,
+                                               qBlockBase, warpId, laneId);
+                        } else {
+                            softmaxTile<true>(sp, oAcc, rowMax, rowSum, p, offKV,
+                                              qBlockBase, warpId, laneId);
+                        }
+                    }
+
+                    // wait V[kv] (1 group outstanding: K[kv+1])
+                    cp_async_wait<1>();
+                    __syncthreads();
+
+                    if (act) {
+                        // stream V frags ldmatrix->mma (no vReg staging)
+                        pvMmaStream(sp, smemBase + vBufOff, vThread, oAcc);
+                    }
                 }
             }
         } else if constexpr (QUANT_KV) {
