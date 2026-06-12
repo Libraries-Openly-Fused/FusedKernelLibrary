@@ -355,15 +355,44 @@ public:
     static constexpr int KV_BUFS = RAW_KV ? 3 : 4;
     static constexpr int Q_STAGE_B = QUANT_KV ? 4 * (KV_BUF_B / 2) : 0;
     // DEEP_Q_SMEM: BUILT AND MEASURED OFF. Streaming Q from resident smem
-    // does eliminate qReg, but doubles ldmatrix traffic per mma (Q frags
-    // reloaded for every K fragment): 0.255 ms vs BQ64's 0.216 on d128
-    // bh32 s2048 dense. The deep-tile premise fails on sm_120: oAcc alone
-    // is 128 regs at mq=2 and the ldmatrix replay erases the instruction-
-    // count win. FA's 224-reg schedule relies on cp.async.bulk+wgmma-style
-    // operand routing that sm_120 doesn't have. Machinery kept for future
-    // archs; see ANALYSIS.md bucket-C post-mortem.
+    // with the mkv-outer loop does eliminate qReg, but replays each Q
+    // fragment for every K fragment (0.255 ms vs BQ64's 0.216 on d128
+    // bh32 s2048 dense). Kept as scaffolding; superseded by DUAL_Q_SMEM.
     static constexpr bool DEEP_Q_SMEM = false;
-    static constexpr int Q_RES_B = DEEP_Q_SMEM ? BLOCK_Q * STRIDE_B : 0;
+    // DUAL_Q_SMEM — the bucket-C schedule derived from FA's SASS
+    // (HMMA/LDSM 3.20 vs our 1.78; benchmarks/sass/ in fkl_attention).
+    // Q resident in smem like DEEP_Q_SMEM, but the QK^T loop is TRANSPOSED:
+    // md-pair OUTER, mkv INNER. Per md-pair the mq Q fragment pairs are
+    // loaded ONCE and reused across ALL BLOCK_KV columns, while each K
+    // fragment feeds mq row-blocks (dual reuse of BOTH operands). ldmatrix
+    // count per d128/BQ128/BKV64 tile: Q 16 + K 32 + V 32 = 80 x4 for 256
+    // HMMA -> ratio 3.2, exactly FA's. qReg (64 hot regs at mq=2) never
+    // exists; live operands inside the loop are 16 Q regs + 4 K regs, so
+    // any ptxas spill lands on softmax bookkeeping (cold, inter-phase) —
+    // the spill discipline FA's own 60-97 LDL/STL demonstrates is viable.
+    // Gated to the deep-tile d128 regime. BUILT AND MEASURED (2026-06-12,
+    // spikes/spike_dual_q.cu + abab_dual_q.cu, ABAB interleaved, real data):
+    // it reproduces FA's SASS signature EXACTLY — HMMA/LDSM 3.20 (FA 3.20,
+    // plain 1.78), spills confined to cold inter-phase state (LDL/STL
+    // 40/24, ZERO in the QK^T loop — vs the old BQ128 deep's hot-operand
+    // spills) — and accuracy passes vs the fp64 oracle. It still LOSES to
+    // plain BQ128/BKV64/NW8 by 3-7% dense / 9-20% causal: at 81920B smem
+    // it is hard-capped at 1 CTA/SM (8.3% occupancy), and the recovered
+    // issue slots don't cover the lost warp-level parallelism; ncu shows
+    // dual IPC 0.71 ~= FA's 0.69, i.e. the ILP discipline WORKS, but FA
+    // pairs it with ~5.6 total-instr/HMMA vs our ~10 (softmax bookkeeping
+    // dominates our non-mma mix). Lesson: the instruction-ratio gap was
+    // necessary but NOT sufficient; the remaining lever is shrinking
+    // softmax/mask arithmetic per score, not operand staging. OFF by
+    // default; -DFK_FA_DUAL_Q=1 re-enables for experiments.
+#ifndef FK_FA_DUAL_Q
+#define FK_FA_DUAL_Q 0
+#endif
+    static constexpr bool DUAL_Q_SMEM =
+        FK_FA_DUAL_Q != 0 && RAW_KV && !FP8_QK && HEAD_DIM == 128 &&
+        BLOCK_Q >= 128 && WARP_Q >= 32;
+    static constexpr int Q_RES_B =
+        (DEEP_Q_SMEM || DUAL_Q_SMEM) ? BLOCK_Q * STRIDE_B : 0;
     // FP8_QK: the Q phase additionally holds the e4m3 Q tile + per-row
     // scales NEXT TO the staged bf16 Q (both alive during quantizeQTile).
     static constexpr int Q_PHASE_B =
@@ -971,6 +1000,89 @@ public:
         }
     }
 
+    /* DUAL-REUSE QK^T (bucket-C, SASS-derived — see DUAL_Q_SMEM above):
+       Q resident in smem, loop TRANSPOSED vs sMmaStreamDeepQ: md-pair OUTER,
+       mkv INNER. Each Q fragment pair is loaded once per md-pair and serves
+       all SPAN/MMA_N columns; each K fragment serves mq row-blocks.
+       ADDRESSING: the swizzle XOR (^ md*32, bits 5-7) commutes with the
+       additive tile offsets that follow it (mq*MMA_M*STRIDE_B, kBuf
+       multiples of KV_BUF_B, token offsets multiples of STRIDE_B — all
+       multiples of 256, no carries into bits 5-7). Callers precompute
+       qmd[md] = (qBase + qThread) ^ (md*32) and kmd[md] = (smemBase +
+       kThread) ^ (md*32) ONCE outside the kv loop; every address below is
+       then reg + compile-time constant, which ptxas folds into the LDSM
+       offset field — zero LOP3/IADD in the hot loop (the SASS histogram
+       showed LOP3 at 1.06/HMMA vs FA's 0.086 before this). */
+    template <int SPAN = BLOCK_KV>
+    FK_DEVICE_FUSE void sMmaStreamDualQ(const uint32_t kBufOff,
+                                        const uint32_t (&qmd)[HEAD_DIM / MMA_K],
+                                        const uint32_t (&kmd)[HEAD_DIM / MMA_K],
+                                        SPTileT<SPAN> (&sp)[WARP_Q / MMA_M],
+                                        const int tokOff = 0) {
+        using namespace attention_mma_detail;
+        // K-fragment register double-buffer: at 1 CTA/SM (this schedule's
+        // occupancy point, same as FA's) there is no second warp to hide
+        // LDSM->HMMA latency, so the NEXT fragment's ldmatrix must issue
+        // BEFORE the current mmas (CUTLASS mainloop discipline).
+        #pragma unroll
+        for (int md = 0; md < HEAD_DIM / MMA_K; md += 2) {
+            uint32_t qFrag[WARP_Q / MMA_M][2][4];
+            #pragma unroll
+            for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
+                const uint32_t rowOff = mq * MMA_M * STRIDE_B;
+                ldmatrix_x4(qFrag[mq][0], qmd[md]     + rowOff);
+                ldmatrix_x4(qFrag[mq][1], qmd[md + 1] + rowOff);
+            }
+            uint32_t kFrag[2][4];
+            ldmatrix_x4(kFrag[0], kmd[md] + kBufOff + tokOff * STRIDE_B);
+            #pragma unroll
+            for (int mkv = 0; mkv < SPAN / MMA_N; ++mkv) {
+                if (mkv + 1 < SPAN / MMA_N) {
+                    ldmatrix_x4(kFrag[(mkv + 1) & 1],
+                                kmd[md] + kBufOff
+                                + (tokOff + (mkv + 1) * MMA_N) * STRIDE_B);
+                }
+                const uint32_t (&kf)[4] = kFrag[mkv & 1];
+                #pragma unroll
+                for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
+                    mma_m16n8k16(qFrag[mq][0], kf + 0, sp[mq].s[mkv]);
+                    mma_m16n8k16(qFrag[mq][1], kf + 2, sp[mq].s[mkv]);
+                }
+            }
+        }
+    }
+
+    /* P·V with the same fragment double-buffer discipline (dual schedule
+       runs at 1 CTA/SM: V fragment ldmatrix must lead its mmas). */
+    template <int SPAN = BLOCK_KV>
+    FK_DEVICE_FUSE void pvMmaStreamDual(const SPTileT<SPAN> (&sp)[WARP_Q / MMA_M],
+                                        const uint32_t base, const uint32_t vThread,
+                                        float (&oAcc)[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4],
+                                        const int tokOff = 0) {
+        using namespace attention_mma_detail;
+        constexpr int MD_IT = HEAD_DIM / MMA_N / 2;
+        #pragma unroll
+        for (int mkv = 0; mkv < SPAN / MMA_K; ++mkv) {
+            const uint32_t rowAddr = base + vThread + (tokOff + mkv * MMA_K) * STRIDE_B;
+            uint32_t frag[2][4];
+            ldmatrix_x4_trans(frag[0], rowAddr ^ 0u);
+            #pragma unroll
+            for (int mdp = 0; mdp < MD_IT; ++mdp) {
+                if (mdp + 1 < MD_IT) {
+                    ldmatrix_x4_trans(frag[(mdp + 1) & 1],
+                                      rowAddr ^ ((mdp + 1) * 2 * MMA_N
+                                                 * (uint32_t)sizeof(__nv_bfloat16)));
+                }
+                const uint32_t (&vf)[4] = frag[mdp & 1];
+                #pragma unroll
+                for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
+                    mma_m16n8k16(sp[mq].p[mkv], vf + 0, oAcc[mq][mdp * 2]);
+                    mma_m16n8k16(sp[mq].p[mkv], vf + 2, oAcc[mq][mdp * 2 + 1]);
+                }
+            }
+        }
+    }
+
     FK_DEVICE_FUSE void pvMma(const SPTile (&sp)[WARP_Q / MMA_M],
                               const uint32_t (&vReg)[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2],
                               float (&oAcc)[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4]) {
@@ -1129,8 +1241,8 @@ public:
         }
         __syncthreads();
 
-        uint32_t qReg[DEEP_Q_SMEM ? 1 : WARP_Q / MMA_M]
-                     [DEEP_Q_SMEM ? 1 : HEAD_DIM / MMA_K][4];
+        uint32_t qReg[(DEEP_Q_SMEM || DUAL_Q_SMEM) ? 1 : WARP_Q / MMA_M]
+                     [(DEEP_Q_SMEM || DUAL_Q_SMEM) ? 1 : HEAD_DIM / MMA_K][4];
         // FP8_QK state (dead/eliminated when the path is off — all uses sit
         // inside `if constexpr (FP8_QK)`).
         uint32_t qReg8[WARP_Q / MMA_M][HEAD_DIM / 32][4];
@@ -1141,7 +1253,7 @@ public:
             quantizeQTile(smemBytes, warpId, laneId);
             loadQF8Frags(smemBytes, qReg8, qs, warpId, laneId);
 #endif
-        } else if constexpr (!DEEP_Q_SMEM) {
+        } else if constexpr (!DEEP_Q_SMEM && !DUAL_Q_SMEM) {
             #pragma unroll
             for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
                 #pragma unroll
@@ -1238,6 +1350,19 @@ public:
             }
             cp_async_commit();
 
+            // DUAL_Q_SMEM: hoist the per-md swizzled base addresses out of
+            // the kv loop (see sMmaStreamDualQ addressing note).
+            uint32_t qmd[DUAL_Q_SMEM ? HEAD_DIM / MMA_K : 1];
+            uint32_t kmd[DUAL_Q_SMEM ? HEAD_DIM / MMA_K : 1];
+            if constexpr (DUAL_Q_SMEM) {
+                #pragma unroll
+                for (int md = 0; md < HEAD_DIM / MMA_K; ++md) {
+                    const uint32_t x = md * MMA_K * (uint32_t)sizeof(__nv_bfloat16);
+                    qmd[md] = (smemBase + qThread) ^ x;
+                    kmd[md] = (smemBase + kThread) ^ x;
+                }
+            }
+
             for (int kv = itBegin; kv < itEnd; ++kv) {
                 const int offKV = kv * BLOCK_KV;
                 const bool act = tileActive(offKV);
@@ -1323,7 +1448,11 @@ public:
                 } else {
                     SPTile sp[WARP_Q / MMA_M] = {};
                     if (act) {
-                        if constexpr (DEEP_Q_SMEM) {
+                        if constexpr (DUAL_Q_SMEM) {
+                            // dual-reuse schedule: Q resident at smem[0],
+                            // md-pair outer / mkv inner (see sMmaStreamDualQ)
+                            sMmaStreamDualQ(kBuf(kv), qmd, kmd, sp);
+                        } else if constexpr (DEEP_Q_SMEM) {
                             // deep schedule: Q AND K streamed from smem
                             sMmaStreamDeepQ(smemBase, qThread,
                                             smemBase + kBuf(kv), kThread, sp);
@@ -1356,8 +1485,12 @@ public:
                     __syncthreads();
 
                     if (act) {
-                        // stream V frags ldmatrix->mma (no vReg staging)
-                        pvMmaStream(sp, smemBase + vBufOff, vThread, oAcc);
+                        if constexpr (DUAL_Q_SMEM) {
+                            pvMmaStreamDual(sp, smemBase + vBufOff, vThread, oAcc);
+                        } else {
+                            // stream V frags ldmatrix->mma (no vReg staging)
+                            pvMmaStream(sp, smemBase + vBufOff, vThread, oAcc);
+                        }
                     }
                 }
             }
@@ -1608,7 +1741,17 @@ inline void executeFlashAttentionMma(
                 return;
             }
         } else if constexpr (HEAD_DIM == 128) {
-            if (seqQ >= 8192 && batchHeads >= 32) {
+            // Extended from (seqQ>=8192 && bh>=32) after ABAB probes vs base
+            // (spikes/abab_dual_q.cu): NW8 wins whenever the grid stays
+            // saturated at the halved block count — bh*seqQ >= 256K dense
+            // (bh64 s4096 1.09x, bh128 s2048 1.01x, bh32/64 s8192 1.07x);
+            // below that base's extra blocks win (bh16 s8192 0.96x,
+            // bh32 s4096 0.94x). Causal keeps the tighter rule (halved
+            // effective work: bh64 s4096 1.00x, bh8 s8192 0.90x).
+            const bool wantNW8 =
+                causal ? (seqQ >= 8192 && batchHeads >= 32)
+                       : ((long)batchHeads * seqQ >= 262144);
+            if (wantNW8) {
                 executeFlashAttentionMma<HEAD_DIM, 128, 64, 8>(
                     q, k, v, o, batchHeads, seqQ, seqK, causal, stream,
                     scaleOverride, epilogue, scoreMod, sparse);
