@@ -1004,6 +1004,9 @@ public:
         // launch order -> reversing the raster for causal starts the heavy
         // blocks first and the light ones fill the tail. Dense work is
         // uniform; keep natural order (better L2 locality on K/V).
+        // (A small-grid guard was tried and REVERTED: disabling the reversal
+        // below 1024 blocks made bh8 s2048 WORSE, 0.82->0.76 vs FA — even at
+        // ~1.4 waves the tail dominates. Reversal is unconditional.)
         const int qBlockIdx = p.causal ? (int)(gridDim.x - 1 - blockIdx.x)
                                        : (int)blockIdx.x;
         const int qBlockBase = qBlockIdx * BLOCK_Q;
