@@ -372,7 +372,18 @@ public:
         EpilogueIOp epilogue;
         ScoreModOp scoreMod;     // flex-attention score_mod / mask_mod
         BlockSparsity sparse;    // block-sparse tile skipping (nullptr = dense)
+        // SPLIT-KV FORWARD (FA-style): when splits > 1, blockIdx.z selects a
+        // KV chunk and the kernel writes UNNORMALIZED partials (oAcc, m, l)
+        // to `partial` instead of O; a combine kernel reduces them. Sized
+        // [bh, seq_q, splits, HEAD_DIM+2]. Saturates the GPU on small grids
+        // (bh*numQ << 1 wave) — ncu: FA runs 5.45 waves vs our 0.68 on
+        // d128 bh8 s2048, hiding everything; this is that lever.
+        float* partial = nullptr;
+        int splits = 1;
     };
+    // log2-domain softmax is active for these functor types (see softmaxTile);
+    // the split combine must interpret stored row-maxes in the same base.
+    static constexpr bool LOG2_DOMAIN = !HAS_SCORE_MOD || IS_ALIBI;
 
     FK_DEVICE_FUSE uint32_t swz(const uint32_t byteOff) {
         const uint32_t row = (byteOff / STRIDE_B) % 8;
@@ -977,6 +988,41 @@ public:
         }
     }
 
+    /* split-KV partial writeout: UNNORMALIZED oAcc plus per-row (m, l).
+       Layout [bh, seq_q, splits, HEAD_DIM+2] — fp32. Lane (laneId%4) owns
+       cols {2t, 2t+1} of each MMA_N block, rows rowA/rowB as in writeOut. */
+    FK_DEVICE_FUSE void writePartial(const float (&oAcc)[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4],
+                                     const float (&rowMax)[WARP_Q / MMA_M][2],
+                                     const float (&rowSum)[WARP_Q / MMA_M][2],
+                                     const Params& p, const int qBlockBase,
+                                     const int warpId, const int laneId, const int bh) {
+        const int split = blockIdx.z;
+        const long strideRow = (long)p.splits * (HEAD_DIM + 2);
+        #pragma unroll
+        for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
+            const int rowA = qBlockBase + warpId * WARP_Q + mq * MMA_M + laneId / 4;
+            const int rowB = rowA + 8;
+            #pragma unroll
+            for (int half = 0; half < 2; ++half) {
+                const int row = half == 0 ? rowA : rowB;
+                if (row >= p.seq_q) continue;
+                float* dst = p.partial
+                    + ((long)bh * p.seq_q + row) * strideRow
+                    + (long)split * (HEAD_DIM + 2);
+                #pragma unroll
+                for (int md = 0; md < HEAD_DIM / MMA_N; ++md) {
+                    const int col = md * MMA_N + (laneId % 4) * 2;
+                    dst[col]     = oAcc[mq][md][half * 2];
+                    dst[col + 1] = oAcc[mq][md][half * 2 + 1];
+                }
+                if (laneId % 4 == 0) {
+                    dst[HEAD_DIM]     = rowMax[mq][half];
+                    dst[HEAD_DIM + 1] = rowSum[mq][half];
+                }
+            }
+        }
+    }
+
     FK_DEVICE_FUSE void storePair(OT* dst, const float a, const float b) {
         if constexpr (std::is_same_v<OT, __nv_bfloat16>) {
             *reinterpret_cast<__nv_bfloat162*>(dst) = __float22bfloat162_rn({ a, b });
@@ -986,6 +1032,7 @@ public:
         }
     }
 
+    template <bool SPLIT_KV = false>
     static __device__ void exec(const Params& p) {
         using namespace attention_mma_detail;
         extern __shared__ char smemRaw[];
@@ -1106,6 +1153,18 @@ public:
                 itBegin = ::min(numIter, first * tilesPerMask);
                 itEnd = ::min(numIter, (last + 1) * tilesPerMask);
             }
+        }
+        // SPLIT-KV: blockIdx.z takes an equal chunk of THIS q-block's
+        // iteration range (adapts to causal: each q-block splits its own
+        // numIter). Compile-time gated: the runtime-branch version kept
+        // rowMax live through the epilogue in EVERY kernel and cost ~20%
+        // on splits==1 shapes (d64 bh32 s2048 dense 0.88->0.70 measured).
+        if constexpr (SPLIT_KV) {
+            const int span = itEnd - itBegin;
+            const int chunk = (span + p.splits - 1) / p.splits;
+            const int s0 = itBegin + (int)blockIdx.z * chunk;
+            itEnd = ::min(itEnd, s0 + chunk);
+            itBegin = ::min(s0, itEnd);
         }
 
         if constexpr (RAW_KV) {
@@ -1387,19 +1446,65 @@ public:
             }
         }
 
-        writeOut(oAcc, rowSum, p, qBlockBase, warpId, laneId, bh);
+        if constexpr (SPLIT_KV) {
+            writePartial(oAcc, rowMax, rowSum, p, qBlockBase, warpId, laneId, bh);
+        } else {
+            writeOut(oAcc, rowSum, p, qBlockBase, warpId, laneId, bh);
+        }
     }
 };
 
+/* split-KV combine: one block per (bh, row-chunk); exact online-softmax
+   merge of `splits` unnormalized partials. expBase: 2^x when the producer
+   kernel ran log2-domain softmax, e^x otherwise. */
+template <typename OT, int HEAD_DIM, bool LOG2D>
+__global__ void flashFwdSplitCombineKernel(const float* __restrict__ partial,
+                                           OT* __restrict__ o,
+                                           const int seqQ, const int splits) {
+    const int bh = blockIdx.y;
+    const int row = blockIdx.x * blockDim.y + threadIdx.y;
+    if (row >= seqQ) return;
+    const float* base = partial
+        + ((long)bh * seqQ + row) * (long)splits * (HEAD_DIM + 2);
+    // global max over splits (uniform across the row's threads)
+    float gm = -FLT_MAX;
+    for (int s = 0; s < splits; ++s)
+        gm = fmaxf(gm, base[s * (HEAD_DIM + 2) + HEAD_DIM]);
+    // each thread owns HEAD_DIM/32 columns
+    float acc[HEAD_DIM / 32] = {};
+    float l = 0.f;
+    for (int s = 0; s < splits; ++s) {
+        const float* ps = base + s * (HEAD_DIM + 2);
+        const float m = ps[HEAD_DIM];
+        if (m == -FLT_MAX) continue;            // empty chunk
+        const float w = LOG2D ? exp2f(m - gm) : __expf(m - gm);
+        l += ps[HEAD_DIM + 1] * w;
+        #pragma unroll
+        for (int c = 0; c < HEAD_DIM / 32; ++c)
+            acc[c] += ps[threadIdx.x + c * 32] * w;
+    }
+    const float inv = l > 0.f ? 1.f / l : 0.f;
+    OT* dst = o + ((long)bh * seqQ + row) * HEAD_DIM;
+    #pragma unroll
+    for (int c = 0; c < HEAD_DIM / 32; ++c) {
+        if constexpr (std::is_same_v<OT, __nv_bfloat16>) {
+            dst[threadIdx.x + c * 32] = __float2bfloat16(acc[c] * inv);
+        } else {
+            dst[threadIdx.x + c * 32] = static_cast<OT>(acc[c] * inv);
+        }
+    }
+}
+
 template <typename OT, int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp,
           typename EpilogueIOp, int BLOCK_Q, int BLOCK_KV, int NUM_WARPS,
-          typename ScoreModOp>
+          typename ScoreModOp, bool SPLIT_KV = false>
 __global__ void launchFlashAttentionMmaDPP_Kernel(
         const __grid_constant__ typename FlashAttentionMmaDPP<
             OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp,
             BLOCK_Q, BLOCK_KV, NUM_WARPS, ScoreModOp>::Params params) {
     FlashAttentionMmaDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp,
-                         BLOCK_Q, BLOCK_KV, NUM_WARPS, ScoreModOp>::exec(params);
+                         BLOCK_Q, BLOCK_KV, NUM_WARPS,
+                         ScoreModOp>::template exec<SPLIT_KV>(params);
 }
 
 /* IOp-first API. The DPP auto-selects cp.async streaming (raw bf16
@@ -1465,9 +1570,9 @@ inline void executeFlashAttentionMma(
                 "tiles (BQ=" + std::to_string(BQ) + ", BKV=" + std::to_string(BKV) + ")");
         }
     }
-    const typename DPP::Params params{ q, k, v, o, seqQ, seqK, scale, causal,
-                                       epilogue, scoreMod, sparse };
-    const dim3 grid((seqQ + BQ - 1) / BQ, batchHeads, 1);
+    typename DPP::Params params{ q, k, v, o, seqQ, seqK, scale, causal,
+                                 epilogue, scoreMod, sparse };
+    const int numQ = (seqQ + BQ - 1) / BQ;
     const dim3 block(DPP::THREADS, 1, 1);
     const int smemBytes = DPP::SMEM_BYTES;
     auto* kernel = launchFlashAttentionMmaDPP_Kernel<OT, HEAD_DIM, QIOp, KIOp, VIOp,
@@ -1477,8 +1582,70 @@ inline void executeFlashAttentionMma(
         gpuErrchk(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
                                        smemBytes));
     }
-    kernel<<<grid, block, smemBytes, stream.getCUDAStream()>>>(params);
-    gpuErrchk(cudaGetLastError());
+    // SPLIT-KV FORWARD for under-saturated grids (ncu, d128 bh8 s2048: FA
+    // launches 5.45 waves via splits while we ran 0.68 — SMs idle). When
+    // numQ*bh covers < ~70% of one resident wave, split the KV range across
+    // blockIdx.z, write unnormalized partials, and reduce with an exact
+    // online-softmax combine kernel. Disabled for block-sparse (the sparse
+    // iteration trim already reshapes the range per q-block).
+    int splits = 1;
+    float* partial = nullptr;
+    if (sparse.mask == nullptr) {
+        static const int wave = [&] {
+            int bpm = 0, dev = 0, sms = 0;
+            cudaOccupancyMaxActiveBlocksPerMultiprocessor(&bpm, kernel,
+                                                          DPP::THREADS, smemBytes);
+            cudaGetDevice(&dev);
+            cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, dev);
+            return (bpm > 0 ? bpm : 1) * sms;
+        }();
+        const long gridBlocks = (long)numQ * batchHeads;
+        // average KV iterations per q-block (causal averages ~half the row)
+        const int avgIter = ::max(1, (int)(((long)(causal ? seqK / 2 : seqK)) / BKV));
+        // THRESHOLD (measured per regime): causal benefits up to ~0.7 wave
+        // (the triangular tail leaves SMs idle even at 0.68 wave: d128 bh8
+        // s2048 causal 0.76->0.94 with splits); dense only below ~0.45 wave
+        // (at 0.68 wave the fp32 partial traffic costs more than the idle
+        // SMs: d64 bh32 s2048 dense 0.88->0.71 when split at 0.68 wave).
+        const long num = gridBlocks * 10;
+        const bool under = causal ? (num < (long)wave * 7)
+                                  : (num < (long)wave * 9 / 2);
+        if (under && avgIter >= 8) {
+            const int bySat  = (int)((wave + gridBlocks - 1) / gridBlocks);
+            const int byWork = avgIter / 4;   // keep >=4 KV tiles per chunk
+            splits = ::min(::min(bySat, byWork), 16);
+            splits = ::max(splits, 1);
+        }
+        if (splits > 1) {
+            const size_t bytes = (size_t)batchHeads * seqQ * splits
+                                 * (HEAD_DIM + 2) * sizeof(float);
+            gpuErrchk(cudaMallocAsync(&partial, bytes, stream.getCUDAStream()));
+            params.partial = partial;
+            params.splits = splits;
+        }
+    }
+    const dim3 grid(numQ, batchHeads, splits);
+    if (splits > 1) {
+        auto* splitKernel = launchFlashAttentionMmaDPP_Kernel<
+            OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BQ, BKV, NUM_WARPS,
+            ScoreModOp, /*SPLIT_KV=*/true>;
+        if (smemBytes > 48000) {
+            gpuErrchk(cudaFuncSetAttribute(splitKernel,
+                cudaFuncAttributeMaxDynamicSharedMemorySize, smemBytes));
+        }
+        splitKernel<<<grid, block, smemBytes, stream.getCUDAStream()>>>(params);
+        gpuErrchk(cudaGetLastError());
+        // combine: 32 threads per row (HEAD_DIM/32 cols each), 4 rows/block
+        const dim3 cblock(32, 4, 1);
+        const dim3 cgrid((seqQ + 3) / 4, batchHeads, 1);
+        flashFwdSplitCombineKernel<OT, HEAD_DIM, DPP::LOG2_DOMAIN>
+            <<<cgrid, cblock, 0, stream.getCUDAStream()>>>(partial, o, seqQ, splits);
+        gpuErrchk(cudaGetLastError());
+        gpuErrchk(cudaFreeAsync(partial, stream.getCUDAStream()));
+    } else {
+        kernel<<<grid, block, smemBytes, stream.getCUDAStream()>>>(params);
+        gpuErrchk(cudaGetLastError());
+    }
 }
 
 } // namespace fk
