@@ -1885,29 +1885,46 @@ inline void executeFlashAttentionMma(
     //              stays BQ64 (BQ128 loses 9% there).
     // Explicit BLOCK_Q/BLOCK_KV template args bypass the heuristic.
     if constexpr (BLOCK_Q == 0 && BLOCK_KV == 0 && RAW) {
+      // block-sparse masks fix their own tile granularity — only reroute
+      // when the mask granularity divides the candidate tile (sliding-
+      // window masks at s8192 DO want the BQ128 pick: 1.11x vs 1.01x).
+      const auto maskFits = [&](const int bq, const int bkv) {
+          return sparse.mask == nullptr ||
+                 (sparse.maskBQ % bq == 0 && sparse.maskBKV % bkv == 0);
+      };
         if constexpr (HEAD_DIM <= 64) {
             const bool wantBQ128 =
                 causal ? (seqQ >= 8192 || (seqQ >= 4096 && batchHeads >= 64))
                        : ((long)batchHeads * seqQ >= 65536);
-            if (wantBQ128) {
+            if (wantBQ128 && maskFits(128, 64)) {
                 executeFlashAttentionMma<HEAD_DIM, 128, 64, NUM_WARPS>(
                     q, k, v, o, batchHeads, seqQ, seqK, causal, stream,
                     scaleOverride, epilogue, scoreMod, sparse);
                 return;
             }
+            // ROUND-8 RESWEEP (spikes/resweep_r8.cu + guard_r8.cu, post
+            // density rounds): mid-range CAUSAL prefers a WIDER KV tile —
+            // BQ64/BKV128 amortizes the per-tile softmax bookkeeping over
+            // 2x the columns (bh8 s4096 +33%, bh8 s1024 +29%, bh32 s4096
+            // +7%; only bh32 s512 regresses -3.5%). Dense keeps BQ64/BKV64
+            // (BKV128 measured slower on every dense shape).
+            if (causal && seqQ >= 1024 && maskFits(64, 128)) {
+                executeFlashAttentionMma<HEAD_DIM, 64, 128, NUM_WARPS>(
+                    q, k, v, o, batchHeads, seqQ, seqK, causal, stream,
+                    scaleOverride, epilogue, scoreMod, sparse);
+                return;
+            }
         } else if constexpr (HEAD_DIM == 128) {
-            // Extended from (seqQ>=8192 && bh>=32) after ABAB probes vs base
-            // (spikes/abab_dual_q.cu): NW8 wins whenever the grid stays
-            // saturated at the halved block count — bh*seqQ >= 256K dense
-            // (bh64 s4096 1.09x, bh128 s2048 1.01x, bh32/64 s8192 1.07x);
-            // below that base's extra blocks win (bh16 s8192 0.96x,
-            // bh32 s4096 0.94x). Causal keeps the tighter rule (halved
-            // effective work: bh64 s4096 1.00x, bh8 s8192 0.90x).
-            const bool wantNW8 =
-                causal ? (seqQ >= 8192 && batchHeads >= 32)
-                       : ((long)batchHeads * seqQ >= 262144);
-            if (wantNW8) {
-                executeFlashAttentionMma<HEAD_DIM, 128, 64, 8>(
+            // ROUND-8 RESWEEP: the old NW8 rule (bh*seqQ>=256K -> BQ128/
+            // BKV64/NW8) went STALE after the density rounds — BQ64/BKV64
+            // now beats it on every swept shape below s16384 (bh64 s4096:
+            // 341 vs 321 TF; bh32 s8192 causal: 326 vs 300). The deep-wide
+            // tile BQ128/BKV128/NW8 (96KB smem, 1 CTA/SM) wins only at
+            // s>=16384 where per-CTA work is huge (bh32 dense 337 vs 311;
+            // bh32 causal 322 vs 300); s8192 is parity (+-1%). Rule:
+            // seqQ >= 16384 -> BQ128/BKV128/NW8; else plain BQ64/BKV64.
+            if (seqQ >= 16384 && maskFits(128, 128)) {
+                executeFlashAttentionMma<HEAD_DIM, 128, 128, 8>(
                     q, k, v, o, batchHeads, seqQ, seqK, causal, stream,
                     scaleOverride, epilogue, scoreMod, sparse);
                 return;
