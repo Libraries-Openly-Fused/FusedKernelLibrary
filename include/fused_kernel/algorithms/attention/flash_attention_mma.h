@@ -1502,6 +1502,9 @@ public:
                 }
             }
 
+            // NOTE (round 9bis, rejected): #pragma unroll 2 on this loop was
+            // measured at -9..-14% on most shapes (+2..6% on two) — the
+            // bigger body blows the I-cache/sched window; reverted.
             for (int kv = itBegin; kv < itEnd; ++kv) {
                 const int offKV = kv * BLOCK_KV;
                 const bool act = tileActive(offKV);
