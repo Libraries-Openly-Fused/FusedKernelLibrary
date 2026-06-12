@@ -182,20 +182,21 @@ makeSlidingWindowBlockMask(const int batchHeads, const int seqQ, const int seqK,
     return m;
 }
 
-namespace attention_mma_detail {
-
-/* FP8 tensor-core path (QK^T directly on e4m3 KV-cache bytes, no K dequant
- * pass). kind::f8f6f4 m16n8k32 requires the arch-specific feature set
- * (sm_120a / sm_121a) — plain sm_120 ptxas rejects it, so the path is
- * compiled out unless the TU targets compute_120a. Measured on RTX PRO
- * 6000 (spike_fp8_mma.cu): 1006 TFLOPS vs 551 bf16 = 1.83x raw mma. */
-#if defined(__CUDA_ARCH__) && defined(FK_HAS_FP8) && \
-    (defined(__CUDA_ARCH_FEAT_SM120_ALL) || defined(__CUDA_ARCH_FEAT_SM121_ALL))
-#define FK_FP8_QK_MMA 1
-#else
-#define FK_FP8_QK_MMA 0
+/* FP8 tensor-core QK^T (kind::f8f6f4 m16n8k32, e4m3xe4m3->f32): Q is
+ * quantized per-row IN-KERNEL, K^T runs directly on the raw fp8 KV-cache
+ * bytes (the K dequant pass disappears), and qScale[row]*kScale[col] is
+ * folded into the scores post-mma. Opt-in: the instruction needs the
+ * arch-FEATURE set — compile the TU with
+ *   -gencode arch=compute_120a,code=sm_120a -DFK_ENABLE_FP8_QK=1
+ * (plain sm_120 ptxas REJECTS kind::f8f6f4 — verified). Measured raw mma
+ * on RTX PRO 6000 (spikes/spike_fp8_mma.cu): 1006 TFLOPS vs 551 bf16 =
+ * 1.83x; fragment mapping validated vs fp64 oracle
+ * (spikes/spike_fp8_qk_mapping.cu, maxErr 1e-6). */
+#ifndef FK_ENABLE_FP8_QK
+#define FK_ENABLE_FP8_QK 0
 #endif
 
+namespace attention_mma_detail {
 __device__ __forceinline__ void ldmatrix_x4(uint32_t regs[4], uint32_t addr) {
     asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];"
                  : "=r"(regs[0]), "=r"(regs[1]), "=r"(regs[2]), "=r"(regs[3])
@@ -258,6 +259,23 @@ __device__ __forceinline__ uint32_t packBf162(const float lo, const float hi) {
     return r;
 }
 
+// fp8 e4m3 mma: kind::f8f6f4 m16n8k32, A 4 regs (16 e4m3), B 2 regs (8 e4m3).
+// Always declared so `if constexpr` branches type-check; the instruction is
+// only emitted when FK_ENABLE_FP8_QK (needs sm_120a/121a feature set).
+__device__ __forceinline__ void mma_fp8_m16n8k32(const uint32_t A[4],
+                                                 const uint32_t B[2],
+                                                 float D[4]) {
+#if FK_ENABLE_FP8_QK
+    asm volatile(
+        "mma.sync.aligned.kind::f8f6f4.m16n8k32.row.col.f32.e4m3.e4m3.f32 "
+        "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3};"
+        : "+f"(D[0]), "+f"(D[1]), "+f"(D[2]), "+f"(D[3])
+        : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]), "r"(B[0]), "r"(B[1]));
+#else
+    (void)A; (void)B; (void)D;
+#endif
+}
+
 } // namespace attention_mma_detail
 
 template <typename OT, int HEAD_DIM,
@@ -294,6 +312,11 @@ public:
     static constexpr bool QUANT_KV =
         (isFp8KVRead<KIOp> && isFp8KVRead<VIOp>) ||
         (isInt8KVRead<KIOp> && isInt8KVRead<VIOp>);
+    // FP8_QK: QK^T runs on the fp8 tensor-core path (kind::f8f6f4 m16n8k32)
+    // directly on the raw e4m3 K bytes; Q is quantized per-row in-kernel.
+    // The K dequant pass disappears. PV stays bf16 (P is computed online).
+    static constexpr bool FP8_QK =
+        FK_ENABLE_FP8_QK != 0 && isFp8KVRead<KIOp> && isFp8KVRead<VIOp>;
 
     static constexpr int STRIDE_B = HEAD_DIM * (int)sizeof(__nv_bfloat16);
     static constexpr int Q_GROUPS = BLOCK_Q * HEAD_DIM / (THREADS * 8);
@@ -309,9 +332,13 @@ public:
     // 3 blocks at 4 bufs). QUANT/register-prefetch use 4 (+byte staging).
     static constexpr int KV_BUFS = RAW_KV ? 3 : 4;
     static constexpr int Q_STAGE_B = QUANT_KV ? 4 * (KV_BUF_B / 2) : 0;
+    // FP8_QK: the Q phase additionally holds the e4m3 Q tile + per-row
+    // scales NEXT TO the staged bf16 Q (both alive during quantizeQTile).
+    static constexpr int Q_PHASE_B =
+        BLOCK_Q * STRIDE_B + (FP8_QK ? BLOCK_Q * HEAD_DIM + BLOCK_Q * 4 : 0);
     static constexpr int SMEM_BYTES =
-        (BLOCK_Q * STRIDE_B > KV_BUFS * KV_BUF_B + Q_STAGE_B
-             ? BLOCK_Q * STRIDE_B
+        (Q_PHASE_B > KV_BUFS * KV_BUF_B + Q_STAGE_B
+             ? Q_PHASE_B
              : KV_BUFS * KV_BUF_B + Q_STAGE_B);
 
     struct Params {
@@ -423,7 +450,10 @@ public:
     }
 
     // ---- quantized staging: cp.async the RAW BYTES (half the traffic) ------
-    template <int GROUPS>
+    // SWZ8: XOR-swizzle each 8B chunk by ((row&7)*8) — used by the FP8 QK^T
+    // path so direct 4B fragment reads don't bank-conflict (d128 rows are
+    // exactly 32 banks wide -> every token would hit bank 0 unswizzled).
+    template <int GROUPS, bool SWZ8 = false>
     FK_DEVICE_FUSE void cpasyncQuantTile(const uint32_t dstBase,
                                          const int8_t* srcPlane, const int rowBase,
                                          const int seqLen) {
@@ -437,7 +467,9 @@ public:
             const bool ok = row < seqLen;
             const int safeRow = ok ? row : (seqLen > 0 ? seqLen - 1 : 0);
             // unswizzled byte staging: 8B per thread-group
-            cp_async_8(dstBase + (uint32_t)idx,
+            uint32_t off = (uint32_t)idx;
+            if constexpr (SWZ8) off ^= (uint32_t)((r & 7) * 8);
+            cp_async_8(dstBase + off,
                        srcPlane + (long)safeRow * HEAD_DIM + c, ok ? 8 : 0);
         }
     }
@@ -484,6 +516,140 @@ public:
         }
     }
 
+    // ================= FP8 tensor-core QK^T (FK_ENABLE_FP8_QK) ==============
+    /* Fused S/P register tile. The fp32 scores (s) and the packed bf16x2
+     * probabilities (p) used to live in SEPARATE arrays (32 + 16 regs at
+     * BKV=64), but their live ranges only overlap inside softmaxTile, and
+     * the pack is strictly in-place-safe: iteration mkv writes p bytes
+     * [8*mkv, 8*mkv+8) while s reads touch [16*mkv, 16*mkv+16) — the write
+     * head never catches the read head (only mkv==0 overlaps, and there the
+     * statement order consumes s[0..1] before overwriting them). Overlaying
+     * p on the first half of s saves BLOCK_KV/4 regs/thread (16 at BKV=64). */
+    union SPTile {
+        float    s[BLOCK_KV / MMA_N][4];   // QK^T scores / exp(s - m), fp32
+        uint32_t p[BLOCK_KV / MMA_K][4];   // packed bf16x2 P (first half of s)
+    };
+
+    // Q8 stage layout (Q-phase only; dead once qReg8/qs are in registers):
+    //   [BLOCK_Q*STRIDE_B, +BLOCK_Q*HEAD_DIM)        row-major e4m3 Q bytes
+    //   [.. +BLOCK_Q*4)                              per-row scales (fp32)
+    static constexpr uint32_t Q8_OFF = BLOCK_Q * STRIDE_B;
+    static constexpr uint32_t QSC_OFF = Q8_OFF + BLOCK_Q * HEAD_DIM;
+
+#ifdef FK_HAS_FP8
+    /* Per-row symmetric e4m3 quantization of the staged Q tile (each warp
+       quantizes its own WARP_Q rows; warp-synchronous, no block barrier). */
+    FK_DEVICE_FUSE void quantizeQTile(char* smemBytes, const int warpId,
+                                      const int laneId) {
+        constexpr int EPL = HEAD_DIM / 32;     // elements per lane per row
+        float* qScalesArr = reinterpret_cast<float*>(smemBytes + QSC_OFF);
+        for (int r = 0; r < WARP_Q; ++r) {
+            const int row = warpId * WARP_Q + r;   // block-local row
+            float vals[EPL];
+            float am = 0.f;
+            #pragma unroll
+            for (int e = 0; e < EPL; ++e) {
+                const int c = laneId * EPL + e;
+                const __nv_bfloat16 b = *reinterpret_cast<const __nv_bfloat16*>(
+                    smemBytes + swz((uint32_t)(row * HEAD_DIM + c) * 2u));
+                vals[e] = __bfloat162float(b);
+                am = fmaxf(am, fabsf(vals[e]));
+            }
+            #pragma unroll
+            for (int off = 16; off; off >>= 1)
+                am = fmaxf(am, __shfl_xor_sync(0xFFFFFFFFu, am, off));
+            const float sc = am > 0.f ? am / 448.f : 1.f;
+            const float inv = am > 0.f ? 448.f / am : 0.f;
+            if (laneId == 0) qScalesArr[row] = sc;
+            #pragma unroll
+            for (int e = 0; e < EPL; ++e) {
+                const __nv_fp8_e4m3 f8{ vals[e] * inv };
+                smemBytes[Q8_OFF + (uint32_t)(row * HEAD_DIM + laneId * EPL + e)] =
+                    static_cast<char>(f8.__x);
+            }
+        }
+        __syncwarp();
+    }
+
+    /* A-fragments for kind::f8f6f4 m16n8k32 from the row-major Q8 stage:
+       a0 = row g     dims [4t, 4t+4)   a2 = row g     dims [4t+16, ..)
+       a1 = row g+8   dims [4t, 4t+4)   a3 = row g+8   dims [4t+16, ..)
+       (t = lane%4, g = lane/4; validated vs fp64 oracle in
+       spikes/spike_fp8_qk_mapping.cu). Also pulls the 2 per-row scales. */
+    FK_DEVICE_FUSE void loadQF8Frags(const char* smemBytes,
+                                     uint32_t (&qReg8)[WARP_Q / MMA_M][HEAD_DIM / 32][4],
+                                     float (&qs)[WARP_Q / MMA_M][2],
+                                     const int warpId, const int laneId) {
+        const float* qScalesArr = reinterpret_cast<const float*>(smemBytes + QSC_OFF);
+        const int g = laneId >> 2, tig = laneId & 3;
+        #pragma unroll
+        for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
+            const int rowA = warpId * WARP_Q + mq * MMA_M + g;
+            const int rowB = rowA + 8;
+            qs[mq][0] = qScalesArr[rowA];
+            qs[mq][1] = qScalesArr[rowB];
+            #pragma unroll
+            for (int md = 0; md < HEAD_DIM / 32; ++md) {
+                const uint32_t a = Q8_OFF + (uint32_t)(rowA * HEAD_DIM + md * 32 + 4 * tig);
+                const uint32_t b = Q8_OFF + (uint32_t)(rowB * HEAD_DIM + md * 32 + 4 * tig);
+                qReg8[mq][md][0] = *reinterpret_cast<const uint32_t*>(smemBytes + a);
+                qReg8[mq][md][1] = *reinterpret_cast<const uint32_t*>(smemBytes + b);
+                qReg8[mq][md][2] = *reinterpret_cast<const uint32_t*>(smemBytes + a + 16);
+                qReg8[mq][md][3] = *reinterpret_cast<const uint32_t*>(smemBytes + b + 16);
+            }
+        }
+    }
+
+    /* QK^T on raw e4m3: stream B-fragments (2x u32 = 8 tokens' k-chunks)
+       straight from the SWZ8-swizzled byte stage — no kReg staging, no K
+       dequant pass. B mapping: b0 = token (mkv*8+g), dims [4t, 4t+4);
+       b1 = +16 dims. After the md accumulation completes for a token
+       column block, folds qScale[row]*kScale[col] into the raw scores
+       (D cols of lane (g,t) are 2t and 2t+1 — validated in
+       spikes/spike_fp8_qk_mapping.cu). */
+    FK_DEVICE_FUSE void sMmaFp8(const uint32_t (&qReg8)[WARP_Q / MMA_M][HEAD_DIM / 32][4],
+                                const float (&qs)[WARP_Q / MMA_M][2],
+                                const char* smemBytes, const uint32_t kStageOff,
+                                const float* kScalesPlane, const int offKV,
+                                const int seqK,
+                                SPTile (&sp)[WARP_Q / MMA_M], const int laneId) {
+        using namespace attention_mma_detail;
+        const int g = laneId >> 2, tig = laneId & 3;
+        #pragma unroll
+        for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv) {
+            const int tok = mkv * MMA_N + g;
+            const uint32_t rowOff = (uint32_t)(tok * HEAD_DIM);
+            const uint32_t sw = (uint32_t)((tok & 7) * 8);
+            #pragma unroll
+            for (int md = 0; md < HEAD_DIM / 32; ++md) {
+                uint32_t b[2];
+                const uint32_t base = rowOff + (uint32_t)(md * 32 + 4 * tig);
+                b[0] = *reinterpret_cast<const uint32_t*>(
+                    smemBytes + kStageOff + (base ^ sw));
+                b[1] = *reinterpret_cast<const uint32_t*>(
+                    smemBytes + kStageOff + ((base + 16) ^ sw));
+                #pragma unroll
+                for (int mq = 0; mq < WARP_Q / MMA_M; ++mq)
+                    mma_fp8_m16n8k32(qReg8[mq][md], b, sp[mq].s[mkv]);
+            }
+            // scale fold: cols of this lane within the 8-wide N block.
+            // L1-cached global reads (whole block touches BLOCK_KV floats);
+            // ragged guard avoids OOB scale reads past seq_k.
+            const int c0 = offKV + mkv * MMA_N + 2 * tig;
+            const float kc0 = (c0 < seqK) ? kScalesPlane[c0] : 0.f;
+            const float kc1 = (c0 + 1 < seqK) ? kScalesPlane[c0 + 1] : 0.f;
+            #pragma unroll
+            for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
+                float* r = sp[mq].s[mkv];
+                r[0] *= qs[mq][0] * kc0;
+                r[1] *= qs[mq][0] * kc1;
+                r[2] *= qs[mq][1] * kc0;
+                r[3] *= qs[mq][1] * kc1;
+            }
+        }
+    }
+#endif // FK_HAS_FP8
+
     // ---- shared fragment loaders / mma helpers ------------------------------
     FK_DEVICE_FUSE void loadKFrags(const uint32_t base, const uint32_t kThread,
                                    uint32_t (&kReg)[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2]) {
@@ -515,19 +681,8 @@ public:
         }
     }
 
-    /* Fused S/P register tile. The fp32 scores (s) and the packed bf16x2
-     * probabilities (p) used to live in SEPARATE arrays (32 + 16 regs at
-     * BKV=64), but their live ranges only overlap inside softmaxTile, and
-     * the pack is strictly in-place-safe: iteration mkv writes p bytes
-     * [8*mkv, 8*mkv+8) while s reads touch [16*mkv, 16*mkv+16) — the write
-     * head never catches the read head (only mkv==0 overlaps, and there the
-     * statement order consumes s[0..1] before overwriting them). Overlaying
-     * p on the first half of s saves BLOCK_KV/4 regs/thread (16 at BKV=64):
-     * 138 -> target ~122. */
-    union SPTile {
-        float    s[BLOCK_KV / MMA_N][4];   // QK^T scores / exp(s - m), fp32
-        uint32_t p[BLOCK_KV / MMA_K][4];   // packed bf16x2 P (first half of s)
-    };
+    /* Fused S/P register tile — defined above the FP8 helpers (sMmaFp8 takes
+     * SPTile&). See the union doc there. */
 
     /* mask + online softmax + P pack for one KV tile (shared by both
        schedules). noMask: compile-out the bounds/causal branch for interior
@@ -797,14 +952,26 @@ public:
         __syncthreads();
 
         uint32_t qReg[WARP_Q / MMA_M][HEAD_DIM / MMA_K][4];
-        #pragma unroll
-        for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
+        // FP8_QK state (dead/eliminated when the path is off — all uses sit
+        // inside `if constexpr (FP8_QK)`).
+        uint32_t qReg8[WARP_Q / MMA_M][HEAD_DIM / 32][4];
+        float qs[WARP_Q / MMA_M][2];
+        if constexpr (FP8_QK) {
+#ifdef FK_HAS_FP8
+            // quantize the staged bf16 Q per-row to e4m3 + pull A-fragments.
+            quantizeQTile(smemBytes, warpId, laneId);
+            loadQF8Frags(smemBytes, qReg8, qs, warpId, laneId);
+#endif
+        } else {
             #pragma unroll
-            for (int md = 0; md < HEAD_DIM / MMA_K; ++md) {
-                uint32_t addr = smemBase + qThread;
-                addr += mq * MMA_M * STRIDE_B;
-                addr ^= md * MMA_K * sizeof(__nv_bfloat16);
-                ldmatrix_x4(qReg[mq][md], addr);
+            for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
+                #pragma unroll
+                for (int md = 0; md < HEAD_DIM / MMA_K; ++md) {
+                    uint32_t addr = smemBase + qThread;
+                    addr += mq * MMA_M * STRIDE_B;
+                    addr ^= md * MMA_K * sizeof(__nv_bfloat16);
+                    ldmatrix_x4(qReg[mq][md], addr);
+                }
             }
         }
         __syncthreads();
@@ -945,10 +1112,11 @@ public:
                 return stageBase + (uint32_t)(i % 2) * (KV_BUF_B / 2); };
             const uint32_t vStage = stageBase + 2 * (KV_BUF_B / 2);
 
-            // prefetch first in-range tile bytes
+            // prefetch first in-range tile bytes (FP8_QK: SWZ8-swizzled K so
+            // sMmaFp8's direct 4B fragment reads don't bank-conflict)
             if (itBegin < itEnd && tileActive(itBegin * BLOCK_KV)) {
-                cpasyncQuantTile<KV_GROUPS>(smemBase + kStage(itBegin), kPlane,
-                                            itBegin * BLOCK_KV, p.seq_k);
+                cpasyncQuantTile<KV_GROUPS, FP8_QK>(smemBase + kStage(itBegin), kPlane,
+                                                    itBegin * BLOCK_KV, p.seq_k);
             }
             cp_async_commit();
 
@@ -964,22 +1132,33 @@ public:
 
                 cp_async_wait<1>();   // K bytes ready
                 __syncthreads();
-                if (act) {
-                    dequantTile<KV_GROUPS, IS_FP8>(smemBytes, kStage(kv), kBuf(kv),
-                                                   kScales, offKV, p.seq_k);
+                if constexpr (!FP8_QK) {
+                    // bf16 fallback: dequant K smem->smem, then ldmatrix
+                    if (act) {
+                        dequantTile<KV_GROUPS, IS_FP8>(smemBytes, kStage(kv), kBuf(kv),
+                                                       kScales, offKV, p.seq_k);
+                    }
+                    __syncthreads();
                 }
-                __syncthreads();
 
                 SPTile sp[WARP_Q / MMA_M] = {};
                 if (act) {
-                    uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
-                    loadKFrags(smemBase + kBuf(kv), kThread, kReg);
-                    sMma(qReg, kReg, sp);
+                    if constexpr (FP8_QK) {
+#ifdef FK_HAS_FP8
+                        // QK^T straight on the raw e4m3 bytes (no K dequant)
+                        sMmaFp8(qReg8, qs, smemBytes, kStage(kv), kScales,
+                                offKV, p.seq_k, sp, laneId);
+#endif
+                    } else {
+                        uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
+                        loadKFrags(smemBase + kBuf(kv), kThread, kReg);
+                        sMma(qReg, kReg, sp);
+                    }
                 }
 
                 if (kv + 1 < itEnd && tileActive(offKV + BLOCK_KV)) {
-                    cpasyncQuantTile<KV_GROUPS>(smemBase + kStage(kv + 1), kPlane,
-                                                offKV + BLOCK_KV, p.seq_k);
+                    cpasyncQuantTile<KV_GROUPS, FP8_QK>(smemBase + kStage(kv + 1), kPlane,
+                                                        offKV + BLOCK_KV, p.seq_k);
                 }
                 cp_async_commit();
 
