@@ -250,6 +250,19 @@ __device__ __forceinline__ float fastExp(const float x) {
 #endif
 }
 
+/* raw ex2.approx (2^x). __expf(x) lowers to FMUL(x, log2e) + MUFU.EX2 —
+ * folding log2e into the softmax scale ONCE removes that per-element FMUL
+ * (FA does the same). Inline asm so it does not depend on --use_fast_math. */
+__device__ __forceinline__ float fastExp2(const float x) {
+#if defined(__CUDA_ARCH__)
+    float y;
+    asm volatile("ex2.approx.ftz.f32 %0, %1;" : "=f"(y) : "f"(x));
+    return y;
+#else
+    return 0.f;
+#endif
+}
+
 // pack two fp32 into one bf16x2 register (uint32_t) — used by the in-place
 // S/P union pack in softmaxTile.
 __device__ __forceinline__ uint32_t packBf162(const float lo, const float hi) {
@@ -715,6 +728,14 @@ public:
                                     const Params& p, const int offKV,
                                     const int qBlockBase, const int warpId,
                                     const int laneId) {
+        // LOG2 DOMAIN: __expf lowers to FMUL(x, log2e) + MUFU.EX2. Folding
+        // log2e into the scale ONCE turns every per-element exp into a bare
+        // ex2.approx (removes BLOCK_KV/2 FMULs per row per tile) — same trick
+        // FA uses. Generic score_mods see natural-domain scores, so they keep
+        // the e-domain path; ALiBi folds log2e into the slope (exact).
+        constexpr bool LOG2D = !HAS_SCORE_MOD || IS_ALIBI;
+        constexpr float LOG2E = 1.4426950408889634f;
+        const float scl = LOG2D ? p.scale * LOG2E : p.scale;
         #pragma unroll
         for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
             const int rowA = qBlockBase + warpId * WARP_Q + mq * MMA_M + laneId / 4;
@@ -728,15 +749,16 @@ public:
                     if constexpr (IS_ALIBI) {
                         // column-only ALiBi (row term cancels in softmax):
                         // keeps the fast path — no sentinels, no row math.
-                        const float b0 = p.scoreMod.slope * (float)colBase;
-                        const float b1 = p.scoreMod.slope * (float)(colBase + 1);
-                        r[0] = r[0] * p.scale + b0;
-                        r[1] = r[1] * p.scale + b1;
-                        r[2] = r[2] * p.scale + b0;
-                        r[3] = r[3] * p.scale + b1;
+                        const float slope2 = p.scoreMod.slope * LOG2E;
+                        const float b0 = slope2 * (float)colBase;
+                        const float b1 = slope2 * (float)(colBase + 1);
+                        r[0] = r[0] * scl + b0;
+                        r[1] = r[1] * scl + b1;
+                        r[2] = r[2] * scl + b0;
+                        r[3] = r[3] * scl + b1;
                     } else {
                         #pragma unroll
-                        for (int e = 0; e < 4; ++e) r[e] *= p.scale;
+                        for (int e = 0; e < 4; ++e) r[e] *= scl;
                     }
                 } else {
                     #pragma unroll
@@ -746,11 +768,11 @@ public:
                         bool dead;
                         if constexpr (NO_MASK) { dead = false; }
                         else { dead = (col >= p.seq_k) || (p.causal && col > row); }
-                        float s = r[e] * p.scale;
+                        float s = r[e] * scl;
                         if constexpr (IS_ALIBI) {
                             // same column-only form as the fast path (exact:
                             // both branches shift each row by -slope*row).
-                            s += p.scoreMod.slope * (float)col;
+                            s += p.scoreMod.slope * LOG2E * (float)col;
                         } else if constexpr (HAS_SCORE_MOD) {
                             // flex score_mod / mask_mod: AFTER scaling
                             if (!dead) s = p.scoreMod(s, row, col);
@@ -774,9 +796,14 @@ public:
                 mNew[half] = fmaxf(mNew[half], rowMax[mq][half]);
             }
 
+            // domain-aware exp: scores are in log2 domain when LOG2D
+            const auto EXP = [](const float x) {
+                return LOG2D ? attention_mma_detail::fastExp2(x)
+                             : attention_mma_detail::fastExp(x);
+            };
             float corr[2];
-            corr[0] = attention_mma_detail::fastExp(rowMax[mq][0] - mNew[0]);
-            corr[1] = attention_mma_detail::fastExp(rowMax[mq][1] - mNew[1]);
+            corr[0] = EXP(rowMax[mq][0] - mNew[0]);
+            corr[1] = EXP(rowMax[mq][1] - mNew[1]);
             // FA4-style rescale skip: at long seq most KV tiles do NOT move
             // the running max (rowMax == mNew -> corr == 1), so the
             // HEAD_DIM/MMA_N*4 FMULs over oAcc are identity work. The
@@ -809,15 +836,15 @@ public:
                 if constexpr (NO_MASK && (!HAS_SCORE_MOD || IS_ALIBI)) {
                     // ALiBi fast path qualifies too: column-only bias adds
                     // no -FLT_MAX sentinels on interior tiles.
-                    e[0] = attention_mma_detail::fastExp(r[0] - mNew[0]);
-                    e[1] = attention_mma_detail::fastExp(r[1] - mNew[0]);
-                    e[2] = attention_mma_detail::fastExp(r[2] - mNew[1]);
-                    e[3] = attention_mma_detail::fastExp(r[3] - mNew[1]);
+                    e[0] = EXP(r[0] - mNew[0]);
+                    e[1] = EXP(r[1] - mNew[0]);
+                    e[2] = EXP(r[2] - mNew[1]);
+                    e[3] = EXP(r[3] - mNew[1]);
                 } else {
-                    e[0] = (r[0] == -FLT_MAX) ? 0.f : attention_mma_detail::fastExp(r[0] - mNew[0]);
-                    e[1] = (r[1] == -FLT_MAX) ? 0.f : attention_mma_detail::fastExp(r[1] - mNew[0]);
-                    e[2] = (r[2] == -FLT_MAX) ? 0.f : attention_mma_detail::fastExp(r[2] - mNew[1]);
-                    e[3] = (r[3] == -FLT_MAX) ? 0.f : attention_mma_detail::fastExp(r[3] - mNew[1]);
+                    e[0] = (r[0] == -FLT_MAX) ? 0.f : EXP(r[0] - mNew[0]);
+                    e[1] = (r[1] == -FLT_MAX) ? 0.f : EXP(r[1] - mNew[0]);
+                    e[2] = (r[2] == -FLT_MAX) ? 0.f : EXP(r[2] - mNew[1]);
+                    e[3] = (r[3] == -FLT_MAX) ? 0.f : EXP(r[3] - mNew[1]);
                 }
                 lNew[0] += e[0] + e[1];
                 lNew[1] += e[2] + e[3];
@@ -1389,19 +1416,35 @@ inline void executeFlashAttentionMma(
         const float scaleOverride = -1.f, const EpilogueIOp& epilogue = {},
         const ScoreModOp& scoreMod = {}, const BlockSparsity& sparse = {}) {
     constexpr bool RAW = isRawBf16Read<KIOp> && isRawBf16Read<VIOp>;
-    // RAW d64 auto-tile is REGIME-DEPENDENT (measured, real-data bench):
-    //   causal: BQ=64 wins (smaller blocks -> better load balance with the
-    //           reversed raster; BQ128 was 0.286 vs 0.232 ms @ s4096).
-    //   dense:  BQ=128 wins (+15-18% @ s8192: WARP_Q=32 -> mq=2 gives each
-    //           warp TWO independent mma accumulation chains; the kernel is
-    //           issue-limited so the extra ILP converts directly).
-    // Explicit BLOCK_Q template args bypass the heuristic as before.
-    if constexpr (BLOCK_Q == 0 && RAW && HEAD_DIM <= 64) {
-        if (!causal && seqQ >= 2048) {
-            executeFlashAttentionMma<HEAD_DIM, 128, 64, NUM_WARPS>(
-                q, k, v, o, batchHeads, seqQ, seqK, causal, stream,
-                scaleOverride, epilogue, scoreMod, sparse);
-            return;
+    // RAW auto-tile is REGIME-DEPENDENT. Swept exhaustively with REAL data
+    // (benchmarks/sweep_tiles.cu, bh in {8,32,64} x s in {2048,4096,8192}
+    // x {causal,dense}, RTX PRO 6000):
+    //  d64 dense:  BQ128 (WARP_Q=32 -> mq=2, two independent mma chains;
+    //              kernel is ILP-limited) once the grid stays saturated:
+    //              bh*seqQ >= 64K. Below that BQ64's extra blocks win.
+    //  d64 causal: effective work is halved -> BQ128 only at seqQ>=8192,
+    //              or seqQ>=4096 when bh>=64 (reversed raster keeps balance).
+    //  d128 long:  BQ128/BKV64/NW8 at seqQ>=8192 && bh>=32 (+3..8%); bh8
+    //              stays BQ64 (BQ128 loses 9% there).
+    // Explicit BLOCK_Q/BLOCK_KV template args bypass the heuristic.
+    if constexpr (BLOCK_Q == 0 && BLOCK_KV == 0 && RAW) {
+        if constexpr (HEAD_DIM <= 64) {
+            const bool wantBQ128 =
+                causal ? (seqQ >= 8192 || (seqQ >= 4096 && batchHeads >= 64))
+                       : ((long)batchHeads * seqQ >= 65536);
+            if (wantBQ128) {
+                executeFlashAttentionMma<HEAD_DIM, 128, 64, NUM_WARPS>(
+                    q, k, v, o, batchHeads, seqQ, seqK, causal, stream,
+                    scaleOverride, epilogue, scoreMod, sparse);
+                return;
+            }
+        } else if constexpr (HEAD_DIM == 128) {
+            if (seqQ >= 8192 && batchHeads >= 32) {
+                executeFlashAttentionMma<HEAD_DIM, 128, 64, 8>(
+                    q, k, v, o, batchHeads, seqQ, seqK, causal, stream,
+                    scaleOverride, epilogue, scoreMod, sparse);
+                return;
+            }
         }
     }
     constexpr int BQ = BLOCK_Q > 0 ? BLOCK_Q
