@@ -794,6 +794,21 @@ public:
         constexpr bool LOG2D = !HAS_SCORE_MOD || IS_ALIBI;
         constexpr float LOG2E = 1.4426950408889634f;
         const float scl = LOG2D ? p.scale * LOG2E : p.scale;
+        // RAW-DOMAIN SOFTMAX (arithmetic-density round, SASS-driven): with no
+        // score mod the scale pass is pure overhead — max commutes with a
+        // positive scale (max(r)*scl == max(r*scl), bitwise: fp mul is
+        // monotone), so we max RAW scores, scale the row max ONCE per half,
+        // and fold scale+subtract into a single FFMA inside the exp:
+        //   e = ex2(fma(r, scl, -mScaled)).
+        // This deletes 4 FMULs + 4 FADDs per mkv per mq (the whole scale
+        // loop) from the hot path; FA's SASS shows the same shape (FFMA 0.27
+        // vs our old 0.03 per HMMA, FMUL 0.53 vs our 1.02). Masked tiles
+        // keep sentinel semantics: dead elements hold raw -FLT_MAX and the
+        // exp keeps the explicit ==-FLT_MAX -> 0 guard (an all-dead row with
+        // rowMax still -FLT_MAX — empty split-KV chunk, causal row above its
+        // first in-range tile — would otherwise see fma(-FLT_MAX, scl,
+        // +FLT_MAX*scl) == 0 -> exp == 1 and poison lNew).
+        constexpr bool RAW_SMAX = !HAS_SCORE_MOD;
         #pragma unroll
         for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
             const int rowA = qBlockBase + warpId * WARP_Q + mq * MMA_M + laneId / 4;
@@ -803,21 +818,28 @@ public:
             for (int mkv = 0; mkv < SPAN / MMA_N; ++mkv) {
                 float* r = sp[mq].s[mkv];
                 const int colBase = offKV + mkv * MMA_N + (laneId % 4) * 2;
-                if constexpr (NO_MASK && (!HAS_SCORE_MOD || IS_ALIBI)) {
-                    if constexpr (IS_ALIBI) {
-                        // column-only ALiBi (row term cancels in softmax):
-                        // keeps the fast path — no sentinels, no row math.
-                        const float slope2 = p.scoreMod.slope * LOG2E;
-                        const float b0 = slope2 * (float)colBase;
-                        const float b1 = slope2 * (float)(colBase + 1);
-                        r[0] = r[0] * scl + b0;
-                        r[1] = r[1] * scl + b1;
-                        r[2] = r[2] * scl + b0;
-                        r[3] = r[3] * scl + b1;
-                    } else {
-                        #pragma unroll
-                        for (int e = 0; e < 4; ++e) r[e] *= scl;
+                if constexpr (RAW_SMAX && NO_MASK) {
+                    // raw-domain fast path: nothing to do here — scores stay
+                    // raw; scale folds into the exp FFMA below.
+                } else if constexpr (RAW_SMAX) {
+                    // raw-domain masked: sentinels only, no scale.
+                    #pragma unroll
+                    for (int e = 0; e < 4; ++e) {
+                        const int col = colBase + (e & 1);
+                        const int row = (e < 2) ? rowA : rowB;
+                        const bool dead = (col >= p.seq_k) || (p.causal && col > row);
+                        if (dead) r[e] = -FLT_MAX;
                     }
+                } else if constexpr (NO_MASK && IS_ALIBI) {
+                    // column-only ALiBi (row term cancels in softmax):
+                    // keeps the fast path — no sentinels, no row math.
+                    const float slope2 = p.scoreMod.slope * LOG2E;
+                    const float b0 = slope2 * (float)colBase;
+                    const float b1 = slope2 * (float)(colBase + 1);
+                    r[0] = r[0] * scl + b0;
+                    r[1] = r[1] * scl + b1;
+                    r[2] = r[2] * scl + b0;
+                    r[3] = r[3] * scl + b1;
                 } else {
                     #pragma unroll
                     for (int e = 0; e < 4; ++e) {
@@ -851,7 +873,13 @@ public:
             for (int half = 0; half < 2; ++half) {
                 mNew[half] = fmaxf(mNew[half], __shfl_xor_sync(0xFFFFFFFFu, mNew[half], 1));
                 mNew[half] = fmaxf(mNew[half], __shfl_xor_sync(0xFFFFFFFFu, mNew[half], 2));
-                mNew[half] = fmaxf(mNew[half], rowMax[mq][half]);
+                if constexpr (RAW_SMAX) {
+                    // scale the RAW row max once; rowMax stays in the scaled
+                    // log2 domain (writePartial / split combine unchanged).
+                    mNew[half] = fmaxf(mNew[half] * scl, rowMax[mq][half]);
+                } else {
+                    mNew[half] = fmaxf(mNew[half], rowMax[mq][half]);
+                }
             }
 
             // domain-aware exp: scores are in log2 domain when LOG2D
@@ -891,7 +919,20 @@ public:
                 // s is dead after this loop, so nothing is written back.
                 const float* r = sp[mq].s[mkv];
                 float e[4];
-                if constexpr (NO_MASK && (!HAS_SCORE_MOD || IS_ALIBI)) {
+                if constexpr (RAW_SMAX && NO_MASK) {
+                    // raw scores: scale+subtract fused in one FFMA per
+                    // element (ex2(fma(r, scl, -m))). This is the whole
+                    // arithmetic-density win: 1 FFMA replaces FMUL+FADD.
+                    e[0] = EXP(fmaf(r[0], scl, -mNew[0]));
+                    e[1] = EXP(fmaf(r[1], scl, -mNew[0]));
+                    e[2] = EXP(fmaf(r[2], scl, -mNew[1]));
+                    e[3] = EXP(fmaf(r[3], scl, -mNew[1]));
+                } else if constexpr (RAW_SMAX) {
+                    e[0] = (r[0] == -FLT_MAX) ? 0.f : EXP(fmaf(r[0], scl, -mNew[0]));
+                    e[1] = (r[1] == -FLT_MAX) ? 0.f : EXP(fmaf(r[1], scl, -mNew[0]));
+                    e[2] = (r[2] == -FLT_MAX) ? 0.f : EXP(fmaf(r[2], scl, -mNew[1]));
+                    e[3] = (r[3] == -FLT_MAX) ? 0.f : EXP(fmaf(r[3], scl, -mNew[1]));
+                } else if constexpr (NO_MASK && (!HAS_SCORE_MOD || IS_ALIBI)) {
                     // ALiBi fast path qualifies too: column-only bias adds
                     // no -FLT_MAX sentinels on interior tiles.
                     e[0] = EXP(r[0] - mNew[0]);
