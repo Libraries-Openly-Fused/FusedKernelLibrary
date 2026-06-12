@@ -949,6 +949,12 @@ public:
                     // raw scores: scale+subtract fused in one FFMA per
                     // element (ex2(fma(r, scl, -m))). This is the whole
                     // arithmetic-density win: 1 FFMA replaces FMUL+FADD.
+                    // NOTE (round 10, REJECTED): packed bf16x2 exp via
+                    // h2exp2 was built and measured — sm_120 has NO packed
+                    // MUFU.EX2: h2exp2 lowers to 2 scalar MUFU + extra
+                    // F2FP/SHF/LOP3 (SASS total/HMMA 14.6 -> 15.5, MUFU
+                    // 40 -> 45), measured -2..-22% across shapes. The
+                    // scalar fp32 pipeline below IS the optimal form here.
                     e[0] = EXP(fmaf(r[0], scl, -mNew[0]));
                     e[1] = EXP(fmaf(r[1], scl, -mNew[0]));
                     e[2] = EXP(fmaf(r[2], scl, -mNew[1]));
