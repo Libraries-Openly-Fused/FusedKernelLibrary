@@ -508,16 +508,36 @@ public:
                                     const __nv_bfloat16* srcPlane, const int rowBase,
                                     const int seqLen) {
         using namespace attention_mma_detail;
-        #pragma unroll
-        for (int g = 0; g < GROUPS; ++g) {
-            const int idx = (g * THREADS + (int)threadIdx.x) * 8;
-            const int r = idx / HEAD_DIM;
-            const int c = idx % HEAD_DIM;
-            const int row = rowBase + r;
-            const bool ok = row < seqLen;
-            const int safeRow = ok ? row : (seqLen > 0 ? seqLen - 1 : 0);
-            cp_async_16(dstBase + swz(idx * (uint32_t)sizeof(__nv_bfloat16)),
-                        srcPlane + (long)safeRow * HEAD_DIM + c, ok ? 16 : 0);
+        constexpr int ROWS = GROUPS * THREADS * 8 / HEAD_DIM;
+#ifndef FK_CPASYNC_FAST
+#define FK_CPASYNC_FAST 1
+#endif
+        if (FK_CPASYNC_FAST && rowBase + ROWS <= seqLen) {
+            // FULL-TILE FAST PATH (the common case on interior tiles): no
+            // per-group bounds predicate, no safeRow select — and the src
+            // address becomes base + compile-time stride (idx = g*THREADS*8
+            // + tid*8), which ptxas folds into the LDGSTS immediate. The
+            // ragged path below costs ISETP+SEL+IMAD per group per tile in
+            // the hot loop (SASS: ISETP was 1.3/HMMA vs FA's 0.19).
+            const __nv_bfloat16* base = srcPlane + (long)rowBase * HEAD_DIM;
+            #pragma unroll
+            for (int g = 0; g < GROUPS; ++g) {
+                const int idx = (g * THREADS + (int)threadIdx.x) * 8;
+                cp_async_16(dstBase + swz(idx * (uint32_t)sizeof(__nv_bfloat16)),
+                            base + idx, 16);
+            }
+        } else {
+            #pragma unroll
+            for (int g = 0; g < GROUPS; ++g) {
+                const int idx = (g * THREADS + (int)threadIdx.x) * 8;
+                const int r = idx / HEAD_DIM;
+                const int c = idx % HEAD_DIM;
+                const int row = rowBase + r;
+                const bool ok = row < seqLen;
+                const int safeRow = ok ? row : (seqLen > 0 ? seqLen - 1 : 0);
+                cp_async_16(dstBase + swz(idx * (uint32_t)sizeof(__nv_bfloat16)),
+                            srcPlane + (long)safeRow * HEAD_DIM + c, ok ? 16 : 0);
+            }
         }
     }
 
@@ -1009,6 +1029,36 @@ public:
         }
     }
 
+    /* HOISTED-ADDRESS variant (arithmetic-density round): kmd[md] =
+       (smemBase + kThread) ^ (md*MMA_K*2) precomputed ONCE before the kv
+       loop. Valid because the XOR bits (< STRIDE_B) never overlap the
+       additive offsets (bufOff / token offsets are STRIDE_B multiples, no
+       carries into the XOR field). Every address is then reg + constant,
+       folded into the LDSM immediate — the per-fragment LOP3+IADD chains
+       disappear from the hot loop (SASS: LOP3 was 2.1/HMMA vs FA 0.086). */
+    template <int SPAN = BLOCK_KV>
+    FK_DEVICE_FUSE void sMmaStreamH(const uint32_t (&qReg)[WARP_Q / MMA_M][HEAD_DIM / MMA_K][4],
+                                    const uint32_t bufOff,
+                                    const uint32_t (&kmd)[HEAD_DIM / MMA_K],
+                                    SPTileT<SPAN> (&sp)[WARP_Q / MMA_M],
+                                    const int tokOff = 0) {
+        using namespace attention_mma_detail;
+        #pragma unroll
+        for (int mkv = 0; mkv < SPAN / MMA_N; ++mkv) {
+            #pragma unroll
+            for (int md = 0; md < HEAD_DIM / MMA_K; md += 2) {
+                uint32_t frag[4];
+                ldmatrix_x4(frag, kmd[md] + bufOff
+                                  + (tokOff + mkv * MMA_N) * STRIDE_B);
+                #pragma unroll
+                for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
+                    mma_m16n8k16(qReg[mq][md],     frag + 0, sp[mq].s[mkv]);
+                    mma_m16n8k16(qReg[mq][md + 1], frag + 2, sp[mq].s[mkv]);
+                }
+            }
+        }
+    }
+
     /* DEEP-Q QK^T: BOTH operands streamed from smem (Q resident at smem[0],
        K in the cp.async buffer). Loop order keeps the K fragment in regs
        across all WARP_Q/MMA_M row-blocks (mq=2 at BQ128/NW4 — each ldmatrix
@@ -1154,6 +1204,30 @@ public:
                 addr += (tokOff + mkv * MMA_K) * STRIDE_B;
                 addr ^= md * MMA_N * sizeof(__nv_bfloat16);
                 ldmatrix_x4_trans(frag, addr);
+                #pragma unroll
+                for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
+                    mma_m16n8k16(sp[mq].p[mkv], frag + 0, oAcc[mq][md]);
+                    mma_m16n8k16(sp[mq].p[mkv], frag + 2, oAcc[mq][md + 1]);
+                }
+            }
+        }
+    }
+
+    /* Hoisted-address P·V (same trick as sMmaStreamH): vmd[md] =
+       (smemBase + vBufOff + vThread) ^ (md*MMA_N*2), precomputed once. */
+    template <int SPAN = BLOCK_KV>
+    FK_DEVICE_FUSE void pvMmaStreamH(const SPTileT<SPAN> (&sp)[WARP_Q / MMA_M],
+                                     const uint32_t (&vmd)[HEAD_DIM / MMA_N],
+                                     float (&oAcc)[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4],
+                                     const int tokOff = 0) {
+        using namespace attention_mma_detail;
+        #pragma unroll
+        for (int mkv = 0; mkv < SPAN / MMA_K; ++mkv) {
+            #pragma unroll
+            for (int md = 0; md < HEAD_DIM / MMA_N; md += 2) {
+                uint32_t frag[4];
+                ldmatrix_x4_trans(frag, vmd[md]
+                                        + (tokOff + mkv * MMA_K) * STRIDE_B);
                 #pragma unroll
                 for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
                     mma_m16n8k16(sp[mq].p[mkv], frag + 0, oAcc[mq][md]);
@@ -1391,16 +1465,34 @@ public:
             }
             cp_async_commit();
 
-            // DUAL_Q_SMEM: hoist the per-md swizzled base addresses out of
-            // the kv loop (see sMmaStreamDualQ addressing note).
+            // Hoisted per-md swizzled base addresses (see sMmaStreamH /
+            // sMmaStreamDualQ addressing notes): computed ONCE before the kv
+            // loop; the hot loop then addresses with reg + constant only.
+            // GATED to d128 (measured, 4-binary ABAB): d128 +1-6% (causal
+            // s2048 257->272 TF); d64 BQ128 (250 regs) has no headroom for
+            // the kmd/vmd arrays -> s8192 dense 369->348 TF. d64 keeps the
+            // in-loop addressing.
+            static constexpr bool HOIST_ADDR = HEAD_DIM == 128;
             uint32_t qmd[DUAL_Q_SMEM ? HEAD_DIM / MMA_K : 1];
-            uint32_t kmd[DUAL_Q_SMEM ? HEAD_DIM / MMA_K : 1];
-            if constexpr (DUAL_Q_SMEM) {
+            uint32_t kmd[HOIST_ADDR ? HEAD_DIM / MMA_K : 1];
+            uint32_t vmd[HOIST_ADDR ? HEAD_DIM / MMA_N : 1];
+            if constexpr (HOIST_ADDR) {
                 #pragma unroll
                 for (int md = 0; md < HEAD_DIM / MMA_K; ++md) {
                     const uint32_t x = md * MMA_K * (uint32_t)sizeof(__nv_bfloat16);
-                    qmd[md] = (smemBase + qThread) ^ x;
                     kmd[md] = (smemBase + kThread) ^ x;
+                    if constexpr (DUAL_Q_SMEM) qmd[md] = (smemBase + qThread) ^ x;
+                }
+                #pragma unroll
+                for (int md = 0; md < HEAD_DIM / MMA_N; ++md) {
+                    vmd[md] = (smemBase + vBufOff + vThread)
+                              ^ (md * MMA_N * (uint32_t)sizeof(__nv_bfloat16));
+                }
+            } else if constexpr (DUAL_Q_SMEM) {
+                #pragma unroll
+                for (int md = 0; md < HEAD_DIM / MMA_K; ++md) {
+                    qmd[md] = (smemBase + qThread)
+                              ^ (md * MMA_K * (uint32_t)sizeof(__nv_bfloat16));
                 }
             }
 
@@ -1433,8 +1525,14 @@ public:
                     // tile.
                     // span 0 ---------------------------------------------
                     SPSpan sp[WARP_Q / MMA_M] = {};
-                    if (act) sMmaStream<KV_SPAN>(qReg, smemBase + kBuf(kv),
-                                                 kThread, sp, 0);
+                    if (act) {
+                        if constexpr (HOIST_ADDR) {
+                            sMmaStreamH<KV_SPAN>(qReg, kBuf(kv), kmd, sp, 0);
+                        } else {
+                            sMmaStream<KV_SPAN>(qReg, smemBase + kBuf(kv),
+                                                kThread, sp, 0);
+                        }
+                    }
 
                     // prefetch K[kv+1] (overlaps softmax + PV, v5 staggering)
                     if (kv + 1 < itEnd && tileActive(offKV + BLOCK_KV)) {
@@ -1461,8 +1559,12 @@ public:
                     __syncthreads();
 
                     if (act) {
-                        pvMmaStream<KV_SPAN>(sp, smemBase + vBufOff, vThread,
-                                             oAcc, 0);
+                        if constexpr (HOIST_ADDR) {
+                            pvMmaStreamH<KV_SPAN>(sp, vmd, oAcc, 0);
+                        } else {
+                            pvMmaStream<KV_SPAN>(sp, smemBase + vBufOff,
+                                                 vThread, oAcc, 0);
+                        }
                         // span 1 ------------------------------------------
                         // reuses the same sp storage; K[kv]/V[kv] still
                         // resident (see buffer-lifetime note above).
@@ -1472,8 +1574,12 @@ public:
                             for (int i = 0; i < KV_SPAN / MMA_N; ++i)
                                 #pragma unroll
                                 for (int e = 0; e < 4; ++e) sp[mq].s[i][e] = 0.f;
-                        sMmaStream<KV_SPAN>(qReg, smemBase + kBuf(kv),
-                                            kThread, sp, KV_SPAN);
+                        if constexpr (HOIST_ADDR) {
+                            sMmaStreamH<KV_SPAN>(qReg, kBuf(kv), kmd, sp, KV_SPAN);
+                        } else {
+                            sMmaStream<KV_SPAN>(qReg, smemBase + kBuf(kv),
+                                                kThread, sp, KV_SPAN);
+                        }
                         if (needsMask) {
                             softmaxTile<false, KV_SPAN>(sp, oAcc, rowMax, rowSum,
                                                         p, offKV + KV_SPAN,
@@ -1528,8 +1634,10 @@ public:
                     if (act) {
                         if constexpr (DUAL_Q_SMEM) {
                             pvMmaStreamDual(sp, smemBase + vBufOff, vThread, oAcc);
-                        } else {
+                        } else if constexpr (HOIST_ADDR) {
                             // stream V frags ldmatrix->mma (no vReg staging)
+                            pvMmaStreamH(sp, vmd, oAcc);
+                        } else {
                             pvMmaStream(sp, smemBase + vBufOff, vThread, oAcc);
                         }
                     }
