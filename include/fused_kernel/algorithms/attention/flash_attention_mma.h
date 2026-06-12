@@ -833,6 +833,14 @@ public:
         for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
             const int rowA = qBlockBase + warpId * WARP_Q + mq * MMA_M + laneId / 4;
             const int rowB = rowA + 8;
+            // FUSED MASK LIMIT (arithmetic-density round 3): the two dead
+            // conditions (col >= seq_k, causal && col > row) collapse into
+            // ONE per-row column limit hoisted out of the mkv loop:
+            //   lim = causal ? min(seq_k, row+1) : seq_k;  dead = col >= lim
+            // 1 ISETP per element instead of 2 ISETP + logic ops. Computed
+            // only on masked tiles (NO_MASK path never reads it).
+            const int limA = p.causal ? ::min(p.seq_k, rowA + 1) : p.seq_k;
+            const int limB = p.causal ? ::min(p.seq_k, rowB + 1) : p.seq_k;
 
             #pragma unroll
             for (int mkv = 0; mkv < SPAN / MMA_N; ++mkv) {
@@ -846,9 +854,7 @@ public:
                     #pragma unroll
                     for (int e = 0; e < 4; ++e) {
                         const int col = colBase + (e & 1);
-                        const int row = (e < 2) ? rowA : rowB;
-                        const bool dead = (col >= p.seq_k) || (p.causal && col > row);
-                        if (dead) r[e] = -FLT_MAX;
+                        if (col >= ((e < 2) ? limA : limB)) r[e] = -FLT_MAX;
                     }
                 } else if constexpr (NO_MASK && IS_ALIBI) {
                     // column-only ALiBi (row term cancels in softmax):
@@ -867,7 +873,7 @@ public:
                         const int row = (e < 2) ? rowA : rowB;
                         bool dead;
                         if constexpr (NO_MASK) { dead = false; }
-                        else { dead = (col >= p.seq_k) || (p.causal && col > row); }
+                        else { dead = col >= ((e < 2) ? limA : limB); }
                         float s = r[e] * scl;
                         if constexpr (IS_ALIBI) {
                             // same column-only form as the fast path (exact:
