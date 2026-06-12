@@ -354,14 +354,24 @@ public:
     // 3 blocks at 4 bufs). QUANT/register-prefetch use 4 (+byte staging).
     static constexpr int KV_BUFS = RAW_KV ? 3 : 4;
     static constexpr int Q_STAGE_B = QUANT_KV ? 4 * (KV_BUF_B / 2) : 0;
+    // DEEP_Q_SMEM: BUILT AND MEASURED OFF. Streaming Q from resident smem
+    // does eliminate qReg, but doubles ldmatrix traffic per mma (Q frags
+    // reloaded for every K fragment): 0.255 ms vs BQ64's 0.216 on d128
+    // bh32 s2048 dense. The deep-tile premise fails on sm_120: oAcc alone
+    // is 128 regs at mq=2 and the ldmatrix replay erases the instruction-
+    // count win. FA's 224-reg schedule relies on cp.async.bulk+wgmma-style
+    // operand routing that sm_120 doesn't have. Machinery kept for future
+    // archs; see ANALYSIS.md bucket-C post-mortem.
+    static constexpr bool DEEP_Q_SMEM = false;
+    static constexpr int Q_RES_B = DEEP_Q_SMEM ? BLOCK_Q * STRIDE_B : 0;
     // FP8_QK: the Q phase additionally holds the e4m3 Q tile + per-row
     // scales NEXT TO the staged bf16 Q (both alive during quantizeQTile).
     static constexpr int Q_PHASE_B =
         BLOCK_Q * STRIDE_B + (FP8_QK ? BLOCK_Q * HEAD_DIM + BLOCK_Q * 4 : 0);
     static constexpr int SMEM_BYTES =
-        (Q_PHASE_B > KV_BUFS * KV_BUF_B + Q_STAGE_B
+        (Q_PHASE_B > Q_RES_B + KV_BUFS * KV_BUF_B + Q_STAGE_B
              ? Q_PHASE_B
-             : KV_BUFS * KV_BUF_B + Q_STAGE_B);
+             : Q_RES_B + KV_BUFS * KV_BUF_B + Q_STAGE_B);
 
     struct Params {
         QIOp q; KIOp k; VIOp v;
@@ -564,15 +574,23 @@ public:
         uint32_t p[SPAN / MMA_K][4];   // packed bf16x2 P (first half of s)
     };
     using SPTile = SPTileT<BLOCK_KV>;
-    // SPLIT-S (bucket-A attempt, MEASURED INEFFECTIVE — kept off): halving
-    // the live score tile did NOT lower ptxas regs (134 either way — the
-    // allocator already overlaps sp with the kReg/frag staging), and dense
-    // throughput dropped ~2% from the extra zero-fill + second softmax tail.
-    // Re-enable only if a future change makes the score tile the real
-    // live-range ceiling.
+    // SPLIT-S: measured ineffective everywhere it was tried (d64: allocator
+    // already overlaps; d128 deep: replaced by the Q-resident DEEP schedule
+    // below, which removes the pressure at the source). Machinery kept.
     static constexpr bool SPLIT_S = false;
     static constexpr int KV_SPAN = SPLIT_S ? BLOCK_KV / 2 : BLOCK_KV;
     using SPSpan = SPTileT<KV_SPAN>;
+
+    // DEEP SCHEDULE (d128 dense bucket — the last FA-wins bucket): FA's
+    // d128 kernel spends 255 regs/thread to run BQ128 with mq=2 K-fragment
+    // reuse, executing 1.69x FEWER instructions than our BQ64 (ncu: 61.5M
+    // vs 104M same shape). Our BQ128/NW4 spills (qReg 64 + oAcc 64 + sp 64
+    // > 255). FIX AT THE SOURCE: keep Q RESIDENT in smem for the whole
+    // kernel (32KB + 48KB KV bufs = 80KB/block -> 1 CTA/SM, the same
+    // low-occupancy/high-ILP design point FA runs at) and STREAM Q
+    // fragments per md-pair inside sMmaStream — qReg's 64 regs vanish,
+    // the deep tile fits, and each K fragment still serves mq=2 mmas.
+    // (DEEP_Q_SMEM and Q_RES_B are declared above with the smem sizing.)
 
     // Q8 stage layout (Q-phase only; dead once qReg8/qs are in registers):
     //   [BLOCK_Q*STRIDE_B, +BLOCK_Q*HEAD_DIM)        row-major e4m3 Q bytes
@@ -921,6 +939,38 @@ public:
         }
     }
 
+    /* DEEP-Q QK^T: BOTH operands streamed from smem (Q resident at smem[0],
+       K in the cp.async buffer). Loop order keeps the K fragment in regs
+       across all WARP_Q/MMA_M row-blocks (mq=2 at BQ128/NW4 — each ldmatrix
+       feeds 2 mmas, FA's instruction-efficiency trick) while Q fragments
+       stream per (mq, md-pair) — qReg's 64 regs/thread never exist. */
+    FK_DEVICE_FUSE void sMmaStreamDeepQ(const uint32_t qBase, const uint32_t qThread,
+                                        const uint32_t kBase, const uint32_t kThread,
+                                        SPTile (&sp)[WARP_Q / MMA_M]) {
+        using namespace attention_mma_detail;
+        #pragma unroll
+        for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv) {
+            #pragma unroll
+            for (int md = 0; md < HEAD_DIM / MMA_K; md += 2) {
+                uint32_t kFrag[4];
+                uint32_t kAddr = kBase + kThread;
+                kAddr += mkv * MMA_N * STRIDE_B;
+                kAddr ^= md * MMA_K * sizeof(__nv_bfloat16);
+                ldmatrix_x4(kFrag, kAddr);
+                #pragma unroll
+                for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
+                    uint32_t qFrag[4], qFrag2[4];
+                    uint32_t qAddr = qBase + qThread;
+                    qAddr += mq * MMA_M * STRIDE_B;
+                    ldmatrix_x4(qFrag,  qAddr ^ (md       * MMA_K * (int)sizeof(__nv_bfloat16)));
+                    ldmatrix_x4(qFrag2, qAddr ^ ((md + 1) * MMA_K * (int)sizeof(__nv_bfloat16)));
+                    mma_m16n8k16(qFrag,  kFrag + 0, sp[mq].s[mkv]);
+                    mma_m16n8k16(qFrag2, kFrag + 2, sp[mq].s[mkv]);
+                }
+            }
+        }
+    }
+
     FK_DEVICE_FUSE void pvMma(const SPTile (&sp)[WARP_Q / MMA_M],
                               const uint32_t (&vReg)[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2],
                               float (&oAcc)[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4]) {
@@ -1079,7 +1129,8 @@ public:
         }
         __syncthreads();
 
-        uint32_t qReg[WARP_Q / MMA_M][HEAD_DIM / MMA_K][4];
+        uint32_t qReg[DEEP_Q_SMEM ? 1 : WARP_Q / MMA_M]
+                     [DEEP_Q_SMEM ? 1 : HEAD_DIM / MMA_K][4];
         // FP8_QK state (dead/eliminated when the path is off — all uses sit
         // inside `if constexpr (FP8_QK)`).
         uint32_t qReg8[WARP_Q / MMA_M][HEAD_DIM / 32][4];
@@ -1090,7 +1141,7 @@ public:
             quantizeQTile(smemBytes, warpId, laneId);
             loadQF8Frags(smemBytes, qReg8, qs, warpId, laneId);
 #endif
-        } else {
+        } else if constexpr (!DEEP_Q_SMEM) {
             #pragma unroll
             for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
                 #pragma unroll
@@ -1102,6 +1153,8 @@ public:
                 }
             }
         }
+        // DEEP_Q_SMEM: Q stays resident at smem[0..Q_RES_B); fragments are
+        // streamed inside the QK^T mma loop. No qReg, no extracting sync.
         __syncthreads();
 
         float oAcc[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4] = {};
@@ -1173,8 +1226,10 @@ public:
             // after the QK^T mma so it streams during softmax + PV.
             const __nv_bfloat16* kPlane = p.k.params.data + (long)bh * p.seq_k * HEAD_DIM;
             const __nv_bfloat16* vPlane = p.v.params.data + (long)bh * p.seq_k * HEAD_DIM;
-            const auto kBuf = [&](int i) { return (uint32_t)(i % 2) * KV_BUF_B; };
-            const uint32_t vBufOff = 2 * KV_BUF_B;  // single V buffer
+            // DEEP_Q_SMEM: KV buffers live after the resident Q tile.
+            const auto kBuf = [&](int i) {
+                return Q_RES_B + (uint32_t)(i % 2) * KV_BUF_B; };
+            const uint32_t vBufOff = Q_RES_B + 2 * KV_BUF_B;  // single V buffer
 
             // prefetch first in-range tile
             if (itBegin < itEnd && tileActive(itBegin * BLOCK_KV)) {
@@ -1268,9 +1323,15 @@ public:
                 } else {
                     SPTile sp[WARP_Q / MMA_M] = {};
                     if (act) {
-                        uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
-                        loadKFrags(smemBase + kBuf(kv), kThread, kReg);
-                        sMma(qReg, kReg, sp);
+                        if constexpr (DEEP_Q_SMEM) {
+                            // deep schedule: Q AND K streamed from smem
+                            sMmaStreamDeepQ(smemBase, qThread,
+                                            smemBase + kBuf(kv), kThread, sp);
+                        } else {
+                            uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
+                            loadKFrags(smemBase + kBuf(kv), kThread, kReg);
+                            sMma(qReg, kReg, sp);
+                        }
                     }
 
                     // prefetch K[kv+1] (overlaps softmax + PV, v5 staggering)
