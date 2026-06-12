@@ -290,6 +290,15 @@ private:
                                           ScoreModOp>;
 public:
     static constexpr bool HAS_SCORE_MOD = !std::is_same_v<ScoreModOp, NoScoreMod>;
+    // ALiBi SPECIALIZATION: the bias -slope*(q-k) = -slope*q + slope*k is
+    // linear, and the per-row term -slope*q is CONSTANT within a row, so it
+    // cancels in softmax. Applying only the column term +slope*k makes the
+    // bias row-independent, introduces no -FLT_MAX sentinels, and keeps the
+    // NO_MASK exp fast path for interior tiles (the generic scoreMod path
+    // disabled it, costing 0.81-0.91x vs FA at s4096-8192 in the gauntlet).
+    // Both branches (interior + masked) use the column-only form so every
+    // score of a row shifts by the same constant -> softmax identical.
+    static constexpr bool IS_ALIBI = std::is_same_v<ScoreModOp, ALiBiScoreMod>;
 private:
 public:
     FK_STATIC_STRUCT(FlashAttentionMmaDPP, SelfType)
@@ -704,9 +713,20 @@ public:
             for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv) {
                 float* r = sp[mq].s[mkv];
                 const int colBase = offKV + mkv * MMA_N + (laneId % 4) * 2;
-                if constexpr (NO_MASK && !HAS_SCORE_MOD) {
-                    #pragma unroll
-                    for (int e = 0; e < 4; ++e) r[e] *= p.scale;
+                if constexpr (NO_MASK && (!HAS_SCORE_MOD || IS_ALIBI)) {
+                    if constexpr (IS_ALIBI) {
+                        // column-only ALiBi (row term cancels in softmax):
+                        // keeps the fast path — no sentinels, no row math.
+                        const float b0 = p.scoreMod.slope * (float)colBase;
+                        const float b1 = p.scoreMod.slope * (float)(colBase + 1);
+                        r[0] = r[0] * p.scale + b0;
+                        r[1] = r[1] * p.scale + b1;
+                        r[2] = r[2] * p.scale + b0;
+                        r[3] = r[3] * p.scale + b1;
+                    } else {
+                        #pragma unroll
+                        for (int e = 0; e < 4; ++e) r[e] *= p.scale;
+                    }
                 } else {
                     #pragma unroll
                     for (int e = 0; e < 4; ++e) {
@@ -716,7 +736,11 @@ public:
                         if constexpr (NO_MASK) { dead = false; }
                         else { dead = (col >= p.seq_k) || (p.causal && col > row); }
                         float s = r[e] * p.scale;
-                        if constexpr (HAS_SCORE_MOD) {
+                        if constexpr (IS_ALIBI) {
+                            // same column-only form as the fast path (exact:
+                            // both branches shift each row by -slope*row).
+                            s += p.scoreMod.slope * (float)col;
+                        } else if constexpr (HAS_SCORE_MOD) {
                             // flex score_mod / mask_mod: AFTER scaling
                             if (!dead) s = p.scoreMod(s, row, col);
                         }
@@ -771,7 +795,9 @@ public:
                 // s is dead after this loop, so nothing is written back.
                 const float* r = sp[mq].s[mkv];
                 float e[4];
-                if constexpr (NO_MASK && !HAS_SCORE_MOD) {
+                if constexpr (NO_MASK && (!HAS_SCORE_MOD || IS_ALIBI)) {
+                    // ALiBi fast path qualifies too: column-only bias adds
+                    // no -FLT_MAX sentinels on interior tiles.
                     e[0] = attention_mma_detail::fastExp(r[0] - mNew[0]);
                     e[1] = attention_mma_detail::fastExp(r[1] - mNew[0]);
                     e[2] = attention_mma_detail::fastExp(r[2] - mNew[1]);
