@@ -1389,6 +1389,21 @@ inline void executeFlashAttentionMma(
         const float scaleOverride = -1.f, const EpilogueIOp& epilogue = {},
         const ScoreModOp& scoreMod = {}, const BlockSparsity& sparse = {}) {
     constexpr bool RAW = isRawBf16Read<KIOp> && isRawBf16Read<VIOp>;
+    // RAW d64 auto-tile is REGIME-DEPENDENT (measured, real-data bench):
+    //   causal: BQ=64 wins (smaller blocks -> better load balance with the
+    //           reversed raster; BQ128 was 0.286 vs 0.232 ms @ s4096).
+    //   dense:  BQ=128 wins (+15-18% @ s8192: WARP_Q=32 -> mq=2 gives each
+    //           warp TWO independent mma accumulation chains; the kernel is
+    //           issue-limited so the extra ILP converts directly).
+    // Explicit BLOCK_Q template args bypass the heuristic as before.
+    if constexpr (BLOCK_Q == 0 && RAW && HEAD_DIM <= 64) {
+        if (!causal && seqQ >= 2048) {
+            executeFlashAttentionMma<HEAD_DIM, 128, 64, NUM_WARPS>(
+                q, k, v, o, batchHeads, seqQ, seqK, causal, stream,
+                scaleOverride, epilogue, scoreMod, sparse);
+            return;
+        }
+    }
     constexpr int BQ = BLOCK_Q > 0 ? BLOCK_Q
                                    : (RAW ? 64 : (HEAD_DIM <= 64 ? 128 : 64));
     constexpr int BKV = BLOCK_KV > 0 ? BLOCK_KV : (RAW ? 64 : 32);
