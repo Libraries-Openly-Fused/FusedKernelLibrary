@@ -1,4 +1,5 @@
-/* Copyright 2026 Oscar Amoros Huguet, Johnny Nunez
+/* Copyright 2026 Oscar Amoros Huguet
+   Copyright 2026 Johnny Nunez
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -12,6 +13,7 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
+#define __ONLY_CU__ // This file is only generated and compiled with nvcc, not with the host compiler
 #include <tests/main.h>
 
 #include <fused_kernel/algorithms/attention/flash_attention.h>
@@ -23,8 +25,6 @@
 #include <vector>
 
 using namespace fk;
-
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
 
 // double-precision CPU oracle: O = softmax(scale * Q K^T [causal]) V
 static void cpuAttention(const std::vector<double>& q, const std::vector<double>& k,
@@ -283,10 +283,3 @@ int launch() {
     std::cout << failures << " attention test(s) FAILED" << std::endl;
     return -1;
 }
-
-#else
-int launch() {
-    std::cout << "FlashAttention tests skipped (CUDA-only DPP)" << std::endl;
-    return 0;
-}
-#endif

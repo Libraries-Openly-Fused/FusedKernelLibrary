@@ -315,7 +315,7 @@ namespace fk { // namespace FusedKernel
             const cg::thread_block g = cg::this_thread_block();
             const uint z = g.group_index().z;
 
-            Parent::template divergent_operate<1>(z, iOpSequences...);
+            Parent::template divergent_operate<0>(z, iOpSequences...);
         }
     };
 #endif // defined(__NVCC__)
@@ -329,7 +329,7 @@ namespace fk { // namespace FusedKernel
         template <typename... IOpSequenceTypes>
         FK_DEVICE_FUSE void exec(const DPPDetails& details, const IOpSequenceTypes&... iOpSequences) {
             for (uint z = 0; z < details.numPlanes; ++z) {
-                Parent::template divergent_operate<1>(z, iOpSequences...);
+                Parent::template divergent_operate<0>(z, iOpSequences...);
             }
         }
     };

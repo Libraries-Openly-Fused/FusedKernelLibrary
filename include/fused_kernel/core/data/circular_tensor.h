@@ -27,9 +27,9 @@ namespace fk {
     struct SequenceSelectorType {
         FK_HOST_DEVICE_FUSE uint at(const uint& index) {
             if constexpr (CTO == CircularTensorOrder::NewestFirst) {
-                return index > 0 ? 2u : 1u;
+                return index > 0 ? 1u : 0u;
             } else {
-                return index != BATCH - 1 ? 2u : 1u;
+                return index != BATCH - 1 ? 1u : 0u;
             }
         }
     };

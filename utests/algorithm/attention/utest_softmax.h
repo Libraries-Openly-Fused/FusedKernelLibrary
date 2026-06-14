@@ -12,6 +12,7 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
+#define __ONLY_CU__ // This file is only generated and compiled with nvcc, not with the host compiler
 #include <tests/main.h>
 
 #include <fused_kernel/algorithms/attention/softmax.h>
@@ -23,8 +24,6 @@
 #include <vector>
 
 using namespace fk;
-
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
 
 static int failures = 0;
 
@@ -131,10 +130,3 @@ int launch() {
     runPrologueCase("Softmax prologue ReadIOp.then(Mul(2)).then(Add(1)) 100x6", 100, 6, 1e-6, 5);
     return failures == 0 ? 0 : -1;
 }
-
-#else
-int launch() {
-    std::cout << "Softmax DPP tests skipped (CUDA-only DPP)" << std::endl;
-    return 0;
-}
-#endif
