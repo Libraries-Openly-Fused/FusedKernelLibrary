@@ -28,7 +28,7 @@
 using namespace fk;
 
 struct MySelector {
-    FK_HOST_DEVICE_FUSE uint at(const uint& index) { return index == 0 ? 1u : 2u; }
+    FK_HOST_DEVICE_FUSE uint at(const uint& index) { return index == 0 ? 0u : 1u; }
 };
 
 int launch() {
