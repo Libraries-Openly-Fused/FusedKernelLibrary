@@ -1,6 +1,6 @@
 function(set_default_cuda_target_properties TARGET_NAME)
     if (WIN32)
-        list(APPEND COMPILER_CUDA_FLAGS "-Xcompiler=/bigobj" "-Xcompiler=/Zc:preprocessor /std:c++23preview") #for utf8 codepage
+        list(APPEND COMPILER_CUDA_FLAGS "-Xcompiler=/bigobj" "-Xcompiler=/Zc:preprocessor") #for utf8 codepage
     endif()
     target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${COMPILER_CUDA_FLAGS}>)
     # C++23 CUDA requires CUDA 13.3+
