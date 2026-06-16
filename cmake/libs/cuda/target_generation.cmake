@@ -4,7 +4,8 @@ function(set_default_cuda_target_properties TARGET_NAME)
     endif()
     target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${COMPILER_CUDA_FLAGS}>)
     # C++23 CUDA requires CUDA 13.3+
-    if (CUDA_VERSION VERSION_LESS 13.3)
+ 
+    if (CUDA_VERSION_FROM_VERSION_FILE VERSION_LESS "13.3")
         message(FATAL_ERROR "CUDA version ${CUDA_VERSION} is not supported. Please use CUDA 13.3 or higher.")
     endif()
     
@@ -25,12 +26,12 @@ function(set_default_cuda_target_properties TARGET_NAME)
         target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-rdc=false>)
         
         #cuda 12 can compile in parallel, so let's use this 
-        if (${CUDA_VERSION_MAJOR} GREATER_EQUAL 12)
+       
             #split compile does not work with gpu debug code
             if(NOT ${ENABLE_DEBUG})
                 target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-split-compile=0>)
             endif()
-        endif()
+       
     endif()
      
     if (NOT(${TEMPLATE_DEPTH} STREQUAL  "default"))
