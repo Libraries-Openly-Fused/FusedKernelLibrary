@@ -18,10 +18,6 @@ jobs:
           - host_compiler: "cl"
             msvc_env_version: "14.52"
             cuda_version: "13.3"            
-
-          - host_compiler: "clang-cl"
-            msvc_env_version: "14.44"
-            cuda_version: "12.9"
          
           - host_compiler: "clang-cl"
             msvc_env_version: "14.52"
