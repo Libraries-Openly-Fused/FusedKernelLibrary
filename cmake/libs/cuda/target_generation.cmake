@@ -3,9 +3,9 @@ function(set_default_cuda_target_properties TARGET_NAME)
         list(APPEND COMPILER_CUDA_FLAGS "-Xcompiler=/bigobj" "-Xcompiler=/Zc:preprocessor /std:c++23preview") #for utf8 codepage
     endif()
     target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${COMPILER_CUDA_FLAGS}>)
-    #c++23 only supported for cuda 13.3 and higher, so we need to check the version
-    if (CUDA_VERSION_MAJOR GREATER_EQUAL 13 AND CUDA_VERSION_MINOR LESS 3)
-        message(ERROR "CUDA version ${CUDA_VERSION} is not supported. Please use CUDA 13.3 or higher.")
+    # C++23 CUDA requires CUDA 13.3+
+    if (CUDA_VERSION VERSION_LESS 13.3)
+        message(FATAL_ERROR "CUDA version ${CUDA_VERSION} is not supported. Please use CUDA 13.3 or higher.")
     endif()
     
     set_target_properties(${TARGET_NAME} PROPERTIES CUDA_STANDARD_REQUIRED ON CUDA_STANDARD 23 CUDA_RUNTIME_LIBRARY
