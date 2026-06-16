@@ -30,7 +30,11 @@ function (add_generated_benchmark TARGET_NAME TEST_SOURCE EXTENSION DIR)
         
          
         #todo: add hip support
-        set_target_properties(${TARGET_NAME_EXT} PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)            
+        set_target_properties(${TARGET_NAME_EXT} PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)  
+        if (MSVC)
+            target_compile_options(${TARGET_NAME_EXT} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/std:c++23preview>)
+        endif()
+            
         target_include_directories(${TARGET_NAME_EXT} PRIVATE "${CMAKE_SOURCE_DIR}")        
         target_include_directories(${TARGET_NAME_EXT} PRIVATE "${DIR}")      
         target_link_libraries(${TARGET_NAME_EXT} PRIVATE FKL::FKL)
