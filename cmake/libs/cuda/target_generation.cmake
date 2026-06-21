@@ -24,7 +24,7 @@ function(set_default_cuda_target_properties TARGET_NAME)
         target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-rdc=false>)
         
         #cuda 12 can compile in parallel, so let's use this 
-        if (${CUDA_VERSION_MAJOR} GREATER_EQUAL 12)
+        if (CUDA_VERSION_MAJOR GREATER_EQUAL 12)
             #split compile does not work with gpu debug code
             if(NOT ${ENABLE_DEBUG})
                 target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-split-compile=0>)

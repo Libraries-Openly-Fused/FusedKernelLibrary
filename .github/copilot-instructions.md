@@ -11,8 +11,7 @@
 The library has CPU and CUDA backends. HIP support is architecturally possible but not yet implemented.
 
 **License**: Apache 2.0  
-**Version**: 0.2.0 (main branch — API may break for maintainability)  
-**LTS branch**: `LTS-C++17` (frozen API, C++17 minimum, adds features cautiously)
+**Version**: 0.2.0 (main branch — API may break for maintainability)
 
 ---
 

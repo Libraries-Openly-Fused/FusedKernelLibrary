@@ -125,7 +125,7 @@ namespace fk {
     constexpr int cn = Channels<T>();
 
     template <typename V>
-    struct VectorTraits {};
+    struct VectorTraits;
 
 #define VECTOR_TRAITS(BaseType) \
     template <> \
@@ -151,7 +151,6 @@ namespace fk {
     VECTOR_TRAITS(ulonglong)
     VECTOR_TRAITS(float)
     VECTOR_TRAITS(double)
-#undef VECTOR_TRAITS
 
     template <>
     struct VectorTraits<schar> { using base = schar; enum { bytes = sizeof(base) }; };
@@ -165,6 +164,8 @@ namespace fk {
     struct VectorTraits<char3> { using base = schar; enum { bytes = sizeof(base) * 3 }; };
     template <>
     struct VectorTraits<char4> { using base = schar; enum { bytes = sizeof(base) * 4 }; };
+
+#undef VECTOR_TRAITS
 
     template <typename T>
     using VBase = typename VectorTraits<T>::base;
@@ -616,6 +617,7 @@ VEC_BINARY_BITWISE(|)
 VEC_BINARY_BITWISE(^)
 
 #undef VEC_BINARY_BITWISE
+
 
 template <typename I1, typename I2>
 FK_HOST_DEVICE_CNST auto operator<<(const I1& a, const I2& b)

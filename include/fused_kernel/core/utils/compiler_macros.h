@@ -16,11 +16,10 @@
 #ifndef COMPILER_MACROS_H
 #define COMPILER_MACROS_H
 
-#if defined(__clang__) && defined(__CUDA__) 
-// clang compiling CUDA code, both host and device mode
-#define CLANG_HOST_DEVICE 1
+#if defined(_MSC_VER)
+#define _MSC_VER_EXISTS 1
 #else
-#define CLANG_HOST_DEVICE 0
+#define _MSC_VER_EXISTS 0
 #endif
 
 #endif // COMPILER_MACROS_H
