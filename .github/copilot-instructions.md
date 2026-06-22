@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**FusedKernelLibrary (FKL)** is a C++20 header-only library that enables automatic GPU kernel fusion without requiring CUDA expertise. It implements four fusion techniques:
+**FusedKernelLibrary (FKL)** is a C++23 header-only library that enables automatic GPU kernel fusion without requiring CUDA expertise. It implements four fusion techniques:
 - **Vertical Fusion**: Chain operations into a single kernel with no intermediate memory writes.
 - **Horizontal Fusion**: Process multiple data planes in parallel using `blockIdx.z`.
 - **Backwards Vertical Fusion**: Read-backwards through a pipeline (like OpenCV Filters), computing only required pixels.
@@ -48,9 +48,9 @@ FusedKernelLibrary/
 ## Build System
 
 ### Requirements
-- **CMake** >= 3.28
-- **C++ compiler** with C++20 support
-- **CUDA** (optional): requires NVCC. **Only nvcc is supported as the CUDA compiler**; clang-as-CUDA-compiler is not supported despite `CLANG_HOST_DEVICE` macro existing.
+- **CMake** >= 4.4.0
+- **C++ compiler** with C++23 support
+- **CUDA** (optional): requires NVCC >=13.3. **Only nvcc is supported as the CUDA compiler**; clang-as-CUDA-compiler is not supported despite `CLANG_HOST_DEVICE` macro existing.
 - **MSVC**: Visual Studio 2022+ (MSVC_VERSION >= 1930) required;
 
 ### Configure and Build (typical)
@@ -75,10 +75,6 @@ cmake --build build --config Release
 | `CUDA_ARCH` | `"native"` | CUDA architecture(s); use `"native"`, `"all"`, `"all-major"`, or explicit list |
 | `ARCH_FLAGS` | `AVX2`/`native` | CPU SIMD flags (MSVC: AVX/AVX2/AVX512; Unix: native/haswell/…) |
 
-### CUDA Architecture Notes
-- **CUDA < 13**: Architectures below `compute_70` (Volta) are filtered out automatically. A GPU with compute < 70 will trigger an error.
-- **`native` with CUDA < 13**: `nvidia-smi --query-gpu=compute_cap` is executed at CMake configure time to detect the local GPU.
-- **CUDA >= 13**: All architectures allowed.
 
 ### Windows-Specific Notes
 - CI uses self-hosted runners with LLVM 21.1.0 at `D:/clang+llvm-21.1.0-x86_64-pc-windows-msvc/bin/`.
@@ -219,15 +215,16 @@ All three workflow files trigger on **pull requests to `main`** (push triggers a
 
 ### Linux (cmake-linux-amd64.yml, cmake-linux-arm64.yml)
 - **Compilers**: `g++-13`, `clang++-21`
-- **CUDA**: 12.9, 13.3 (via `/usr/local/cuda-<version>/bin/nvcc`)
-- **CMake**: Custom installation at `/home/cudeiro/cmake-4.3.3-linux-x86_64/bin/` (added to PATH)
+- **CUDA**:  13.3 (via `/usr/local/cuda-<version>/bin/nvcc`)
+- **CMake**: Custom installation at `/home/cudeiro/cmake-4.4.0-linux-x86_64/bin/` (added to PATH)
 - **Generator**: Ninja
 - **Build type**: Release
 
 ### Windows (cmake-windows-amd64.yml)
+
 - **Host compilers**: `cl` (MSVC), `clang-cl`
-- **MSVC versions**: 14.44, 14.51 (via `-vcvars_ver`)
-- **CUDA**: 12.9, 13.3 (NVCC at `%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v<version>\bin\nvcc.exe`)
+- **MSVC versions**:  14.52 (via `-vcvars_ver`)
+- **CUDA**: 13.3 (NVCC at `%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v<version>\bin\nvcc.exe`)
 - **LLVM**: `D:/clang+llvm-21.1.0-x86_64-pc-windows-msvc/bin/` (added to PATH)
 - **Generator**: Ninja
 - **Workaround**: After CMake configure, `rules.ninja` may contain an empty NVCC path that is patched with PowerShell string replacement.
@@ -256,9 +253,3 @@ See existing operations like `Mul`, `Add`, `SaturateCast` in `include/fused_kern
 ## Known Issues and Workarounds
 
 1. **Windows Ninja + NVCC path**: After CMake configure on Windows with Ninja, `<build_dir>/CMakeFiles/rules.ninja` may contain an incorrect path to `nvcc.exe`. The CI workflow patches this with PowerShell `Set-Content`. If you hit this locally, check that `CUDACXX` env var is set before invoking CMake and verify the generated `rules.ninja`.
-
-2. **CUDA < 13 + old GPUs**: If your GPU has compute capability < 7.0 (pre-Volta), building will fail. Use a newer GPU or set `CUDA_ARCH` explicitly to a supported arch.
-
-3. **MSVC < 2019**: CPU backend is automatically disabled with a warning. The CUDA backend may still work if NVCC is available.
-
-4. **Clang as CUDA compiler**: While `CLANG_HOST_DEVICE` macro exists and Clang can be used as a host compiler (including `clang++-21` on Linux and `clang-cl` on Windows with nvcc as the CUDA compiler), **using Clang as the CUDA compiler itself (replacing nvcc) is not supported**.
