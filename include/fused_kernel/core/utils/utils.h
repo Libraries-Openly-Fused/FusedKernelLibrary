@@ -21,7 +21,7 @@
 #include <string>
 #include <stdexcept>
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
 #include <cuda_runtime.h>
 #endif
 
@@ -31,7 +31,7 @@
 #endif
 #endif // NVRTC_COMPILER
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
 #define FK_DEVICE_FUSE __device__ __forceinline__ static constexpr
 #define FK_DEVICE_CNST __device__ __forceinline__ constexpr
 #define FK_HOST_DEVICE_FUSE __host__ FK_DEVICE_FUSE
@@ -92,7 +92,7 @@ using ulonglong = unsigned long long;
 using ushort = unsigned short;
 using ulong = unsigned long;
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
 namespace fk {
     inline void gpuAssert(cudaError_t code,
                           const char *file,
@@ -147,7 +147,7 @@ namespace fk {
 } // namespace fk
 
 #define gpuErrchk(ans) { fk::gpuAssert((ans), __FILE__, __LINE__, true); }
-#endif // (__NVCC__) || __HIP__ || NVRTC_ENABLED) && !defined(NVRTC_COMPILER)
+#endif // defined(__NVCC__)
 
 // Null type, used for Operation required aliases that can not still be known,
 // because they are deduced from a backwards operation that is till not defined.

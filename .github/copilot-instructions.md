@@ -11,8 +11,7 @@
 The library has CPU and CUDA backends. HIP support is architecturally possible but not yet implemented.
 
 **License**: Apache 2.0  
-**Version**: 0.2.0 (main branch — API may break for maintainability)  
-**LTS branch**: `LTS-C++17` (frozen API, C++17 minimum, adds features cautiously)
+**Version**: 0.2.0 (main branch — API may break for maintainability)
 
 ---
 
@@ -52,7 +51,7 @@ FusedKernelLibrary/
 - **CMake** >= 3.28
 - **C++ compiler** with C++20 support
 - **CUDA** (optional): requires NVCC. **Only nvcc is supported as the CUDA compiler**; clang-as-CUDA-compiler is not supported despite `CLANG_HOST_DEVICE` macro existing.
-- **MSVC**: Visual Studio 2019+ (MSVC_VERSION >= 1920) required; older versions disable the CPU backend.
+- **MSVC**: Visual Studio 2022+ (MSVC_VERSION >= 1930) required;
 
 ### Configure and Build (typical)
 ```bash

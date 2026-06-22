@@ -186,6 +186,48 @@ void testBGR2Gray() {
     TestCaseBuilder<BGR2GrayTest>::addTest(testCases, inputVals, expectedVals);
 }
 
+// Tests for the ColorConversion aliases that expand to FusedOperation
+// (regression test for the raw-Op vs IOp template arguments bug):
+// COLOR_BGR2GRAY, COLOR_BGRA2GRAY, COLOR_BGR2RGBA, COLOR_BGRA2RGB
+void testFusedColorConversionAliases() {
+    // COLOR_BGR2GRAY: reorder(2,1,0) then RGB2Gray
+    // input is BGR -> luma = 0.299*R(z) + 0.587*G(y) + 0.114*B(x)
+    std::array<uchar3, 2> inBGR = {
+        uchar3{50, 100, 150},
+        uchar3{75, 125, 200}
+    };
+    std::array<uchar, 2> expGray = {
+        static_cast<uchar>(std::nearbyint(150 * 0.299f + 100 * 0.587f + 50 * 0.114f)),
+        static_cast<uchar>(std::nearbyint(200 * 0.299f + 125 * 0.587f + 75 * 0.114f))
+    };
+    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2GRAY, uchar3, uchar>>::
+        addTest(testCases, inBGR, expGray);
+
+    // COLOR_BGRA2GRAY: reorder(2,1,0,3) then RGB2Gray (alpha discarded by formula)
+    std::array<uchar4, 2> inBGRA = {
+        uchar4{50, 100, 150, 255},
+        uchar4{75, 125, 200, 128}
+    };
+    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGRA2GRAY, uchar4, uchar>>::
+        addTest(testCases, inBGRA, expGray);
+
+    // COLOR_BGR2RGBA: reorder(2,1,0) then AddOpaqueAlpha
+    std::array<uchar4, 2> expRGBA = {
+        uchar4{150, 100, 50, 255},
+        uchar4{200, 125, 75, 255}
+    };
+    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2RGBA, uchar3, uchar4>>::
+        addTest(testCases, inBGR, expRGBA);
+
+    // COLOR_BGRA2RGB: reorder(2,1,0,3) then Discard -> 3 channels
+    std::array<uchar3, 2> expRGB = {
+        uchar3{150, 100, 50},
+        uchar3{200, 125, 75}
+    };
+    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGRA2RGB, uchar4, uchar3>>::
+        addTest(testCases, inBGRA, expRGB);
+}
+
 void testAddOpaqueAlphaStruct() {
     // Test AddOpaqueAlpha struct with 8-bit depth
     using AddOpaqueAlphaTest = fk::AddOpaqueAlpha<uchar3, fk::ColorDepth::p8bit>;
@@ -395,6 +437,7 @@ testColorConversionAffectedCodes();
 // Test additional structs
 testStaticAddAlpha();
 testBGR2Gray();
+testFusedColorConversionAliases();
 testAddOpaqueAlphaStruct();
 testDenormalizePixel();
 testNormalizePixel();
