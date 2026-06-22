@@ -4,7 +4,7 @@ on:
   #push:
   #  branches: [ $default-branch ]
   pull_request:
-    branches: ["LTS-C*"]
+    branches: ["main"]
 
 jobs:
   build:
@@ -20,25 +20,19 @@ jobs:
             cuda_version: "12.9"
 
           - host_compiler: "cl"
-            msvc_env_version: "14.44"
-            cuda_version: "13.0"
-          - host_compiler: "cl"
-            msvc_env_version: "14.50"
-            cuda_version: "13.2"            
+            msvc_env_version: "14.51"
+            cuda_version: "13.3"            
 
           - host_compiler: "clang-cl"
             msvc_env_version: "14.44"
             cuda_version: "12.9"
-
+         
           - host_compiler: "clang-cl"
-            msvc_env_version: "14.44"
-            cuda_version: "13.0"
-          - host_compiler: "clang-cl"
-            msvc_env_version: "14.50"
-            cuda_version: "13.2"            
+            msvc_env_version: "14.51"
+            cuda_version: "13.3"            
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set reusable strings
         # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.

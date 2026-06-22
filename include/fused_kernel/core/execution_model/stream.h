@@ -18,7 +18,7 @@
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 #include <fused_kernel/core/data/ref_class.h>
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
 #include <fused_kernel/core/utils/utils.h>
 #elif defined(__HIP__)
 #include <hip/hip_runtime.h>
@@ -48,7 +48,7 @@ namespace fk {
     template <enum ParArch PA>
     class Stream_;
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
     template <>
     class Stream_<ParArch::GPU_NVIDIA> final : public BaseStream {
         cudaStream_t m_stream;
@@ -112,8 +112,8 @@ namespace fk {
     template <>
     class Stream_<ParArch::CPU> final : public BaseStream {
     public:
-        Stream_<ParArch::CPU>() : BaseStream() {}
-        ~Stream_<ParArch::CPU>() = default;
+        Stream_() : BaseStream() {}
+        ~Stream_() = default;
         inline void sync() final {}
         constexpr inline enum ParArch getParArch() const {
             return ParArch::CPU;

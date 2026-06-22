@@ -60,7 +60,7 @@ namespace fk {
          | ClosedType **          |          |    X     |          |    X     |          |  void exec(Point, ParamsType)
          +------------------------+----------+----------+----------+----------+----------+
 
-         * Applicable only to Instantiapble Operations. In and Out must be the same type and value. Operation must be of WriteType.
+         * Applicable only to Instantiable Operations. In and Out must be the same type and value. Operation must be of WriteType.
          ** OpenType and ClosedType are only applicable to FusedOperations. FusedOperations can also be ReadType or WriteType.
     */
 
@@ -132,20 +132,7 @@ namespace fk {
 
     template <typename... OpsOrIOps>
     constexpr bool atLeastOneMidWriteType = or_v<opIs<MidWriteType, OpsOrIOps>...>;
-
-    template <typename = void, typename... OpsOrIOps>
-    struct NotAllUnary final : public std::false_type {};
-
-    // This intermediate step is needed to avoid VS2017 crashing with an unespecified error
-    template <typename... OpsOrIOps>
-    constexpr bool notAllUnaryTypesNoSFINAE = ((!std::is_same_v<typename OpsOrIOps::InstanceType, UnaryType>) || ...);
-
-    template <typename... OpsOrIOps>
-    struct NotAllUnary<std::enable_if_t<notAllUnaryTypesNoSFINAE<OpsOrIOps...>, void>, OpsOrIOps...> final : public std::true_type {};
-
-    template <typename... OpsOrIOps>
-    constexpr bool notAllUnaryTypes = NotAllUnary<void, OpsOrIOps...>::value;
-
+        
     template <typename Enabler, typename... OpsOrIOps>
     struct are_all_unary_types : std::false_type {};
 

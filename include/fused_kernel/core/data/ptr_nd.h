@@ -27,7 +27,7 @@
 
 namespace fk {
 	enum class MemType { Device, Host, HostPinned, DeviceAndPinned };
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
     constexpr MemType defaultMemType = MemType::DeviceAndPinned;
 #else
     constexpr MemType defaultMemType = MemType::Host;
@@ -152,7 +152,7 @@ namespace fk {
         }
 
         inline constexpr void allocDevice() {
-            #if defined(__NVCC__) || CLANG_HOST_DEVICE
+            #if defined(__NVCC__)
             int currentDevice;
             gpuErrchk(cudaGetDevice(&currentDevice));
             gpuErrchk(cudaSetDevice(deviceID));
@@ -171,7 +171,7 @@ namespace fk {
         }
 
         inline constexpr void allocHostPinned() {
-            #if defined(__NVCC__) || CLANG_HOST_DEVICE
+            #if defined(__NVCC__)
             int currentDevice;
             gpuErrchk(cudaGetDevice(&currentDevice));
             gpuErrchk(cudaSetDevice(deviceID));
@@ -186,7 +186,7 @@ namespace fk {
         }
 
         inline constexpr void allocDeviceAndPinned() {
-            #if defined(__NVCC__) || CLANG_HOST_DEVICE
+            #if defined(__NVCC__)
             int currentDevice;
             gpuErrchk(cudaGetDevice(&currentDevice));
             gpuErrchk(cudaSetDevice(deviceID));
@@ -209,7 +209,7 @@ namespace fk {
                 switch (type) {
                 case MemType::Device:
                     {
-                        #if defined(__NVCC__) || CLANG_HOST_DEVICE
+                        #if defined(__NVCC__)
                         gpuErrchk(cudaFree(ref->ptr));
                         #else
                         throw std::runtime_error("Device memory deallocation not supported in non-CUDA compilation.");
@@ -223,7 +223,7 @@ namespace fk {
                     }
                 case MemType::HostPinned:
                     {
-                        #if defined(__NVCC__) || CLANG_HOST_DEVICE
+                        #if defined(__NVCC__)
                         gpuErrchk(cudaFreeHost(ref->ptr));
                         #else
                         throw std::runtime_error("Host pinned memory deallocation not supported in non-CUDA compilation.");
@@ -232,7 +232,7 @@ namespace fk {
                     }
                 case MemType::DeviceAndPinned:
                 {
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
                     gpuErrchk(cudaFree(ref->ptr));
                     gpuErrchk(cudaFreeHost(ref->pinnedPtr));
 #else
@@ -249,7 +249,7 @@ namespace fk {
             }
         }
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
         inline void copy(const RawPtr<D, T>& thisPtr, RawPtr<D, T>& other, const cudaMemcpyKind& kind,
                          cudaStream_t stream = 0) const {
             if ((other.dims.pitch == other.dims.width * sizeof(T)) && (thisPtr.dims.pitch == thisPtr.dims.width * sizeof(T))) {
@@ -335,36 +335,7 @@ namespace fk {
                 ref->cnt.fetch_add(1);  // Increment reference count
             }
         }
-
-        // Check if the compiler is specifically MSVC for VS 2017
-#if VS2017_COMPILER
-        template <typename... Args>
-        inline constexpr Ptr(const uint& firstParam, const Args&... args) {
-            init(std::integral_constant<ND, D>{}, firstParam, args...);
-        }
-
-    private:
-        inline constexpr void init(const std::integral_constant<ND, ND::_1D>&,
-                                   const uint& num_elems, const uint& size_in_bytes = 0,
-                                   const MemType& type_ = defaultMemType, const int& deviceID_ = 0) {
-            allocPtr(PtrDims<ND::_1D>(num_elems, size_in_bytes), type_, deviceID_);
-        }
-        inline constexpr void init(const std::integral_constant<ND, ND::_2D>&,
-                                   const uint& width_, const uint& height_, const uint& pitch_ = 0,
-                                   const MemType& type_ = defaultMemType, const int& deviceID_ = 0) {
-            allocPtr(PtrDims<ND::_2D>(width_, height_, pitch_), type_, deviceID_);
-        }
-        inline constexpr void init(const std::integral_constant<ND, ND::_3D>&,
-                             const uint& width_, const uint& height_, const uint& planes_,
-                             const uint& color_planes_ = 1, const uint& pitch_ = 0,
-                             const MemType& type_ = defaultMemType, const int& deviceID_ = 0) {
-            allocPtr(PtrDims<ND::_3D>(width_, height_, planes_, color_planes_, pitch_), type_, deviceID_);
-        }
-
-    public:
-#else
         
-        // Modern, more idiomatic version for all other compliant compilers (VS 2019+, GCC, Clang)
         template <fk::ND DN = D, std::enable_if_t<DN == ND::_1D, int> = 0>
         inline constexpr Ptr(const uint& num_elems, const uint& size_in_bytes = 0,
                              const MemType& type_ = defaultMemType, const int& deviceID_ = 0) {
@@ -384,7 +355,6 @@ namespace fk {
             allocPtr(PtrDims<ND::_3D>(width_, height_, planes_, color_planes_, pitch_), type_, deviceID_);
         }
 
-#endif
         inline constexpr void allocPtr(const PtrDims<D>& dims_, const MemType& type_ = defaultMemType, const int& deviceID_ = 0) {
             if (ref) {
                 throw std::runtime_error("Reference pointer already exists. Use a different constructor.");
@@ -510,7 +480,7 @@ namespace fk {
             return *this;
         }
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
         inline void uploadTo(Ptr<D, T>& other, cudaStream_t stream = 0) {
             constexpr cudaMemcpyKind kind = cudaMemcpyHostToDevice;
             constexpr MemType otherExpectedMemType1 = MemType::Device;

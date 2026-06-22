@@ -99,62 +99,6 @@ void testColorConversionOperations() {
     };
 
     TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2RGB, uchar3, uchar3>>::addTest(testCases, inputVals2, expectedVals2);
-
-    // Test BGR2RGBA conversion (FusedOperation: reorder channels then add alpha)
-    constexpr std::array<uchar3, 2> inputVals3{
-        uchar3{100, 150, 200},  // BGR
-        uchar3{50, 75, 125}     // BGR
-    };
-
-    constexpr std::array<uchar4, 2> expectedVals3{
-        uchar4{200, 150, 100, 255},  // RGBA (channels 2,1,0 + alpha)
-        uchar4{125, 75, 50, 255}     // RGBA (channels 2,1,0 + alpha)
-    };
-
-    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2RGBA, uchar3, uchar4>>::addTest(testCases, inputVals3, expectedVals3);
-
-    // Test BGRA2RGB conversion (FusedOperation: reorder channels then discard alpha)
-    constexpr std::array<uchar4, 2> inputVals4{
-        uchar4{100, 150, 200, 255},  // BGRA
-        uchar4{50, 75, 125, 128}     // BGRA
-    };
-
-    constexpr std::array<uchar3, 2> expectedVals4{
-        uchar3{200, 150, 100},  // RGB (channels 2,1,0, alpha discarded)
-        uchar3{125, 75, 50}     // RGB (channels 2,1,0, alpha discarded)
-    };
-
-    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGRA2RGB, uchar4, uchar3>>::addTest(testCases, inputVals4, expectedVals4);
-
-    // Test BGR2GRAY conversion (FusedOperation: reorder channels then convert to gray)
-    std::array<uchar3, 2> inputVals5 = {
-        uchar3{50, 100, 150},   // BGR: B=50, G=100, R=150
-        uchar3{75, 125, 200}    // BGR: B=75, G=125, R=200
-    };
-
-    // After reorder (BGR->RGB): {150,100,50}, {200,125,75}
-    // Gray formula: R*0.299 + G*0.587 + B*0.114
-    std::array<uchar, 2> expectedVals5 = {
-        static_cast<uchar>(std::nearbyint(150 * 0.299f + 100 * 0.587f + 50 * 0.114f)),   // ~109
-        static_cast<uchar>(std::nearbyint(200 * 0.299f + 125 * 0.587f + 75 * 0.114f))    // ~141
-    };
-
-    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2GRAY, uchar3, uchar>>::addTest(testCases, inputVals5, expectedVals5);
-
-    // Test BGRA2GRAY conversion (FusedOperation: reorder channels then convert to gray)
-    std::array<uchar4, 2> inputVals6 = {
-        uchar4{50, 100, 150, 255},   // BGRA: B=50, G=100, R=150, A=255
-        uchar4{75, 125, 200, 128}    // BGRA: B=75, G=125, R=200, A=128
-    };
-
-    // After reorder (BGRA->RGBA): {150,100,50,255}, {200,125,75,128}
-    // Gray formula uses R,G,B (alpha ignored): R*0.299 + G*0.587 + B*0.114
-    std::array<uchar, 2> expectedVals6 = {
-        static_cast<uchar>(std::nearbyint(150 * 0.299f + 100 * 0.587f + 50 * 0.114f)),   // ~109
-        static_cast<uchar>(std::nearbyint(200 * 0.299f + 125 * 0.587f + 75 * 0.114f))    // ~141
-    };
-
-    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGRA2GRAY, uchar4, uchar>>::addTest(testCases, inputVals6, expectedVals6);
 }
 
 void testStaticAddAlpha() {
@@ -174,6 +118,55 @@ void testStaticAddAlpha() {
     TestCaseBuilder<StaticAddAlphaTest>::addTest(testCases, inputVals, expectedVals);
 }
 
+// Test ColorConversion for the four specializations that use FusedOperation chains:
+// BGR2GRAY, BGRA2GRAY, BGR2RGBA, BGRA2RGB
+void testColorConversionAffectedCodes() {
+    // Test COLOR_BGR2GRAY: reorder(2,1,0) then RGB2Gray
+    // Input BGR {B, G, R} -> reorder -> {R, G, B} -> gray
+    constexpr std::array<uchar3, 2> bgrInputVals{
+        uchar3{100, 150, 200},  // B=100, G=150, R=200 -> gray = round(0.299*200 + 0.587*150 + 0.114*100) = 159
+        uchar3{50, 75, 125}     // B=50,  G=75,  R=125 -> gray = round(0.299*125 + 0.587*75  + 0.114*50)  = 87
+    };
+    constexpr std::array<uchar, 2> bgrGrayExpected{159, 87};
+    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2GRAY, uchar3, uchar>>::addTest(
+        testCases, bgrInputVals, bgrGrayExpected);
+
+    // Test COLOR_BGRA2GRAY: reorder(2,1,0,3) then RGB2Gray (alpha is discarded by RGB2Gray)
+    constexpr std::array<uchar4, 2> bgraInputVals{
+        uchar4{100, 150, 200, 255},  // B=100, G=150, R=200, A=255 -> gray = 159
+        uchar4{50, 75, 125, 200}     // B=50,  G=75,  R=125, A=200 -> gray = 87
+    };
+    constexpr std::array<uchar, 2> bgraGrayExpected{159, 87};
+    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGRA2GRAY, uchar4, uchar>>::addTest(
+        testCases, bgraInputVals, bgraGrayExpected);
+
+    // Test COLOR_BGR2RGBA: reorder(2,1,0) then AddOpaqueAlpha
+    // Input BGR {B, G, R} -> reorder -> {R, G, B} -> {R, G, B, 255}
+    constexpr std::array<uchar3, 2> bgr2rgbaInputVals{
+        uchar3{100, 150, 200},
+        uchar3{50, 75, 125}
+    };
+    constexpr std::array<uchar4, 2> bgr2rgbaExpected{
+        uchar4{200, 150, 100, 255},
+        uchar4{125, 75, 50, 255}
+    };
+    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2RGBA, uchar3, uchar4>>::addTest(
+        testCases, bgr2rgbaInputVals, bgr2rgbaExpected);
+
+    // Test COLOR_BGRA2RGB: reorder(2,1,0,3) then Discard (drop alpha)
+    // Input BGRA {B, G, R, A} -> reorder -> {R, G, B, A} -> {R, G, B}
+    constexpr std::array<uchar4, 2> bgra2rgbInputVals{
+        uchar4{100, 150, 200, 255},
+        uchar4{50, 75, 125, 200}
+    };
+    constexpr std::array<uchar3, 2> bgra2rgbExpected{
+        uchar3{200, 150, 100},
+        uchar3{125, 75, 50}
+    };
+    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGRA2RGB, uchar4, uchar3>>::addTest(
+        testCases, bgra2rgbInputVals, bgra2rgbExpected);
+}
+
 void testBGR2Gray() {
     // Test BGR2Gray with CCIR_601 formula  
     // Formula uses input.x * 0.299 + input.y * 0.587 + input.z * 0.114
@@ -191,6 +184,48 @@ void testBGR2Gray() {
     };
 
     TestCaseBuilder<BGR2GrayTest>::addTest(testCases, inputVals, expectedVals);
+}
+
+// Tests for the ColorConversion aliases that expand to FusedOperation
+// (regression test for the raw-Op vs IOp template arguments bug):
+// COLOR_BGR2GRAY, COLOR_BGRA2GRAY, COLOR_BGR2RGBA, COLOR_BGRA2RGB
+void testFusedColorConversionAliases() {
+    // COLOR_BGR2GRAY: reorder(2,1,0) then RGB2Gray
+    // input is BGR -> luma = 0.299*R(z) + 0.587*G(y) + 0.114*B(x)
+    std::array<uchar3, 2> inBGR = {
+        uchar3{50, 100, 150},
+        uchar3{75, 125, 200}
+    };
+    std::array<uchar, 2> expGray = {
+        static_cast<uchar>(std::nearbyint(150 * 0.299f + 100 * 0.587f + 50 * 0.114f)),
+        static_cast<uchar>(std::nearbyint(200 * 0.299f + 125 * 0.587f + 75 * 0.114f))
+    };
+    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2GRAY, uchar3, uchar>>::
+        addTest(testCases, inBGR, expGray);
+
+    // COLOR_BGRA2GRAY: reorder(2,1,0,3) then RGB2Gray (alpha discarded by formula)
+    std::array<uchar4, 2> inBGRA = {
+        uchar4{50, 100, 150, 255},
+        uchar4{75, 125, 200, 128}
+    };
+    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGRA2GRAY, uchar4, uchar>>::
+        addTest(testCases, inBGRA, expGray);
+
+    // COLOR_BGR2RGBA: reorder(2,1,0) then AddOpaqueAlpha
+    std::array<uchar4, 2> expRGBA = {
+        uchar4{150, 100, 50, 255},
+        uchar4{200, 125, 75, 255}
+    };
+    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2RGBA, uchar3, uchar4>>::
+        addTest(testCases, inBGR, expRGBA);
+
+    // COLOR_BGRA2RGB: reorder(2,1,0,3) then Discard -> 3 channels
+    std::array<uchar3, 2> expRGB = {
+        uchar3{150, 100, 50},
+        uchar3{200, 125, 75}
+    };
+    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGRA2RGB, uchar4, uchar3>>::
+        addTest(testCases, inBGRA, expRGB);
 }
 
 void testAddOpaqueAlphaStruct() {
@@ -396,9 +431,13 @@ testAddOpaqueAlpha();
 // Test ColorConversion operations
 testColorConversionOperations();
 
+// Test ColorConversion for the FusedOperation-based specializations
+testColorConversionAffectedCodes();
+
 // Test additional structs
 testStaticAddAlpha();
 testBGR2Gray();
+testFusedColorConversionAliases();
 testAddOpaqueAlphaStruct();
 testDenormalizePixel();
 testNormalizePixel();

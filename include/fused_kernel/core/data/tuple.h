@@ -326,11 +326,17 @@ namespace fk {
 
     namespace detail {
         template <typename F, typename TupleT, size_t... Is>
+        // decltype(auto) lets the compiler figure out the return type
         FK_HOST_CNST decltype(auto) apply_impl(F &&f, TupleT&&t, std::index_sequence<Is...>) {
+
+            // We simply return the result of the function call.
             return std::forward<F>(f)(get<Is>(std::forward<TupleT>(t))...);
         }
         template <typename F, typename TupleT, size_t... Is>
+        // decltype(auto) lets the compiler figure out the return type
         FK_HOST_DEVICE_CNST decltype(auto) apply_d_impl(F &&f, TupleT&&t, std::index_sequence<Is...>) {
+
+            // We simply return the result of the function call.
             return std::forward<F>(f)(get<Is>(std::forward<TupleT>(t))...);
         }
     } // namespace detail
