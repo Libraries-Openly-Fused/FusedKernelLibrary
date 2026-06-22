@@ -37,7 +37,7 @@
 #include <fused_kernel/algorithms/attention/flash_attention.h>
 #include <fused_kernel/algorithms/attention/flash_attention_mma.h>  // IOp traits + bf16 read
 
-#if (defined(__NVCC__) || CLANG_HOST_DEVICE)
+#if defined(__NVCC__)
 
 namespace fk {
 
@@ -334,6 +334,6 @@ inline void executeFlashDecode(
 
 } // namespace fk
 
-#endif // defined(__NVCC__) || CLANG_HOST_DEVICE
+#endif // defined(__NVCC__)
 
 #endif // FK_ATTENTION_FLASH_DECODE_H

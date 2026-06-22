@@ -44,7 +44,7 @@
 
 #include <fused_kernel/algorithms/attention/flash_attention.h>
 
-#if (defined(__NVCC__) || CLANG_HOST_DEVICE)
+#if defined(__NVCC__)
 
 #include <cuda_bf16.h>
 #include <vector>
@@ -2035,6 +2035,6 @@ inline void executeFlashAttentionMma(
 
 } // namespace fk
 
-#endif // defined(__NVCC__) || CLANG_HOST_DEVICE
+#endif // defined(__NVCC__)
 
 #endif // FK_ATTENTION_FLASH_ATTENTION_MMA_H

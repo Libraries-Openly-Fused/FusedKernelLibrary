@@ -146,7 +146,7 @@ inline auto makeInt8KVRead(const int8_t* data, const float* scales,
     return Int8TokenDequantRead::build(Int8TokenDequantReadParams{ ptr, scales });
 }
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
 
 /* The DPP. QIOp/KIOp/VIOp are INSTANTIABLE Read or ReadBack IOps (possibly
  * fused with compute continuations): the algorithm reads each element of
@@ -330,7 +330,7 @@ inline void executeFlashAttention(
     }
 }
 
-#endif // defined(__NVCC__) || CLANG_HOST_DEVICE
+#endif // defined(__NVCC__)
 
 // ---- host-side KV cache compression helper (reference packing) -----------
 // Per-token symmetric int8: scale[t] = max|row|/127; q(x) = round(x/scale).

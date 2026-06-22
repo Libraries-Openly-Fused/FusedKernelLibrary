@@ -41,7 +41,7 @@
 
 #include <cfloat>
 #include <cmath>
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
 #include <cuda_fp16.h>
 #endif
 
@@ -61,7 +61,7 @@ FK_HOST_DEVICE_CNST float attnMaxF(const float a, const float b) {
     return a > b ? a : (b >= a ? b : (a == a ? a : b));  // NaN -> other arg
 }
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
 __host__ __device__ __forceinline__ float attnExpF(const float x) {
 #if defined(__CUDA_ARCH__)
     return ::expf(x);     // device fast path (correctly-rounded enough here)
@@ -79,7 +79,7 @@ inline float attnExpF(const float x) { return ::expf(x); }  // pure CPU TU
 
 template <typename T>
 FK_HOST_DEVICE_CNST float attnToF32(const T& v) {
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
     if constexpr (std::is_same_v<T, __half>) { return __half2float(v); } else
 #endif
     { return static_cast<float>(v); }
@@ -87,7 +87,7 @@ FK_HOST_DEVICE_CNST float attnToF32(const T& v) {
 
 template <typename T>
 FK_HOST_DEVICE_CNST T attnFromF32(const float& v) {
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
     if constexpr (std::is_same_v<T, __half>) { return __float2half(v); } else
 #endif
     { return static_cast<T>(v); }
@@ -99,7 +99,7 @@ struct OnlineSoftmaxState {
 };
 
 // NOT constexpr: attnExpF maps to ::expf (non-constexpr on MSVC/clang).
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
 __host__ __device__ __forceinline__
 #else
 inline
@@ -112,7 +112,7 @@ OnlineSoftmaxState mergeSoftmaxStates(const OnlineSoftmaxState& a,
     return { m, la + lb };
 }
 
-#if defined(__NVCC__) || CLANG_HOST_DEVICE
+#if defined(__NVCC__)
 
 /* InIOp is an INSTANTIABLE Read or ReadBack IOp (possibly a fusion
  * read.then(compute...)): the prologue. Every element enters the
@@ -200,7 +200,7 @@ inline void executeSoftmax(const Ptr2D<T>& input, const Ptr2D<T>& output,
                                static_cast<int>(input.dims().width), stream);
 }
 
-#endif // defined(__NVCC__) || CLANG_HOST_DEVICE
+#endif // defined(__NVCC__)
 
 } // namespace fk
 
