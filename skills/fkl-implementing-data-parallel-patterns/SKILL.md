@@ -24,8 +24,8 @@ A DPP must not contain the definition of code that modifies the data (except for
 In order to operate on the data the DPP must use IOps that must have been passed to the DPP as exec function parameters.
 
 Those IOps will be used by each thread to access the device input data, to operate on the data and to write the results back to device memory.
-The implementation of the DPP exec funtion is responsible for deciding which threads will execute which IOps in which order,
-as well as to apply any thread synchronization or use any shared memory.
+The implementation of the DPP exec function is responsible for deciding which threads will execute which IOps in which order,
+as well as applying any thread synchronization or using any shared memory.
 
 Each one of the IOps can contain a single Operation, or a FusedOperation (several consecutive Operations), or a fk::Tuple of IOps,
 depending on the structure the DPP requires.
