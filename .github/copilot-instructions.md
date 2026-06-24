@@ -217,8 +217,8 @@ Each operation type exposes a `static build(...)` factory method returning an in
 
 All three workflow files trigger on **pull requests to `main`** (push triggers are commented out). All runners are **self-hosted**.
 
-### Linux (cmake-linux-amd64.yml, cmake-linux-arm64.yml)
-- **Compilers**: `g++-13`, `clang++-21`
+### Linux (cmake-linux-amd64.yml, cmake-linux-arm64.yml,cmake-linux-ubuntu2404-amd64)
+- **Compilers**: `g++-13`, `g++-15`,`clang++-21`
 - **CUDA**: 12.9, 13.3 (via `/usr/local/cuda-<version>/bin/nvcc`)
 - **CMake**: Custom installation at `/home/cudeiro/cmake-4.3.3-linux-x86_64/bin/` (added to PATH)
 - **Generator**: Ninja
