@@ -17,6 +17,9 @@
 #include <fused_kernel/algorithms/collective/reduce.h>
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/basic_ops/logical.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
+#include <fused_kernel/core/data/ptr_nd.h>
+#include <fused_kernel/core/execution_model/stream.h>
 #include "tests/nvtx.h"
 
 #include <vector>
@@ -127,6 +130,44 @@ static bool runDeviceChecks() {
     }
     return ok;
 }
+
+/* End-to-end ReduceDPP test: input via a Read IOp (PerThreadRead), output via
+ * a Write IOp (PerThreadWrite), one reduced value per row — the full FKL
+ * contract (read IOp -> reduce over standard Op -> write IOp). */
+static bool runReduceDPPChecks() {
+    using namespace fk;
+    bool ok = true;
+    std::mt19937 rng(123);
+    std::uniform_real_distribution<float> dist(-5.f, 5.f);
+
+    const int rows = 17, width = 4096 + 11;
+    std::vector<float> h(rows * width);
+    for (auto& x : h) x = dist(rng);
+
+    Ptr2D<float> input(width, rows);
+    Ptr1D<float> output(rows);
+    cudaMemcpy2D(input.ptr().data, input.ptr().dims.pitch,
+                 h.data(), width * sizeof(float),
+                 width * sizeof(float), rows, cudaMemcpyHostToDevice);
+
+    Stream stream;
+    const auto readIOp  = PerThreadRead<ND::_2D, float>::build(input);
+    const auto writeIOp = PerThreadWrite<ND::_1D, float>::build(output);
+
+    executeReduce<SumOp>(readIOp, writeIOp, rows, width, 0.f, stream);
+    stream.sync();
+
+    std::vector<float> got(rows);
+    cudaMemcpy(got.data(), output.ptr().data, rows * sizeof(float), cudaMemcpyDeviceToHost);
+
+    for (int r = 0; r < rows; ++r) {
+        float ref = 0.f;
+        for (int c = 0; c < width; ++c) ref += h[r * width + c];
+        const bool okr = std::fabs(got[r] - ref) <= 1e-3f * std::fmax(1.f, std::fabs(ref));
+        if (!okr) { printf("  ReduceDPP row %d got=%.4f ref=%.4f FAIL\n", r, got[r], ref); ok = false; }
+    }
+    return ok;
+}
 #endif // __NVCC__
 
 int launch() {
@@ -145,6 +186,10 @@ int launch() {
     {
         PUSH_RANGE_RAII p("collective_reduce_device");
         passed &= runDeviceChecks();
+    }
+    {
+        PUSH_RANGE_RAII p("reduce_dpp_iop_e2e");
+        passed &= runReduceDPPChecks();
     }
 #endif
     return passed ? 0 : -1;

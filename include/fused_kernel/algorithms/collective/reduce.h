@@ -56,8 +56,11 @@
 
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <fused_kernel/core/utils/utils.h>
+#include <fused_kernel/core/data/ptr_nd.h>
+#include <fused_kernel/core/execution_model/stream.h>
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/basic_ops/logical.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <type_traits>
 
 namespace fk {
@@ -215,6 +218,89 @@ private:
     static inline void exec(T val, T*, T* gAccum) { if (gAccum) *gAccum = ReduceOp::exec(*gAccum, val); }
 #endif
 };
+
+/* ReduceDPP: user-facing row-wise reduction as a composable FKL DPP.
+ *
+ * Honours the full FKL contract: the input is a Read IOp (the prologue) and
+ * the output is a Write IOp (the epilogue), so any fused preprocessing chain
+ * (read.then(Mul...).then(Cast...)) runs in-register at load time, and the
+ * single reduced value per row is emitted through whatever Write IOp the
+ * caller supplies (PerThreadWrite, TensorWrite, a fused post-op chain, ...).
+ * The reduction operator is a STANDARD FKL binary Op (Add / Max / Min, ...)
+ * passed as a template argument — no bespoke combine types. Element
+ * addressing matches SoftmaxDPP: thread.x = column, blockIdx.x = row.
+ *
+ *   InIOp   instantiable Read / ReadBack IOp (the prologue)
+ *   OutIOp  instantiable Write IOp (the epilogue); receives one value per row
+ *   ReduceOp standard FKL binary Op, invoked as ReduceOp::exec(a, b)
+ */
+#if defined(__NVCC__)
+
+template <typename ReduceOp, typename InIOp, typename OutIOp, typename T, int BLOCK_SIZE = 256>
+struct ReduceDPP {
+private:
+    using SelfType = ReduceDPP<ReduceOp, InIOp, OutIOp, T, BLOCK_SIZE>;
+public:
+    FK_STATIC_STRUCT(ReduceDPP, SelfType)
+    static_assert(isAnyReadType<InIOp>,  "ReduceDPP prologue must be a Read or ReadBack IOp");
+    static_assert(isAnyWriteType<OutIOp>, "ReduceDPP epilogue must be a Write IOp");
+    static_assert(BLOCK_SIZE % 32 == 0,  "BLOCK_SIZE must be a multiple of 32");
+
+    struct Params {
+        InIOp  input;    // prologue Read/ReadBack IOp
+        OutIOp output;   // epilogue Write IOp
+        int    width;    // row length (number of columns to reduce)
+        T      identity; // ReduceOp identity for the reduction (0 for Add, -inf for Max, ...)
+    };
+
+    // Read one element of the row through the prologue IOp.
+    FK_DEVICE_FUSE T readElem(const InIOp& iop, const int x, const int row) {
+        return static_cast<T>(InIOp::Operation::exec(Point{ x, row, 0 }, iop));
+    }
+
+    static __device__ __forceinline__ void exec(const Params& p) {
+        __shared__ T scratch[BLOCK_SIZE / 32];
+
+        const int row = blockIdx.x;
+        const int tid = threadIdx.x;
+
+        // Per-thread strided fold over the row, reading through the prologue.
+        T acc = p.identity;
+        for (int x = tid; x < p.width; x += BLOCK_SIZE) {
+            acc = ReduceOp::exec(acc, readElem(p.input, x, row));
+        }
+        // Cooperative block reduction composing the same standard Op.
+        const T result = ReduceBlockDPP<ReduceOp, BLOCK_SIZE>::exec(acc, scratch, /*broadcast=*/false);
+
+        // Epilogue: thread 0 emits the single reduced value through the Write IOp.
+        if (tid == 0) {
+            OutIOp::Operation::exec(Point{ row, 0, 0 }, result, p.output.params);
+        }
+    }
+};
+
+template <typename ReduceOp, typename InIOp, typename OutIOp, typename T, int BLOCK_SIZE>
+__global__ void launchReduceDPP_Kernel(
+        const __grid_constant__ typename ReduceDPP<ReduceOp, InIOp, OutIOp, T, BLOCK_SIZE>::Params params) {
+    ReduceDPP<ReduceOp, InIOp, OutIOp, T, BLOCK_SIZE>::exec(params);
+}
+
+/* IOp-first API: input is the prologue Read IOp, output the epilogue Write
+ * IOp; one reduced value per row. ReduceOp and identity define the reduction. */
+template <typename ReduceOp, int BLOCK_SIZE = 256, typename InIOp, typename OutIOp, typename T>
+inline void executeReduce(const InIOp& input, const OutIOp& output,
+                          const int rows, const int width, const T identity,
+                          Stream_<ParArch::GPU_NVIDIA>& stream) {
+    using DPP = ReduceDPP<ReduceOp, InIOp, OutIOp, T, BLOCK_SIZE>;
+    const typename DPP::Params params{ input, output, width, identity };
+    const dim3 grid(rows, 1, 1);
+    const dim3 block(BLOCK_SIZE, 1, 1);
+    launchReduceDPP_Kernel<ReduceOp, InIOp, OutIOp, T, BLOCK_SIZE>
+        <<<grid, block, 0, stream.getCUDAStream()>>>(params);
+    gpuErrchk(cudaGetLastError());
+}
+
+#endif // defined(__NVCC__)
 
 /* Host-side reference fold over a contiguous range, parameterised by the
  * same standard FKL binary Op — the unit-test oracle, and usable anywhere a
