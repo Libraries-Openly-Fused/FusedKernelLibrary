@@ -58,9 +58,8 @@ __global__ void mmaBf16Kernel(const __nv_bfloat16* A,   // 16x16 row-major (m,k)
     b[1] = pack(&B[g * 16 + 2 * t + 8]);
 
     float d[4] = {};
-    // Through the FKL Op: bundle the per-lane fragments and accumulate.
-    MmaFragment<MmaBf16_16x8x16> frag{ a, b, d };
-    MmaBf16Op::exec(frag);
+    // Warp-collective MMA through the DPP: all 32 lanes cooperate.
+    MmaBf16WarpDPP::exec(a, b, d);
 
     D[(g)     * 8 + 2 * t]     = d[0];
     D[(g)     * 8 + 2 * t + 1] = d[1];
@@ -71,12 +70,9 @@ __global__ void mmaBf16Kernel(const __nv_bfloat16* A,   // 16x16 row-major (m,k)
 __global__ void cpAsyncKernel(const float* gsrc, float* gdst, int n4) {
     extern __shared__ float smem[];
     const int tid = threadIdx.x;
-    // Stage gmem->smem through the FKL Op (16-byte chunks via int4).
-    using Stage = fk::CpAsyncStage16Op<int4>;
-    const auto params = Stage::Params{ reinterpret_cast<int4*>(smem),
-                                       reinterpret_cast<const int4*>(gsrc) };
-    for (int i = tid; i < n4; i += blockDim.x)
-        Stage::exec(Point{ i, 0, 0 }, params);
+    // Stage gmem->smem cooperatively through the DPP (16-byte chunks via int4).
+    fk::CpAsyncStageDPP<int4, 128>::stage(reinterpret_cast<int4*>(smem),
+                                          reinterpret_cast<const int4*>(gsrc), n4);
     fk::cpAsyncCommit();
     fk::cpAsyncWaitGroups<0>();
     __syncthreads();

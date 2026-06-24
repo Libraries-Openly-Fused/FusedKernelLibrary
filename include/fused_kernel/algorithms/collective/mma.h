@@ -15,40 +15,34 @@
 #ifndef FK_COLLECTIVE_MMA_H
 #define FK_COLLECTIVE_MMA_H
 
-/* MmaOp: tensor-core matrix-multiply-accumulate as a composable FKL Op.
+/* Tensor-core MMA as a cooperative DPP.
  *
- * WHY. The attention kernel calls mma.sync inline PTX with the fragment
- * register layout open-coded at each call site (flash_attention_mma.h, and
- * the validated spikes spike_fp8_mma.cu / spike_fp8_qk_mapping.cu). This
- * header turns one MMA atom into:
- *   1. An ATOM POLICY (MmaBf16_16x8x16, MmaFp8E4M3_16x8x32) carrying the
- *      shape (M,N,K) and per-thread fragment register counts (A/B/D) as part
- *      of the TYPE, plus the raw instruction.
- *   2. MmaOp<Atom> — a standard FKL Op (Parent alias, DECLARE_*_PARENT,
- *      static exec, build()). The accumulate semantics (D += A*B) make it a
- *      ComputeType: its MmaFragment params bundle the per-lane A/B/D
- *      register arrays, so the tensor-core step is addressable BY THE
- *      OPERATION MODEL and composes in a mainloop like any other Op, instead
- *      of being inline asm scattered through a 2000-line kernel.
+ * mma.sync is a WARP-COLLECTIVE instruction: all 32 lanes of the warp execute
+ * it together, each contributing its slice of the A/B fragments and receiving
+ * its slice of the D accumulator. That is multi-thread work, so per the FKL
+ * rule it is a DPP, NOT an Op (an Op is strictly single-thread). MmaWarpDPP
+ * wraps one MMA atom; the atom policy carries the shape (M,N,K) and per-lane
+ * fragment register counts as part of the TYPE, plus the raw instruction.
  *
- * The fragment->thread mapping (which lane owns which element) stays the
- * caller's responsibility — that is the job of a future TiledMma layer — but
- * the instruction and its operand register contract are now a reusable,
- * documented unit. A/B/D_REGS are the per-lane register counts the PTX
- * contract mandates (verified against the fp64 oracle in the spikes).
+ * This replaces the inline mma.sync PTX open-coded at each call site in
+ * flash_attention_mma.h (and the validated spikes spike_fp8_mma.cu /
+ * spike_fp8_qk_mapping.cu). The per-lane fragment->thread mapping (which lane
+ * owns which element) stays the caller's responsibility for now — that is the
+ * job of a future TiledMmaDPP — but the warp-collective instruction and its
+ * operand register contract become a reusable, documented DPP. A/B/D_REGS are
+ * the per-lane register counts the PTX contract mandates (verified against the
+ * fp64 oracle in the spikes).
  *
- * DEVICE-ONLY bodies (they emit SASS); host stubs keep the type usable on
- * the CPU pass so shape constants are queryable and TUs naming the type
- * compile under g++ — the collective layer's host/device-parity discipline. */
+ * DEVICE-ONLY bodies (they emit SASS); host stubs keep the types usable on the
+ * CPU pass so shape constants are queryable and TUs naming them compile under
+ * g++ — the collective layer's host/device-parity discipline. */
 
 #include <fused_kernel/core/utils/utils.h>
-#include <fused_kernel/core/data/point.h>
-#include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <cstdint>
 
 namespace fk {
 
-/* ---- Atom policies: shape-as-type + the raw tensor-core instruction ---- */
+/* ---- Atom policies: shape-as-type + the raw warp-collective instruction ---- */
 
 /* bf16 x bf16 -> f32, m16n8k16 (Ampere+ canonical HMMA).
  * Per-lane (PTX ISA): A = 4 x .b32 (8 bf16), B = 2 x .b32 (4 bf16),
@@ -77,8 +71,8 @@ struct MmaBf16_16x8x16 {
 
 /* fp8 e4m3 x e4m3 -> f32, kind::f8f6f4 m16n8k32 (sm_120a/sm_121a feature
  * set — plain sm_120 ptxas rejects it). Per-lane: A = 4 x .b32 (16 e4m3),
- * B = 2 x .b32 (8 e4m3), C/D = 4 x .f32. Validated in spike_fp8_mma.cu
- * (mmaFp8) and spike_fp8_qk_mapping.cu. Opt-in: needs
+ * B = 2 x .b32 (8 e4m3), C/D = 4 x .f32. Validated in spike_fp8_mma.cu and
+ * spike_fp8_qk_mapping.cu. Opt-in: needs
  * -gencode arch=compute_120a,code=sm_120a + FK_ENABLE_FP8_MMA. */
 struct MmaFp8E4M3_16x8x32 {
     static constexpr int M = 16, N = 8, K = 32;
@@ -102,40 +96,35 @@ struct MmaFp8E4M3_16x8x32 {
 #endif
 };
 
-/* ---- MmaFragment: the per-lane operand register contract as params ----
- * Pointers into the caller's register/array fragments for one MMA atom.
- * D is in/out (accumulator): exec performs D += A * B. */
-template <typename Atom>
-struct MmaFragment {
-    const typename Atom::AReg* a;   // [Atom::A_REGS]
-    const typename Atom::BReg* b;   // [Atom::B_REGS]
-    typename Atom::DReg*       d;   // [Atom::D_REGS], in/out accumulator
-};
+#if defined(__NVCC__)
 
-/* ---- MmaOp: standard FKL Op wrapping one tensor-core MMA atom ----
- * ComputeType (accumulate): exec(thread, params) issues D += A*B for the
- * fragments bundled in params. Composes in a mainloop like any other Op. */
+/* MmaWarpDPP: one warp-collective MMA atom (D += A * B). Each lane passes its
+ * own A/B fragment registers and its own D accumulator slice; the 32 lanes
+ * cooperate to issue the tensor-core instruction. Multi-thread => DPP. */
 template <typename Atom>
-struct MmaOp {
+struct MmaWarpDPP {
 private:
-    using SelfType = MmaOp<Atom>;
+    using SelfType = MmaWarpDPP<Atom>;
 public:
-    FK_STATIC_STRUCT(MmaOp, SelfType)
+    FK_STATIC_STRUCT(MmaWarpDPP, SelfType)
     using AtomType = Atom;
-    using Parent = BinaryOperation<MmaFragment<Atom>, MmaFragment<Atom>, void, MmaOp<Atom>>;
-    DECLARE_BINARY_PARENT
     static constexpr int M = Atom::M, N = Atom::N, K = Atom::K;
+    static constexpr int A_REGS = Atom::A_REGS, B_REGS = Atom::B_REGS, D_REGS = Atom::D_REGS;
 
-    // ComputeType exec: accumulate one atom (D += A * B) for these fragments.
-    // (params IS the MmaFragment; the macro-generated build(ParamsType) applies.)
-    FK_HOST_DEVICE_FUSE void exec(const MmaFragment<Atom>& frag) {
-        Atom::mma(frag.a, frag.b, frag.d);
+    // Warp-collective accumulate: D[lane] += A[lane] * B[lane].
+    static __device__ __forceinline__
+    void exec(const typename Atom::AReg a[Atom::A_REGS],
+              const typename Atom::BReg b[Atom::B_REGS],
+              typename Atom::DReg d[Atom::D_REGS]) {
+        Atom::mma(a, b, d);
     }
 };
 
 /* Convenience aliases. */
-using MmaBf16Op = MmaOp<MmaBf16_16x8x16>;
-using MmaFp8E4M3Op = MmaOp<MmaFp8E4M3_16x8x32>;
+using MmaBf16WarpDPP = MmaWarpDPP<MmaBf16_16x8x16>;
+using MmaFp8E4M3WarpDPP = MmaWarpDPP<MmaFp8E4M3_16x8x32>;
+
+#endif // defined(__NVCC__)
 
 } // namespace fk
 

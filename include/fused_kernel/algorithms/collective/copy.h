@@ -15,22 +15,23 @@
 #ifndef FK_COLLECTIVE_COPY_H
 #define FK_COLLECTIVE_COPY_H
 
-/* Asynchronous global->shared staging copy as a composable FKL Op.
+/* Asynchronous global->shared staging as a cooperative DPP.
  *
  * Every tiled mainloop overlaps the next tile's load with the current tile's
- * math via a 16-byte cp.async.cg. This header exposes that as:
+ * math via 16-byte cp.async.cg. Staging a tile is multi-thread work (the whole
+ * block fills the shared buffer), so per the FKL rule it is a DPP, not an Op.
+ *
  *   1. detail:: low-level primitives (cpAsync16 / commit / wait) — the raw
  *      PTX, degrading to a synchronous 16-byte copy pre-Ampere and to memcpy
  *      on the host pass (FKL host/device parity).
- *   2. CpAsyncStage16Op — a standard FKL Op (Parent alias, DECLARE_*_PARENT,
- *      static exec, build()) that stages one 16-byte chunk gmem->smem through
- *      the operation model. The commit/wait FENCES stay the caller's /
- *      MainloopDPP's pipelining policy (how many groups in flight), exposed
- *      as thin free helpers — they are control-flow fences, not data Ops. */
+ *   2. commit / wait FENCES — pipelining policy (how many groups in flight),
+ *      exposed as thin free helpers. They order cp.async groups, they don't
+ *      move data, so they are control-flow fences the caller / MainloopDPP
+ *      drives, not Ops.
+ *   3. CpAsyncStageDPP — the cooperative DPP: the block stages N 16-byte
+ *      chunks gmem->smem across its threads. */
 
 #include <fused_kernel/core/utils/utils.h>
-#include <fused_kernel/core/data/point.h>
-#include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <cstdint>
 #include <cstring>
 
@@ -69,9 +70,8 @@ template <int N> inline void cpAsyncWaitGroups() {}
 
 } // namespace detail
 
-/* Pipelining fences — control-flow policy exposed to the caller / MainloopDPP.
- * (Not data Ops: they order cp.async groups, they don't move elements.)
- * Not constexpr (they emit asm), so plain inline qualifiers, not FK_*_FUSE. */
+/* Pipelining fences — control-flow policy for the caller / MainloopDPP.
+ * Not constexpr (they emit asm), so plain inline qualifiers. */
 #if defined(__NVCC__)
 __host__ __device__ __forceinline__ void cpAsyncCommit() { detail::cpAsyncCommit(); }
 template <int N>
@@ -81,41 +81,30 @@ inline void cpAsyncCommit() { detail::cpAsyncCommit(); }
 template <int N> inline void cpAsyncWaitGroups() { detail::cpAsyncWaitGroups<N>(); }
 #endif
 
-/* ---- CpAsyncStage16Op: stage one 16B chunk gmem->smem as an FKL Op ----
- * Params bundle the destination smem base and source gmem base; exec stages
- * the chunk at Point.x (in 16-byte units). A mainloop issues these across
- * threads, then a commit + wait fence, like PerThreadRead but landing in
- * shared memory through the async pipe. T is the 16-byte vector element.
- * Device-only (emits cp.async asm), so it does not derive the constexpr
- * ReadOperation parent; it follows the same static-struct + Params + exec +
- * build() Op shape the rest of the collective layer uses. */
-template <typename T = int4>
-struct CpAsyncStage16Op {
-private:
-    using SelfType = CpAsyncStage16Op<T>;
-public:
-    FK_STATIC_STRUCT(CpAsyncStage16Op, SelfType)
-    static_assert(sizeof(T) == 16, "CpAsyncStage16Op stages 16-byte chunks");
-
-    struct Params {
-        T*       smemDst;   // shared-memory destination base
-        const T* gmemSrc;   // global-memory source base
-    };
-
-    // Stage chunk index Point.x (16-byte granularity). The data lands in smem
-    // asynchronously. Not constexpr (emits cp.async asm).
 #if defined(__NVCC__)
-    __host__ __device__ __forceinline__
-#else
-    static inline
-#endif
-    static void exec(const Point thread, const Params& params) {
-        detail::cpAsync16(&params.smemDst[thread.x], &params.gmemSrc[thread.x]);
-    }
-    FK_HOST_FUSE Params build(T* smemDst, const T* gmemSrc) {
-        return Params{ smemDst, gmemSrc };
+
+/* CpAsyncStageDPP: cooperatively stage CHUNKS 16-byte chunks gmem->smem across
+ * the block's threads through the async pipe. The caller issues a commit + wait
+ * fence afterwards (pipelining policy). T is the 16-byte vector element. The
+ * kernel owns the shared buffer; this DPP just fills it. Multi-thread => DPP. */
+template <typename T = int4, int BLOCK_SIZE = 256>
+struct CpAsyncStageDPP {
+private:
+    using SelfType = CpAsyncStageDPP<T, BLOCK_SIZE>;
+public:
+    FK_STATIC_STRUCT(CpAsyncStageDPP, SelfType)
+    static_assert(sizeof(T) == 16, "CpAsyncStageDPP stages 16-byte chunks");
+
+    // Stage `chunks` 16-byte elements gmem->smem, strided across the block.
+    static __device__ __forceinline__
+    void stage(T* smemDst, const T* gmemSrc, const int chunks) {
+        for (int i = threadIdx.x; i < chunks; i += BLOCK_SIZE) {
+            detail::cpAsync16(&smemDst[i], &gmemSrc[i]);
+        }
     }
 };
+
+#endif // defined(__NVCC__)
 
 } // namespace fk
 
