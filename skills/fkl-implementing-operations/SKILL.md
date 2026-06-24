@@ -33,7 +33,7 @@ The elements that can change across Operation types are:
 - ElementIdx: whether the exec function gets the thread idx as input or not.
   It is used to compute DRAM or Shared Memory addresses to read from or write into.
 - InputType: whether the exec function gets an input value or not. This value resides on registers.
-- ParamsType: whether the exec function gets an any additional data that is not computed inside the kernel
+- ParamsType: whether the exec function gets any additional data that is not computed inside the kernel
   and that is needed for the execution of the operation.
 - BackIOp: whether the exec function gets an additional IOp as input, that is executed as part of the operation
   implementation.
