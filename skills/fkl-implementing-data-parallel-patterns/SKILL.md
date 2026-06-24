@@ -83,7 +83,7 @@ A more generic DPP example
 template <typename DPPDetails, typename ReadIOp, typename ComputeIOp, typename WriteIOp>
 struct MyDPP {
 private:
-    using SelfType = MyDPP<I, P, O>;
+    using SelfType = MyDPP<DPPDetails, ReadIOp, ComputeIOp, WriteIOp>;
 public:
     FK_STATIC_STRUCT(MyDPP, SelfType)  // deletes ctors: pure static
 
