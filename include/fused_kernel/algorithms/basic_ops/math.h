@@ -19,6 +19,7 @@
 #include <fused_kernel/core/utils/vector_utils.h>
 #include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 #include <fused_kernel/core/constexpr_libs/constexpr_vector_exec.h>
+#include <fused_kernel/core/data/tuple.h>
 #include <cmath>
 
 namespace fk {
@@ -122,6 +123,47 @@ namespace fk {
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             return cxp::Exec<math_detail::ExpFunc>::exec(input);
+        }
+    };
+
+    // |a - b| per channel. Binary form uses a constant; two-input Unary form
+    // takes a Tuple of two inputs (e.g. two images).
+    namespace math_detail {
+        struct AbsDiffFunc {
+            using InstanceType = BinaryType;
+            template <typename ST1, typename ST2> FK_HOST_DEVICE_FUSE auto exec(const ST1& a, const ST2& b) {
+                const auto d = a - b;
+                return d < decltype(d)(0) ? -d : d;
+            }
+        };
+    } // namespace math_detail
+
+    template <typename I1, typename I2 = I1, typename O = I1, typename IT = BinaryType>
+    struct AbsDiff;
+
+    template <typename I, typename P, typename O>
+    struct AbsDiff<I, P, O, BinaryType> {
+    private:
+        using SelfType = AbsDiff<I, P, O, BinaryType>;
+    public:
+        FK_STATIC_STRUCT(AbsDiff, SelfType)
+        using Parent = BinaryOperation<I, P, O, AbsDiff<I, P, O, BinaryType>>;
+        DECLARE_BINARY_PARENT
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params) {
+            return cxp::Exec<math_detail::AbsDiffFunc>::exec(input, params);
+        }
+    };
+
+    template <typename I1, typename I2, typename O>
+    struct AbsDiff<I1, I2, O, UnaryType> {
+    private:
+        using SelfType = AbsDiff<I1, I2, O, UnaryType>;
+    public:
+        FK_STATIC_STRUCT(AbsDiff, SelfType)
+        using Parent = UnaryOperation<Tuple<I1, I2>, O, AbsDiff<I1, I2, O, UnaryType>>;
+        DECLARE_UNARY_PARENT
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
+            return cxp::Exec<math_detail::AbsDiffFunc>::exec(get<0>(input), get<1>(input));
         }
     };
 } // namespace fk
