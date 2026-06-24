@@ -141,6 +141,6 @@ apply([](const auto&... iOps) { return BackFuser::fuse_back(iOps...); }, tup);
 ## Checklist before opening a PR
 
 - [ ] FK_STATIC_STRUCT
-- [ ] exec() is FK_HOST_DEVICE_FUSE (runs on CPU backend too)
+- [ ] CPU exec() is FK_HOST_FUSE; GPU exec() is FK_DEVICE_FUSE
 - [ ] utest instantiating every public alias/build path
 - [ ] compiles warning-clean on nvcc AND clang (CUDA 12.x and 13.x)
