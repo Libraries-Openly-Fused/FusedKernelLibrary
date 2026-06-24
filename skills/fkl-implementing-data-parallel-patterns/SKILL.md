@@ -39,7 +39,7 @@ Each DPP defines the number of output WriteOperations it requires.
 Never pass a raw pointer (T*) to device (global) memory as an input or output parameter to exec function.
 Device pointers must be passed as part of a Read/ReadBack or Write IOps.
 
-Example TransformDPP which is an special case, because it does not require any specific structure in the IOps passed as parameters.
+Example TransformDPP which is a special case, because it does not require any specific structure in the IOps passed as parameters.
 The IOps in this DPP will be executed one after the other by all the threads that have to participate.
 ```cpp
 #include <cooperative_groups.h>
