@@ -25,6 +25,53 @@ public:
     }
 };
 ```
+## Choosing the Operation type
+
+Depending on the Operation type, the exec function will have one shape or another
+
+Check all the Operation types in file: include/fused_kernel/core/execution_model/operation_model/operation_types.h
+
+Operation types are linked to the exec() function definition in the Operation. 
+The elements that can change across Operation types are:
+- OutputType (Out): whether the exec function returns a value or not, and which type it is. The value resides on registers.
+- ElementIdx (EIdx): whether the exec function gets the thread idx as input or not.
+  It is used to compute DRAM or Shared Memory addresses to read from or write into.
+- InputType (In): whether the exec function gets an input value or not. This value resides on registers.
+- ParamsType (Par): whether the exec function gets an any additional data that is not computed inside the kernel
+  and that is needed for the execution of the operation.
+- BackIOp (BIOp): whether the exec function gets an additional IOp as input, that is executed as part of the operation
+  implementation.
+ 
+An example of the exec function with all the types would be: OutputType exec(Point, InputType, ParamsType, BackIOp)
+
++------------------------+----------+----------+----------+----------+----------+
+|                        |   Out    |   EIdx   |    In    |   Par    |   BIOp   |
++------------------------+----------+----------+----------+----------+----------+
+| ReadType               |    X     |    X     |          |    X     |          |  OutputType exec(Point, ParamsType)
++------------------------+----------+----------+----------+----------+----------+
+| WriteType              |          |    X     |    X     |    X     |          |  void exec(Point, InputType, ParamsType)
++------------------------+----------+----------+----------+----------+----------+
+| UnaryType              |    X     |          |    X     |          |          |  OutputType exec(InputType)
++------------------------+----------+----------+----------+----------+----------+
+| BinaryType             |    X     |          |    X     |    X     |          |  OutputType exec(InputType, ParamsType)
++------------------------+----------+----------+----------+----------+----------+
+| ReadBackType           |    X     |    X     |          |    X     |    X     |  OutputType exec(Point, ParamsType, BackIOp)
++------------------------+----------+----------+----------+----------+----------+
+| IncompleteReadBackType |          |          |          |          |          |  no exec function present
++------------------------+----------+----------+----------+----------+----------+
+| TernaryType            |    X     |          |    X     |    X     |    X     |  OutputType exec(InputType, ParamsType, BackIOp)
++------------------------+----------+----------+----------+----------+----------+
+| IncompleteTernaryType  |          |          |          |          |          |  no exec function present
++------------------------+----------+----------+----------+----------+----------+
+| MidWriteType \*         |    X     |    X     |    X     |    X     |          |  InputType exec(Point, InputType, ParamsType)
++------------------------+----------+----------+----------+----------+----------+
+| OpenType \*\*            |    X     |    X     |    X     |    X     |          |  OutputType exec(Point, InputType, ParamsType)
++------------------------+----------+----------+----------+----------+----------+
+| ClosedType \*\*          |          |    X     |          |    X     |          |  void exec(Point, ParamsType)
++------------------------+----------+----------+----------+----------+----------+
+
+\* Applicable only to Instantiable Operations. In and Out must be the same type and value. Operation must be of WriteType.
+\*\* OpenType and ClosedType are only applicable to FusedOperations. FusedOperations can also be ReadType or WriteType.
 
 ## Choosing the parent (decision table)
 
