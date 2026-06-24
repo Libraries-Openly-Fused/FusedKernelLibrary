@@ -895,18 +895,36 @@ public:
                 mNew[0] = fmaxf(mNew[0], fmaxf(r[0], r[1]));
                 mNew[1] = fmaxf(mNew[1], fmaxf(r[2], r[3]));
             }
+            // mCand = running max merged with this tile's row max (scaled once
+            // here under RAW_SMAX so rowMax stays in the scaled log2 domain;
+            // writePartial / split combine unchanged).
+            float mCand[2];
             #pragma unroll
             for (int half = 0; half < 2; ++half) {
                 mNew[half] = fmaxf(mNew[half], __shfl_xor_sync(0xFFFFFFFFu, mNew[half], 1));
                 mNew[half] = fmaxf(mNew[half], __shfl_xor_sync(0xFFFFFFFFu, mNew[half], 2));
-                if constexpr (RAW_SMAX) {
-                    // scale the RAW row max once; rowMax stays in the scaled
-                    // log2 domain (writePartial / split combine unchanged).
-                    mNew[half] = fmaxf(mNew[half] * scl, rowMax[mq][half]);
-                } else {
-                    mNew[half] = fmaxf(mNew[half], rowMax[mq][half]);
-                }
+                const float mTile = RAW_SMAX ? mNew[half] * scl : mNew[half];
+                mCand[half] = fmaxf(mTile, rowMax[mq][half]);
             }
+
+            // FA4 §3.1.4 CONDITIONAL RESCALE (threshold τ). Standard online
+            // softmax bumps the running max every tile and rescales oAcc by
+            // exp(mOld - mCand). FA4's insight: if the max grows by ≤ τ, KEEP
+            // the old max — exp(score - mOld) then stays bounded by 2^τ (=256
+            // at τ=8), no overflow, and the result is exact after the final
+            // /rowSum normalization. This skips the rescale FMULs on far more
+            // tiles than the exact-equality test it replaces, and anchors exp
+            // arguments to a stable max across long KV runs. τ lives in the
+            // active exp domain so the 256 bound holds in both: log2 → 8.0,
+            // natural → ln(256). The compare is uniform within each lane quad
+            // (rows shared across laneId%4 after the shfl), so the branch is
+            // predicated, not divergent. mOld == mCand == -FLT_MAX (fully dead
+            // row) yields Δ==0 ≤ τ -> keep -FLT_MAX, corr==EXP(0)==1, skip —
+            // identical to the previous sentinel behavior.
+            constexpr float TAU = LOG2D ? 8.0f : 5.5451774f;  // log2(256) / ln(256)
+            float mUsed[2];
+            mUsed[0] = (mCand[0] - rowMax[mq][0] > TAU) ? mCand[0] : rowMax[mq][0];
+            mUsed[1] = (mCand[1] - rowMax[mq][1] > TAU) ? mCand[1] : rowMax[mq][1];
 
             // domain-aware exp: scores are in log2 domain when LOG2D
             const auto EXP = [](const float x) {
@@ -914,15 +932,9 @@ public:
                              : attention_mma_detail::fastExp(x);
             };
             float corr[2];
-            corr[0] = EXP(rowMax[mq][0] - mNew[0]);
-            corr[1] = EXP(rowMax[mq][1] - mNew[1]);
-            // FA4-style rescale skip: at long seq most KV tiles do NOT move
-            // the running max (rowMax == mNew -> corr == 1), so the
-            // HEAD_DIM/MMA_N*4 FMULs over oAcc are identity work. The
-            // condition is uniform within each lane quad (rows are shared
-            // across laneId%4 after the shfl reduction), so divergence cost
-            // is one predicated branch.
-            if (rowMax[mq][0] != mNew[0] || rowMax[mq][1] != mNew[1]) {
+            corr[0] = EXP(rowMax[mq][0] - mUsed[0]);
+            corr[1] = EXP(rowMax[mq][1] - mUsed[1]);
+            if (rowMax[mq][0] != mUsed[0] || rowMax[mq][1] != mUsed[1]) {
                 #pragma unroll
                 for (int md = 0; md < HEAD_DIM / MMA_N; ++md) {
                     oAcc[mq][md][0] *= corr[0];
@@ -931,8 +943,12 @@ public:
                     oAcc[mq][md][3] *= corr[1];
                 }
             }
-            rowMax[mq][0] = mNew[0];
-            rowMax[mq][1] = mNew[1];
+            rowMax[mq][0] = mUsed[0];
+            rowMax[mq][1] = mUsed[1];
+            // exp below references mNew as the subtracted max; make it the
+            // chosen (scaled) running max so e = ex2(fma(r, scl, -mUsed)).
+            mNew[0] = mUsed[0];
+            mNew[1] = mUsed[1];
 
             float lNew[2] = {};
             #pragma unroll
