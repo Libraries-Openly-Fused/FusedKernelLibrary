@@ -25,18 +25,42 @@ public:
     }
 };
 ```
+## Choosing the Operation type
 
-## Choosing the parent (decision table)
+Operation types are linked to the exec() function definition in the Operation. 
+The elements that can change across Operation types are:
+- OutputType: whether the exec function returns a value or not, and which type it is. The value resides on registers.
+- ElementIdx: whether the exec function gets the thread idx as input or not.
+  It is used to compute DRAM or Shared Memory addresses to read from or write into.
+- InputType: whether the exec function gets an input value or not. This value resides on registers.
+- ParamsType: whether the exec function gets any additional data that is not computed inside the kernel
+  and that is needed for the execution of the operation.
+- BackIOp: whether the exec function gets an additional IOp as input, that is executed as part of the operation
+  implementation.
+ 
+An example of the exec function with all the types would be: OutputType exec(Point, InputType, ParamsType, BackIOp)
 
-| parent | input | extra | examples |
-|---|---|---|---|
-| `UnaryOperation<I, O, Self>` | value | — | Cast, VectorReorder, RGB2Gray |
-| `BinaryOperation<I, P, O, Self>` | value | params | Mul, Add, Saturate |
-| `TernaryOperation<I, P, B, O, Self>` | value | params + backIOp | Interpolate |
-| `ReadOperation<RDT, P, O, TF, Self>` | thread coords | params | PerThreadRead, ReadSet |
-| `WriteOperation<I, P, WDT, TF, Self>` | value+coords | params | TensorWrite, TensorSplit |
-| `ReadBackOperation<...>` | thread coords | params + backIOp | Crop/Resize (complete) |
-| `IncompleteReadBackOperation<...>` | — | params, backIOp later | Crop<NullType> pre-fusion |
+| Operation Type | OutputType | ElementIdx | InputType | ParamsType | BackIOp | exec function |
+|---|---|---|---|---|---|---|
+| ReadType | X | X |   | X |  | OutputType exec(Point, ParamsType) |
+| WriteType |  | X | X | X |  | void exec(Point, InputType, ParamsType) |
+| UnaryType              |    X     |          |    X     |          |          |  OutputType exec(InputType) |
+| BinaryType             |    X     |          |    X     |    X     |          |  OutputType exec(InputType, ParamsType) |
+| ReadBackType           |    X     |    X     |          |    X     |    X     |  OutputType exec(Point, ParamsType, BackIOp) |
+| IncompleteReadBackType |          |          |          |          |          |  no exec function present |
+| TernaryType            |    X     |          |    X     |    X     |    X     |  OutputType exec(InputType, ParamsType, BackIOp) |
+| IncompleteTernaryType  |          |          |          |          |          |  no exec function present |
+| MidWriteType \*        |    X     |    X     |    X     |    X     |          |  InputType exec(Point, InputType, ParamsType) |
+| OpenType \*\*          |    X     |    X     |    X     |    X     |          |  OutputType exec(Point, InputType, ParamsType) |
+| ClosedType \*\*        |          |    X     |          |    X     |          |  void exec(Point, ParamsType) |
+
+\* Applicable only to Instantiable Operations. In and Out must be the same type and value. Operation must be of WriteType.
+
+\*\* OpenType and ClosedType are only applicable to FusedOperations. FusedOperations can also be ReadType or WriteType.
+
+## Choosing the parent
+
+Each OperationType has its associated parent type. You can find them in the file include/fused_kernel/core/execution_model/operation_model/parent_operations.h
 
 Notes:
 - Unary ops carry NO runtime params: everything is in the types. They are

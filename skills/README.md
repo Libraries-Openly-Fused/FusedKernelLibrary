@@ -10,7 +10,8 @@ knowledge, and humans can read them as focused docs.
 |---|---|
 | [`fkl-using-the-library`](fkl-using-the-library/SKILL.md) | writing user code: pipelines, executeOperations, streams, data structures |
 | [`fkl-fusion-techniques`](fkl-fusion-techniques/SKILL.md) | choosing/combining Vertical, Backwards Vertical, Horizontal and Divergent Horizontal Fusion |
-| [`fkl-implementing-operations`](fkl-implementing-operations/SKILL.md) | adding a new Operation struct (Unary/Binary/Read/Write/ReadBack) |
+| [`fkl-implementing-data-parallel-patterns`](fkl-implementing-data-parallel-patterns/SKILL.md) | adding a new DPP struct |
+| [`fkl-implementing-operations`](fkl-implementing-operations/SKILL.md) | adding a new Operation struct (Unary/Binary/Read/Write/ReadBack/IncompleteReadBack/Ternary/IncompleteTernary/MidWrite/Open/Closed) |
 | [`fkl-data-structures`](fkl-data-structures/SKILL.md) | Ptr2D/Tensor/TensorT/RawPtr, constructors, layouts, external memory |
 | [`fkl-build-and-test`](fkl-build-and-test/SKILL.md) | building the repo, running/adding utests, CI expectations |
 | [`fkl-language-bindings`](fkl-language-bindings/SKILL.md) | wrapping FKL from another language (Python etc.): JIT strategy, ABI, caching |
