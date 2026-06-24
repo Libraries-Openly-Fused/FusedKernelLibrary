@@ -234,55 +234,82 @@ private:
  *   OutIOp  instantiable Write IOp (the epilogue); receives one value per row
  *   ReduceOp standard FKL binary Op, invoked as ReduceOp::exec(a, b)
  */
-#if defined(__NVCC__)
 
-template <typename ReduceOp, typename InIOp, typename OutIOp, typename T, int BLOCK_SIZE = 256>
-struct ReduceDPP {
+/* DPP details: external (non-data) parameters only — no IOps, no raw
+ * pointers. Per the FKL DPP contract, data is reached exclusively through the
+ * Read/Write IOps passed to exec(); Details carries just the scalars. */
+template <typename T>
+struct ReduceDPPDetails {
+    int width;       // row length (number of columns to reduce)
+    int rows;        // number of rows (grid.x)
+    T   identity;    // ReduceOp identity (0 for Add, -inf for Max, ...)
+};
+
+template <enum ParArch PA, typename ReduceOp, int BLOCK_SIZE = 256>
+struct ReduceDPP;
+
+#if defined(__NVCC__)
+template <typename ReduceOp, int BLOCK_SIZE>
+struct ReduceDPP<ParArch::GPU_NVIDIA, ReduceOp, BLOCK_SIZE> {
 private:
-    using SelfType = ReduceDPP<ReduceOp, InIOp, OutIOp, T, BLOCK_SIZE>;
+    using SelfType = ReduceDPP<ParArch::GPU_NVIDIA, ReduceOp, BLOCK_SIZE>;
 public:
     FK_STATIC_STRUCT(ReduceDPP, SelfType)
-    static_assert(isAnyReadType<InIOp>,  "ReduceDPP prologue must be a Read or ReadBack IOp");
-    static_assert(isAnyWriteType<OutIOp>, "ReduceDPP epilogue must be a Write IOp");
-    static_assert(BLOCK_SIZE % 32 == 0,  "BLOCK_SIZE must be a multiple of 32");
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
+    static_assert(BLOCK_SIZE % 32 == 0, "BLOCK_SIZE must be a multiple of 32");
 
-    struct Params {
-        InIOp  input;    // prologue Read/ReadBack IOp
-        OutIOp output;   // epilogue Write IOp
-        int    width;    // row length (number of columns to reduce)
-        T      identity; // ReduceOp identity for the reduction (0 for Add, -inf for Max, ...)
-    };
-
-    // Read one element of the row through the prologue IOp.
-    FK_DEVICE_FUSE T readElem(const InIOp& iop, const int x, const int row) {
-        return static_cast<T>(InIOp::Operation::exec(Point{ x, row, 0 }, iop));
-    }
-
-    static __device__ __forceinline__ void exec(const Params& p) {
+    /* exec(details, readIOp, writeIOp): data is reached only through the IOps;
+     * details holds the external scalars. One reduced value per row. */
+    template <typename InIOp, typename OutIOp, typename T>
+    static __device__ __forceinline__
+    void exec(const ReduceDPPDetails<T>& details, const InIOp& input, const OutIOp& output) {
+        static_assert(isAnyReadType<InIOp>,  "ReduceDPP read IOp must be a Read/ReadBack IOp");
+        static_assert(isAnyWriteType<OutIOp>, "ReduceDPP write IOp must be a Write IOp");
         __shared__ T scratch[BLOCK_SIZE / 32];
 
         const int row = blockIdx.x;
         const int tid = threadIdx.x;
 
-        // Per-thread strided fold over the row, reading through the prologue.
-        T acc = p.identity;
-        for (int x = tid; x < p.width; x += BLOCK_SIZE) {
-            acc = ReduceOp::exec(acc, readElem(p.input, x, row));
+        T acc = details.identity;
+        for (int x = tid; x < details.width; x += BLOCK_SIZE) {
+            acc = ReduceOp::exec(acc, static_cast<T>(InIOp::Operation::exec(Point{ x, row, 0 }, input)));
         }
-        // Cooperative block reduction composing the same standard Op.
         const T result = ReduceBlockDPP<ReduceOp, BLOCK_SIZE>::exec(acc, scratch, /*broadcast=*/false);
-
-        // Epilogue: thread 0 emits the single reduced value through the Write IOp.
         if (tid == 0) {
-            OutIOp::Operation::exec(Point{ row, 0, 0 }, result, p.output.params);
+            OutIOp::Operation::exec(Point{ row, 0, 0 }, result, output.params);
+        }
+    }
+};
+#endif // defined(__NVCC__)
+
+/* Single-thread CPU implementation (mandatory per the DPP contract). */
+template <typename ReduceOp, int BLOCK_SIZE>
+struct ReduceDPP<ParArch::CPU, ReduceOp, BLOCK_SIZE> {
+private:
+    using SelfType = ReduceDPP<ParArch::CPU, ReduceOp, BLOCK_SIZE>;
+public:
+    FK_STATIC_STRUCT(ReduceDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::CPU;
+
+    template <typename InIOp, typename OutIOp, typename T>
+    static inline void exec(const ReduceDPPDetails<T>& details, const InIOp& input, const OutIOp& output) {
+        for (int row = 0; row < details.rows; ++row) {
+            T acc = details.identity;
+            for (int x = 0; x < details.width; ++x) {
+                acc = ReduceOp::exec(acc, static_cast<T>(InIOp::Operation::exec(Point{ x, row, 0 }, input)));
+            }
+            OutIOp::Operation::exec(Point{ row, 0, 0 }, acc, output.params);
         }
     }
 };
 
-template <typename ReduceOp, typename InIOp, typename OutIOp, typename T, int BLOCK_SIZE>
-__global__ void launchReduceDPP_Kernel(
-        const __grid_constant__ typename ReduceDPP<ReduceOp, InIOp, OutIOp, T, BLOCK_SIZE>::Params params) {
-    ReduceDPP<ReduceOp, InIOp, OutIOp, T, BLOCK_SIZE>::exec(params);
+#if defined(__NVCC__)
+
+template <typename ReduceOp, int BLOCK_SIZE, typename InIOp, typename OutIOp, typename T>
+__global__ void launchReduceDPP_Kernel(const __grid_constant__ ReduceDPPDetails<T> details,
+                                       const __grid_constant__ InIOp input,
+                                       const __grid_constant__ OutIOp output) {
+    ReduceDPP<ParArch::GPU_NVIDIA, ReduceOp, BLOCK_SIZE>::exec(details, input, output);
 }
 
 /* IOp-first API: input is the prologue Read IOp, output the epilogue Write
@@ -291,12 +318,11 @@ template <typename ReduceOp, int BLOCK_SIZE = 256, typename InIOp, typename OutI
 inline void executeReduce(const InIOp& input, const OutIOp& output,
                           const int rows, const int width, const T identity,
                           Stream_<ParArch::GPU_NVIDIA>& stream) {
-    using DPP = ReduceDPP<ReduceOp, InIOp, OutIOp, T, BLOCK_SIZE>;
-    const typename DPP::Params params{ input, output, width, identity };
+    const ReduceDPPDetails<T> details{ width, rows, identity };
     const dim3 grid(rows, 1, 1);
     const dim3 block(BLOCK_SIZE, 1, 1);
-    launchReduceDPP_Kernel<ReduceOp, InIOp, OutIOp, T, BLOCK_SIZE>
-        <<<grid, block, 0, stream.getCUDAStream()>>>(params);
+    launchReduceDPP_Kernel<ReduceOp, BLOCK_SIZE, InIOp, OutIOp, T>
+        <<<grid, block, 0, stream.getCUDAStream()>>>(details, input, output);
     gpuErrchk(cudaGetLastError());
 }
 
