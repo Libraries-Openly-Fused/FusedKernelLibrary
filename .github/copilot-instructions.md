@@ -50,7 +50,7 @@ FusedKernelLibrary/
 - **CMake ≥ 3.28** (CI uses cmake 4.3.3 custom install)
 - **C++17** standard required (enforced via `CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO`)
 - **CUDA 12.x or 13.x** 
-- **Host compilers**: ``g++-13` (ARM64),g++-15` (x86_64), `clang++-21`, `cl` (MSVC 14.44, MSVC 14.51), `clang-cl`
+- **Host compilers**: ``g++-13` (ARM64, x86_64 for cuda 12.9),g++-15` (x86_64), `clang++-21`, `cl` (MSVC 14.44, MSVC 14.51), `clang-cl`
 - Only **nvcc** is supported as the CUDA compiler 
 - **Ninja** generator is used in CI; Visual Studio generator also works on Windows
 

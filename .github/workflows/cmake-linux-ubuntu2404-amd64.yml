@@ -1,4 +1,4 @@
-name: CMake on Linux (x86_64)
+name: CMake on Linux (x86_64) Ubuntu 24.04
 
 on:
   #push:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: [self-hosted, linux, x64]
+    runs-on: [self-hosted, linux, x64,ubuntu2404]
 
     strategy:
       # Set fail-fast to false to ensure that feedback is delivered for all matrix combinations.
@@ -16,11 +16,12 @@ jobs:
       fail-fast: false
 
       matrix: #host,cuda,cuda_toolkit
-        include:        
-          - host_compiler: "g++-15"
-            cuda_toolkit: "13.3"                
+        include:
+          - host_compiler: "g++-13"
+            cuda_toolkit: "12.9"             
           - host_compiler: "clang++-21"
-            cuda_toolkit: "13.3"
+            cuda_toolkit: "12.9"
+ 
 
 
     steps:
