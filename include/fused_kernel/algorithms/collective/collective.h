@@ -17,7 +17,11 @@
 
 /* Cooperative (cross-thread) building blocks for tiled / compute-bound
  * algorithms: warp- and block-level reductions parameterised by an
- * associative combine functor, in the FKL composition style. */
+ * associative combine functor, and statically-shaped Tile views with
+ * composable layout/swizzle policies — all in the FKL composition style. */
 #include <fused_kernel/algorithms/collective/reduce.h>
+#include <fused_kernel/algorithms/collective/tile.h>
+#include <fused_kernel/algorithms/collective/mma.h>
+#include <fused_kernel/algorithms/collective/copy.h>
 
 #endif // FK_COLLECTIVE
