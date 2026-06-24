@@ -7,10 +7,10 @@ description: Implement a new Data Parallel Pattern (DPP) for the Fused Kernel Li
 
 ## Anatomy of a DPP
 
-A DPP is comprised by three parts:
+A DPP is composed of three parts:
 
 - Executor implementation: as in include/fused_kernel/core/execution_model/executors.h
-- In the case of GPU implementations a kernel function that gets the DPP parameters and internally calls the DPP, for CPU nothing.
+- For GPU implementations, a kernel function that gets the DPP parameters and internally calls the DPP (for CPU, nothing).
 - The DPP implementation.
 
 Every DPP must always have a single thread CPU implementation using the ParArch::CPU and then it can have implementations
