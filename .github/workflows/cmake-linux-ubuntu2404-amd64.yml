@@ -1,4 +1,4 @@
-name: CMake on Linux (x86_64)
+name: CMake on Linux (x86_64) Ubuntu 24.04
 
 on:
   #push:
