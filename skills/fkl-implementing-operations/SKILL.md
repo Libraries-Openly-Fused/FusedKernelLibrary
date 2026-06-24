@@ -60,7 +60,7 @@ An example of the exec function with all the types would be: OutputType exec(Poi
 
 ## Choosing the parent
 
-Each OperationType has it's associated parent type. You can find them in the file include/fused_kernel/core/execution_model/operation_model/parent_operations.h
+Each OperationType has its associated parent type. You can find them in the file include/fused_kernel/core/execution_model/operation_model/parent_operations.h
 
 Notes:
 - Unary ops carry NO runtime params: everything is in the types. They are
