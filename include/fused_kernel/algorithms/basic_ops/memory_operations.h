@@ -575,6 +575,58 @@ namespace fk {
         }
     };
 
+    // Reads two sources at the same Point and returns a Tuple<T, T>, intended to
+    // feed the two-input Unary form of binary operators (Add/Sub/Mul/Div, BwAnd/
+    // BwOr/BwXor). This enables image-by-image element-wise operations as a single
+    // fused kernel. Thread fusion is disabled to keep the dual-pointer read simple.
+    template <ND D, typename T>
+    struct DualSourceReadParams {
+        RawPtr<D, T> src1;
+        RawPtr<D, T> src2;
+    };
+
+    template <ND D, typename T>
+    struct DualSourceRead {
+    private:
+        using Parent = ReadOperation<T, DualSourceReadParams<D, T>, Tuple<T, T>,
+                                     TF::DISABLED, DualSourceRead<D, T>>;
+        using SelfType = DualSourceRead<D, T>;
+    public:
+        FK_STATIC_STRUCT(DualSourceRead, SelfType)
+        DECLARE_READ_PARENT
+        FK_HOST_DEVICE_FUSE auto exec(const Point thread, const ParamsType& params) -> Tuple<T, T> {
+            const T a = *PtrAccessor<D>::template cr_point<T, T>(thread, params.src1);
+            const T b = *PtrAccessor<D>::template cr_point<T, T>(thread, params.src2);
+            return { a, b };
+        }
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
+            return opData.params.src1.dims.width;
+        }
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
+            if constexpr (D == ND::_1D) {
+                return 1;
+            } else {
+                return opData.params.src1.dims.height;
+            }
+        }
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
+            if constexpr (D == ND::_1D || D == ND::_2D) {
+                return 1;
+            } else {
+                return opData.params.src1.dims.planes;
+            }
+        }
+        FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {
+            return opData.params.src1.dims.pitch;
+        }
+        FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
+            return { num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) };
+        }
+        FK_HOST_FUSE InstantiableType build(const Ptr<D, T>& src1, const Ptr<D, T>& src2) {
+            return { { DualSourceReadParams<D, T>{ src1.ptr(), src2.ptr() } } };
+        }
+    };
+
 } //namespace fk
 
 #endif // FK_MEMORY_OPERATIONS
