@@ -100,7 +100,7 @@ public:
 		// more than one reduction in parallel, reading the data once, we can pass a nested fk::Tuple: fk::Tuple<fk::Tuple<Pow, Max>, fk::Tuple<Add, Add>>
         
 		// In here goes the code that computes the thread index for each thread, decides which threads have to operate on the IOps,
-		// synchronices the threads if necessary, uses shared memory if necessary, iterates etc...
+		// synchronizes the threads if necessary, uses shared memory if necessary, iterates etc...
     }
 };
 ```
