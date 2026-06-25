@@ -25,5 +25,6 @@
 #include <fused_kernel/algorithms/collective/copy.h>
 #include <fused_kernel/algorithms/collective/mainloop.h>
 #include <fused_kernel/algorithms/collective/epilogue.h>
+#include <fused_kernel/algorithms/collective/register_tile.h>
 
 #endif // FK_COLLECTIVE
