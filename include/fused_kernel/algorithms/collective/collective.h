@@ -24,5 +24,6 @@
 #include <fused_kernel/algorithms/collective/mma.h>
 #include <fused_kernel/algorithms/collective/copy.h>
 #include <fused_kernel/algorithms/collective/mainloop.h>
+#include <fused_kernel/algorithms/collective/epilogue.h>
 
 #endif // FK_COLLECTIVE
