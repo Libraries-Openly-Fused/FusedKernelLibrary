@@ -131,8 +131,7 @@ with `Stream_<ParArch::CPU>`. Useful for tests without a GPU.
    the RawPtr for kernels; don't free the underlying memory manually.
 3. Resize with aspect-ratio preservation needs a background value.
 4. An array-built ReadBack (e.g. `Crop<>::build(std::array<Rect,N>)`)
-   produces a BatchRead; fuse it with the read explicitly via
-   `fuse(readIOp, cropIOp)` if you hit `no operator|` errors at
-   data_parallel_patterns.h.
-5. CUDA 13.x deprecation warnings about long4/double4 are noise; only
+   produces a BatchRead; It should be fused with the previous Read or Readback in the executeOperations function
+   before passing the IOps to the kernel/DPP.
+6. CUDA 13.x deprecation warnings about long4/double4 are noise; only
    grep compiler output for "error".
