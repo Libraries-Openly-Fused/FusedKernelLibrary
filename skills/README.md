@@ -8,6 +8,7 @@ knowledge, and humans can read them as focused docs.
 
 | skill | use it when |
 |---|---|
+| [`fkl-architecture-overview`](fkl-architecture-overview/SKILL.md) | a 60-second filter: classifying new work as an Operation, DPP, policy, or fused IOp before reaching for the deeper skills |
 | [`fkl-using-the-library`](fkl-using-the-library/SKILL.md) | writing user code: pipelines, executeOperations, streams, data structures |
 | [`fkl-fusion-techniques`](fkl-fusion-techniques/SKILL.md) | choosing/combining Vertical, Backwards Vertical, Horizontal and Divergent Horizontal Fusion |
 | [`fkl-implementing-data-parallel-patterns`](fkl-implementing-data-parallel-patterns/SKILL.md) | adding a new DPP struct |
