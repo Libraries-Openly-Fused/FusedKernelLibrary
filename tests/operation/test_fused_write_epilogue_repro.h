@@ -12,37 +12,25 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
-/* Reproducer for the compute->write fused-IOp instantiation bug discussed in
- * PR #287 (review r3473806517) and reported at r3473913994.
+/* Regression test for the compute->write fused-IOp path (PR #287, review
+ * r3473806517 / fix r3473994080).
  *
- * Building a fused write IOp by chaining a COMPUTE op onto a Write IOp — the
- * `epilogue.then(D)` shape @morousg asked DPP epilogues to use — fails to
- * instantiate. Both of these:
+ * Chaining a COMPUTE op onto a Write IOp — the `epilogue.then(D)` shape DPP
+ * epilogues use — must both COMPOSE into a write-type IOp and INSTANTIATE its
+ * exec(). This previously failed to compile in the WriteType (and ClosedType)
+ * FusedOperation_ specialisations:
  *
- *     auto w = Cast<float,float>::build().then(PerThreadWrite<ND::_2D,float>::build(d));
- *     auto w = fuse(Add<float>::build(5.f), PerThreadWrite<ND::_2D,float>::build(d));
+ *     fused_operation.h: LastType_t<typename ParamsType::Operations>::Operation
+ *     -> error: name followed by "::" must be a class or namespace name
  *
- * trip, in the WriteType FusedOperation_ specialisation
- * (include/.../operation_model/fused_operation.h):
- *
- *     error: name followed by "::" must be a class or namespace name
- *         LastType_t<typename ParamsType::Operations>::Operation::exec(...)
- *
- * `ParamsType` is `OperationTuple<IOps...>`; the line reaches for
- * `ParamsType::Operations` instead of the enclosing FusedOperation_'s own
- * `using Operations = TypeList<IOps...>`. Composition succeeds
- * (isAnyWriteType<decltype(w)> == true); only instantiating its exec() breaks.
- *
- * This test is COMPILE-CLEAN by default so CI stays green: the offending
- * instantiation is guarded behind FKL_REPRO_287. To reproduce the failure,
- * configure/build this single target with -DFKL_REPRO_287, e.g.:
- *
- *     nvcc -std=c++17 -I include -DFKL_REPRO_287 \
- *          tests/operation/test_fused_write_epilogue_repro.h ...
- *
- * When the core is fixed, drop the guard (make the fused-write path the
- * default) and this becomes a positive regression test: epilogue.then(D)
- * applied to a value then stored, checked against a CPU oracle. */
+ * Root cause: `LastType_t` takes a parameter PACK, but those two specialisations
+ * passed `ParamsType::Operations` (a single TypeList) instead of the `IOps...`
+ * pack, so LastType_t collapsed to the TypeList itself (which has no
+ * ::Operation). Fixed by using the pack form `LastType_t<IOps...>` (matching the
+ * Unary specialisation). This test exercises both:
+ *   - identity epilogue:  Cast<float,float>().then(D)
+ *   - scale+bias chain:    Mul(2).then(Add(0.5)).then(D)
+ * and checks the stored result against a CPU oracle. */
 
 #define __ONLY_CU__
 #include <tests/main.h>
@@ -54,50 +42,48 @@
 
 #include <cstdio>
 #include <vector>
+#include <cmath>
 
 using namespace fk;
 
-#if defined(FKL_REPRO_287)
-// Invoke the fused compute->write IOp the way a DPP epilogue would. With the
-// current core this fails to compile at fused_operation.h:200 when the kernel
-// (and thus exec_helper) is instantiated.
+// Invoke the fused compute->write IOp the way a DPP epilogue would: pass the
+// whole fused IOp (epilogue.then(D)) and call its Operation::exec(thread, value, iop).
 template <typename FusedW>
-__global__ void reproKernel(FusedW out, int W) {
+__global__ void epilogueWriteKernel(FusedW out, int W, float val) {
     const int x = threadIdx.x;
-    if (x < W) FusedW::Operation::exec(Point{ x, 0, 0 }, 10.0f, out);
+    if (x < W) FusedW::Operation::exec(Point{ x, 0, 0 }, val, out);
 }
-#endif
 
-int launch() {
-    Ptr2D<float> d(8, 1);
+template <typename Epi>
+static bool runCase(const char* name, const Epi& epilogue, float in, float expected) {
+    constexpr int W = 8;
+    Ptr2D<float> d(W, 1);
+    const auto output = epilogue.then(PerThreadWrite<ND::_2D, float>::build(d));
+    static_assert(isAnyWriteType<decltype(output)>,
+                  "epilogue.then(D) must compose into a write-type IOp");
 
-    // Composition itself is fine: the result IS a write-type IOp.
-    const auto epilogueThenD =
-        Cast<float, float>::build().then(PerThreadWrite<ND::_2D, float>::build(d));
-    static_assert(isAnyWriteType<decltype(epilogueThenD)>,
-                  "epilogue.then(D) should compose into a write-type IOp");
-
-#if defined(FKL_REPRO_287)
-    // --- bug path (only with -DFKL_REPRO_287) -----------------------------
-    // Instantiating the fused write's exec() trips fused_operation.h:200.
     Stream_<ParArch::GPU_NVIDIA> stream;
-    reproKernel<<<1, 8, 0, stream.getCUDAStream()>>>(epilogueThenD, 8);
+    epilogueWriteKernel<<<1, W, 0, stream.getCUDAStream()>>>(output, W, in);
     gpuErrchk(cudaGetLastError());
     stream.sync();
-    std::vector<float> h(8);
-    cudaMemcpy2D(h.data(), 8 * sizeof(float), d.ptr().data, d.ptr().dims.pitch,
-                 8 * sizeof(float), 1, cudaMemcpyDeviceToHost);
-    // identity epilogue: stored value should equal the input (10.0).
-    for (int i = 0; i < 8; ++i)
-        if (h[i] != 10.0f) { printf("FAIL repro287: out[%d]=%.1f expected 10\n", i, h[i]); return -1; }
-    printf("fused epilogue.then(D) write: PASS (core bug fixed)\n");
-    return 0;
-#else
-    // Default: CI-green. Composition compiled; the exec() instantiation that
-    // triggers the bug is gated out. Build with -DFKL_REPRO_287 to reproduce.
-    (void)epilogueThenD;
-    printf("test_fused_write_epilogue_repro: composition OK; "
-           "exec() instantiation gated behind FKL_REPRO_287 (see #287)\n");
-    return 0;
-#endif
+
+    std::vector<float> h(W);
+    cudaMemcpy2D(h.data(), W * sizeof(float), d.ptr().data, d.ptr().dims.pitch,
+                 W * sizeof(float), 1, cudaMemcpyDeviceToHost);
+    for (int i = 0; i < W; ++i)
+        if (std::abs(h[i] - expected) > 1e-5f) {
+            printf("FAIL %s: out[%d]=%.4f expected %.4f\n", name, i, h[i], expected);
+            return false;
+        }
+    printf("fused epilogue.then(D) %-12s: PASS (in=%.1f -> %.4f)\n", name, in, expected);
+    return true;
+}
+
+int launch() {
+    bool ok = true;
+    // identity epilogue: Cast<float,float> pass-through, fused with the write.
+    ok &= runCase("identity",   Cast<float, float>::build(),                              10.0f, 10.0f);
+    // scale+bias IOp chain: (v*2) then (+0.5), fused with the write.
+    ok &= runCase("scale+bias", Mul<float>::build(2.f).then(Add<float>::build(0.5f)),     10.0f, 20.5f);
+    return ok ? 0 : -1;
 }
