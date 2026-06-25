@@ -9,6 +9,7 @@ knowledge, and humans can read them as focused docs.
 | skill | use it when |
 |---|---|
 | [`fkl-using-the-library`](fkl-using-the-library/SKILL.md) | writing user code: pipelines, executeOperations, streams, data structures |
+| [`fkl-using-operations`](fkl-using-operations/SKILL.md) | invoking/composing IOps from the consumer side: per-type exec() call sites, fusing a compute chain with a write (`epilogue.then(D)`), invoking a fused write inside a DPP |
 | [`fkl-fusion-techniques`](fkl-fusion-techniques/SKILL.md) | choosing/combining Vertical, Backwards Vertical, Horizontal and Divergent Horizontal Fusion |
 | [`fkl-implementing-data-parallel-patterns`](fkl-implementing-data-parallel-patterns/SKILL.md) | adding a new DPP struct |
 | [`fkl-implementing-operations`](fkl-implementing-operations/SKILL.md) | adding a new Operation struct (Unary/Binary/Read/Write/ReadBack/IncompleteReadBack/Ternary/IncompleteTernary/MidWrite/Open/Closed) |
