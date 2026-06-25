@@ -19,16 +19,13 @@ jobs:
         include:
           - host_compiler: "g++-13"
             cuda_toolkit: "12.9"
-            cuda_ldpath: "cuda-12.9"
           - host_compiler: "clang++-21"
-            cuda_toolkit: "12.9"
-            cuda_ldpath: "cuda-12.9"
+            cuda_toolkit: "12.9"            
           - host_compiler: "g++-13"
             cuda_toolkit: "13.3"
-            cuda_ldpath: "cuda-13.3" 
           - host_compiler: "clang++-21"
             cuda_toolkit: "13.3"  
-            cuda_ldpath: "cuda-13.3" 
+
  
     steps:
       - uses: actions/checkout@v6
@@ -40,12 +37,10 @@ jobs:
           echo "PATH=$HOME/cmake-4.3.3-linux-aarch64/bin/:$PATH" >> "$GITHUB_ENV"
           echo "CUDACXX=/usr/local/cuda-${{matrix.cuda_toolkit}}/bin/nvcc" >> "$GITHUB_ENV"
           echo "CC=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
-          echo "CXX=${{matrix.host_compiler}}" >> "$GITHUB_ENV"          
-          echo "LD_LIBRARY_PATH=/usr/local/${{matrix.cuda_ldpath}}:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+          echo "CXX=${{matrix.host_compiler}}" >> "$GITHUB_ENV"                    
           
       - name: Configure CMake
         run: |
-
           cmake -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
 
       - name: Build
