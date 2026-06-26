@@ -18,11 +18,7 @@ jobs:
       matrix: #host,cuda,cuda_toolkit
         include:
           - host_compiler: "g++-13"
-            cuda_toolkit: "12.9"
-          - host_compiler: "g++-13"
             cuda_toolkit: "13.3"                
-          - host_compiler: "clang++-21"
-            cuda_toolkit: "12.9"
           - host_compiler: "clang++-21"
             cuda_toolkit: "13.3"
 
