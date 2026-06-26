@@ -4,6 +4,14 @@ function(set_default_cuda_target_properties TARGET_NAME)
     endif()
     target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${COMPILER_CUDA_FLAGS}>)
     
+    if (NOT CMAKE_CUDA_COMPILER_ID STREQUAL "NVIDIA")
+        message(FATAL_ERROR "Only NVCC is supported as the CUDA compiler (CMAKE_CUDA_COMPILER_ID=${CMAKE_CUDA_COMPILER_ID}).")
+    endif()
+
+    if (CUDA_VERSION_MAJOR LESS 13)
+        message(FATAL_ERROR "CUDA 13+ is required (CUDA_VERSION_MAJOR=${CUDA_VERSION_MAJOR}).")
+    endif()
+
     set_target_properties(${TARGET_NAME} PROPERTIES CUDA_STANDARD_REQUIRED ON CUDA_STANDARD 20 CUDA_RUNTIME_LIBRARY Hybrid)
     
     set_target_cuda_arch_flags(${TARGET_NAME})
