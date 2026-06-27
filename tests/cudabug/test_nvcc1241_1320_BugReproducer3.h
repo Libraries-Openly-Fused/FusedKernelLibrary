@@ -1,5 +1,6 @@
 /* Copyright 2023-2025 Mediaproduccion S.L.U. (Oscar Amoros Huguet)
    Copyright 2025 Albert Andaluz
+   Copyright 2026 Oscar Amoros Huguet
    
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -15,21 +16,26 @@
    */
 
 /* NVCC Bug reproducer
-   Affects versions 12.4 until 13.1
+   Affects versions 12.4.0 until 13.2.0
  
    This code does not compile starting on CUDA version 12.4.
+   It does compile starting on CUDA version 13.3.0
 
    We add comments in the code, indicating the different
    modifications that make the code compile, to help with the
    bug investigation
 */
 
+#define __ONLY_CU__ // This file is only generated and compiled with nvcc, not with the host compiler
+#include <tests/main.h>
+
 #ifdef __NVCC__
 #define NVCC_VERSION_CALCULATED (__CUDACC_VER_MAJOR__ * 10000 + __CUDACC_VER_MINOR__ * 100 + __CUDACC_VER_BUILD__)
-#define NVCC_VERSION_12_4_99 120499
+#define NVCC_VERSION_12_4_99 120499 // CUDA version 12.4.0 (nvcc 12.4.99)
+#define NVCC_VERSION_13_2_51 130251 // CUDA version 13.2.0 (nvcc 13.2.51)
 
 // Condition 1: we are compiling with MSVC + nvcc OR other compilers + nvcc versions lower than 12.4.99
-#if ( NVCC_VERSION_CALCULATED < NVCC_VERSION_12_4_99)
+#if (NVCC_VERSION_CALCULATED < NVCC_VERSION_12_4_99) || (NVCC_VERSION_CALCULATED > NVCC_VERSION_13_2_51)
 #define WILL_COMPILE 1
 #else
 #define WILL_NOT_COMPILE 1
@@ -38,6 +44,7 @@
 // Undefine helper macros to avoid polluting the global macro namespace
 #undef NVCC_VERSION_CALCULATED
 #undef NVCC_VERSION_12_4_99
+#undef NVCC_VERSION_13_2_51
 #else
 #define WILL_COMPILE 1
 #endif // __NVCC__

@@ -1,4 +1,5 @@
 /* Copyright 2025 Grup Mediapro S.L.U (Oscar Amoros Huguet)
+*  Copyright 2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -19,32 +20,35 @@
 
 /* This code does not compile with gcc 13.3.0 with:
 *   - CUDA SDK 12.8.1 (nvcc 12.8.93)
-*   - CUDA SDK 12.9.0 (nvcc 12.9.41)
+*   - TO
+*   - CUDA SDK 13.0.2 (nvcc 13.0.88)
 *
 * It compiles fine with nvcc 12.8.93 or 12.9.41 + MSVC 19.42.34438.0 (MSVC 2022) on Windows
+* Not tested other version combinations with Windows.
 */
 
 #ifdef __NVCC__
 #define NVCC_VERSION_CALCULATED (__CUDACC_VER_MAJOR__ * 10000 + __CUDACC_VER_MINOR__ * 100 + __CUDACC_VER_BUILD__)
-#define NVCC_VERSION_12_8_93 120893
+#define NVCC_VERSION_12_8_93 120893 // CUDA version 12.8.1 (nvcc 12.8.93)
+#define NVCC_VERSION_13_0_88 130088 // CUDA version 13.0.2 (nvcc 13.0.88)
 
-// Condition 1: we are compiling with MSVC + nvcc OR other compilers + nvcc versions lower than 12.8.93
-#if (defined(_MSC_VER)) || \
-        (!defined(_MSC_VER) && (NVCC_VERSION_CALCULATED < NVCC_VERSION_12_8_93))
+// Check if we are on MSVC, or outside the problematic NVCC version range
+#if defined(_MSC_VER) || (NVCC_VERSION_CALCULATED < NVCC_VERSION_12_8_93) ||                                           \
+    (NVCC_VERSION_CALCULATED > NVCC_VERSION_13_0_88)
 #define WILL_COMPILE 1
-#endif
-
-// Condition 2: we are compiling with gcc/clan AND we are compiling with nvcc versions 12.8.93 or higher
-#if (!defined(_MSC_VER)) && \
-        (NVCC_VERSION_CALCULATED >= NVCC_VERSION_12_8_93)
-#define WILL_NOT_COMPILE 1
-#pragma message("nvcc version 12.8.93 or higher detected! Test will be skipped.")
-#endif
-
-// Undefine helper macros to avoid polluting the global macro namespace
-#undef NVCC_VERSION_CALCULATED
-#undef NVCC_VERSION_12_8_94
 #else
+// If we fall through to here, we are on GCC/Clang AND inside the [12.8.93, 13.0.88] range
+#define WILL_NOT_COMPILE 1
+#pragma message("nvcc version between 12.8.93 and 13.0.88 detected on non-MSVC compiler! Test will be skipped.")
+#endif
+
+// Clean up all helper macros
+#undef NVCC_VERSION_CALCULATED
+#undef NVCC_VERSION_12_8_93
+#undef NVCC_VERSION_13_0_88
+
+#else
+// Standard host compiler passthrough (gcc/clang/msvc without nvcc)
 #define WILL_COMPILE 1
 #endif // __NVCC__
 
