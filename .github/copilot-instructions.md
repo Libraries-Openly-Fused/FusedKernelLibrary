@@ -11,7 +11,7 @@
 The library has CPU and CUDA backends. HIP support is architecturally possible but not yet implemented.
 
 **License**: Apache 2.0  
-**Version**: 0.2.0 (main branch — API may break for maintainability)
+**Version**: 0.2.0 (main branch — API may break due to new features)
 
 ---
 
@@ -19,28 +19,29 @@ The library has CPU and CUDA backends. HIP support is architecturally possible b
 
 ```
 FusedKernelLibrary/
-├── .clang-format               # LLVM-based style, 4-space indent, 120-char column limit
-├── .github/workflows/          # CI: cmake-linux-amd64.yml, cmake-linux-arm64.yml, cmake-windows-amd64.yml
-├── CMakeLists.txt              # Root build (v0.2.0, requires CMake >= 3.28 C++ and optional CUDA)
-├── cmake/                      # CMake helpers: arch flags, CUDA init, test discovery, generators
-│   ├── archflags.cmake         # CPU SIMD flags (AVX2 default on MSVC x64, native on Unix)
-│   ├── cmake_init.cmake        # Global CMake settings
-│   ├── cuda_init.cmake         # CUDA language enablement and NVCC path (Ninja/Windows workaround)
-│   ├── libs/cuda/archs.cmake   # CUDA arch selection/filtering (requires compute_70+ for CUDA < 13)
-│   └── tests/                  # Test discovery and stub generation
+├── .clang-format                 # LLVM-based style, 4-space indent, 120-char column limit
+├── .github/workflows/            # CI: cmake-linux-amd64.yml, cmake-linux-arm64.yml, cmake-windows-amd64.yml
+├── CMakeLists.txt                # Root build (v0.2.0, requires CMake >= 3.28 C++ and optional CUDA)
+├── cmake/                        # CMake helpers: arch flags, CUDA init, test discovery, generators
+│   ├── archflags.cmake           # CPU SIMD flags (AVX2 default on MSVC x64, native on Unix)
+│   ├── cmake_init.cmake          # Global CMake settings
+│   ├── cuda_init.cmake           # CUDA language enablement and NVCC path (Ninja/Windows workaround)
+│   ├── libs/cuda/archs.cmake     # CUDA arch selection/filtering (requires compute_70+ for CUDA < 13)
+│   └── tests/                    # Test discovery and stub generation
 │       ├── discover_tests.cmake
 │       └── add_generated_test.cmake
-├── include/fused_kernel/       # All public headers (header-only library)
-│   ├── fused_kernel.h          # Main API entry point (includes executors.h)
-│   ├── algorithms/             # Operations: arithmetic, cast, image processing, etc.
-│   └── core/                   # Infrastructure: execution model, data types, utils
-│       ├── execution_model/    # Executors, DPP patterns, operation model
-│       ├── data/               # Ptr, Ptr2D, Tensor, RawPtr types
-│       └── utils/              # Macros (utils.h), compiler detection (compiler_macros.h)
-├── lib/                        # CMake library target definition and version config
-├── tests/                      # Integration tests (header .h files, auto-discovered)
-├── utests/                     # Unit tests (header .h files, auto-discovered)
-└── benchmarks/                 # Benchmarks (disabled by default, ENABLE_BENCHMARK=ON)
+├── include/fused_kernel/         # All public headers (header-only library)
+│   ├── fused_kernel.h            # Main API entry point (includes executors.h)
+│   ├── algorithms/               # Operations: arithmetic, cast, image processing, etc.
+│   └── core/                     # Infrastructure: execution model, data types, utils
+│       ├── execution_model/      # Executors, DPP patterns, operation model
+│       │   └── operation_model/  # Parent Operations, special operations like Batch and Fused Operations, and operation fusion infrastructure
+│       ├── data/                 # Ptr, Ptr2D, Tensor, RawPtr types
+│       └── utils/                # Macros (utils.h), compiler detection (compiler_macros.h)
+├── lib/                          # CMake library target definition and version config
+├── tests/                        # Integration tests (header .h files, auto-discovered)
+├── utests/                       # Unit tests (header .h files, auto-discovered)
+└── benchmarks/                   # Benchmarks (disabled by default, ENABLE_BENCHMARK=ON)
 ```
 
 ---
@@ -51,7 +52,7 @@ FusedKernelLibrary/
 - **CMake** >= 3.28
 - **C++ compiler** with C++20 support
 - **CUDA** (optional): requires NVCC. **Only nvcc is supported as the CUDA compiler**; clang-as-CUDA-compiler is not supported despite `CLANG_HOST_DEVICE` macro existing.
-- **MSVC**: Visual Studio 2022+ (MSVC_VERSION >= 1930) required;
+- **MSVC**: Visual Studio 2022 or Visual Studio 2026 (MSVC_VERSION >= 1930) required;
 
 ### Configure and Build (typical)
 ```bash
