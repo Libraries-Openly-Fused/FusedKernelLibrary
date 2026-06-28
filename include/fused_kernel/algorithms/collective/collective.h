@@ -23,5 +23,7 @@
 #include <fused_kernel/algorithms/collective/tile_scheduler.h>
 #include <fused_kernel/algorithms/collective/register_tile.h>
 #include <fused_kernel/algorithms/collective/multistage.h>
+#include <fused_kernel/algorithms/collective/epilogue.h>
+#include <fused_kernel/algorithms/collective/gemm.h>
 
 #endif // FK_COLLECTIVE
