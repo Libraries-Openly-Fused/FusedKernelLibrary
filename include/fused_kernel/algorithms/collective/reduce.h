@@ -126,18 +126,18 @@ template <typename DPPDetails>
 struct ReduceGridDPP<ParArch::CPU, DPPDetails> {
 private:
     using SelfType = ReduceGridDPP<ParArch::CPU, DPPDetails>;
+    using T = typename DPPDetails::ValueType;
 
 public:
     FK_STATIC_STRUCT(ReduceGridDPP, SelfType)
     static constexpr ParArch PAR_ARCH = ParArch::CPU;
 
-    template <typename ReadIOp, typename ComputeIOp, typename WriteIOp>
-    FK_HOST_FUSE void exec(const DPPDetails& details,
-                           const ReadIOp& input,
-                           const ComputeIOp& compute,
-                           const WriteIOp& output) {
-        ReduceDPP<ParArch::CPU, DPPDetails>::exec(
-            details, input, compute, output);
+    template <typename ComputeIOp>
+    FK_HOST_FUSE void exec(const DPPDetails&, const T value,
+                           const ComputeIOp& compute, T*, T* accumulator) {
+        if (accumulator != nullptr) {
+            *accumulator = make_tuple(*accumulator, value) | compute;
+        }
     }
 };
 
@@ -264,18 +264,44 @@ template <typename DPPDetails>
 struct ReduceGridDPP<ParArch::GPU_NVIDIA, DPPDetails> {
 private:
     using SelfType = ReduceGridDPP<ParArch::GPU_NVIDIA, DPPDetails>;
+    using T = typename DPPDetails::ValueType;
+
+    template <typename ComputeIOp>
+    static __device__ __forceinline__ void atomicApply(
+            T* address, const T value, const ComputeIOp& compute) {
+        static_assert(sizeof(T) == sizeof(unsigned int),
+                      "ReduceGridDPP CAS supports 32-bit value types");
+        static_assert(std::is_trivially_copyable_v<T>,
+                      "ReduceGridDPP CAS requires a trivially copyable type");
+
+        auto* bitsAddress = reinterpret_cast<unsigned int*>(address);
+        unsigned int oldBits = atomicCAS(bitsAddress, 0u, 0u);
+        unsigned int assumedBits;
+        do {
+            assumedBits = oldBits;
+            T current;
+            __builtin_memcpy(&current, &assumedBits, sizeof(T));
+            const T next = make_tuple(current, value) | compute;
+            unsigned int nextBits;
+            __builtin_memcpy(&nextBits, &next, sizeof(T));
+            oldBits = atomicCAS(bitsAddress, assumedBits, nextBits);
+        } while (oldBits != assumedBits);
+    }
 
 public:
     FK_STATIC_STRUCT(ReduceGridDPP, SelfType)
     static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
 
-    template <typename ReadIOp, typename ComputeIOp, typename WriteIOp>
-    FK_DEVICE_FUSE void exec(const DPPDetails& details,
-                             const ReadIOp& input,
-                             const ComputeIOp& compute,
-                             const WriteIOp& output) {
-        ReduceDPP<ParArch::GPU_NVIDIA, DPPDetails>::exec(
-            details, input, compute, output);
+    template <typename ComputeIOp>
+    FK_DEVICE_FUSE void exec(const DPPDetails& details, const T value,
+                             const ComputeIOp& compute, T* warpScratch,
+                             T* accumulator) {
+        const T blockPartial =
+            ReduceBlockDPP<ParArch::GPU_NVIDIA, DPPDetails>::exec(
+                details, value, compute, warpScratch);
+        if (threadIdx.x == 0) {
+            atomicApply(accumulator, blockPartial, compute);
+        }
     }
 };
 
@@ -286,7 +312,7 @@ __global__ void launchReduceDPPKernel(
         const __grid_constant__ ReadIOp input,
         const __grid_constant__ ComputeIOp compute,
         const __grid_constant__ WriteIOp output) {
-    ReduceGridDPP<ParArch::GPU_NVIDIA, DPPDetails>::exec(
+    ReduceDPP<ParArch::GPU_NVIDIA, DPPDetails>::exec(
         details, input, compute, output);
 }
 

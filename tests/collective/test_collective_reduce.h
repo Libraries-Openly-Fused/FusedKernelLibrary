@@ -26,6 +26,27 @@ using namespace fk;
 
 namespace {
 
+using CompileDetails = ReduceDPPDetails<float, 128>;
+static_assert(ReduceWarpDPP<ParArch::CPU, CompileDetails>::PAR_ARCH ==
+              ParArch::CPU);
+static_assert(ReduceBlockDPP<ParArch::CPU, CompileDetails>::PAR_ARCH ==
+              ParArch::CPU);
+static_assert(ReduceGridDPP<ParArch::CPU, CompileDetails>::PAR_ARCH ==
+              ParArch::CPU);
+static_assert(ReduceDPP<ParArch::CPU, CompileDetails>::PAR_ARCH ==
+              ParArch::CPU);
+#if defined(__NVCC__)
+static_assert(ReduceWarpDPP<ParArch::GPU_NVIDIA, CompileDetails>::PAR_ARCH ==
+              ParArch::GPU_NVIDIA);
+static_assert(ReduceBlockDPP<ParArch::GPU_NVIDIA, CompileDetails>::PAR_ARCH ==
+              ParArch::GPU_NVIDIA);
+static_assert(ReduceGridDPP<ParArch::GPU_NVIDIA, CompileDetails>::PAR_ARCH ==
+              ParArch::GPU_NVIDIA);
+static_assert(ReduceDPP<ParArch::GPU_NVIDIA, CompileDetails>::PAR_ARCH ==
+              ParArch::GPU_NVIDIA);
+#endif
+static_assert(std::is_trivially_copyable_v<CompileDetails>);
+
 template <typename ComputeIOp>
 bool runCpuCase(const ComputeIOp& compute,
                 const std::array<float, 3>& identity,
@@ -99,16 +120,92 @@ bool testCpuGridTierAndFusion() {
 
     using Details = ReduceDPPDetails<float, 32>;
     const Details details{1, 3, 0.f, 0};
-    ReduceGridDPP<ParArch::CPU, Details>::exec(
+    ReduceDPP<ParArch::CPU, Details>::exec(
         details, read, sum, write);
     if (std::fabs(output[0] - 18.f) > 1e-6f) {
-        std::printf("CPU fused grid reduction got=%f expected=18\n", output[0]);
+        std::printf("CPU fused row reduction got=%f expected=18\n", output[0]);
+        return false;
+    }
+
+    float gridAccumulator = 0.f;
+    for (const float value : input) {
+        ReduceGridDPP<ParArch::CPU, Details>::exec(
+            details, value, sum, nullptr, &gridAccumulator);
+    }
+    if (std::fabs(gridAccumulator - 6.f) > 1e-6f) {
+        std::printf("CPU grid partial reduction got=%f expected=6\n",
+                    gridAccumulator);
         return false;
     }
     return true;
 }
 
 #if defined(__NVCC__)
+template <int BLOCK_SIZE, typename ReadIOp, typename ComputeIOp>
+__global__ void gridReduceDPPTestKernel(
+        const __grid_constant__ ReduceDPPDetails<float, BLOCK_SIZE> details,
+        const __grid_constant__ ReadIOp input,
+        const __grid_constant__ ComputeIOp compute,
+        float* accumulator) {
+    __shared__ float warpScratch[BLOCK_SIZE / 32];
+    const int x = static_cast<int>(blockIdx.x) * BLOCK_SIZE +
+                  static_cast<int>(threadIdx.x);
+    float value = details.identity;
+    if (x < details.width) {
+        value = ReadIOp::Operation::exec(Point{x, 0, 0}, input);
+    }
+    ReduceGridDPP<ParArch::GPU_NVIDIA,
+                  ReduceDPPDetails<float, BLOCK_SIZE>>::exec(
+        details, value, compute, warpScratch, accumulator);
+}
+
+template <int BLOCK_SIZE, typename ComputeIOp, typename HostCombine>
+bool runGpuGridVariant(const char* name, const ComputeIOp& compute,
+                       const float identity, const HostCombine& hostCombine) {
+    constexpr int WIDTH = 4096 + 37;
+    Ptr1D<float> input(WIDTH);
+    Ptr1D<float> accumulator(1);
+    float expected = identity;
+    for (int x = 0; x < WIDTH; ++x) {
+        const float value = static_cast<float>(((x * 17) % 101) - 50) * 0.125f;
+        input.at(Point{x, 0, 0}) = value;
+        expected = hostCombine(expected, value);
+    }
+    accumulator.at(Point{0, 0, 0}) = identity;
+
+    Stream stream;
+    input.upload(stream);
+    accumulator.upload(stream);
+    const auto read = PerThreadRead<ND::_1D, float>::build(input);
+    const ReduceDPPDetails<float, BLOCK_SIZE> details{1, WIDTH, identity, 0};
+    constexpr int BLOCKS = (WIDTH + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    gridReduceDPPTestKernel<BLOCK_SIZE><<<BLOCKS, BLOCK_SIZE, 0,
+        stream.getCUDAStream()>>>(
+        details, read, compute, accumulator.ptr().data);
+    gpuErrchk(cudaGetLastError());
+    accumulator.download(stream);
+    stream.sync();
+
+    const float got = accumulator.at(Point{0, 0, 0});
+    const float tolerance = 1e-4f * std::fmax(1.f, std::fabs(expected));
+    if (std::fabs(got - expected) > tolerance) {
+        std::printf("GPU grid %s got=%f expected=%f blocks=%d\n",
+                    name, got, expected, BLOCKS);
+        return false;
+    }
+    return true;
+}
+
+bool testGpuGridReduction() {
+    const auto sum = Add<float, float, float, UnaryType>::build();
+    const auto max = Max<float, float, float, UnaryType>::build();
+    return runGpuGridVariant<128>("sum", sum, 0.f,
+               [](float a, float b) { return a + b; }) &&
+           runGpuGridVariant<128>("max", max,
+               -std::numeric_limits<float>::infinity(),
+               [](float a, float b) { return std::fmax(a, b); });
+}
+
 template <int BLOCK_SIZE, typename ComputeIOp>
 bool runGpuVariant(const char* name, const int width, const float identity,
                    const ComputeIOp& compute) {
@@ -154,6 +251,8 @@ bool testGpuVariants() {
     const auto min = Min<float, float, float, UnaryType>::build();
     const auto max = Max<float, float, float, UnaryType>::build();
     return runGpuVariant<32>("sum-empty", 0, 0.f, sum) &&
+           runGpuVariant<32>("sum-subwarp", 17, 0.f, sum) &&
+           runGpuVariant<32>("sum-warp", 32, 0.f, sum) &&
            runGpuVariant<32>("sum", 33, 0.f, sum) &&
            runGpuVariant<64>("max", 129,
                -std::numeric_limits<float>::infinity(), max) &&
@@ -228,6 +327,7 @@ int launch() {
     bool ok = testCpuReductionIOps();
     ok = testCpuGridTierAndFusion() && ok;
 #if defined(__NVCC__)
+    ok = testGpuGridReduction() && ok;
     ok = testGpuVariants() && ok;
     ok = testGpuRowReductionIOps() && ok;
 #endif
