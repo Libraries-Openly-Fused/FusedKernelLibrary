@@ -24,5 +24,8 @@
 #include <fused_kernel/algorithms/image_processing/saturate.h>
 #include <fused_kernel/algorithms/image_processing/warping.h>
 #include <fused_kernel/algorithms/image_processing/box_filter_fast.h>
+#include <fused_kernel/algorithms/image_processing/morphology_fast.h>
+#include <fused_kernel/algorithms/image_processing/convolution_fast.h>
+#include <fused_kernel/algorithms/image_processing/median_fast.h>
 
 #endif // FK_IMAGE_PROCESSING
