@@ -22,6 +22,7 @@
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/basic_ops/set.h>
 #include <fused_kernel/core/execution_model/stream.h>
+#include <fused_kernel/core/execution_model/executor_details/dpp_launch_config.h>
 
 #if defined(__NVCC__)
 #include <fused_kernel/core/execution_model/executor_details/executor_kernels.h>
@@ -142,23 +143,58 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
     Parent::executeOperations(input, output, stream, iOps...); \
 }
 
-#ifdef NVRTC_ENABLED
     template <typename DataParallelPattern>
     struct Executor {
+    private:
+        template <typename DPPDetails, typename... IOps>
+        FK_HOST_FUSE void executeOperationsFused(
+                Stream_<DataParallelPattern::PAR_ARCH>& stream,
+                const DPPDetails& details, const IOps&... iOps) {
+            if constexpr (DataParallelPattern::PAR_ARCH == ParArch::CPU) {
+                DataParallelPattern::exec(details, iOps...);
+#if defined(__NVCC__)
+            } else if constexpr (DataParallelPattern::PAR_ARCH ==
+                                 ParArch::GPU_NVIDIA) {
+                const DPPLaunchConfig launch =
+                    DataParallelPattern::launchConfig(details);
+                const dim3 grid{launch.gridX, launch.gridY, launch.gridZ};
+                const dim3 block{launch.blockX, launch.blockY, launch.blockZ};
+                launchDPPKernel<DataParallelPattern, DPPDetails, IOps...>
+                    <<<grid, block, launch.sharedMemoryBytes,
+                       stream.getCUDAStream()>>>(details, iOps...);
+                gpuErrchk(cudaGetLastError());
+#endif
+            }
+        }
+
+    public:
         FK_STATIC_STRUCT(Executor, Executor)
+#ifdef NVRTC_ENABLED
         static_assert(DataParallelPattern::PAR_ARCH == ParArch::GPU_NVIDIA ||
                       DataParallelPattern::PAR_ARCH == ParArch::CPU ||
-                      DataParallelPattern::PAR_ARCH == ParArch::GPU_NVIDIA_JIT, "Only GPU_NVIDIA, CPU and GPU_NVIDIA_JIT are supported");
-    };
+                      DataParallelPattern::PAR_ARCH == ParArch::GPU_NVIDIA_JIT,
+                      "Only GPU_NVIDIA, CPU and GPU_NVIDIA_JIT are supported");
 #else
-    template <typename DataParallelPattern>
-    struct Executor {
-        FK_STATIC_STRUCT(Executor, Executor)
         static_assert(DataParallelPattern::PAR_ARCH == ParArch::GPU_NVIDIA ||
                       DataParallelPattern::PAR_ARCH == ParArch::CPU,
                       "Only GPU_NVIDIA and CPU supported");
-    };
 #endif
+
+        template <typename DPPDetails, typename... IOps>
+        FK_HOST_FUSE void executeOperations(
+                Stream_<DataParallelPattern::PAR_ARCH>& stream,
+                const DPPDetails& details, const IOps&... iOps) {
+            // Details is deliberately excluded: only IOps enter BackFuser.
+            const auto fusedIOps = BackFuser::fuse_back(iOps...);
+            apply([&](const auto&... fused) {
+                executeOperationsFused(stream, details, fused...);
+            }, fusedIOps);
+        }
+
+        FK_HOST_FUSE ParArch parArch() {
+            return DataParallelPattern::PAR_ARCH;
+        }
+    };
 
     template <enum TF TFEN>
     struct Executor<TransformDPP<ParArch::CPU, TFEN, void>> {
