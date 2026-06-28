@@ -62,6 +62,12 @@ private:
     using SelfType = MmaWarpDPP<ParArch::CPU, DPPDetails>;
 
 public:
+    struct AFragment {
+        float values[DPPDetails::M][DPPDetails::K];
+    };
+    struct BFragment {
+        float values[DPPDetails::N][DPPDetails::K];
+    };
     struct AccumulatorFragment {
         float values[DPPDetails::M][DPPDetails::N];
     };
@@ -73,6 +79,42 @@ public:
         for (int row = 0; row < DPPDetails::M; ++row)
             for (int col = 0; col < DPPDetails::N; ++col)
                 fragment.values[row][col] = 0.f;
+    }
+
+    template <typename AReadIOp>
+    FK_HOST_STATIC void loadAFragment(const DPPDetails& details,
+                                      const AReadIOp& input,
+                                      AFragment& fragment) {
+        static_assert(isAnyCompleteReadType<AReadIOp>);
+        for (int row = 0; row < DPPDetails::M; ++row)
+            for (int k = 0; k < DPPDetails::K; ++k)
+                fragment.values[row][k] = static_cast<float>(
+                    AReadIOp::Operation::exec(
+                        Point{details.aOriginX + k,
+                              details.aOriginY + row, 0}, input));
+    }
+
+    template <typename BReadIOp>
+    FK_HOST_STATIC void loadBFragment(const DPPDetails& details,
+                                      const BReadIOp& input,
+                                      BFragment& fragment) {
+        static_assert(isAnyCompleteReadType<BReadIOp>);
+        for (int col = 0; col < DPPDetails::N; ++col)
+            for (int k = 0; k < DPPDetails::K; ++k)
+                fragment.values[col][k] = static_cast<float>(
+                    BReadIOp::Operation::exec(
+                        Point{details.bOriginX + k,
+                              details.bOriginY + col, 0}, input));
+    }
+
+    FK_HOST_STATIC void multiply(const AFragment& a,
+                                 const BFragment& b,
+                                 AccumulatorFragment& accumulator) {
+        for (int row = 0; row < DPPDetails::M; ++row)
+            for (int col = 0; col < DPPDetails::N; ++col)
+                for (int k = 0; k < DPPDetails::K; ++k)
+                    accumulator.values[row][col] +=
+                        a.values[row][k] * b.values[col][k];
     }
 
     template <typename AReadIOp, typename BReadIOp>
@@ -173,6 +215,8 @@ private:
     }
 
 public:
+    struct AFragment { uint32_t values[4]; };
+    struct BFragment { uint32_t values[2]; };
     struct AccumulatorFragment {
         float values[4];
     };
@@ -183,6 +227,66 @@ public:
     FK_DEVICE_STATIC void clear(AccumulatorFragment& fragment) {
         #pragma unroll
         for (int i = 0; i < 4; ++i) fragment.values[i] = 0.f;
+    }
+
+    template <typename AReadIOp>
+    FK_DEVICE_STATIC void loadAFragment(const DPPDetails& details,
+                                        const AReadIOp& input,
+                                        AFragment& fragment) {
+        static_assert(isAnyCompleteReadType<AReadIOp>);
+        const int lane = threadIdx.x & 31;
+        const int group = lane >> 2;
+        const int threadInGroup = lane & 3;
+        const int k0 = 2 * threadInGroup;
+        const int k1 = k0 + 8;
+        fragment.values[0] = pack(
+            readBf16(input, Point{details.aOriginX + k0,
+                                  details.aOriginY + group, 0}),
+            readBf16(input, Point{details.aOriginX + k0 + 1,
+                                  details.aOriginY + group, 0}));
+        fragment.values[1] = pack(
+            readBf16(input, Point{details.aOriginX + k0,
+                                  details.aOriginY + group + 8, 0}),
+            readBf16(input, Point{details.aOriginX + k0 + 1,
+                                  details.aOriginY + group + 8, 0}));
+        fragment.values[2] = pack(
+            readBf16(input, Point{details.aOriginX + k1,
+                                  details.aOriginY + group, 0}),
+            readBf16(input, Point{details.aOriginX + k1 + 1,
+                                  details.aOriginY + group, 0}));
+        fragment.values[3] = pack(
+            readBf16(input, Point{details.aOriginX + k1,
+                                  details.aOriginY + group + 8, 0}),
+            readBf16(input, Point{details.aOriginX + k1 + 1,
+                                  details.aOriginY + group + 8, 0}));
+    }
+
+    template <typename BReadIOp>
+    FK_DEVICE_STATIC void loadBFragment(const DPPDetails& details,
+                                        const BReadIOp& input,
+                                        BFragment& fragment) {
+        static_assert(isAnyCompleteReadType<BReadIOp>);
+        const int lane = threadIdx.x & 31;
+        const int group = lane >> 2;
+        const int threadInGroup = lane & 3;
+        const int k0 = 2 * threadInGroup;
+        const int k1 = k0 + 8;
+        fragment.values[0] = pack(
+            readBf16(input, Point{details.bOriginX + k0,
+                                  details.bOriginY + group, 0}),
+            readBf16(input, Point{details.bOriginX + k0 + 1,
+                                  details.bOriginY + group, 0}));
+        fragment.values[1] = pack(
+            readBf16(input, Point{details.bOriginX + k1,
+                                  details.bOriginY + group, 0}),
+            readBf16(input, Point{details.bOriginX + k1 + 1,
+                                  details.bOriginY + group, 0}));
+    }
+
+    FK_DEVICE_STATIC void multiply(const AFragment& a,
+                                   const BFragment& b,
+                                   AccumulatorFragment& accumulator) {
+        mma(a.values, b.values, accumulator.values);
     }
 
     template <typename AReadIOp, typename BReadIOp>
