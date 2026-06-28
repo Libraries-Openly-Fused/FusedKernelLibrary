@@ -1,4 +1,4 @@
-/* Copyright 2025 Grup Mediapro S.L.U (Oscar Amoros Hguet)
+/* Copyright 2026 Oscar Amoros Huguet, Johnny Nunez
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -12,11 +12,10 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
-#ifndef FK_ALGORITHMS
-#define FK_ALGORITHMS
+#ifndef FK_COLLECTIVE
+#define FK_COLLECTIVE
 
-#include <fused_kernel/algorithms/basic_ops/basic_ops.h>
-#include <fused_kernel/algorithms/image_processing/image_processing.h>
-#include <fused_kernel/algorithms/collective/collective.h>
+#include <fused_kernel/algorithms/collective/tile.h>
+#include <fused_kernel/algorithms/collective/copy.h>
 
-#endif // FK_ALGORITHMS
+#endif // FK_COLLECTIVE
