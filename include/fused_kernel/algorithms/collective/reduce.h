@@ -183,28 +183,46 @@ public:
 
     template <typename ComputeIOp>
     FK_DEVICE_FUSE T exec(const DPPDetails& details, T value,
-                          const ComputeIOp& compute, T* warpScratch) {
+                          const ComputeIOp& compute, T* scratch) {
 #if defined(__CUDA_ARCH__)
         constexpr int WARP_SIZE = 32;
-        constexpr int NUM_WARPS =
-            (DPPDetails::BLOCK_THREADS + WARP_SIZE - 1) / WARP_SIZE;
-        const int lane = static_cast<int>(threadIdx.x) & (WARP_SIZE - 1);
-        const int warp = static_cast<int>(threadIdx.x) / WARP_SIZE;
+        if constexpr (std::is_arithmetic_v<T> || std::is_enum_v<T>) {
+            constexpr int NUM_WARPS =
+                (DPPDetails::BLOCK_THREADS + WARP_SIZE - 1) / WARP_SIZE;
+            const int lane = static_cast<int>(threadIdx.x) & (WARP_SIZE - 1);
+            const int warp = static_cast<int>(threadIdx.x) / WARP_SIZE;
 
-        value = ReduceWarpDPP<ParArch::GPU_NVIDIA, DPPDetails>::exec(
-            details, value, compute);
-        if (lane == 0) warpScratch[warp] = value;
-        __syncthreads();
-
-        if (warp == 0) {
-            value = lane < NUM_WARPS ? warpScratch[lane] : details.identity;
             value = ReduceWarpDPP<ParArch::GPU_NVIDIA, DPPDetails>::exec(
                 details, value, compute);
+            if (lane == 0) scratch[warp] = value;
+            __syncthreads();
+
+            if (warp == 0) {
+                value = lane < NUM_WARPS ? scratch[lane] : details.identity;
+                value = ReduceWarpDPP<ParArch::GPU_NVIDIA, DPPDetails>::exec(
+                    details, value, compute);
+            }
+        } else {
+            const int tid = static_cast<int>(threadIdx.x);
+            scratch[tid] = value;
+            __syncthreads();
+
+            int active = DPPDetails::BLOCK_THREADS;
+            while (active > 1) {
+                const int stride = (active + 1) / 2;
+                if (tid < stride && tid + stride < active) {
+                    scratch[tid] = make_tuple(
+                        scratch[tid], scratch[tid + stride]) | compute;
+                }
+                __syncthreads();
+                active = stride;
+            }
+            value = scratch[0];
         }
 #else
         (void)details;
         (void)compute;
-        (void)warpScratch;
+        (void)scratch;
 #endif
         return value;
     }

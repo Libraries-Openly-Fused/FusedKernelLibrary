@@ -188,7 +188,7 @@ public:
         return attnToF32(IOp::Operation::exec(Point{ x, y, z }, iop));
     }
 
-    FK_COOP_DEVICE_FUSE exec(const Params& p) {
+    FK_DEVICE_STATIC void exec(const Params& p) {
         // Tiles hold POST-prologue fp32: the prologue runs once per element.
         __shared__ float kTile[BLOCK_N][HEAD_DIM];
         __shared__ float vTile[BLOCK_N][HEAD_DIM];
