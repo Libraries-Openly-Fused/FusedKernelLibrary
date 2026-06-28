@@ -48,6 +48,64 @@ struct ColumnMajorLayout {
     FK_HOST_DEVICE_FUSE uint size() { return ROWS * COLS; }
 };
 
+template <uint ROWS, uint COLS, uint ELEM_BYTES,
+          uint STRIDE_BYTES, uint PERIOD = 8>
+struct ByteXorSwizzleLayoutSupport {
+private:
+    FK_HOST_DEVICE_FUSE bool evaluate() {
+        if (ROWS == 0 || COLS == 0 || ELEM_BYTES == 0 ||
+            STRIDE_BYTES == 0 || PERIOD == 0) return false;
+        if (16u % ELEM_BYTES != 0u) return false;
+        if (STRIDE_BYTES != COLS * ELEM_BYTES) return false;
+        if (STRIDE_BYTES < 16u || STRIDE_BYTES % 16u != 0u)
+            return false;
+        if ((STRIDE_BYTES & (STRIDE_BYTES - 1u)) != 0u)
+            return false;
+        if ((PERIOD & (PERIOD - 1u)) != 0u) return false;
+        const uint divisor = 64u / STRIDE_BYTES > 1u
+            ? 64u / STRIDE_BYTES : 1u;
+        const uint maximumMask = ((PERIOD - 1u) / divisor) << 4u;
+        return maximumMask < STRIDE_BYTES;
+    }
+
+public:
+    static constexpr bool value = evaluate();
+};
+
+/**
+ * Byte-address XOR layout bit-identical to attention's swz(byteOff):
+ *   byteOff ^ (((row % PERIOD) / max(64 / STRIDE_BYTES, 1)) << 4)
+ *
+ * Preconditions are compile-time enforced: element size divides 16 bytes,
+ * row stride equals COLS*ELEM_BYTES, is 16-byte aligned and power-of-two,
+ * PERIOD is power-of-two, and the largest XOR mask stays inside one row.
+ * These conditions keep every mapped byte on an element boundary and make the
+ * mapping bijective inside the statically shaped tile.
+ */
+template <uint ROWS, uint COLS, uint ELEM_BYTES,
+          uint STRIDE_BYTES, uint PERIOD = 8>
+struct ByteXorSwizzleLayout {
+    static_assert(ByteXorSwizzleLayoutSupport<
+                      ROWS, COLS, ELEM_BYTES,
+                      STRIDE_BYTES, PERIOD>::value,
+                  "Unsupported ByteXorSwizzleLayout shape/alignment");
+    static constexpr uint rows = ROWS;
+    static constexpr uint cols = COLS;
+    static constexpr uint elementBytes = ELEM_BYTES;
+    static constexpr uint strideBytes = STRIDE_BYTES;
+    static constexpr uint period = PERIOD;
+
+    FK_HOST_DEVICE_FUSE uint offset(const uint row, const uint col) {
+        const uint divisor = 64u / STRIDE_BYTES > 1u
+            ? 64u / STRIDE_BYTES : 1u;
+        const uint byteOffset = row * STRIDE_BYTES + col * ELEM_BYTES;
+        const uint mask = ((row % PERIOD) / divisor) << 4u;
+        return (byteOffset ^ mask) / ELEM_BYTES;
+    }
+
+    FK_HOST_DEVICE_FUSE uint size() { return ROWS * COLS; }
+};
+
 // A Tile is only a statically shaped view over DPP-owned local storage.
 // It does not own memory and is neither an Operation nor a DPP.
 template <typename T, typename Layout>
