@@ -20,5 +20,6 @@
 #include <fused_kernel/algorithms/collective/async_copy.h>
 #include <fused_kernel/algorithms/collective/mma.h>
 #include <fused_kernel/algorithms/collective/mainloop.h>
+#include <fused_kernel/algorithms/collective/tile_scheduler.h>
 
 #endif // FK_COLLECTIVE
