@@ -39,6 +39,7 @@
 #define FK_HOST_FUSE __host__ __forceinline__ static constexpr
 #define FK_HOST_CNST __host__ __forceinline__ constexpr
 #define FK_HOST_STATIC __host__ __forceinline__ static
+#define FK_DEVICE_STATIC __device__ __forceinline__ static
 #define FK_HOST_INLINE __host__ __forceinline__
 #define FK_HOST_DEVICE_STATIC __host__ __device__ __forceinline__ static
 #define FK_RESTRICT __restrict__
@@ -50,6 +51,7 @@
 #define FK_HOST_FUSE static constexpr __forceinline__
 #define FK_HOST_CNST constexpr __forceinline__
 #define FK_HOST_STATIC static constexpr __forceinline__
+#define FK_DEVICE_STATIC static __forceinline__
 #define FK_HOST_INLINE constexpr __forceinline__
 #define FK_HOST_DEVICE_STATIC static __forceinline__
 #define FK_RESTRICT __restrict__
@@ -61,6 +63,7 @@
 #define FK_HOST_FUSE static constexpr inline
 #define FK_HOST_CNST constexpr inline
 #define FK_HOST_STATIC static inline
+#define FK_DEVICE_STATIC static inline
 #define FK_HOST_INLINE inline
 #define FK_HOST_DEVICE_STATIC static inline
 #ifdef _MSC_VER

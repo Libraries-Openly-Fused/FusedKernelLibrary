@@ -17,6 +17,15 @@
 
 #if defined(__NVCC__)
 namespace fk {
+
+/** Generic DPP kernel. Launch geometry is owned by DPP::launchConfig(details).
+ * The kernel deliberately contains no indexing or algorithm logic. */
+template <typename DPP, typename DPPDetails, typename... IOps>
+__global__ void launchDPPKernel(const __grid_constant__ DPPDetails details,
+                                const __grid_constant__ IOps... iOps) {
+    DPP::exec(details, iOps...);
+}
+
 template <ParArch PA, typename SequenceSelector, typename DPPDetails, typename... IOpSequences>
 __global__ void launchDivergentBatchTransformDPP_Kernel(const __grid_constant__ DPPDetails details,
                                                         const __grid_constant__ IOpSequences... iOpSequences) {
