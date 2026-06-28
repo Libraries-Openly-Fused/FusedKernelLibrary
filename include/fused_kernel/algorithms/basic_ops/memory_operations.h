@@ -22,7 +22,25 @@
 #include <fused_kernel/core/data/array.h>
 #include <vector>
 
+#if defined(__NVCC__)
+#include <cuda_bf16.h>
+#endif
+
 namespace fk {
+#if defined(__NVCC__)
+    template <uint ELEMS_PER_THREAD>
+    struct ThreadFusionTypeImpl<__nv_bfloat16, ELEMS_PER_THREAD,
+                                __nv_bfloat16, void> {
+        using type = __nv_bfloat16;
+    };
+
+    template <uint ELEMS_PER_THREAD>
+    struct ThreadFusionTypeImpl<__nv_bfloat162, ELEMS_PER_THREAD,
+                                __nv_bfloat162, void> {
+        using type = __nv_bfloat162;
+    };
+#endif
+
     template <ND D, typename T>
     struct PerThreadRead {
     private:
@@ -120,6 +138,71 @@ namespace fk {
             return PerThreadWrite<D, PtrDataType>::build(ptrs);
         }
     };
+
+#if defined(__NVCC__)
+    /* Device-only PerThreadRead / PerThreadWrite specializations for the CUDA
+     * bf16 types (__nv_bfloat16 and __nv_bfloat162).
+     *
+     * bf16 is not part of the FK core type-system: it has no VectorTraits /
+     * VBase entry (and no 1/3/4-channel vector form), so it cannot travel the
+     * generic ThreadFusion path the primary PerThreadRead/Write<D,T> use — that
+     * path instantiates ThreadFusionType<bf16,...> -> VBase<bf16>, which is
+     * undefined. These specs disable ThreadFusion (TF::DISABLED) and move the
+     * single element directly. They are guarded by __NVCC__ because the bf16
+     * types only exist under the CUDA toolchain; the host-only CPU backend never
+     * sees them. Element type is bf16 in / bf16 out (no widening). */
+#define FK_DECLARE_BF_PERTHREAD(BFTYPE)                                                                  \
+    template <ND D>                                                                                      \
+    struct PerThreadRead<D, BFTYPE> {                                                                    \
+    private:                                                                                             \
+        using Parent = ReadOperation<BFTYPE, RawPtr<D, BFTYPE>, BFTYPE, TF::DISABLED, PerThreadRead<D, BFTYPE>>; \
+        using SelfType = PerThreadRead<D, BFTYPE>;                                                       \
+    public:                                                                                              \
+        FK_STATIC_STRUCT(PerThreadRead, SelfType)                                                        \
+        DECLARE_READ_PARENT                                                                              \
+        FK_DEVICE_FUSE BFTYPE exec(const Point thread, const ParamsType& params) {                       \
+            return *PtrAccessor<D>::template cr_point<BFTYPE, BFTYPE>(thread, params);                    \
+        }                                                                                                \
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {      \
+            return opData.params.dims.width;                                                             \
+        }                                                                                                \
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {      \
+            if constexpr (D == ND::_1D) { return 1; } else { return opData.params.dims.height; }         \
+        }                                                                                                \
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {      \
+            if constexpr (D == ND::_1D || D == ND::_2D) { return 1; } else { return opData.params.dims.planes; } \
+        }                                                                                                \
+        FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {            \
+            return opData.params.dims.pitch;                                                             \
+        }                                                                                                \
+        FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {            \
+            return { num_elems_x(Point{0,0,0}, opData), num_elems_y(Point{0,0,0}, opData), num_elems_z(Point{0,0,0}, opData) }; \
+        }                                                                                                \
+    };                                                                                                  \
+    template <ND D>                                                                                      \
+    struct PerThreadWrite<D, BFTYPE> {                                                                   \
+    private:                                                                                             \
+        using Parent = WriteOperation<BFTYPE, RawPtr<D, BFTYPE>, BFTYPE, TF::DISABLED, PerThreadWrite<D, BFTYPE>>; \
+        using SelfType = PerThreadWrite<D, BFTYPE>;                                                      \
+    public:                                                                                              \
+        FK_STATIC_STRUCT(PerThreadWrite, SelfType)                                                       \
+        DECLARE_WRITE_PARENT                                                                             \
+        FK_DEVICE_FUSE void exec(const Point thread, const BFTYPE input, const ParamsType& params) {     \
+            *PtrAccessor<D>::template point<BFTYPE, BFTYPE>(thread, params) = input;                      \
+        }                                                                                                \
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {      \
+            return opData.params.dims.width;                                                             \
+        }                                                                                                \
+        FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {            \
+            return opData.params.dims.pitch;                                                             \
+        }                                                                                                \
+        FK_HOST_FUSE InstantiableType build(const Ptr<D, BFTYPE>& ptr) { return { {ptr.ptr()} }; }       \
+    };
+
+    FK_DECLARE_BF_PERTHREAD(__nv_bfloat16)
+    FK_DECLARE_BF_PERTHREAD(__nv_bfloat162)
+#undef FK_DECLARE_BF_PERTHREAD
+#endif // __NVCC__
 
     template <typename T>
     struct TensorRead {
