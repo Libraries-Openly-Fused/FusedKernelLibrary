@@ -25,14 +25,24 @@
 
 #ifdef __CUDACC__
 #include <cuda/std/bit>
+#include <cuda/std/algorithm>
 namespace cxp {
     using cuda::std::bit_cast;
-}
+    namespace base {
+        using cuda::std::max;
+        using cuda::std::min;
+    } // namespace base
+} // namespace cxp
 #else
 #include <bit>
+#include <algorithm>
 namespace cxp {
     using std::bit_cast;
-}
+    namespace base {
+        using std::max;
+        using std::min;
+    } // namespace base
+} // namespace cxp
 #endif
 
 namespace cxp {
@@ -309,7 +319,7 @@ namespace cxp {
             template <typename ST>
             FK_HOST_DEVICE_FUSE auto exec(const ST& s1, const ST& s2)
                 -> std::enable_if_t<std::is_fundamental_v<ST>, ST> {
-                return s1 >= s2 ? s1 : s2;
+                return base::max(s1, s2);
             }
         };
         CXP_F_FUNC
@@ -319,13 +329,39 @@ namespace cxp {
         }
     };
 
+    struct fmaxf {
+        struct BaseFunc {
+            using InstanceType = fk::BinaryType;
+            FK_HOST_DEVICE_FUSE float exec(const float s1, const float s2) {
+                // 1. IEEE-754 NaN Rules: If one is NaN, return the other.
+                if (cxp::isnan::f(s1))
+                    return s2;
+                if (cxp::isnan::f(s2))
+                    return s1;
+
+                // 2. The Signed Zero Trap (-0.0 vs +0.0)
+                // If they evaluate as equal, return the one with the positive sign bit.
+                if (s1 == s2) {
+                    // Extract the 31st bit (sign bit) via our unified bit_cast
+                    bool s1_is_negative = (cxp::bit_cast<uint32_t>(s1) & 0x80000000) != 0;
+                    return s1_is_negative ? s2 : s1;
+                }
+
+                // 3. Standard strict inequality for all normal numbers
+                return base::max(s1, s2);
+            }
+        };
+        CXP_F_FUNC
+        FK_HOST_DEVICE_FUSE float f(const float &s) { return s; }
+    };
+
     struct min {
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
             template <typename ST>
             FK_HOST_DEVICE_FUSE auto exec(const ST& s1, const ST& s2) 
                 -> std::enable_if_t<std::is_fundamental_v<ST>, ST> {
-                return s1 <= s2 ? s1 : s2;
+                return base::min(s1, s2);
             }
         };
         CXP_F_FUNC
@@ -333,6 +369,32 @@ namespace cxp {
         FK_HOST_DEVICE_FUSE ST f(const ST& value) {
             return value; 
         }
+    };
+
+    struct fminf {
+        struct BaseFunc {
+            using InstanceType = fk::BinaryType;
+            FK_HOST_DEVICE_FUSE float exec(const float s1, const float s2) {
+                // 1. IEEE-754 NaN Rules: If one is NaN, return the other.
+                if (cxp::isnan::f(s1))
+                    return s2;
+                if (cxp::isnan::f(s2))
+                    return s1;
+
+                // 2. The Signed Zero Trap (-0.0 vs +0.0)
+                // If they evaluate as equal, return the one with the negative sign bit.
+                if (s1 == s2) {
+                    // Extract the 31st bit (sign bit) via our unified bit_cast
+                    bool s1_is_negative = (cxp::bit_cast<uint32_t>(s1) & 0x80000000) != 0;
+                    return s1_is_negative ? s1 : s2;
+                }
+
+                // 3. Standard strict inequality for all normal numbers
+                return base::min(s1, s2);
+            }
+        };
+        CXP_F_FUNC
+        FK_HOST_DEVICE_FUSE float f(const float &s) { return s; }
     };
 
     struct abs {

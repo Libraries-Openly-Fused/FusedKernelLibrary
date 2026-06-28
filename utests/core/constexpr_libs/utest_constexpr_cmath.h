@@ -1114,6 +1114,126 @@ constexpr bool test_expf_ct() {
     return true;
 }
 
+constexpr bool test_fmaxf_ct() {
+    constexpr float pos_zero = +0.0f;
+    constexpr float neg_zero = -0.0f;
+    constexpr float nan_val = std::numeric_limits<float>::quiet_NaN();
+
+    // --- Scalar Tests ---
+    static_assert(cxp::fmaxf::f(1.0f, 2.0f) == 2.0f, "fmaxf scalar normal failed");
+    static_assert(cxp::fmaxf::f(nan_val, 5.0f) == 5.0f, "fmaxf scalar NaN failed");
+    static_assert(cxp::bit_cast<uint32_t>(cxp::fmaxf::f(neg_zero, pos_zero)) == 0x00000000,
+                  "fmaxf scalar signed zero failed");
+
+    // --- Vector Tests (float3) ---
+    constexpr float3 fmax_v = cxp::fmaxf::f(float3{1.0f, nan_val, neg_zero}, float3{5.0f, 3.0f, pos_zero});
+    static_assert(fmax_v.x == 5.0f, "fmaxf float3.x failed (Normal)");
+    static_assert(fmax_v.y == 3.0f, "fmaxf float3.y failed (NaN propagation)");
+    static_assert(cxp::bit_cast<uint32_t>(fmax_v.z) == 0x00000000, "fmaxf float3.z failed (Signed Zero: MUST be +0.0)");
+
+    // --- Vector Tests (int2 using standard max) ---
+    constexpr int2 max_i = cxp::max::f(int2{100, -50}, int2{200, -10});
+    static_assert(max_i.x == 200, "max int2.x failed");
+    static_assert(max_i.y == -10, "max int2.y failed");
+
+    return true;
+}
+
+bool test_fmaxf_rt() {
+    bool allCorrect = true;
+    float pos_zero = +0.0f;
+    float neg_zero = -0.0f;
+    float nan_val = std::numeric_limits<float>::quiet_NaN();
+
+    // --- Scalar Tests ---
+    if (cxp::bit_cast<uint32_t>(cxp::fmaxf::f(neg_zero, pos_zero)) != 0x00000000) {
+        std::cout << "Runtime Fail: cxp::fmaxf::f(-0.0, +0.0) did not yield +0.0\n";
+        allCorrect = false;
+    }
+
+    // --- Vector Tests (float3) ---
+    float3 v1 = fk::make_<float3>(1.0f, nan_val, neg_zero);
+    float3 v2 = fk::make_<float3>(5.0f, 3.0f, pos_zero);
+    float3 v_max = cxp::fmaxf::f(v1, v2);
+
+    if (v_max.x != 5.0f || v_max.y != 3.0f || cxp::bit_cast<uint32_t>(v_max.z) != 0x00000000) {
+        std::cout << "Runtime Fail: cxp::fmaxf::f(float3, float3) component mapping failed\n";
+        allCorrect = false;
+    }
+
+    // --- Vector Tests (int2 using standard max) ---
+    int2 i1 = fk::make_<int2>(100, -50);
+    int2 i2 = fk::make_<int2>(200, -10);
+    int2 i_max = cxp::max::f(i1, i2);
+
+    if (i_max.x != 200 || i_max.y != -10) {
+        std::cout << "Runtime Fail: cxp::max::f(int2, int2) integer logic failed\n";
+        allCorrect = false;
+    }
+
+    return allCorrect;
+}
+
+constexpr bool test_fminf_ct() {
+    constexpr float pos_zero = +0.0f;
+    constexpr float neg_zero = -0.0f;
+    constexpr float nan_val = std::numeric_limits<float>::quiet_NaN();
+
+    // --- Scalar Tests ---
+    static_assert(cxp::fminf::f(1.0f, 2.0f) == 1.0f, "fminf scalar normal failed");
+    static_assert(cxp::fminf::f(nan_val, 5.0f) == 5.0f, "fminf scalar NaN failed");
+    static_assert(cxp::bit_cast<uint32_t>(cxp::fminf::f(neg_zero, pos_zero)) == 0x80000000,
+                  "fminf scalar signed zero failed");
+
+    // --- Vector Tests (float3) ---
+    constexpr float3 fmin_v = cxp::fminf::f(float3{1.0f, nan_val, neg_zero}, float3{5.0f, 3.0f, pos_zero});
+    static_assert(fmin_v.x == 1.0f, "fminf float3.x failed (Normal)");
+    static_assert(fmin_v.y == 3.0f, "fminf float3.y failed (NaN propagation)");
+    static_assert(cxp::bit_cast<uint32_t>(fmin_v.z) == 0x80000000, "fminf float3.z failed (Signed Zero: MUST be -0.0)");
+
+    // --- Vector Tests (int2 using standard min) ---
+    constexpr int2 min_i = cxp::min::f(int2{100, -50}, int2{200, -10});
+    static_assert(min_i.x == 100, "min int2.x failed");
+    static_assert(min_i.y == -50, "min int2.y failed");
+
+    return true;
+}
+
+bool test_fminf_rt() {
+    bool allCorrect = true;
+    float pos_zero = +0.0f;
+    float neg_zero = -0.0f;
+    float nan_val = std::numeric_limits<float>::quiet_NaN();
+
+    // --- Scalar Tests ---
+    if (cxp::bit_cast<uint32_t>(cxp::fminf::f(neg_zero, pos_zero)) != 0x80000000) {
+        std::cout << "Runtime Fail: cxp::fminf::f(-0.0, +0.0) did not yield -0.0\n";
+        allCorrect = false;
+    }
+
+    // --- Vector Tests (float3) ---
+    float3 v1 = fk::make_<float3>(1.0f, nan_val, neg_zero);
+    float3 v2 = fk::make_<float3>(5.0f, 3.0f, pos_zero);
+    float3 v_min = cxp::fminf::f(v1, v2);
+
+    if (v_min.x != 1.0f || v_min.y != 3.0f || cxp::bit_cast<uint32_t>(v_min.z) != 0x80000000) {
+        std::cout << "Runtime Fail: cxp::fminf::f(float3, float3) component mapping failed\n";
+        allCorrect = false;
+    }
+
+    // --- Vector Tests (int2 using standard min) ---
+    int2 i1 = fk::make_<int2>(100, -50);
+    int2 i2 = fk::make_<int2>(200, -10);
+    int2 i_min = cxp::min::f(i1, i2);
+
+    if (i_min.x != 100 || i_min.y != -50) {
+        std::cout << "Runtime Fail: cxp::min::f(int2, int2) integer logic failed\n";
+        allCorrect = false;
+    }
+
+    return allCorrect;
+}
+
 // Runtime tests to complement compile-time tests
 bool runtime_tests() {
     bool allCorrect{true};
@@ -1191,6 +1311,10 @@ bool runtime_tests() {
     // Test custom transcendental implementations
     allCorrect &= test_ldexpf_rt();
     allCorrect &= test_expf_rt();
+
+    // Test fmaxf and fminf with runtime values
+    allCorrect &= test_fmaxf_rt();
+    allCorrect &= test_fminf_rt();
     
     return allCorrect;
 }
@@ -1231,6 +1355,9 @@ int launch() {
 
     static_assert(test_ldexpf_ct(), "ldexpf compile-time tests failed");
     static_assert(test_expf_ct(), "expf compile-time tests failed");
+
+    static_assert(test_fmaxf_ct(), "fmaxf compile-time tests failed");
+    static_assert(test_fminf_ct(), "fminf compile-time tests failed");
 
     // Runtime tests
     if (!runtime_tests()) {
