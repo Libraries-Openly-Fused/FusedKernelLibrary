@@ -16,7 +16,7 @@
 #define FK_COLLECTIVE_GEMM_H
 
 #include <fused_kernel/algorithms/collective/multistage.h>
-#include <fused_kernel/algorithms/collective/tile_scheduler.h>
+#include <fused_kernel/algorithms/collective/cta_raster.h>
 #include <fused_kernel/core/execution_model/executor_details/dpp_launch_config.h>
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 
@@ -105,7 +105,7 @@ template <
     typename AStageLayoutType,
     typename BStageLayoutType,
     typename StageTypeT = float,
-    typename SchedulerOperationT = WarpTileScheduler<RowMajorWarpTileRaster>,
+    typename SchedulerOperationT = CtaTileScheduler<RowMajorCtaTileRaster>,
     template <ParArch, typename> class MmaPolicyTemplate = MmaWarpDPP,
     template <ParArch, typename> class CopyPolicyTemplate = AsyncCopyDPP>
 struct GemmDPPDetails {
@@ -151,7 +151,7 @@ private:
 
     template <typename Inputs, typename Output>
     FK_HOST_STATIC void executeTile(const GemmDetails& details,
-                                    const WarpTileAssignment tile,
+                                    const CtaTileAssignment tile,
                                     const Inputs& inputs,
                                     const Output& output) {
         const auto& a = get<0>(inputs);
@@ -203,7 +203,7 @@ public:
             (details.N + GemmDetails::TILE_N - 1) / GemmDetails::TILE_N;
         const typename GemmDetails::SchedulerIOp scheduler{};
         for (int tileId = 0; tileId < mTiles * nTiles; ++tileId) {
-            const WarpTileAssignment tile =
+            const CtaTileAssignment tile =
                 make_tuple(tileId, mTiles, nTiles) | scheduler;
             if (tile.valid) executeTile(details, tile, inputs, output);
         }
@@ -240,7 +240,7 @@ public:
         const int nTiles =
             (details.N + GemmDetails::TILE_N - 1) / GemmDetails::TILE_N;
         const typename GemmDetails::SchedulerIOp scheduler{};
-        const WarpTileAssignment tile =
+        const CtaTileAssignment tile =
             make_tuple(static_cast<int>(blockIdx.x), mTiles, nTiles) |
             scheduler;
         if (!tile.valid) return;

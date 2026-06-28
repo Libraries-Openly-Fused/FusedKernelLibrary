@@ -114,10 +114,16 @@ bool checkGenericGpuExecutor() {
 
 enum class OutputCase { BARE, AFFINE, RELU };
 
-using GemmConfig = GemmDPPDetails<
+using DefaultCtaScheduler =
+    CtaTileScheduler<RowMajorCtaTileRaster>;
+
+template <typename SchedulerOperation = DefaultCtaScheduler>
+using ScheduledGemmConfig = GemmDPPDetails<
     3, MmaDPPDetails<MmaBf16_16x8x16>,
     RowMajorLayout<16, 16>, RowMajorLayout<8, 16>, float,
-    WarpTileScheduler<RowMajorWarpTileRaster>, MmaWarpDPP, AsyncCopyDPP>;
+    SchedulerOperation, MmaWarpDPP, AsyncCopyDPP>;
+
+using GemmConfig = ScheduledGemmConfig<>;
 
 float sourceA(const int row, const int k) {
     return ((row * 11 + k * 7) % 23 - 11) * 0.0625f;
@@ -179,9 +185,21 @@ bool checkOutput(const Ptr2D<float2>& output, const int M, const int N,
     return maxError <= tolerance;
 }
 
+void captureOutput(const Ptr2D<float2>& output, const int M, const int N,
+                   std::vector<float>& captured) {
+    captured.resize(static_cast<std::size_t>(M * N));
+    for (int row = 0; row < M; ++row) {
+        for (int col = 0; col < N; ++col) {
+            const float2 packed = output.at(Point{col / 2, row, 0});
+            captured[static_cast<std::size_t>(row * N + col)] =
+                col & 1 ? packed.y : packed.x;
+        }
+    }
+}
+
 template <OutputCase CASE, typename DPP, typename StreamType,
-          typename Inputs, typename Write>
-void dispatchGemm(StreamType& stream, const GemmConfig& details,
+          typename Details, typename Inputs, typename Write>
+void dispatchGemm(StreamType& stream, const Details& details,
                   const Inputs& inputs, const Write& write) {
     if constexpr (CASE == OutputCase::BARE) {
         executeOperations<DPP>(stream, details, inputs, write);
@@ -195,8 +213,9 @@ void dispatchGemm(StreamType& stream, const GemmConfig& details,
     }
 }
 
-template <OutputCase CASE>
-bool runCpu(const int M, const int N, const int K) {
+template <OutputCase CASE, typename SchedulerOperation = DefaultCtaScheduler>
+bool runCpu(const int M, const int N, const int K,
+            std::vector<float>* captured = nullptr) {
     Ptr2D<float> a(static_cast<uint>(K), static_cast<uint>(M),
                    0, MemType::Host);
     Ptr2D<float> b(static_cast<uint>(K), static_cast<uint>(N),
@@ -220,14 +239,18 @@ bool runCpu(const int M, const int N, const int K) {
             .then(Add<float>::build(-0.125f)));
     const auto write = PerThreadWrite<ND::_2D, float2>::build(output);
     Stream_<ParArch::CPU> stream;
-    using DPP = GemmDPP<ParArch::CPU, GemmConfig>;
-    dispatchGemm<CASE, DPP>(stream, GemmConfig{M, N, K}, inputs, write);
+    using Config = ScheduledGemmConfig<SchedulerOperation>;
+    using DPP = GemmDPP<ParArch::CPU, Config>;
+    dispatchGemm<CASE, DPP>(stream, Config{M, N, K}, inputs, write);
+    if (captured != nullptr) captureOutput(output, M, N, *captured);
     return checkOutput<CASE, false>(output, M, N, K);
 }
 
 #if defined(__NVCC__)
-template <OutputCase CASE, bool FUSED_INPUTS = true>
-bool runGpu(const int M, const int N, const int K) {
+template <OutputCase CASE, bool FUSED_INPUTS = true,
+          typename SchedulerOperation = DefaultCtaScheduler>
+bool runGpu(const int M, const int N, const int K,
+            std::vector<float>* captured = nullptr) {
     Ptr2D<float> a(K, M), b(K, N);
     Ptr2D<float2> output((N + 1) / 2, M);
     for (int row = 0; row < M; ++row)
@@ -245,24 +268,26 @@ bool runGpu(const int M, const int N, const int K) {
     b.upload(stream);
     output.upload(stream);
     const auto write = PerThreadWrite<ND::_2D, float2>::build(output);
-    using DPP = GemmDPP<ParArch::GPU_NVIDIA, GemmConfig>;
+    using Config = ScheduledGemmConfig<SchedulerOperation>;
+    using DPP = GemmDPP<ParArch::GPU_NVIDIA, Config>;
     if constexpr (FUSED_INPUTS) {
         const auto inputs = make_tuple(
             PerThreadRead<ND::_2D, float>::build(a)
                 .then(Mul<float>::build(1.25f)),
             PerThreadRead<ND::_2D, float>::build(b)
                 .then(Add<float>::build(-0.125f)));
-        dispatchGemm<CASE, DPP>(stream, GemmConfig{M, N, K}, inputs, write);
+        dispatchGemm<CASE, DPP>(stream, Config{M, N, K}, inputs, write);
     } else {
         static_assert(CASE == OutputCase::BARE,
                       "raw aligned regression uses the bare epilogue");
         const auto inputs = make_tuple(
             PerThreadRead<ND::_2D, float>::build(a),
             PerThreadRead<ND::_2D, float>::build(b));
-        executeOperations<DPP>(stream, GemmConfig{M, N, K}, inputs, write);
+        executeOperations<DPP>(stream, Config{M, N, K}, inputs, write);
     }
     output.download(stream);
     stream.sync();
+    if (captured != nullptr) captureOutput(output, M, N, *captured);
     return checkOutput<CASE, true, FUSED_INPUTS>(output, M, N, K);
 }
 #endif
@@ -283,6 +308,54 @@ bool runCases() {
     return ok;
 }
 
+template <typename SchedulerOperation>
+bool runRasterCpuParityCase(const std::vector<float>& reference) {
+    std::vector<float> actual;
+    const bool valid = runCpu<OutputCase::BARE, SchedulerOperation>(
+        33, 19, 16, &actual);
+    return valid && actual == reference;
+}
+
+#if defined(__NVCC__)
+template <typename SchedulerOperation>
+bool runRasterGpuParityCase(const std::vector<float>& reference) {
+    std::vector<float> actual;
+    const bool valid = runGpu<OutputCase::BARE, true, SchedulerOperation>(
+        33, 19, 16, &actual);
+    return valid && actual == reference;
+}
+#endif
+
+bool runRasterGemmCases() {
+    using RowScheduler = CtaTileScheduler<RowMajorCtaTileRaster>;
+    using ColumnScheduler = CtaTileScheduler<ColumnMajorCtaTileRaster>;
+    using Group1Scheduler = CtaTileScheduler<GroupedCtaTileRaster<1>>;
+    using Group2Scheduler = CtaTileScheduler<GroupedCtaTileRaster<2>>;
+    using Group4Scheduler = CtaTileScheduler<GroupedCtaTileRaster<4>>;
+    using Group16Scheduler = CtaTileScheduler<GroupedCtaTileRaster<16>>;
+
+    std::vector<float> cpuReference;
+    bool ok = runCpu<OutputCase::BARE, RowScheduler>(
+        33, 19, 16, &cpuReference);
+    ok = runRasterCpuParityCase<ColumnScheduler>(cpuReference) && ok;
+    ok = runRasterCpuParityCase<Group1Scheduler>(cpuReference) && ok;
+    ok = runRasterCpuParityCase<Group2Scheduler>(cpuReference) && ok;
+    ok = runRasterCpuParityCase<Group4Scheduler>(cpuReference) && ok;
+    ok = runRasterCpuParityCase<Group16Scheduler>(cpuReference) && ok;
+
+#if defined(__NVCC__)
+    std::vector<float> gpuReference;
+    ok = runGpu<OutputCase::BARE, true, RowScheduler>(
+        33, 19, 16, &gpuReference) && ok;
+    ok = runRasterGpuParityCase<ColumnScheduler>(gpuReference) && ok;
+    ok = runRasterGpuParityCase<Group1Scheduler>(gpuReference) && ok;
+    ok = runRasterGpuParityCase<Group2Scheduler>(gpuReference) && ok;
+    ok = runRasterGpuParityCase<Group4Scheduler>(gpuReference) && ok;
+    ok = runRasterGpuParityCase<Group16Scheduler>(gpuReference) && ok;
+#endif
+    return ok;
+}
+
 } // namespace
 
 int launch() {
@@ -298,11 +371,12 @@ int launch() {
     const bool bare = runCases<OutputCase::BARE>();
     const bool affine = runCases<OutputCase::AFFINE>();
     const bool relu = runCases<OutputCase::RELU>();
+    const bool rasters = runRasterGemmCases();
     std::printf("mock_cpu=%d mock_gpu=%d raw_aligned=%d "
-                "bare=%d affine=%d relu=%d\n",
-                mock, mockGpu, rawAligned, bare, affine, relu);
+                "bare=%d affine=%d relu=%d rasters=%d\n",
+                mock, mockGpu, rawAligned, bare, affine, relu, rasters);
     const bool ok = mock && mockGpu && rawAligned &&
-                    bare && affine && relu;
+                    bare && affine && relu && rasters;
     std::printf("Generic DPP executor + GemmDPP contracts: %s\n",
                 ok ? "PASS" : "FAIL");
     return ok ? 0 : -1;
