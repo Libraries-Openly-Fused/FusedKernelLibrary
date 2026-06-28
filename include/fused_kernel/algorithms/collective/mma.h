@@ -62,45 +62,72 @@ private:
     using SelfType = MmaWarpDPP<ParArch::CPU, DPPDetails>;
 
 public:
+    struct AccumulatorFragment {
+        float values[DPPDetails::M][DPPDetails::N];
+    };
+
     FK_STATIC_STRUCT(MmaWarpDPP, SelfType)
     static constexpr ParArch PAR_ARCH = ParArch::CPU;
+
+    FK_HOST_STATIC void clear(AccumulatorFragment& fragment) {
+        for (int row = 0; row < DPPDetails::M; ++row)
+            for (int col = 0; col < DPPDetails::N; ++col)
+                fragment.values[row][col] = 0.f;
+    }
+
+    template <typename AReadIOp, typename BReadIOp>
+    FK_HOST_STATIC void accumulate(const DPPDetails& details,
+                                   const AReadIOp& a,
+                                   const BReadIOp& b,
+                                   AccumulatorFragment& fragment) {
+        static_assert(isAnyCompleteReadType<AReadIOp> &&
+                      isAnyCompleteReadType<BReadIOp>,
+                      "MmaWarpDPP requires complete A/B Read IOps");
+        for (int row = 0; row < DPPDetails::M; ++row) {
+            for (int col = 0; col < DPPDetails::N; ++col) {
+                float value = fragment.values[row][col];
+                for (int k = 0; k < DPPDetails::K; ++k) {
+                    const float av = static_cast<float>(
+                        AReadIOp::Operation::exec(
+                            Point{details.aOriginX + k,
+                                  details.aOriginY + row, 0}, a));
+                    const float bv = static_cast<float>(
+                        BReadIOp::Operation::exec(
+                            Point{details.bOriginX + k,
+                                  details.bOriginY + col, 0}, b));
+                    value += av * bv;
+                }
+                fragment.values[row][col] = value;
+            }
+        }
+    }
+
+    template <typename DWriteIOp>
+    FK_HOST_STATIC void store(const DPPDetails& details,
+                              const AccumulatorFragment& fragment,
+                              const DWriteIOp& d) {
+        static_assert(isAnyWriteType<DWriteIOp>,
+                      "MmaWarpDPP requires a D Write IOp");
+        for (int row = 0; row < DPPDetails::M; ++row) {
+            for (int pair = 0; pair < DPPDetails::N / 2; ++pair) {
+                DWriteIOp::Operation::exec(
+                    Point{details.dOriginX + pair,
+                          details.dOriginY + row, 0},
+                    float2{fragment.values[row][2 * pair],
+                           fragment.values[row][2 * pair + 1]}, d);
+            }
+        }
+    }
 
     template <typename AReadIOp, typename BReadIOp, typename DWriteIOp>
     FK_HOST_STATIC void exec(const DPPDetails& details,
                              const AReadIOp& a,
                              const BReadIOp& b,
                              const DWriteIOp& d) {
-        static_assert(isAnyCompleteReadType<AReadIOp> &&
-                      isAnyCompleteReadType<BReadIOp>,
-                      "MmaWarpDPP requires complete A/B Read IOps");
-        static_assert(isAnyWriteType<DWriteIOp>,
-                      "MmaWarpDPP requires a D Write IOp");
-        for (int row = 0; row < DPPDetails::M; ++row) {
-            for (int pair = 0; pair < DPPDetails::N / 2; ++pair) {
-                float accum0 = 0.f;
-                float accum1 = 0.f;
-                for (int k = 0; k < DPPDetails::K; ++k) {
-                    const float av = static_cast<float>(
-                        AReadIOp::Operation::exec(
-                            Point{details.aOriginX + k,
-                                  details.aOriginY + row, 0}, a));
-                    const float bv0 = static_cast<float>(
-                        BReadIOp::Operation::exec(
-                            Point{details.bOriginX + k,
-                                  details.bOriginY + 2 * pair, 0}, b));
-                    const float bv1 = static_cast<float>(
-                        BReadIOp::Operation::exec(
-                            Point{details.bOriginX + k,
-                                  details.bOriginY + 2 * pair + 1, 0}, b));
-                    accum0 += av * bv0;
-                    accum1 += av * bv1;
-                }
-                DWriteIOp::Operation::exec(
-                    Point{details.dOriginX + pair,
-                          details.dOriginY + row, 0},
-                    float2{accum0, accum1}, d);
-            }
-        }
+        AccumulatorFragment fragment;
+        clear(fragment);
+        accumulate(details, a, b, fragment);
+        store(details, fragment, d);
     }
 };
 
@@ -146,19 +173,26 @@ private:
     }
 
 public:
+    struct AccumulatorFragment {
+        float values[4];
+    };
+
     FK_STATIC_STRUCT(MmaWarpDPP, SelfType)
     static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
 
-    template <typename AReadIOp, typename BReadIOp, typename DWriteIOp>
-    FK_DEVICE_STATIC void exec(const DPPDetails& details,
-                               const AReadIOp& aInput,
-                               const BReadIOp& bInput,
-                               const DWriteIOp& dOutput) {
+    FK_DEVICE_STATIC void clear(AccumulatorFragment& fragment) {
+        #pragma unroll
+        for (int i = 0; i < 4; ++i) fragment.values[i] = 0.f;
+    }
+
+    template <typename AReadIOp, typename BReadIOp>
+    FK_DEVICE_STATIC void accumulate(const DPPDetails& details,
+                                     const AReadIOp& aInput,
+                                     const BReadIOp& bInput,
+                                     AccumulatorFragment& fragment) {
         static_assert(isAnyCompleteReadType<AReadIOp> &&
                       isAnyCompleteReadType<BReadIOp>,
                       "MmaWarpDPP requires complete A/B Read IOps");
-        static_assert(isAnyWriteType<DWriteIOp>,
-                      "MmaWarpDPP requires a D Write IOp");
         static_assert(std::is_same_v<typename DPPDetails::AtomType,
                                      MmaBf16_16x8x16>,
                       "GPU specialization currently supports bf16 m16n8k16");
@@ -205,19 +239,37 @@ public:
             readBf16(bInput, Point{details.bOriginX + k1 + 1,
                                     details.bOriginY + group, 0}));
 
-        float d[4]{0.f, 0.f, 0.f, 0.f};
-        mma(a, b, d);
+        mma(a, b, fragment.values);
+    }
 
-        // Each lane writes two adjacent output columns as float2. The four
-        // lanes in a group cover a full 8-column row with coalesced stores.
+    template <typename DWriteIOp>
+    FK_DEVICE_STATIC void store(const DPPDetails& details,
+                                const AccumulatorFragment& fragment,
+                                const DWriteIOp& dOutput) {
+        static_assert(isAnyWriteType<DWriteIOp>,
+                      "MmaWarpDPP requires a D Write IOp");
+        if (threadIdx.x >= 32) return;
+        const int group = threadIdx.x >> 2;
+        const int threadInGroup = threadIdx.x & 3;
         DWriteIOp::Operation::exec(
             Point{details.dOriginX + threadInGroup,
-                  details.dOriginY + row0, 0},
-            float2{d[0], d[1]}, dOutput);
+                  details.dOriginY + group, 0},
+            float2{fragment.values[0], fragment.values[1]}, dOutput);
         DWriteIOp::Operation::exec(
             Point{details.dOriginX + threadInGroup,
-                  details.dOriginY + row1, 0},
-            float2{d[2], d[3]}, dOutput);
+                  details.dOriginY + group + 8, 0},
+            float2{fragment.values[2], fragment.values[3]}, dOutput);
+    }
+
+    template <typename AReadIOp, typename BReadIOp, typename DWriteIOp>
+    FK_DEVICE_STATIC void exec(const DPPDetails& details,
+                               const AReadIOp& aInput,
+                               const BReadIOp& bInput,
+                               const DWriteIOp& dOutput) {
+        AccumulatorFragment fragment;
+        clear(fragment);
+        accumulate(details, aInput, bInput, fragment);
+        store(details, fragment, dOutput);
     }
 };
 #endif // defined(__NVCC__)
