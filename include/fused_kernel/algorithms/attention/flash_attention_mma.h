@@ -432,7 +432,7 @@ public:
 
     template <typename IOp>
     FK_DEVICE_FUSE float readElem(const IOp& iop, const int x, const int y, const int z) {
-        return attnToF32(IOp::Operation::exec(Point{ x, y, z }, iop));
+        return low_precission::attnToF32(IOp::Operation::exec(Point{ x, y, z }, iop));
     }
 
     // ---- generic staging (prologue runs per element, packs 16B stores) -----
@@ -1332,8 +1332,8 @@ public:
         if constexpr (std::is_same_v<OT, __nv_bfloat16>) {
             *reinterpret_cast<__nv_bfloat162*>(dst) = __float22bfloat162_rn({ a, b });
         } else {
-            dst[0] = attnFromF32<OT>(a);
-            dst[1] = attnFromF32<OT>(b);
+            dst[0] = low_precission::attnFromF32<OT>(a);
+            dst[1] = low_precission::attnFromF32<OT>(b);
         }
     }
 

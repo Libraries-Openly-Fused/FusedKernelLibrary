@@ -43,7 +43,9 @@ static void runCase(const char* name, const int width, const int height,
                            width * sizeof(float), height, cudaMemcpyHostToDevice));
 
     Stream stream;
-    executeSoftmax<float>(input, output, stream);
+    const auto inIOp = PerThreadRead<ND::_2D, float>::build(input.ptr());
+    const auto outIOp = PerThreadWrite<ND::_2D, float>::build(output.ptr());
+    executeSoftmax<256>(inIOp, outIOp, stream);
     stream.sync();
 
     std::vector<float> got((size_t)width * height);
@@ -96,7 +98,8 @@ static void runPrologueCase(const char* name, const int width, const int height,
     const auto inIOp = PerThreadRead<ND::_2D, float>::build(input.ptr())
                            .then(Mul<float>::build(2.f))
                            .then(Add<float>::build(1.f));
-    executeSoftmax(inIOp, output, height, width, stream);
+    const auto outIOp = PerThreadWrite<ND::_2D, float>::build(output.ptr());
+    executeSoftmax<256>(inIOp, outIOp, stream);
     stream.sync();
 
     std::vector<float> got((size_t)width * height);

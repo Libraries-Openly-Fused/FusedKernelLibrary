@@ -47,116 +47,99 @@
 
 namespace fk {
 
-/* Portable math shims for the attention DPPs. Three compiler worlds:
- *  - device code: __expf-class intrinsics are fine inside kernels but the
- *    shared host/device helpers below must compile on the HOST pass too;
- *  - g++ CPU-only TUs: std::expf is NOT declared by libstdc++ (<cmath>
- *    only guarantees ::expf) — broke utest_*_cpp on the g++-13 runners;
- *  - MSVC: __builtin_expf does not exist (C3861), and calling ::fmaxf
- *    inside a constexpr function is rejected (C3615).
- * Solution: never reference expf/fmaxf by unqualified name. attnMaxF is
- * a constexpr ternary (legal everywhere); attnExpF is a NON-constexpr
- * host+device inline that maps to the right primitive per target. */
-FK_HOST_DEVICE_CNST float attnMaxF(const float a, const float b) {
-    return a > b ? a : (b >= a ? b : (a == a ? a : b));  // NaN -> other arg
-}
-
-#if defined(__NVCC__)
-__host__ __device__ __forceinline__ float attnExpF(const float x) {
-#if defined(__CUDA_ARCH__)
-    return ::expf(x);     // device fast path (correctly-rounded enough here)
-#else
-    return ::expf(x);     // host pass of nvcc/clang-cuda
-#endif
-}
-#else
-inline float attnExpF(const float x) { return ::expf(x); }  // pure CPU TU
-#endif
-
 // Cooperative-DPP exec bodies use __shared__ + barriers: they cannot be
 // constexpr (FK_DEVICE_FUSE). Plain static device inline qualifier:
 #define FK_COOP_DEVICE_FUSE static __device__ __forceinline__ void
 
-template <typename T>
-FK_HOST_DEVICE_CNST float attnToF32(const T& v) {
-#if defined(__NVCC__)
-    if constexpr (std::is_same_v<T, __half>) { return __half2float(v); } else
-#endif
-    { return static_cast<float>(v); }
-}
+    namespace low_precission {
+    template <typename T>
+    FK_DEVICE_CNST float attnToF32(const T &v) {
+        if constexpr (std::is_same_v<T, __half>) {
+            return __half2float(v);
+        } else {
+            return static_cast<float>(v);
+        }
+    }
 
-template <typename T>
-FK_HOST_DEVICE_CNST T attnFromF32(const float& v) {
-#if defined(__NVCC__)
-    if constexpr (std::is_same_v<T, __half>) { return __float2half(v); } else
-#endif
-    { return static_cast<T>(v); }
-}
+    template <typename T>
+    FK_DEVICE_CNST T attnFromF32(const float &v) {
+        if constexpr (std::is_same_v<T, __half>) {
+            return __float2half(v);
+        } else {
+            return static_cast<T>(v);
+        }
+    }
+    } // namespace low_precission
 
-struct OnlineSoftmaxState {
-    float m;  // running max
-    float l;  // running sum of exp(x - m)
+template <typename IT>
+struct CastLowFPToF32 {
+  private:
+    using SelfType = CastLowFPToF32<IT>;
+    using Parent = UnaryOperation<IT, float, SelfType>;
+
+  public:
+    FK_STATIC_STRUCT(CastLowFPToF32, SelfType)
+    DECLARE_UNARY_PARENT
+    FK_DEVICE_FUSE float exec(const InputType &v) { return low_precission::attnToF32(v); }
 };
 
-// NOT constexpr: attnExpF maps to ::expf (non-constexpr on MSVC/clang).
-#if defined(__NVCC__)
-__host__ __device__ __forceinline__
-#else
-inline
-#endif
-OnlineSoftmaxState mergeSoftmaxStates(const OnlineSoftmaxState& a,
-                                                          const OnlineSoftmaxState& b) {
-    const float m = attnMaxF(a.m, b.m);
-    const float la = a.l == 0.f ? 0.f : a.l * attnExpF(a.m - m);
-    const float lb = b.l == 0.f ? 0.f : b.l * attnExpF(b.m - m);
-    return { m, la + lb };
-}
+template <typename OT> struct CastF32ToLowFP {
+  private:
+    using SelfType = CastF32ToLowFP<OT>;
+    using Parent = UnaryOperation<float, OT, SelfType>;
 
-#if defined(__NVCC__)
+  public:
+    FK_STATIC_STRUCT(CastF32ToLowFP, SelfType)
+    DECLARE_UNARY_PARENT
+    FK_DEVICE_FUSE OT exec(const InputType &v) { return low_precission::attnFromF32<OT>(v); }
+};
+
+template <int BLOCK_SIZE = 256>
+struct SoftmaxDPPDetails {
+    static constexpr int BLOCK_SIZE = BLOCK_SIZE;
+};
 
 /* InIOp is an INSTANTIABLE Read or ReadBack IOp (possibly a fusion
  * read.then(compute...)): the prologue. Every element enters the
  * algorithm through InIOp::Operation::exec(thread, iop). */
-template <typename InIOp, typename OT, int BLOCK_SIZE = 256>
 struct SoftmaxDPP {
 private:
-    using SelfType = SoftmaxDPP<InIOp, OT, BLOCK_SIZE>;
-public:
-    FK_STATIC_STRUCT(SoftmaxDPP, SelfType)
-
-    static_assert(isAnyReadType<InIOp>, "Softmax prologue must be a Read or ReadBack IOp");
-
-    struct Params {
-        InIOp input;             // prologue Read/ReadBack IOp
-        RawPtr<ND::_2D, OT> output;
-        int width;               // row length
+    using SelfType = SoftmaxDPP;
+    struct OnlineSoftmaxState {
+        float m; // running max
+        float l; // running sum of exp(x - m)
     };
 
-    FK_DEVICE_FUSE float readElem(const InIOp& iop, const int x, const int y) {
-        return attnToF32(InIOp::Operation::exec(Point{ x, y, 0 }, iop));
+    FK_DEVICE_FUSE OnlineSoftmaxState mergeSoftmaxStates(const OnlineSoftmaxState& a, const OnlineSoftmaxState& b) {
+        const float m = cxp::max::f(a.m, b.m);
+        const float la = a.l == 0.f ? 0.f : a.l * cxp::expf::f(a.m - m);
+        const float lb = b.l == 0.f ? 0.f : b.l * cxp::expf::f(b.m - m);
+        return {m, la + lb};
     }
 
-    FK_COOP_DEVICE_FUSE exec(const Params& p) {
-        __shared__ OnlineSoftmaxState states[BLOCK_SIZE];
+  public:
+    FK_STATIC_STRUCT(SoftmaxDPP, SelfType)
+
+    template <typename SoftmaxDetails, typename InIOp, typename OutIOp>
+    FK_COOP_DEVICE_FUSE exec(const SoftmaxDetails& p, const InIOp& input, const OutIOp& output) {
+        __shared__ OnlineSoftmaxState states[SoftmaxDetails::BLOCK_SIZE];
 
         const int row = blockIdx.x;
         const int tid = threadIdx.x;
-        const int width = p.width;
-
-        OT* out = PtrAccessor<ND::_2D>::point(Point{0, row, 0}, p.output);
+        const int width = InIOp::Operation::num_elems_x(Point{0,0,0}, input);
 
         OnlineSoftmaxState st{ -FLT_MAX, 0.f };
-        for (int x = tid; x < width; x += BLOCK_SIZE) {
+        for (int x = tid; x < width; x += SoftmaxDetails::BLOCK_SIZE) {
             // PROLOGUE: element read through the IOp (pass 1)
-            const float v = readElem(p.input, x, row);
-            const float m = attnMaxF(st.m, v);
-            st.l = st.l * attnExpF(st.m - m) + attnExpF(v - m);
+            const float v = InIOp::Operation::exec(Point{ x, row, 0 }, input);
+            const float m = cxp::max::f(st.m, v);
+            st.l = st.l * cxp::expf::f(st.m - m) + cxp::expf::f(v - m);
             st.m = m;
         }
         states[tid] = st;
         __syncthreads();
 
-        for (int stride = BLOCK_SIZE / 2; stride > 0; stride >>= 1) {
+        for (int stride = SoftmaxDetails::BLOCK_SIZE / 2; stride > 0; stride >>= 1) {
             if (tid < stride) {
                 states[tid] = mergeSoftmaxStates(states[tid], states[tid + stride]);
             }
@@ -165,42 +148,36 @@ public:
         const float m = states[0].m;
         const float invL = 1.f / states[0].l;
 
-        for (int x = tid; x < width; x += BLOCK_SIZE) {
-            // PROLOGUE: element read through the IOp (pass 2)
-            out[x] = attnFromF32<OT>(attnExpF(readElem(p.input, x, row) - m) * invL);
+        for (int x = tid; x < width; x += SoftmaxDetails::BLOCK_SIZE) {
+            // EPILOGUE: element read through the IOp (pass 2)
+            const float result = cxp::expf::f(InIOp::Operation::exec(Point{x, row, 0}, input) - m) * invL;
+            OutIOp::Operation::exec(Point{x, row, 0}, result, output);
         }
     }
 };
 
-template <typename InIOp, typename OT, int BLOCK_SIZE>
-__global__ void launchSoftmaxDPP_Kernel(const __grid_constant__ typename SoftmaxDPP<InIOp, OT, BLOCK_SIZE>::Params params) {
-    SoftmaxDPP<InIOp, OT, BLOCK_SIZE>::exec(params);
+template <typename DPP, typename DPPDetails, typename InIOp, typename ComputeIOp, typename OutIOp>
+__global__ void launchDPP_Kernel(const __grid_constant__ DPPDetails details,
+                                        const __grid_constant__ InIOp input,
+                                        const __grid_constant__ ComputeIOp compute,
+                                        const __grid_constant__ OutIOp output) {
+    if constexpr (std::is_same_v<ComputeIOp, NullType>) {
+        DPP::exec(details, input, output);
+    } else {
+        DPP::exec(details, input, compute, output);
+    }
 }
 
 /* IOp-first API: input is the prologue Read/ReadBack IOp. */
-template <int BLOCK_SIZE = 256, typename InIOp, typename OT>
-inline void executeSoftmax(const InIOp& input, const Ptr2D<OT>& output,
-                           const int rows, const int width,
+template <int BLOCK_SIZE, typename InIOp, typename OutIOp>
+inline void executeSoftmax(const InIOp& input, const OutIOp& output,
                            Stream_<ParArch::GPU_NVIDIA>& stream) {
-    using DPP = SoftmaxDPP<InIOp, OT, BLOCK_SIZE>;
-    const typename DPP::Params params{ input, output.ptr(), width };
-    const dim3 grid(rows, 1, 1);
+    const SoftmaxDPPDetails<BLOCK_SIZE> details{};
+    const dim3 grid(InIOp::Operation::num_elems_y(Point{0,0,0}, input), 1, 1);
     const dim3 block(BLOCK_SIZE, 1, 1);
-    launchSoftmaxDPP_Kernel<InIOp, OT, BLOCK_SIZE><<<grid, block, 0, stream.getCUDAStream()>>>(params);
+    launchDPP_Kernel<SoftmaxDPP><<<grid, block, 0, stream.getCUDAStream()>>>(details, input, NullType{}, output);
     gpuErrchk(cudaGetLastError());
 }
-
-/* Pointer convenience API (back-compat): canonical PerThreadRead prologue. */
-template <typename T, int BLOCK_SIZE = 256>
-inline void executeSoftmax(const Ptr2D<T>& input, const Ptr2D<T>& output,
-                           Stream_<ParArch::GPU_NVIDIA>& stream) {
-    const auto inIOp = PerThreadRead<ND::_2D, T>::build(input.ptr());
-    executeSoftmax<BLOCK_SIZE>(inIOp, output,
-                               static_cast<int>(input.dims().height),
-                               static_cast<int>(input.dims().width), stream);
-}
-
-#endif // defined(__NVCC__)
 
 } // namespace fk
 

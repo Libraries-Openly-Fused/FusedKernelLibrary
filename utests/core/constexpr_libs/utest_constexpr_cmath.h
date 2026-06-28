@@ -22,6 +22,7 @@
 #include <cmath>
 #include <iostream>
 #include <algorithm>
+#include <iomanip>
 
 // Test isnan function compile-time
 template <typename T>
@@ -925,6 +926,194 @@ bool test_nearbyint_rt() {
     return allCorrect;
 }
 
+// ============================================================================
+// Bitwise and ULP Helpers for complex transcendental and bitwise functions
+// ============================================================================
+inline uint32_t get_float_bits(float f) {
+    uint32_t bits;
+    std::memcpy(&bits, &f, sizeof(float));
+    return bits;
+}
+
+inline int32_t get_ulp_distance(float a, float b) {
+    if (std::isnan(a) && std::isnan(b))
+        return 0;
+    if (std::isinf(a) && std::isinf(b) && (std::signbit(a) == std::signbit(b)))
+        return 0;
+    if (std::isnan(a) || std::isnan(b) || std::isinf(a) || std::isinf(b))
+        return -1;
+
+    uint32_t ua = get_float_bits(a);
+    uint32_t ub = get_float_bits(b);
+
+    if ((ua >> 31) != (ub >> 31)) {
+        if (a == 0.0f && b == 0.0f)
+            return 0;
+        return -1; // Sign mismatch
+    }
+
+    int32_t ia = static_cast<int32_t>(ua & 0x7FFFFFFF);
+    int32_t ib = static_cast<int32_t>(ub & 0x7FFFFFFF);
+    return std::abs(ia - ib);
+}
+
+// ============================================================================
+// Tests for custom implementations: ldexpf and expf
+// ============================================================================
+
+bool test_ldexpf_rt() {
+    bool allCorrect{true};
+
+    auto check = [&](float x, int exp) {
+        float expected = std::ldexp(x, exp);
+        float actual = cxp::ldexpf::f(x, exp);
+        if (std::isnan(expected) && std::isnan(actual))
+            return;
+        if (get_float_bits(expected) != get_float_bits(actual)) {
+            std::cout << "Failed: cxp::ldexpf::f(" << x << ", " << exp << ") expected bits 0x" << std::hex
+                      << get_float_bits(expected) << ", got 0x" << get_float_bits(actual) << std::dec << std::endl;
+            allCorrect = false;
+        }
+    };
+
+    check(0.0f, 5);
+    check(-0.0f, -10);
+    check(std::numeric_limits<float>::infinity(), 10);
+    check(-std::numeric_limits<float>::infinity(), -5);
+    check(std::numeric_limits<float>::quiet_NaN(), 4);
+    check(1.5f, 3);
+    check(128.0f, -4);
+    check(1.0f, 200);
+    check(1.0f, -200);
+    check(1.0f, -130);
+    check(1.4013e-45f, 10);
+    check(1.4013e-45f, -5);
+
+    return allCorrect;
+}
+
+bool test_expf_rt() {
+    bool allCorrect{true};
+
+    // Edge cases check
+    auto check_special = [&](float x, float expected) {
+        float actual = cxp::expf::f(x);
+        bool match = false;
+        if (std::isnan(expected) && std::isnan(actual))
+            match = true;
+        else if (std::isinf(expected) && std::isinf(actual) && (std::signbit(expected) == std::signbit(actual)))
+            match = true;
+        else if (expected == actual)
+            match = true;
+
+        if (!match) {
+            std::cout << std::setprecision(std::numeric_limits<float>::max_digits10) << "Failed: cxp::expf::f(" << x
+                      << ") should be " << expected << " but got " << actual << " [Bits Exp: 0x" << std::hex
+                      << get_float_bits(expected) << " | Act: 0x" << get_float_bits(actual) << std::dec << "]\n";
+            allCorrect = false;
+        }
+    };
+
+    check_special(0.0f, 1.0f);
+    check_special(-0.0f, 1.0f);
+    check_special(std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity());
+    check_special(-std::numeric_limits<float>::infinity(), 0.0f);
+    check_special(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
+    check_special(89.0f, std::numeric_limits<float>::infinity());
+    check_special(-105.0f, 0.0f);
+
+    // Deterministic ULP Precision sweep over valid float domain [-103.0f, 88.0f]
+    int32_t max_ulp_error = 0;
+    const int32_t NORMAL_ULP_THRESHOLD = 3;
+    const int32_t SUBNORMAL_ULP_THRESHOLD = 5; // Relaxed for mantissa precision loss
+
+    float step = (88.0f - (-103.0f)) / 10000.0f; // 10,000 deterministic points
+    for (float x = -103.0f; x <= 88.0f; x += step) {
+        float expected = std::exp(x); // std::exp does double-precision internally
+        float actual = cxp::expf::f(x);
+
+        int32_t ulp = get_ulp_distance(expected, actual);
+        if (ulp < 0) {
+            std::cout << "Failed: cxp::expf::f(" << x << ") sign/domain mismatch. Expected " << expected << ", got "
+                      << actual << std::endl;
+            allCorrect = false;
+            break;
+        }
+
+        if (ulp > max_ulp_error)
+            max_ulp_error = ulp;
+
+        // Subnormal numbers begin when x falls below ~ -87.33f
+        int32_t current_threshold = (x < -87.3f) ? SUBNORMAL_ULP_THRESHOLD : NORMAL_ULP_THRESHOLD;
+
+        if (ulp > current_threshold) {
+            std::cout << std::setprecision(std::numeric_limits<float>::max_digits10) << "Failed: cxp::expf::f(" << x
+                      << ") exceeded ULP threshold of " << current_threshold << ".\n  Expected : " << expected
+                      << "\n  Actual   : " << actual << "\n  ULP dist : " << ulp << "\n  Bits Exp : 0x" << std::hex
+                      << get_float_bits(expected) << "\n  Bits Act : 0x" << get_float_bits(actual) << std::dec << "\n";
+            allCorrect = false;
+            break;
+        }
+    }
+
+    if (max_ulp_error > SUBNORMAL_ULP_THRESHOLD) {
+        allCorrect = false;
+    }
+
+    return allCorrect;
+}
+
+// Compile-time tests for ldexpf
+constexpr bool test_ldexpf_ct() {
+    // Special values
+    static_assert(cxp::ldexpf::f(0.0f, 5) == 0.0f, "ldexpf(0.0f, 5) should be 0.0f");
+    static_assert(cxp::ldexpf::f(-0.0f, -10) == -0.0f, "ldexpf(-0.0f, -10) should be -0.0f");
+    static_assert(cxp::isinf::f(cxp::ldexpf::f(std::numeric_limits<float>::infinity(), 10)),
+                  "ldexpf(inf) should be inf");
+    static_assert(cxp::isinf::f(cxp::ldexpf::f(-std::numeric_limits<float>::infinity(), -5)),
+                  "ldexpf(-inf) should be -inf");
+    static_assert(cxp::isnan::f(cxp::ldexpf::f(std::numeric_limits<float>::quiet_NaN(), 4)),
+                  "ldexpf(NaN) should be NaN");
+
+    // Normal boundaries
+    static_assert(cxp::ldexpf::f(1.5f, 3) == 12.0f, "ldexpf(1.5f, 3) should be 12.0f");
+    static_assert(cxp::ldexpf::f(128.0f, -4) == 8.0f, "ldexpf(128.0f, -4) should be 8.0f");
+
+    // Overflow / Underflow Bounds
+    static_assert(cxp::isinf::f(cxp::ldexpf::f(1.0f, 200)), "ldexpf(1.0f, 200) should overflow to inf");
+    static_assert(cxp::ldexpf::f(1.0f, -200) == 0.0f, "ldexpf(1.0f, -200) should underflow to 0.0f");
+
+    return true;
+}
+
+// Compile-time tests for expf
+constexpr bool test_expf_ct() {
+    // Edge and Special Cases
+    static_assert(cxp::expf::f(0.0f) == 1.0f, "expf(0.0f) should be 1.0f");
+    static_assert(cxp::expf::f(-0.0f) == 1.0f, "expf(-0.0f) should be 1.0f");
+    static_assert(cxp::isinf::f(cxp::expf::f(std::numeric_limits<float>::infinity())), "expf(inf) should be inf");
+    static_assert(cxp::expf::f(-std::numeric_limits<float>::infinity()) == 0.0f, "expf(-inf) should be 0.0f");
+    static_assert(cxp::isnan::f(cxp::expf::f(std::numeric_limits<float>::quiet_NaN())), "expf(NaN) should be NaN");
+
+    // Hard architectural bounds
+    static_assert(cxp::isinf::f(cxp::expf::f(89.0f)), "expf(89.0f) should hard overflow to inf");
+    static_assert(cxp::expf::f(-105.0f) == 0.0f, "expf(-105.0f) should hard underflow to 0.0f");
+
+    // Precision verification using epsilon bounds
+    // e^1 ~= 2.7182818f
+    static_assert(cxp::expf::f(1.0f) > 2.71828f && cxp::expf::f(1.0f) < 2.71829f, "expf(1.0f) precision error");
+    // e^-1 ~= 0.3678794f
+    static_assert(cxp::expf::f(-1.0f) > 0.36787f && cxp::expf::f(-1.0f) < 0.36788f, "expf(-1.0f) precision error");
+    // e^2 ~= 7.389056f
+    static_assert(cxp::expf::f(2.0f) > 7.38905f && cxp::expf::f(2.0f) < 7.38906f, "expf(2.0f) precision error");
+
+    // Subnormal boundary regression test (Ensures degree-6 polynomial is intact)
+    // std::exp(-88.3721771f) is approximately 4.173026e-39f
+    static_assert(cxp::expf::f(-88.3721771f) > 4.173e-39f && cxp::expf::f(-88.3721771f) < 4.174e-39f, "expf subnormal regression check failed");
+
+    return true;
+}
+
 // Runtime tests to complement compile-time tests
 bool runtime_tests() {
     bool allCorrect{true};
@@ -998,6 +1187,10 @@ bool runtime_tests() {
     
     // Test min with runtime values
     allCorrect &= test_min_rt();
+
+    // Test custom transcendental implementations
+    allCorrect &= test_ldexpf_rt();
+    allCorrect &= test_expf_rt();
     
     return allCorrect;
 }
@@ -1035,6 +1228,9 @@ int launch() {
 
     static_assert(test_nearbyint_ct<float>(), "nearbyint test failed for float");
     static_assert(test_nearbyint_ct<double>(), "nearbyint test failed for double");
+
+    static_assert(test_ldexpf_ct(), "ldexpf compile-time tests failed");
+    static_assert(test_expf_ct(), "expf compile-time tests failed");
 
     // Runtime tests
     if (!runtime_tests()) {
