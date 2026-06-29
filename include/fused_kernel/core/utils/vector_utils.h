@@ -105,6 +105,24 @@ namespace fk {
     constexpr bool validCUDAVec = one_of<T, VAll>::value;
 
     template <typename T>
+    concept vector_type = validCUDAVec<T>;
+
+    template <typename T>
+    concept vector_type1 = one_of_v<T, VOne>;
+
+    template <typename T>
+    concept vector_type2 = one_of_v<T, VTwo>;
+
+    template <typename T>
+    concept vector_type3 = one_of_v<T, VThree>; 
+
+    template <typename T>
+    concept vector_type4 = one_of_v<T, VFour>;
+
+    template <typename T>
+    concept scalar_type = one_of_v<T, StandardTypes>;
+
+    template <typename T>
     struct IsCudaVector : std::conditional_t<validCUDAVec<T>, std::true_type, std::false_type> {};
 
     template <typename T>
@@ -170,10 +188,10 @@ namespace fk {
     template <typename T>
     using VBase = typename VectorTraits<T>::base;
 
-    template <size_t Idx, typename VT>
-    FK_HOST_DEVICE_CNST auto static_get(const VT& v) {
-        static_assert(IsCudaVector<VT>::value, "Invalid type for static_get");
-        static_assert((Idx < cn<VT>), "Index out of bounds.");
+    template <size_t Idx, vector_type VT>
+    FK_HOST_DEVICE_CNST decltype(auto) static_get(const VT& v) {
+        static_assert(vector_type<VT>, "Invalid type for static_get");
+        static_assert((Idx < (cn<VT>)), "Index out of bounds.");
         if constexpr (Idx == 0) {
             return v.x;
         } else if constexpr (Idx == 1) {
@@ -186,28 +204,24 @@ namespace fk {
     }
 
     struct vector_at {
-        template <typename VT>
-        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
-            -> std::enable_if_t<std::is_fundamental_v<VT>, VT> {
+        template <scalar_type VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v) {
             return v;
         }
-        template <typename VT>
-        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
-            -> std::enable_if_t<IsCudaVector<VT>::value && (cn<VT> == 1), VBase<VT>> {
+        template <vector_type1 VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v) {
             return v.x;
         }
-        template <typename VT>
-        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
-            -> std::enable_if_t<IsCudaVector<VT>::value && (cn<VT> == 2), VBase<VT>> {
+        template <vector_type2 VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v) {
             if (idx == 0) {
                 return v.x;
             } else {
                 return v.y;
             }
         }
-        template <typename VT>
-        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
-            -> std::enable_if_t<IsCudaVector<VT>::value && (cn<VT> == 3), VBase<VT>> {
+        template <vector_type3 VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v) {
             if (idx == 0) {
                 return v.x;
             } else if (idx == 1) {
@@ -216,9 +230,8 @@ namespace fk {
                 return v.z;
             }
         }
-        template <typename VT>
-        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
-            -> std::enable_if_t<IsCudaVector<VT>::value && (cn<VT> == 4), VBase<VT>> {
+        template <vector_type4 VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v) {
             if (idx == 0) {
                 return v.x;
             } else if (idx == 1) {

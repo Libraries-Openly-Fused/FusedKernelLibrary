@@ -1,5 +1,5 @@
-/* Copyright 2025 Oscar Amoros Huguet
-   Copyright 2025 Grup Mediapro S.L.U.
+/* Copyright 2025-2026 Oscar Amoros Huguet
+   Copyright 2025-2026 Grup Mediapro S.L.U.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -26,11 +26,19 @@
 #ifdef __CUDACC__
 #include <cuda/std/bit>
 #include <cuda/std/algorithm>
+#include <cuda/std/utility>
 namespace cxp {
     using cuda::std::bit_cast;
     namespace base {
         using cuda::std::max;
         using cuda::std::min;
+        using cuda::std::cmp_equal;
+        using cuda::std::cmp_not_equal;
+        using cuda::std::cmp_less;
+        using cuda::std::cmp_greater;
+        using cuda::std::cmp_less_equal;
+        using cuda::std::cmp_greater_equal;
+        using cuda::std::clamp;
     } // namespace base
 } // namespace cxp
 #else
@@ -41,6 +49,13 @@ namespace cxp {
     namespace base {
         using std::max;
         using std::min;
+        using std::cmp_equal;
+        using std::cmp_not_equal;
+        using std::cmp_less;
+        using std::cmp_greater;
+        using std::cmp_less_equal;
+        using std::cmp_greater_equal;
+        using std::clamp;
     } // namespace base
 } // namespace cxp
 #endif
@@ -95,16 +110,27 @@ namespace cxp {
         CXP_F_FUNC
     };
 
-    // safe_cmp_equal
     struct cmp_equal {
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
-            template<typename ST1, typename ST2>
-            FK_HOST_DEVICE_FUSE bool exec(const ST1& s1, const ST2& s2) {
+            template <std::integral ST1, std::integral ST2>
+            FK_HOST_DEVICE_FUSE bool exec(const ST1 &s1, const ST2 &s2) {
+                return base::cmp_equal(s1, s2);
+            }
+        };
+        CXP_F_FUNC
+    };
+
+    // safe cmp_equal all types, including floating point
+    struct cmp_equal_u {
+        struct BaseFunc {
+            using InstanceType = fk::BinaryType;
+            template <typename ST1, typename ST2>
+            FK_HOST_DEVICE_FUSE bool exec(const ST1 &s1, const ST2 &s2) {
                 static_assert(!std::is_same_v<ST1, bool> && std::is_fundamental_v<ST1>,
-                    "First parameter must be a fundamental type other than bool");
+                              "First parameter must be a fundamental type other than bool");
                 static_assert(!std::is_same_v<ST2, bool> && std::is_fundamental_v<ST2>,
-                    "Second parameter must be a fundamental type other than bool");
+                              "Second parameter must be a fundamental type other than bool");
                 constexpr bool isAnyFloatingPoint = std::is_floating_point_v<ST1> || std::is_floating_point_v<ST2>;
                 constexpr bool areBothSigned = std::is_signed_v<ST1> == std::is_signed_v<ST2>;
                 if constexpr (isAnyFloatingPoint || areBothSigned) {
@@ -112,11 +138,13 @@ namespace cxp {
                     return s1 == s2;
                 } else if constexpr (std::is_signed_v<ST1>) {
                     // T is signed, U is unsigned, both are integers
-                    if (s1 < 0) return false; // Negative cannot equal any unsigned.
+                    if (s1 < 0)
+                        return false; // Negative cannot equal any unsigned.
                     return static_cast<std::make_unsigned_t<ST1>>(s1) == s2;
                 } else {
                     // T is unsigned, U is signed, both are integers
-                    if (s2 < 0) return false; // Negative cannot equal any unsigned.
+                    if (s2 < 0)
+                        return false; // Negative cannot equal any unsigned.
                     return s1 == static_cast<std::make_unsigned_t<ST2>>(s2);
                 }
             }
@@ -124,20 +152,31 @@ namespace cxp {
         CXP_F_FUNC
     };
 
-    // safe_cmp_not_equal
-    struct cmp_not_equal {
+    // safe cmp_not_equal universal
+    struct cmp_not_equal_u {
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
             template<typename ST1, typename ST2>
             FK_HOST_DEVICE_FUSE bool exec(const ST1& s1, const ST2& s2) {
-                return !cmp_equal::BaseFunc::exec(s1, s2);
+                return !cmp_equal_u::BaseFunc::exec(s1, s2);
+            }
+        };
+        CXP_F_FUNC
+    };
+
+    struct cmp_not_equal {
+        struct BaseFunc {
+            using InstanceType = fk::BinaryType;
+            template <std::integral ST1, std::integral ST2>
+            FK_HOST_DEVICE_FUSE bool exec(const ST1 &s1, const ST2 &s2) {
+                return base::cmp_not_equal(s1, s2);
             }
         };
         CXP_F_FUNC
     };
 
     // safe_cmp_less
-    struct cmp_less {
+    struct cmp_less_u {
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
             template<typename ST1, typename ST2>
@@ -157,9 +196,21 @@ namespace cxp {
                     return static_cast<std::make_unsigned_t<ST1>>(s1) < s2;
                 } else {
                     // T is unsigned, U is signed, both are integers
-                    if (s2 < 0) return false; // Unsigned is never less than a signed negative.
+                    if (s2 < 0)
+                        return false; // Unsigned is never less than a signed negative.
                     return s1 < static_cast<std::make_unsigned_t<ST2>>(s2);
                 }
+            }
+        };
+        CXP_F_FUNC
+    };
+
+    struct cmp_less {
+        struct BaseFunc {
+            using InstanceType = fk::BinaryType;
+            template <std::integral ST1, std::integral ST2>
+            FK_HOST_DEVICE_FUSE bool exec(const ST1 &s1, const ST2 &s2) {
+                return base::cmp_less(s1, s2);
             }
         };
         CXP_F_FUNC
@@ -169,9 +220,19 @@ namespace cxp {
     struct cmp_greater {
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
-            template<typename ST1, typename ST2>
+            template<std::integral ST1, std::integral ST2>
             FK_HOST_DEVICE_FUSE bool exec(const ST1& s1, const ST2& s2) {
-                return cmp_less::BaseFunc::exec(s2, s1);
+                return base::cmp_greater(s1, s2);
+            }
+        };
+        CXP_F_FUNC
+    };
+
+    struct cmp_greater_u {
+        struct BaseFunc {
+            using InstanceType = fk::BinaryType;
+            template <typename ST1, typename ST2> FK_HOST_DEVICE_FUSE bool exec(const ST1 &s1, const ST2 &s2) {
+                return cmp_less_u::BaseFunc::exec(s2, s1);
             }
         };
         CXP_F_FUNC
@@ -184,7 +245,7 @@ namespace cxp {
             template<typename ST1, typename ST2>
             FK_HOST_DEVICE_FUSE bool exec(const ST1& s1, const ST2& s2) {
                 // Equivalent to "not greater than".
-                return !cmp_greater::BaseFunc::exec(s1, s2);
+                return !cmp_greater_u::BaseFunc::exec(s1, s2);
             }
         };
         CXP_F_FUNC
@@ -197,7 +258,7 @@ namespace cxp {
             template<typename ST1, typename ST2>
             FK_HOST_DEVICE_FUSE bool exec(const ST1& s1, const ST2& s2) {
                 // Equivalent to "not less than".
-                return !cmp_less::BaseFunc::exec(s1, s2);
+                return !cmp_less_u::BaseFunc::exec(s1, s2);
             }
         };
         CXP_F_FUNC
@@ -334,10 +395,15 @@ namespace cxp {
             using InstanceType = fk::BinaryType;
             FK_HOST_DEVICE_FUSE float exec(const float s1, const float s2) {
                 // 1. IEEE-754 NaN Rules: If one is NaN, return the other.
-                if (cxp::isnan::f(s1))
+                const bool s1_is_nan = isnan::BaseFunc::exec(s1);
+                const bool s2_is_nan = isnan::BaseFunc::exec(s2);
+                if (s1_is_nan && s2_is_nan) {
+                    return s1; // return NaN if both are NaN
+                } else if (s1_is_nan) {
                     return s2;
-                if (cxp::isnan::f(s2))
+                } else if (s2_is_nan) {
                     return s1;
+                }
 
                 // 2. The Signed Zero Trap (-0.0 vs +0.0)
                 // If they evaluate as equal, return the one with the positive sign bit.
@@ -347,7 +413,7 @@ namespace cxp {
                     return s1_is_negative ? s2 : s1;
                 }
 
-                // 3. Standard strict inequality for all normal numbers
+                // 3. base::max accepts floats and we already handled NaN and signed zero
                 return base::max(s1, s2);
             }
         };
@@ -376,10 +442,15 @@ namespace cxp {
             using InstanceType = fk::BinaryType;
             FK_HOST_DEVICE_FUSE float exec(const float s1, const float s2) {
                 // 1. IEEE-754 NaN Rules: If one is NaN, return the other.
-                if (cxp::isnan::f(s1))
+                const bool s1_is_nan = isnan::BaseFunc::exec(s1);
+                const bool s2_is_nan = isnan::BaseFunc::exec(s2);
+                if (s1_is_nan && s2_is_nan) {
+                    return s1; // return NaN if both are NaN
+                } else if (s1_is_nan) {
                     return s2;
-                if (cxp::isnan::f(s2))
+                } else if (s2_is_nan) {
                     return s1;
+                }
 
                 // 2. The Signed Zero Trap (-0.0 vs +0.0)
                 // If they evaluate as equal, return the one with the negative sign bit.
@@ -389,12 +460,71 @@ namespace cxp {
                     return s1_is_negative ? s1 : s2;
                 }
 
-                // 3. Standard strict inequality for all normal numbers
+                // 3. base::min accepts floats and we already handled NaN and signed zero
                 return base::min(s1, s2);
             }
         };
         CXP_F_FUNC
         FK_HOST_DEVICE_FUSE float f(const float &s) { return s; }
+    };
+
+    struct fmax {
+        struct BaseFunc {
+            using InstanceType = fk::BinaryType;
+            FK_HOST_DEVICE_FUSE auto exec(const double s1, const double s2) {
+                // 1. IEEE-754 NaN Rules: If one is NaN, return the other.
+                const bool s1_is_nan = isnan::BaseFunc::exec(s1);
+                const bool s2_is_nan = isnan::BaseFunc::exec(s2);
+                if (s1_is_nan && s2_is_nan) {
+                    return s1; // return NaN if both are NaN
+                } else if (s1_is_nan) {
+                    return s2;
+                } else if (s2_is_nan) {
+                    return s1;
+                }
+
+                // 2. The Signed Zero Trap (-0.0 vs +0.0)
+                if (s1 == s2) {
+                    // Use uint64_t and the 64-bit sign mask
+                    bool s1_is_negative = (cxp::bit_cast<uint64_t>(s1) & 0x8000000000000000ULL) != 0;
+                    return s1_is_negative ? s2 : s1;
+                }
+
+                // 3. base::max accepts double and we already handled NaN and signed zero
+                return base::max(s1, s2);
+            }
+        };
+        CXP_F_FUNC
+    };
+
+    struct fmin {
+        struct BaseFunc {
+            using InstanceType = fk::BinaryType;
+            FK_HOST_DEVICE_FUSE auto exec(const double s1, const double s2) {
+                // 1. IEEE-754 NaN Rules: If one is NaN, return the other.
+                const bool s1_is_nan = isnan::BaseFunc::exec(s1);
+                const bool s2_is_nan = isnan::BaseFunc::exec(s2);
+                if (s1_is_nan && s2_is_nan) {
+                    return s1; // return NaN if both are NaN
+                } else if (s1_is_nan) {
+                    return s2;
+                } else if (s2_is_nan) {
+                    return s1;
+                }
+
+                // 2. The Signed Zero Trap (-0.0 vs +0.0)
+                if (s1 == s2) {
+                    // Use uint64_t and the 64-bit sign mask
+                    bool s1_is_negative = (cxp::bit_cast<uint64_t>(s1) & 0x8000000000000000ULL) != 0;
+                    return s1_is_negative ? s1 : s2;
+                }
+
+                // 3. base::min accepts double and we already handled NaN and signed zero
+                return base::min(s1, s2);
+            }
+        };
+
+        CXP_F_FUNC
     };
 
     struct abs {
@@ -416,7 +546,7 @@ namespace cxp {
         CXP_F_FUNC
     };
 
-    // NON SDT FUNCTIONS
+    // NON STD FUNCTIONS
     struct sum {
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
@@ -507,7 +637,7 @@ namespace cxp {
             using InstanceType = fk::UnaryType;
             FK_HOST_DEVICE_FUSE auto exec(const float x) {
                 // 1. Handle edge cases FIRST to protect constexpr evaluation
-                if (cxp::isnan::f(x))
+                if (isnan::BaseFunc::exec(x))
                     return x;
                 if (x < -103.972f)
                     return 0.0f; // Hard underflow
@@ -551,6 +681,20 @@ namespace cxp {
             }
         };
         CXP_F_FUNC
+    };
+
+    struct clamp {
+        struct BaseFunc {
+            using InstanceType = fk::TernaryType;
+            template <typename T>
+            FK_HOST_DEVICE_FUSE T exec(const T val, const T minV, const T maxV) {
+                return base::clamp(val, minV, maxV);
+            }
+        };
+        template <typename... Types>
+        static constexpr inline auto f(const Types &...vals) {
+            return Exec<BaseFunc>::exec(vals...);
+        }
     };
 
 #undef CXP_F_FUNC

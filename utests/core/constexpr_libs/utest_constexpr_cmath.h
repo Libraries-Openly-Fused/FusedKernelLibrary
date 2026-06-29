@@ -165,19 +165,12 @@ constexpr bool test_cmp_equal() {
     // Same type comparisons
     static_assert(cxp::cmp_equal::f(5, 5), "5 == 5 should be true");
     static_assert(!cxp::cmp_equal::f(5, 4), "5 == 4 should be false");
-    static_assert(cxp::cmp_equal::f(5.0, 5.0), "5.0 == 5.0 should be true");
-    static_assert(!cxp::cmp_equal::f(5.0, 4.0), "5.0 == 4.0 should be false");
     
     // Mixed signed/unsigned comparisons
     static_assert(cxp::cmp_equal::f(5, 5u), "5 == 5u should be true");
     static_assert(!cxp::cmp_equal::f(-1, 5u), "-1 == 5u should be false");
     static_assert(!cxp::cmp_equal::f(5u, -1), "5u == -1 should be false");
     static_assert(cxp::cmp_equal::f(0, 0u), "0 == 0u should be true");
-    
-    // Mixed integer/floating point comparisons
-    static_assert(cxp::cmp_equal::f(5, 5.0), "5 == 5.0 should be true");
-    static_assert(cxp::cmp_equal::f(5.0, 5), "5.0 == 5 should be true");
-    static_assert(!cxp::cmp_equal::f(5, 5.1), "5 == 5.1 should be false");
 
     return true;
 }
@@ -187,7 +180,6 @@ constexpr bool test_cmp_not_equal() {
     static_assert(!cxp::cmp_not_equal::f(5, 5), "5 != 5 should be false");
     static_assert(cxp::cmp_not_equal::f(5, 4), "5 != 4 should be true");
     static_assert(cxp::cmp_not_equal::f(-1, 5u), "-1 != 5u should be true");
-    static_assert(!cxp::cmp_not_equal::f(5, 5.0), "5 != 5.0 should be false");
 
     return true;
 }
@@ -204,11 +196,6 @@ constexpr bool test_cmp_less() {
     static_assert(!cxp::cmp_less::f(5u, -1), "5u < -1 should be false");
     static_assert(cxp::cmp_less::f(4u, 5), "4u < 5 should be true");
     static_assert(!cxp::cmp_less::f(5u, 4), "5u < 4 should be false");
-    
-    // Mixed integer/floating point comparisons
-    static_assert(cxp::cmp_less::f(4, 5.0), "4 < 5.0 should be true");
-    static_assert(cxp::cmp_less::f(4.0, 5), "4.0 < 5 should be true");
-    static_assert(!cxp::cmp_less::f(5.0, 4), "5.0 < 4 should be false");
     
     return true;
 }
@@ -685,6 +672,32 @@ bool test_floor_rt() {
     }
     
     return allCorrect;
+}
+
+constexpr bool test_fmax_fmin_double_ct() {
+    constexpr double pos_zero = +0.0;
+    constexpr double neg_zero = -0.0;
+    constexpr double nan_val = std::numeric_limits<double>::quiet_NaN();
+
+    // --- cxp::fmax (double) Tests ---
+    static_assert(cxp::fmax::f(1.0, 2.0) == 2.0, "fmax(double) normal failed");
+    static_assert(cxp::fmax::f(nan_val, 5.0) == 5.0, "fmax(double) NaN failed");
+
+    // Check Signed Zero for fmax (+0.0 should win)
+    // +0.0 in 64-bit hex is 0x0000000000000000ULL
+    static_assert(cxp::bit_cast<uint64_t>(cxp::fmax::f(neg_zero, pos_zero)) == 0x0000000000000000ULL,
+                  "fmax(double) signed zero failed");
+
+    // --- cxp::fmin (double) Tests ---
+    static_assert(cxp::fmin::f(1.0, 2.0) == 1.0, "fmin(double) normal failed");
+    static_assert(cxp::fmin::f(nan_val, 5.0) == 5.0, "fmin(double) NaN failed");
+
+    // Check Signed Zero for fmin (-0.0 should win)
+    // -0.0 in 64-bit hex is 0x8000000000000000ULL
+    static_assert(cxp::bit_cast<uint64_t>(cxp::fmin::f(neg_zero, pos_zero)) == 0x8000000000000000ULL,
+                  "fmin(double) signed zero failed");
+
+    return true;
 }
 
 // Test nearbyint function at compile-time
@@ -1358,6 +1371,8 @@ int launch() {
 
     static_assert(test_fmaxf_ct(), "fmaxf compile-time tests failed");
     static_assert(test_fminf_ct(), "fminf compile-time tests failed");
+
+    static_assert(test_fmax_fmin_double_ct(), "fmax/fmin double compile-time tests failed");
 
     // Runtime tests
     if (!runtime_tests()) {
