@@ -55,10 +55,9 @@ namespace cxp {
         FK_HOST_DEVICE_FUSE auto exec(const ST1& s1, const ST2& s2, const STs&... scals) {
             return exec(Op::exec(s1, s2), scals...);
         }
-        template <typename VT>
+        template <fk::vector_type VT>
         FK_HOST_DEVICE_FUSE auto exec(const VT& v)
-            -> std::enable_if_t<fk::IsCudaVector<VT>::value,
-            decltype(Op::exec(std::declval<fk::VBase<VT>>(), std::declval<fk::VBase<VT>>()))> {
+            -> decltype(Op::exec(std::declval<fk::VBase<VT>>(), std::declval<fk::VBase<VT>>())) {
             if constexpr (fk::cn<VT> == 1) {
                 return v.x;
             } else if constexpr (fk::cn<VT> == 2) {
