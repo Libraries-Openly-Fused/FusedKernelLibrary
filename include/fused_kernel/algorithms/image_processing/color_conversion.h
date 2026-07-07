@@ -94,7 +94,7 @@ namespace fk {
     constexpr SubCoefficients subCoefficients{};
     template <> constexpr SubCoefficients subCoefficients<ColorDepth::p8bit>{ 16.f, 128.f };
     template <> constexpr SubCoefficients subCoefficients<ColorDepth::p10bit>{ 64.f, 512.f };
-    template <> constexpr SubCoefficients subCoefficients<ColorDepth::p12bit>{ 64.f, 2048.f };
+    template <> constexpr SubCoefficients subCoefficients<ColorDepth::p12bit>{ 256.f, 2048.f };
 
     template <ColorDepth CD>
     constexpr ColorDepthPixelBaseType<CD> maxDepthValue{};
