@@ -415,6 +415,134 @@ void testReadYUV() {
     TestCaseBuilder<ReadYUVTest>::addTest(testCases, stream, inputVals, expectedVals);
 }
 
+namespace fk {
+template <ColorRange CR, ColorPrimitives CP, ColorConversionDir CCD>
+constexpr M3x3Float ccMatrixTest;
+
+// =========================================================================
+// BT.601
+// =========================================================================
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Full, ColorPrimitives::bt601, ColorConversionDir::YCbCr2RGB>{
+    {  1.000000000f,  0.000000000f,  1.401999950f },
+    {  1.000000000f, -0.344136298f, -0.714136302f },
+    {  1.000000000f,  1.771999955f,  0.000000000f }
+};
+
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Full, ColorPrimitives::bt601, ColorConversionDir::RGB2YCbCr>{
+    {  0.298999995f,  0.586999953f,  0.114000000f },
+    { -0.168735892f, -0.331264079f,  0.500000000f },
+    {  0.500000000f, -0.418687582f, -0.081312411f }
+};
+
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Limited, ColorPrimitives::bt601, ColorConversionDir::YCbCr2RGB>{
+    {  1.164383531f,  0.000000000f,  1.596026659f },
+    {  1.164383531f, -0.391762286f, -0.812967658f },
+    {  1.164383531f,  2.017231941f,  0.000000000f }
+};
+
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Limited, ColorPrimitives::bt601, ColorConversionDir::RGB2YCbCr>{
+    {  0.256788224f,  0.504129350f,  0.097905882f },
+    { -0.148222908f, -0.290992767f,  0.439215690f },
+    {  0.439215690f, -0.367788315f, -0.071427375f }
+};
+
+// =========================================================================
+// BT.709
+// =========================================================================
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Full, ColorPrimitives::bt709, ColorConversionDir::YCbCr2RGB>{
+    {  1.000000000f,  0.000000000f,  1.574800014f },
+    {  1.000000000f, -0.187324256f, -0.468124270f },
+    {  1.000000000f,  1.855599999f,  0.000000000f }
+};
+
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Full, ColorPrimitives::bt709, ColorConversionDir::RGB2YCbCr>{
+    {  0.212599993f,  0.715200007f,  0.072200000f },
+    { -0.114572100f, -0.385427892f,  0.500000000f },
+    {  0.500000000f, -0.454152912f, -0.045847092f }
+};
+
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Limited, ColorPrimitives::bt709, ColorConversionDir::YCbCr2RGB>{
+    {  1.164383531f,  0.000000000f,  1.792741060f },
+    {  1.164383531f, -0.213248581f, -0.532909274f },
+    {  1.164383531f,  2.112401724f,  0.000000000f }
+};
+
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Limited, ColorPrimitives::bt709, ColorConversionDir::RGB2YCbCr>{
+    {  0.182585880f,  0.614230573f,  0.062007058f },
+    { -0.100643732f, -0.338571966f,  0.439215690f },
+    {  0.439215690f, -0.398942173f, -0.040273525f }
+};
+
+// =========================================================================
+// BT.2020
+// =========================================================================
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Full, ColorPrimitives::bt2020, ColorConversionDir::YCbCr2RGB>{
+    {  1.000000000f,  0.000000000f,  1.474600077f },
+    {  1.000000000f, -0.164553121f, -0.571353137f },
+    {  1.000000000f,  1.881399989f,  0.000000000f }
+};
+
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Full, ColorPrimitives::bt2020, ColorConversionDir::RGB2YCbCr>{
+    {  0.262699991f,  0.678000033f,  0.059300002f },
+    { -0.139630064f, -0.360369951f,  0.500000000f },
+    {  0.500000000f, -0.459785700f, -0.040214293f }
+};
+
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Limited, ColorPrimitives::bt2020, ColorConversionDir::YCbCr2RGB>{
+    {  1.164383531f,  0.000000000f,  1.678674102f },
+    {  1.164383531f, -0.187326089f, -0.650424302f },
+    {  1.164383531f,  2.141772270f,  0.000000000f }
+};
+
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Limited, ColorPrimitives::bt2020, ColorConversionDir::RGB2YCbCr>{
+    {  0.225612938f,  0.582282364f,  0.050928239f },
+    { -0.122655429f, -0.316560268f,  0.439215690f },
+    {  0.439215690f, -0.403890193f, -0.035325497f }
+};
+
+constexpr bool equalM3x3(const M3x3Float& first, const M3x3Float& second) {
+    return (first.x == second.x) && (first.y == second.y) && (first.z == second.z);
+}
+
+template <ColorPrimitives CP>
+constexpr bool testTransformationMatrixValues_helper() {
+    using CR_t = ColorRange;
+    using CCD_t = ColorConversionDir;
+
+    static_assert(equalM3x3(ccMatrixTest<CR_t::Full, CP, CCD_t::RGB2YCbCr>, ccMatrix<CR_t::Full, CP, CCD_t::RGB2YCbCr>),
+        "Something wrong in color conversion matrix Full and RGB2YCbCr");
+    static_assert(equalM3x3(ccMatrixTest<CR_t::Full, CP, CCD_t::YCbCr2RGB>, ccMatrix<CR_t::Full, CP, CCD_t::YCbCr2RGB>),
+        "Something wrong in color conversion matrix Full and YCbCr2RGB");
+    static_assert(equalM3x3(ccMatrixTest<CR_t::Limited, CP, CCD_t::RGB2YCbCr>, ccMatrix<CR_t::Limited, CP, CCD_t::RGB2YCbCr>),
+        "Something wrong in color conversion matrix Limited and RGB2YCbCr");
+    static_assert(equalM3x3(ccMatrixTest<CR_t::Limited, CP, CCD_t::YCbCr2RGB>, ccMatrix<CR_t::Limited, CP, CCD_t::YCbCr2RGB>),
+        "Something wrong in color conversion matrix Limited and YCbCr2RGB");
+
+    return true;
+}
+} // namespace fk
+
+constexpr bool testTransformationMatrixValues() {
+    using namespace fk;
+    constexpr bool resbt601 = testTransformationMatrixValues_helper<ColorPrimitives::bt601>();
+    constexpr bool resbt709 = testTransformationMatrixValues_helper<ColorPrimitives::bt709>();
+    constexpr bool resbt2020 = testTransformationMatrixValues_helper<ColorPrimitives::bt2020>();
+
+    return and_v<resbt601, resbt709, resbt2020>;
+}
+
 START_ADDING_TESTS
 // Test UYVY pixel format traits
 testUYVYPixelFormatTraits();
@@ -446,6 +574,7 @@ testNormalizeColorRangeDepth();
 
 // Test ReadYUV operation
 testReadYUV();
+testTransformationMatrixValues();
 STOP_ADDING_TESTS
 
 int launch() {
