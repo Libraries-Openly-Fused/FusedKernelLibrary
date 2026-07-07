@@ -312,7 +312,7 @@ namespace fk {
         FK_HOST_DEVICE_FUSE float3 computeRGB(const InputType pixel) {
             constexpr M3x3Float coefficients = ccMatrix<CR, CP, ColorConversionDir::YCbCr2RGB>;
             constexpr float CSub = subCoefficients<CD>.chroma;
-            if constexpr (CP == ColorPrimitives::bt601) {
+            if constexpr (CR == ColorRange::Limited) {
                 constexpr float YSub = subCoefficients<CD>.luma;
                 return MxVFloat3<UnaryType>::exec({ make_<float3>(pixel.x - YSub, pixel.y - CSub, pixel.z - CSub), coefficients });
             } else {
@@ -320,8 +320,9 @@ namespace fk {
             }
         }
 
-        FK_HOST_DEVICE_FUSE OutputType computePixel(const InputType pixel) {
-            const float3 pixelRGBFloat = computeRGB(pixel);
+        public:
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
+            const float3 pixelRGBFloat = computeRGB(input);
             if constexpr (std::is_same_v<VBase<OutputType>, float>) {
                 if constexpr (ALPHA) {
                     return { pixelRGBFloat.x, pixelRGBFloat.y, pixelRGBFloat.z, (float)maxDepthValue<CD> };
@@ -336,30 +337,13 @@ namespace fk {
                     return pixelRGB;
                 }
             }
-
-        }
-
-        public:
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
-            // Pixel data shifted to the right to it's color depth numerical range
-            constexpr auto shiftFactorLocal = shiftFactor<CD>;
-            const InputType shiftedPixel = input >> shiftFactorLocal;
-
-            // Using color depth numerical range to compute the RGB pixel
-            const OutputType computedPixel = computePixel(shiftedPixel);
-            if constexpr (std::is_same_v<VBase<OutputType>, float>) {
-                // Moving back the pixel channels to data type numerical range, either 8bit or 16bit
-                return NormalizeColorRangeDepth<OutputType, CD>::exec(computedPixel);
-            } else {
-                // Moving back the pixel channels to data type numerical range, either 8bit or 16bit
-                return computedPixel << shiftFactorLocal;
-            }
         }
     };
 
     template <PixelFormat PF>
     class Image;
 
+    // Direct chroma replication, no interpolation
     template <PixelFormat PF>
     struct ReadYUV {
     private:
