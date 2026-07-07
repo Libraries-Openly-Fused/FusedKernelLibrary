@@ -417,7 +417,7 @@ void testReadYUV() {
 
 namespace fk {
 template <ColorRange CR, ColorPrimitives CP, ColorConversionDir CCD>
-constexpr M3x3Float ccMatrixTest;
+constexpr M3x3Float ccMatrixTest{};
 
 // =========================================================================
 // BT.601
