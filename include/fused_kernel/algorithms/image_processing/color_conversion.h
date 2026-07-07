@@ -138,8 +138,7 @@ namespace fk {
     };
 
     template <ColorPrimitives CP>
-    constexpr ITUWeights iTUWeights; 
-
+    constexpr ITUWeights iTUWeights{};
     // For all cases: Kg = 1.f - Kr - Kb
     template <> // Values extracted from https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.601-7-201103-I!!PDF-E.pdf
     constexpr ITUWeights iTUWeights<ColorPrimitives::bt601>{.Kr = 0.299f, .Kb = 0.114f};
