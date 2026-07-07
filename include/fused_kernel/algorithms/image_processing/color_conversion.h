@@ -133,8 +133,8 @@ namespace fk {
     enum class ColorConversionDir { YCbCr2RGB, RGB2YCbCr };
 
     struct ITUWeights {
-        float Kr;
-        float Kb;
+        float Kr{0.f};
+        float Kb{0.f};
     };
 
     template <ColorPrimitives CP>
