@@ -1,4 +1,5 @@
 /* Copyright 2023-2026 Oscar Amoros Huguet
+*  Copyright 2026 Grup Mediapro S.L.U
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -93,7 +94,7 @@ namespace fk {
     constexpr SubCoefficients subCoefficients{};
     template <> constexpr SubCoefficients subCoefficients<ColorDepth::p8bit>{ 16.f, 128.f };
     template <> constexpr SubCoefficients subCoefficients<ColorDepth::p10bit>{ 64.f, 512.f };
-    template <> constexpr SubCoefficients subCoefficients<ColorDepth::p12bit>{ 64.f, 2048.f };
+    template <> constexpr SubCoefficients subCoefficients<ColorDepth::p12bit>{ 256.f, 2048.f };
 
     template <ColorDepth CD>
     constexpr ColorDepthPixelBaseType<CD> maxDepthValue{};
@@ -131,46 +132,92 @@ namespace fk {
 
     enum class ColorConversionDir { YCbCr2RGB, RGB2YCbCr };
 
+    struct ITUWeights {
+        float Kr{0.f};
+        float Kb{0.f};
+    };
+
+    template <ColorPrimitives CP>
+    constexpr ITUWeights iTUWeights{};
+    // For all cases: Kg = 1.f - Kr - Kb
+    template <> // Values extracted from https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.601-7-201103-I!!PDF-E.pdf
+    constexpr ITUWeights iTUWeights<ColorPrimitives::bt601>{.Kr = 0.299f, .Kb = 0.114f};
+    template <> // Values extracted from https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.709-6-201506-I!!PDF-E.pdf
+    constexpr ITUWeights iTUWeights<ColorPrimitives::bt709>{.Kr = 0.2126f, .Kb = 0.0722f};
+    template <> // Values extracted from https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.2020-2-201510-I!!PDF-E.pdf
+    constexpr ITUWeights iTUWeights<ColorPrimitives::bt2020>{.Kr = 0.2627f, .Kb = 0.0593f};
+
+    // The pure mathematical generator straight from the ITU equations
+    template <ColorRange CR, ColorPrimitives CP, ColorConversionDir CD>
+    constexpr M3x3Float computeMatrix() {
+        constexpr float Kr = iTUWeights<CP>.Kr;
+        constexpr float Kb = iTUWeights<CP>.Kb;
+        constexpr float Kg = 1.0f - Kr - Kb;
+        float m[3][3] = {};
+
+        if constexpr (CD == ColorConversionDir::RGB2YCbCr) {
+            // Step 1: Full Range RGB2YCbCr
+            m[0][0] = Kr;  
+            m[0][1] = Kg;  
+            m[0][2] = Kb;
+        
+            m[1][0] = -Kr / (2.0f * (1.0f - Kb));  
+            m[1][1] = -Kg / (2.0f * (1.0f - Kb));  
+            m[1][2] = 0.5f;
+        
+            m[2][0] = 0.5f;  
+            m[2][1] = -Kg / (2.0f * (1.0f - Kr));  
+            m[2][2] = -Kb / (2.0f * (1.0f - Kr));
+
+            // Step 3: Limited Range RGB2YCbCr Scaling
+            if constexpr (CR == ColorRange::Limited) {
+                float scaleY = 219.0f / 255.0f;
+                float scaleC = 224.0f / 255.0f;
+                for (int i = 0; i < 3; ++i) {
+                    m[0][i] *= scaleY;
+                    m[1][i] *= scaleC;
+                    m[2][i] *= scaleC;
+                }
+            }
+        } else {
+            // Step 2: Full Range YCbCr2RGB
+            m[0][0] = 1.0f;  
+            m[0][1] = 0.0f;  
+            m[0][2] = 2.0f * (1.0f - Kr);
+        
+            m[1][0] = 1.0f;  
+            m[1][1] = -2.0f * Kb * (1.0f - Kb) / Kg;  
+            m[1][2] = -2.0f * Kr * (1.0f - Kr) / Kg;
+        
+            m[2][0] = 1.0f;  
+            m[2][1] = 2.0f * (1.0f - Kb);  
+            m[2][2] = 0.0f;
+
+            // Step 4: Limited Range YCbCr2RGB Scaling
+            if constexpr (CR == ColorRange::Limited) {
+                float scaleY = 255.0f / 219.0f;
+                float scaleC = 255.0f / 224.0f;
+                for (int i = 0; i < 3; ++i) {
+                    m[i][0] *= scaleY;
+                    m[i][1] *= scaleC;
+                    m[i][2] *= scaleC;
+                }
+            }
+        }
+    
+        return M3x3Float{
+            { m[0][0], m[0][1], m[0][2] },
+            { m[1][0], m[1][1], m[1][2] },
+            { m[2][0], m[2][1], m[2][2] }
+        };
+    }
+    
+    // Getting the transformation matrices directly from computing them using
+    // the official ITU recommendations.
+    // To see the actual values, check the variable ccMatrixTest at
+    // utests/algorithm/image_processing/utest_color_conversion.h
     template <ColorRange CR, ColorPrimitives CP, ColorConversionDir CCD>
-    constexpr M3x3Float ccMatrix{};
-    // Source: https://en.wikipedia.org/wiki/YCbCr
-    template <> constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt601, ColorConversionDir::YCbCr2RGB>{
-        { 1.164383562f,           0.f,       1.596026786f  },
-        { 1.164383562f,  -0.39176229f,       -0.812967647f },
-        { 1.164383562f,  2.017232143f,       0.f           }};
-
-    // Source: https://en.wikipedia.org/wiki/YCbCr
-    template <> constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt709, ColorConversionDir::YCbCr2RGB>{
-        { 1.f,               0.f,            1.5748f },
-        { 1.f,          -0.1873f,           -0.4681f },
-        { 1.f,           1.8556f,                0.f }};
-
-    // To be verified
-    template <> constexpr M3x3Float ccMatrix<ColorRange::Limited, ColorPrimitives::bt709, ColorConversionDir::YCbCr2RGB>{
-        { 1.f,               0.f,            1.402f },
-        { 1.f,         -0.34414f,         -0.71414f },
-        { 1.f,            1.772f,               0.f }};
-        /*{  1.f,              0.f,            1.4746f },
-        { 1.f,          -0.1646f,           -0.5713f },
-        { 1.f,           1.8814f,            0.f     }};*/
-
-    // Source: https://en.wikipedia.org/wiki/YCbCr
-    template <> constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt709, ColorConversionDir::RGB2YCbCr>{
-        {  0.2126f, 0.7152f, 0.0722f           },
-        { -0.1146f,      -0.3854f,            0.5f },
-        { 0.5f,         -0.4542f,           -0.0458f }};
-
-    // Source: https://en.wikipedia.org/wiki/YCbCr
-    template <> constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt2020, ColorConversionDir::YCbCr2RGB>{
-        {  1.f, 0.f, 1.4746f           },
-        { 1.f,          -0.16455312684366f, -0.57135312684366f },
-        { 1.f,           1.8814f,            0.f }};
-
-    // Computed from ccMatrix<ColorRange::Full, ColorPrimitives::bt2020, ColorConversionDir::YCbCr2RGB>
-    template <> constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt2020, ColorConversionDir::RGB2YCbCr>{
-        { -0.73792134831461f, 1.90449438202248f, -0.16657303370787f },
-        { 0.39221927730127f, -1.01227510472121f,  0.62005582741994f },
-        { 1.17857137414527f, -1.29153287808387f,  0.11296150393861f }};
+    constexpr M3x3Float ccMatrix = computeMatrix<CR, CP, CCD>();
 
     template <ColorDepth CD> constexpr ColorDepthPixelBaseType<CD> shiftFactor{};
     template <> constexpr ColorDepthPixelBaseType<ColorDepth::p8bit>  shiftFactor<ColorDepth::p8bit>{ 0u };
@@ -265,7 +312,7 @@ namespace fk {
         FK_HOST_DEVICE_FUSE float3 computeRGB(const InputType pixel) {
             constexpr M3x3Float coefficients = ccMatrix<CR, CP, ColorConversionDir::YCbCr2RGB>;
             constexpr float CSub = subCoefficients<CD>.chroma;
-            if constexpr (CP == ColorPrimitives::bt601) {
+            if constexpr (CR == ColorRange::Limited) {
                 constexpr float YSub = subCoefficients<CD>.luma;
                 return MxVFloat3<UnaryType>::exec({ make_<float3>(pixel.x - YSub, pixel.y - CSub, pixel.z - CSub), coefficients });
             } else {
@@ -273,8 +320,9 @@ namespace fk {
             }
         }
 
-        FK_HOST_DEVICE_FUSE OutputType computePixel(const InputType pixel) {
-            const float3 pixelRGBFloat = computeRGB(pixel);
+        public:
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
+            const float3 pixelRGBFloat = computeRGB(input);
             if constexpr (std::is_same_v<VBase<OutputType>, float>) {
                 if constexpr (ALPHA) {
                     return { pixelRGBFloat.x, pixelRGBFloat.y, pixelRGBFloat.z, (float)maxDepthValue<CD> };
@@ -289,30 +337,13 @@ namespace fk {
                     return pixelRGB;
                 }
             }
-
-        }
-
-        public:
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
-            // Pixel data shifted to the right to it's color depth numerical range
-            constexpr auto shiftFactorLocal = shiftFactor<CD>;
-            const InputType shiftedPixel = input >> shiftFactorLocal;
-
-            // Using color depth numerical range to compute the RGB pixel
-            const OutputType computedPixel = computePixel(shiftedPixel);
-            if constexpr (std::is_same_v<VBase<OutputType>, float>) {
-                // Moving back the pixel channels to data type numerical range, either 8bit or 16bit
-                return NormalizeColorRangeDepth<OutputType, CD>::exec(computedPixel);
-            } else {
-                // Moving back the pixel channels to data type numerical range, either 8bit or 16bit
-                return computedPixel << shiftFactorLocal;
-            }
         }
     };
 
     template <PixelFormat PF>
     class Image;
 
+    // Direct chroma replication, no interpolation
     template <PixelFormat PF>
     struct ReadYUV {
     private:
