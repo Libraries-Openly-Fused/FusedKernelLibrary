@@ -214,7 +214,7 @@ namespace fk {
     }
     
     // Getting the transformation matrices directly from computing them using
-    // the official ITU recomendations.
+    // the official ITU recommendations.
     // To see the actual values, check the variable ccMatrixTest at
     // utests/algorithm/image_processing/utest_color_conversion.h
     template <ColorRange CR, ColorPrimitives CP, ColorConversionDir CCD>
