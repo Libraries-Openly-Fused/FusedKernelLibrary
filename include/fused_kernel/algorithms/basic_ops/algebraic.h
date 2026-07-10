@@ -28,9 +28,7 @@ namespace fk {
 
 // Matrix * Scalar
 FK_HOST_DEVICE_CNST fk::M3x3Float operator*(const fk::M3x3Float &matrix, float scalar) {
-    return {{matrix.x * scalar},
-            {matrix.y * scalar},
-            {matrix.z * scalar}};
+    return {matrix.x * scalar, matrix.y * scalar, matrix.z * scalar};
 }
 
 // Scalar * Matrix (Commutative)
