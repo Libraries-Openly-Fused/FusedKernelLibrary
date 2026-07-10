@@ -93,9 +93,9 @@ public:
             const int8_t* base = reinterpret_cast<const int8_t*>(prm.data.data)
                 + ((long)bh * seqLen + t) * HEAD_DIM + ELEMS * lane;
             // one packed load: 2 bytes (d64) or 4 bytes (d128)
-            uint32_t packed = 0;
+            uint packed = 0;
             if constexpr (ELEMS == 2) packed = *reinterpret_cast<const uint16_t*>(base);
-            else packed = *reinterpret_cast<const uint32_t*>(base);
+            else packed = *reinterpret_cast<const uint*>(base);
             #pragma unroll
             for (int e = 0; e < ELEMS; ++e) {
                 const int8_t b = static_cast<int8_t>((packed >> (8 * e)) & 0xFF);

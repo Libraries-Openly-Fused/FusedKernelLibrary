@@ -685,7 +685,7 @@ constexpr bool test_fmax_fmin_double_ct() {
 
     // Check Signed Zero for fmax (+0.0 should win)
     // +0.0 in 64-bit hex is 0x0000000000000000ULL
-    static_assert(cxp::bit_cast<uint64_t>(cxp::fmax::f(neg_zero, pos_zero)) == 0x0000000000000000ULL,
+    static_assert(cxp::bit_cast<ulonglong>(cxp::fmax::f(neg_zero, pos_zero)) == 0x0000000000000000ULL,
                   "fmax(double) signed zero failed");
 
     // --- cxp::fmin (double) Tests ---
@@ -694,7 +694,7 @@ constexpr bool test_fmax_fmin_double_ct() {
 
     // Check Signed Zero for fmin (-0.0 should win)
     // -0.0 in 64-bit hex is 0x8000000000000000ULL
-    static_assert(cxp::bit_cast<uint64_t>(cxp::fmin::f(neg_zero, pos_zero)) == 0x8000000000000000ULL,
+    static_assert(cxp::bit_cast<ulonglong>(cxp::fmin::f(neg_zero, pos_zero)) == 0x8000000000000000ULL,
                   "fmin(double) signed zero failed");
 
     return true;
@@ -942,8 +942,8 @@ bool test_nearbyint_rt() {
 // ============================================================================
 // Bitwise and ULP Helpers for complex transcendental and bitwise functions
 // ============================================================================
-inline uint32_t get_float_bits(float f) {
-    uint32_t bits;
+inline uint get_float_bits(float f) {
+    uint bits;
     std::memcpy(&bits, &f, sizeof(float));
     return bits;
 }
@@ -956,8 +956,8 @@ inline int32_t get_ulp_distance(float a, float b) {
     if (std::isnan(a) || std::isnan(b) || std::isinf(a) || std::isinf(b))
         return -1;
 
-    uint32_t ua = get_float_bits(a);
-    uint32_t ub = get_float_bits(b);
+    uint ua = get_float_bits(a);
+    uint ub = get_float_bits(b);
 
     if ((ua >> 31) != (ub >> 31)) {
         if (a == 0.0f && b == 0.0f)
@@ -1135,14 +1135,14 @@ constexpr bool test_fmaxf_ct() {
     // --- Scalar Tests ---
     static_assert(cxp::fmaxf::f(1.0f, 2.0f) == 2.0f, "fmaxf scalar normal failed");
     static_assert(cxp::fmaxf::f(nan_val, 5.0f) == 5.0f, "fmaxf scalar NaN failed");
-    static_assert(cxp::bit_cast<uint32_t>(cxp::fmaxf::f(neg_zero, pos_zero)) == 0x00000000,
+    static_assert(cxp::bit_cast<uint>(cxp::fmaxf::f(neg_zero, pos_zero)) == 0x00000000,
                   "fmaxf scalar signed zero failed");
 
     // --- Vector Tests (float3) ---
     constexpr float3 fmax_v = cxp::fmaxf::f(float3{1.0f, nan_val, neg_zero}, float3{5.0f, 3.0f, pos_zero});
     static_assert(fmax_v.x == 5.0f, "fmaxf float3.x failed (Normal)");
     static_assert(fmax_v.y == 3.0f, "fmaxf float3.y failed (NaN propagation)");
-    static_assert(cxp::bit_cast<uint32_t>(fmax_v.z) == 0x00000000, "fmaxf float3.z failed (Signed Zero: MUST be +0.0)");
+    static_assert(cxp::bit_cast<uint>(fmax_v.z) == 0x00000000, "fmaxf float3.z failed (Signed Zero: MUST be +0.0)");
 
     // --- Vector Tests (int2 using standard max) ---
     constexpr int2 max_i = cxp::max::f(int2{100, -50}, int2{200, -10});
@@ -1159,7 +1159,7 @@ bool test_fmaxf_rt() {
     float nan_val = std::numeric_limits<float>::quiet_NaN();
 
     // --- Scalar Tests ---
-    if (cxp::bit_cast<uint32_t>(cxp::fmaxf::f(neg_zero, pos_zero)) != 0x00000000) {
+    if (cxp::bit_cast<uint>(cxp::fmaxf::f(neg_zero, pos_zero)) != 0x00000000) {
         std::cout << "Runtime Fail: cxp::fmaxf::f(-0.0, +0.0) did not yield +0.0\n";
         allCorrect = false;
     }
@@ -1169,7 +1169,7 @@ bool test_fmaxf_rt() {
     float3 v2 = fk::make_<float3>(5.0f, 3.0f, pos_zero);
     float3 v_max = cxp::fmaxf::f(v1, v2);
 
-    if (v_max.x != 5.0f || v_max.y != 3.0f || cxp::bit_cast<uint32_t>(v_max.z) != 0x00000000) {
+    if (v_max.x != 5.0f || v_max.y != 3.0f || cxp::bit_cast<uint>(v_max.z) != 0x00000000) {
         std::cout << "Runtime Fail: cxp::fmaxf::f(float3, float3) component mapping failed\n";
         allCorrect = false;
     }
@@ -1195,14 +1195,14 @@ constexpr bool test_fminf_ct() {
     // --- Scalar Tests ---
     static_assert(cxp::fminf::f(1.0f, 2.0f) == 1.0f, "fminf scalar normal failed");
     static_assert(cxp::fminf::f(nan_val, 5.0f) == 5.0f, "fminf scalar NaN failed");
-    static_assert(cxp::bit_cast<uint32_t>(cxp::fminf::f(neg_zero, pos_zero)) == 0x80000000,
+    static_assert(cxp::bit_cast<uint>(cxp::fminf::f(neg_zero, pos_zero)) == 0x80000000,
                   "fminf scalar signed zero failed");
 
     // --- Vector Tests (float3) ---
     constexpr float3 fmin_v = cxp::fminf::f(float3{1.0f, nan_val, neg_zero}, float3{5.0f, 3.0f, pos_zero});
     static_assert(fmin_v.x == 1.0f, "fminf float3.x failed (Normal)");
     static_assert(fmin_v.y == 3.0f, "fminf float3.y failed (NaN propagation)");
-    static_assert(cxp::bit_cast<uint32_t>(fmin_v.z) == 0x80000000, "fminf float3.z failed (Signed Zero: MUST be -0.0)");
+    static_assert(cxp::bit_cast<uint>(fmin_v.z) == 0x80000000, "fminf float3.z failed (Signed Zero: MUST be -0.0)");
 
     // --- Vector Tests (int2 using standard min) ---
     constexpr int2 min_i = cxp::min::f(int2{100, -50}, int2{200, -10});
@@ -1219,7 +1219,7 @@ bool test_fminf_rt() {
     float nan_val = std::numeric_limits<float>::quiet_NaN();
 
     // --- Scalar Tests ---
-    if (cxp::bit_cast<uint32_t>(cxp::fminf::f(neg_zero, pos_zero)) != 0x80000000) {
+    if (cxp::bit_cast<uint>(cxp::fminf::f(neg_zero, pos_zero)) != 0x80000000) {
         std::cout << "Runtime Fail: cxp::fminf::f(-0.0, +0.0) did not yield -0.0\n";
         allCorrect = false;
     }
@@ -1229,7 +1229,7 @@ bool test_fminf_rt() {
     float3 v2 = fk::make_<float3>(5.0f, 3.0f, pos_zero);
     float3 v_min = cxp::fminf::f(v1, v2);
 
-    if (v_min.x != 1.0f || v_min.y != 3.0f || cxp::bit_cast<uint32_t>(v_min.z) != 0x80000000) {
+    if (v_min.x != 1.0f || v_min.y != 3.0f || cxp::bit_cast<uint>(v_min.z) != 0x80000000) {
         std::cout << "Runtime Fail: cxp::fminf::f(float3, float3) component mapping failed\n";
         allCorrect = false;
     }

@@ -485,8 +485,8 @@ namespace cxp {
 
                 // 2. The Signed Zero Trap (-0.0 vs +0.0)
                 if (s1 == s2) {
-                    // Use uint64_t and the 64-bit sign mask
-                    bool s1_is_negative = (cxp::bit_cast<uint64_t>(s1) & 0x8000000000000000ULL) != 0;
+                    // Use ulonglong and the 64-bit sign mask
+                    bool s1_is_negative = (cxp::bit_cast<ulonglong>(s1) & 0x8000000000000000ULL) != 0;
                     return s1_is_negative ? s2 : s1;
                 }
 
@@ -514,8 +514,8 @@ namespace cxp {
 
                 // 2. The Signed Zero Trap (-0.0 vs +0.0)
                 if (s1 == s2) {
-                    // Use uint64_t and the 64-bit sign mask
-                    bool s1_is_negative = (cxp::bit_cast<uint64_t>(s1) & 0x8000000000000000ULL) != 0;
+                    // Use ulonglong and the 64-bit sign mask
+                    bool s1_is_negative = (cxp::bit_cast<ulonglong>(s1) & 0x8000000000000000ULL) != 0;
                     return s1_is_negative ? s1 : s2;
                 }
 
