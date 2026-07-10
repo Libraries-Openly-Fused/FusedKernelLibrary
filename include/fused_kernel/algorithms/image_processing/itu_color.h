@@ -124,8 +124,7 @@ namespace fk {
     };
 
     template <ColorDepth CD>
-    constexpr SubCoefficients subCoefficients;
-    
+    constexpr SubCoefficients subCoefficients{};
     // Integer Offsets
     template <>
     constexpr SubCoefficients subCoefficients<ColorDepth::p8bit>{16.f, 128.f};
