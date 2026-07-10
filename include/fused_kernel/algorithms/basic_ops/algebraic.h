@@ -27,19 +27,19 @@ namespace fk {
 } // namespace fk
 
 // Matrix * Scalar
-constexpr fk::M3x3Float operator*(const fk::M3x3Float &matrix, float scalar) {
+FK_HOST_DEVICE_CNST fk::M3x3Float operator*(const fk::M3x3Float &matrix, float scalar) {
     return {{matrix.x * scalar},
             {matrix.y * scalar},
             {matrix.z * scalar}};
 }
 
 // Scalar * Matrix (Commutative)
-constexpr fk::M3x3Float operator*(float scalar, const fk::M3x3Float &matrix) {
+FK_HOST_DEVICE_CNST fk::M3x3Float operator*(float scalar, const fk::M3x3Float &matrix) {
     return matrix * scalar; // Re-uses the implementation above
 }
 
 // Matrix * Matrix 
-constexpr fk::M3x3Float operator*(const fk::M3x3Float& matrix1, const fk::M3x3Float& matrix2) {
+FK_HOST_DEVICE_CNST fk::M3x3Float operator*(const fk::M3x3Float &matrix1, const fk::M3x3Float &matrix2) {
     return {matrix1.x * matrix2.x,
             matrix1.y * matrix2.y,
             matrix1.z * matrix2.z}; // Re-uses the implementation above
