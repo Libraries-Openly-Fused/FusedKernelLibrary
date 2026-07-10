@@ -46,6 +46,10 @@ namespace fk {
 
     // Taking into account the color depth, the pixel base type is uchar, ushort or float
     // ResolutionFactors therefore are used to compute the number of pixel base type elements on width and height
+    struct ResolutionFactors {
+        float width_f;
+        float height_f;
+    };
 
     enum class PixelFormat { NV12, NV21, YV12, P010, P016, P216, P210, Y216, Y210, Y416, UYVY };
     template <PixelFormat PF> struct PixelFormatTraits;
