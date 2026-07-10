@@ -18,9 +18,10 @@
 
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <fused_kernel/core/data/ptr_nd.h>
-#include <fused_kernel/algorithms/basic_ops/algebraic.h>
 #include <fused_kernel/algorithms/image_processing/saturate.h>
 #include <fused_kernel/algorithms/image_processing/raw_image.h>
+#include <fused_kernel/algorithms/image_processing/itu_color.h>
+#include <fused_kernel/algorithms/basic_ops/algebraic.h>
 #include <fused_kernel/algorithms/basic_ops/vector_ops.h>
 
 namespace fk {
@@ -77,32 +78,6 @@ namespace fk {
         }
     };
 
-    
-
-    template <PixelFormat PF>
-    using PackedPixelType = VectorType_t<ColorDepthPixelBaseType<static_cast<ColorDepth>(PixelFormatTraits<PF>::depth)>, PixelFormatTraits<PF>::cn>;
-
-    template <PixelFormat PF, bool ALPHA>
-    using YUVOutputPixelType = VectorType_t<ColorDepthPixelBaseType<PixelFormatTraits<PF>::depth>, ALPHA ? 4 : PixelFormatTraits<PF>::cn>;
-
-    struct SubCoefficients {
-        const float luma;
-        const float chroma;
-    };
-
-    template <ColorDepth CD>
-    constexpr SubCoefficients subCoefficients{};
-    template <> constexpr SubCoefficients subCoefficients<ColorDepth::p8bit>{ 16.f, 128.f };
-    template <> constexpr SubCoefficients subCoefficients<ColorDepth::p10bit>{ 64.f, 512.f };
-    template <> constexpr SubCoefficients subCoefficients<ColorDepth::p12bit>{ 256.f, 2048.f };
-
-    template <ColorDepth CD>
-    constexpr ColorDepthPixelBaseType<CD> maxDepthValue{};
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::p8bit>  maxDepthValue<ColorDepth::p8bit> { 255u };
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::p10bit> maxDepthValue<ColorDepth::p10bit> { 1023u };
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::p12bit> maxDepthValue<ColorDepth::p12bit> { 4095u };
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::f24bit> maxDepthValue<ColorDepth::f24bit> { 1.f };
-
     template <typename I, ColorDepth CD>
     struct AddOpaqueAlpha {
     private:
@@ -129,107 +104,6 @@ namespace fk {
             return Saturate<float>::exec(input, { { 0.f, static_cast<float>(maxDepthValue<CD>) } });
         }
     };
-
-    enum class ColorConversionDir { YCbCr2RGB, RGB2YCbCr };
-
-    struct ITUWeights {
-        float Kr{0.f};
-        float Kb{0.f};
-    };
-
-    template <ColorPrimitives CP>
-    constexpr ITUWeights iTUWeights{};
-    // For all cases: Kg = 1.f - Kr - Kb
-    template <> // Values extracted from https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.601-7-201103-I!!PDF-E.pdf
-    constexpr ITUWeights iTUWeights<ColorPrimitives::bt601>{.Kr = 0.299f, .Kb = 0.114f};
-    template <> // Values extracted from https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.709-6-201506-I!!PDF-E.pdf
-    constexpr ITUWeights iTUWeights<ColorPrimitives::bt709>{.Kr = 0.2126f, .Kb = 0.0722f};
-    template <> // Values extracted from https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.2020-2-201510-I!!PDF-E.pdf
-    constexpr ITUWeights iTUWeights<ColorPrimitives::bt2020>{.Kr = 0.2627f, .Kb = 0.0593f};
-
-    // The pure mathematical generator straight from the ITU equations
-    template <ColorRange CR, ColorPrimitives CP, ColorConversionDir CD>
-    constexpr M3x3Float computeMatrix() {
-        constexpr float Kr = iTUWeights<CP>.Kr;
-        constexpr float Kb = iTUWeights<CP>.Kb;
-        constexpr float Kg = 1.0f - Kr - Kb;
-        float m[3][3] = {};
-
-        if constexpr (CD == ColorConversionDir::RGB2YCbCr) {
-            // Step 1: Full Range RGB2YCbCr
-            m[0][0] = Kr;  
-            m[0][1] = Kg;  
-            m[0][2] = Kb;
-        
-            m[1][0] = -Kr / (2.0f * (1.0f - Kb));  
-            m[1][1] = -Kg / (2.0f * (1.0f - Kb));  
-            m[1][2] = 0.5f;
-        
-            m[2][0] = 0.5f;  
-            m[2][1] = -Kg / (2.0f * (1.0f - Kr));  
-            m[2][2] = -Kb / (2.0f * (1.0f - Kr));
-
-            // Step 3: Limited Range RGB2YCbCr Scaling
-            if constexpr (CR == ColorRange::Limited) {
-                float scaleY = 219.0f / 255.0f;
-                float scaleC = 224.0f / 255.0f;
-                for (int i = 0; i < 3; ++i) {
-                    m[0][i] *= scaleY;
-                    m[1][i] *= scaleC;
-                    m[2][i] *= scaleC;
-                }
-            }
-        } else {
-            // Step 2: Full Range YCbCr2RGB
-            m[0][0] = 1.0f;  
-            m[0][1] = 0.0f;  
-            m[0][2] = 2.0f * (1.0f - Kr);
-        
-            m[1][0] = 1.0f;  
-            m[1][1] = -2.0f * Kb * (1.0f - Kb) / Kg;  
-            m[1][2] = -2.0f * Kr * (1.0f - Kr) / Kg;
-        
-            m[2][0] = 1.0f;  
-            m[2][1] = 2.0f * (1.0f - Kb);  
-            m[2][2] = 0.0f;
-
-            // Step 4: Limited Range YCbCr2RGB Scaling
-            if constexpr (CR == ColorRange::Limited) {
-                float scaleY = 255.0f / 219.0f;
-                float scaleC = 255.0f / 224.0f;
-                for (int i = 0; i < 3; ++i) {
-                    m[i][0] *= scaleY;
-                    m[i][1] *= scaleC;
-                    m[i][2] *= scaleC;
-                }
-            }
-        }
-    
-        return M3x3Float{
-            { m[0][0], m[0][1], m[0][2] },
-            { m[1][0], m[1][1], m[1][2] },
-            { m[2][0], m[2][1], m[2][2] }
-        };
-    }
-    
-    // Getting the transformation matrices directly from computing them using
-    // the official ITU recommendations.
-    // To see the actual values, check the variable ccMatrixTest at
-    // utests/algorithm/image_processing/utest_color_conversion.h
-    template <ColorRange CR, ColorPrimitives CP, ColorConversionDir CCD>
-    constexpr M3x3Float ccMatrix = computeMatrix<CR, CP, CCD>();
-
-    template <ColorDepth CD> constexpr ColorDepthPixelBaseType<CD> shiftFactor{};
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::p8bit>  shiftFactor<ColorDepth::p8bit>{ 0u };
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::p10bit> shiftFactor<ColorDepth::p10bit>{ 6u };
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::p12bit> shiftFactor<ColorDepth::p12bit>{ 4u };
-
-    template <ColorDepth CD>
-    constexpr float floatShiftFactor{};
-    template <> constexpr float floatShiftFactor<ColorDepth::p8bit>{ 1.f };
-    template <> constexpr float floatShiftFactor<ColorDepth::p10bit>{ 64.f };
-    template <> constexpr float floatShiftFactor<ColorDepth::p12bit>{ 16.f };
-
 
     template <typename O, ColorDepth CD>
     struct DenormalizePixel {
@@ -273,28 +147,6 @@ namespace fk {
         }
     };
 
-    template <typename T, ColorDepth CD>
-    struct NormalizeColorRangeDepth {
-    private:
-        using SelfType = NormalizeColorRangeDepth<T, CD>;
-    public:
-        FK_STATIC_STRUCT(NormalizeColorRangeDepth, SelfType)
-        using Parent = UnaryOperation<T, T, NormalizeColorRangeDepth<T, CD>>;
-        DECLARE_UNARY_PARENT
-        using Base = typename VectorTraits<T>::base;
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
-            static_assert(std::is_floating_point_v<VBase<T>>, "NormalizeColorRangeDepth only works for floating point values");
-            // The nvcc compiler will only be able to use the global constexpr floatShiftFactor<CD> variable if it is stored in 
-            // a local variable.
-            // By storing it into a local variable, you are forcing the value to exist in private memory, so that each thread has
-            // a copy of the value on registers.
-            // In a later stage, since the variable is constexpr, the compiler will be able to inline the value in the
-            // multiplication instruction, and won't be stored in private memory.
-            constexpr auto shiftFactor = floatShiftFactor<CD>;
-            return input * shiftFactor;
-        }
-    };
-
     template <PixelFormat PF, ColorRange CR, ColorPrimitives CP, bool ALPHA, typename ReturnType = YUVOutputPixelType<PF, ALPHA>>
     struct ConvertYUVToRGB {
     private:
@@ -310,7 +162,7 @@ namespace fk {
         // Cb(U) -> input.y
         // Cr(V) -> input.z
         FK_HOST_DEVICE_FUSE float3 computeRGB(const InputType pixel) {
-            constexpr M3x3Float coefficients = ccMatrix<CR, CP, ColorConversionDir::YCbCr2RGB>;
+            constexpr M3x3Float coefficients = ccMatrix<CR, CP, ColorConversionDir::YCbCr2RGB, CD>;
             constexpr float CSub = subCoefficients<CD>.chroma;
             if constexpr (CR == ColorRange::Limited) {
                 constexpr float YSub = subCoefficients<CD>.luma;
