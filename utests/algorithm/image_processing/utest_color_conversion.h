@@ -1,5 +1,5 @@
-/* Copyright 2025 Oscar Amoros Huguet
-   Copyright 2025 Grup Mediapro S.L.U
+/* Copyright 2025-2026 Oscar Amoros Huguet
+   Copyright 2025-2026 Grup Mediapro S.L.U
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -296,25 +296,6 @@ void testSaturateDenormalizePixel() {
     TestCaseBuilder<SaturateDenormalizePixelTest>::addTest(testCases, inputVals, expectedVals);
 }
 
-void testNormalizeColorRangeDepth() {
-    // Test NormalizeColorRangeDepth with 8-bit depth
-    // For 8-bit, floatShiftFactor is 1.0f, so input * 1.0f = input (unchanged)
-    using NormalizeColorRangeDepthTest = fk::NormalizeColorRangeDepth<float3, fk::ColorDepth::p8bit>;
-    
-    std::array<float3, 2> inputVals = {
-        float3{0.0f, 128.0f, 255.0f},    
-        float3{64.0f, 192.0f, 100.0f}
-    };
-    
-    // For 8-bit depth, floatShiftFactor = 1.0f, so output = input * 1.0f = input
-    std::array<float3, 2> expectedVals = {
-        float3{0.0f, 128.0f, 255.0f},    
-        float3{64.0f, 192.0f, 100.0f}
-    };
-
-    TestCaseBuilder<NormalizeColorRangeDepthTest>::addTest(testCases, inputVals, expectedVals);
-}
-
 void testReadYUV() {
     fk::Stream stream;
 
@@ -415,6 +396,242 @@ void testReadYUV() {
     TestCaseBuilder<ReadYUVTest>::addTest(testCases, stream, inputVals, expectedVals);
 }
 
+namespace fk {
+template <ColorRange CR, ColorPrimitives CP, ColorConversionDir CCD, ColorDepth CD>
+constexpr M3x3Float ccMatrixTest{};
+
+// =========================================================================
+// BT.601
+// =========================================================================
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Full, ColorPrimitives::bt601,
+                                 ColorConversionDir::YCbCr2RGB, ColorDepth::p8bit>{
+    {  1.000000000f,  0.000000000f,  1.401999950f },
+    {  1.000000000f, -0.344136298f, -0.714136302f },
+    {  1.000000000f,  1.771999955f,  0.000000000f }
+};
+
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Full, ColorPrimitives::bt601,
+                                 ColorConversionDir::RGB2YCbCr, ColorDepth::p8bit>{
+    {  0.298999995f,  0.586999953f,  0.114000000f },
+    { -0.168735892f, -0.331264079f,  0.500000000f },
+    {  0.500000000f, -0.418687582f, -0.081312411f }
+};
+
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Limited, ColorPrimitives::bt601,
+                                 ColorConversionDir::YCbCr2RGB, ColorDepth::p8bit>{
+    {  1.164383531f,  0.000000000f,  1.596026659f },
+    {  1.164383531f, -0.391762286f, -0.812967658f },
+    {  1.164383531f,  2.017231941f,  0.000000000f }
+};
+
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Limited, ColorPrimitives::bt601,
+                                 ColorConversionDir::RGB2YCbCr, ColorDepth::p8bit>{
+    {  0.256788224f,  0.504129350f,  0.097905882f },
+    { -0.148222908f, -0.290992767f,  0.439215690f },
+    {  0.439215690f, -0.367788315f, -0.071427375f }
+};
+
+// =========================================================================
+// BT.709
+// =========================================================================
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Full, ColorPrimitives::bt709,
+                                 ColorConversionDir::YCbCr2RGB, ColorDepth::p8bit>{
+    {  1.000000000f,  0.000000000f,  1.574800014f },
+    {  1.000000000f, -0.187324256f, -0.468124270f },
+    {  1.000000000f,  1.855599999f,  0.000000000f }
+};
+
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Full, ColorPrimitives::bt709,
+                                 ColorConversionDir::RGB2YCbCr, ColorDepth::p8bit>{
+    {  0.212599993f,  0.715200007f,  0.072200000f },
+    { -0.114572100f, -0.385427892f,  0.500000000f },
+    {  0.500000000f, -0.454152912f, -0.045847092f }
+};
+
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Limited, ColorPrimitives::bt709,
+                                 ColorConversionDir::YCbCr2RGB, ColorDepth::p8bit>{
+    {  1.164383531f,  0.000000000f,  1.792741060f },
+    {  1.164383531f, -0.213248581f, -0.532909274f },
+    {  1.164383531f,  2.112401724f,  0.000000000f }
+};
+
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Limited, ColorPrimitives::bt709,
+                                 ColorConversionDir::RGB2YCbCr, ColorDepth::p8bit>{
+    {  0.182585880f,  0.614230573f,  0.062007058f },
+    { -0.100643732f, -0.338571966f,  0.439215690f },
+    {  0.439215690f, -0.398942173f, -0.040273525f }
+};
+
+// =========================================================================
+// BT.2020
+// =========================================================================
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Full, ColorPrimitives::bt2020,
+                                 ColorConversionDir::YCbCr2RGB, ColorDepth::p8bit>{
+    {  1.000000000f,  0.000000000f,  1.474600077f },
+    {  1.000000000f, -0.164553121f, -0.571353137f },
+    {  1.000000000f,  1.881399989f,  0.000000000f }
+};
+
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Full, ColorPrimitives::bt2020,
+                                 ColorConversionDir::RGB2YCbCr, ColorDepth::p8bit>{
+    {  0.262699991f,  0.678000033f,  0.059300002f },
+    { -0.139630064f, -0.360369951f,  0.500000000f },
+    {  0.500000000f, -0.459785700f, -0.040214293f }
+};
+
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Limited, ColorPrimitives::bt2020,
+                                 ColorConversionDir::YCbCr2RGB, ColorDepth::p8bit>{
+    {  1.164383531f,  0.000000000f,  1.678674102f },
+    {  1.164383531f, -0.187326089f, -0.650424302f },
+    {  1.164383531f,  2.141772270f,  0.000000000f }
+};
+
+template <>
+constexpr M3x3Float ccMatrixTest<ColorRange::Limited, ColorPrimitives::bt2020,
+                                 ColorConversionDir::RGB2YCbCr, ColorDepth::p8bit>{
+    {  0.225612938f,  0.582282364f,  0.050928239f },
+    { -0.122655429f, -0.316560268f,  0.439215690f },
+    {  0.439215690f, -0.403890193f, -0.035325497f }
+};
+
+// =========================================================================
+// ALIASING IDENTICAL MATRICES (Protects against code bloat & float drift)
+// =========================================================================
+
+// 1. Full Range matrices have no scaling, so they are identical across ALL bit depths.
+template <ColorPrimitives CP, ColorConversionDir CCD>
+constexpr M3x3Float ccMatrixTest<ColorRange::Full, CP, CCD, ColorDepth::p10bit> =
+    ccMatrixTest<ColorRange::Full, CP, CCD, ColorDepth::p8bit>;
+
+template <ColorPrimitives CP, ColorConversionDir CCD>
+constexpr M3x3Float ccMatrixTest<ColorRange::Full, CP, CCD, ColorDepth::p12bit> =
+    ccMatrixTest<ColorRange::Full, CP, CCD, ColorDepth::p8bit>;
+
+// Factors to convert full range matrices to limited range matrices
+template <ColorConversionDir CCD, ColorDepth CD>
+constexpr M3x3Float limitedFactors{};
+
+template <>
+constexpr M3x3Float
+    limitedFactors<ColorConversionDir::YCbCr2RGB, ColorDepth::p10bit>{
+        {(1023.f / 876.f), (1023.f / 896.f), (1023.f / 896.f)},
+        {(1023.f / 876.f), (1023.f / 896.f), (1023.f / 896.f)},
+        {(1023.f / 876.f), (1023.f / 896.f), (1023.f / 896.f)}};
+
+template <>
+constexpr M3x3Float
+    limitedFactors<ColorConversionDir::RGB2YCbCr, ColorDepth::p10bit>{
+        make_set<float3>(876.f / 1023.f),
+        make_set<float3>(896.f / 1023.f),
+        make_set<float3>(896.f / 1023.f)};
+
+template <>
+constexpr M3x3Float
+    limitedFactors<ColorConversionDir::YCbCr2RGB, ColorDepth::p12bit>{
+        {(4095.f / 3504.f), (4095.f / 3584.f), (4095.f / 3584.f)},
+        {(4095.f / 3504.f), (4095.f / 3584.f), (4095.f / 3584.f)},
+        {(4095.f / 3504.f), (4095.f / 3584.f), (4095.f / 3584.f)}};
+
+template <>
+constexpr M3x3Float
+    limitedFactors<ColorConversionDir::RGB2YCbCr, ColorDepth::p12bit>{
+        make_set<float3>(3504.f / 4095.f),
+        make_set<float3>(3584.f / 4095.f),
+        make_set<float3>(3584.f / 4095.f)};
+
+// =========================================================================
+// 10-BIT and 12-BIT LIMITED RANGE matrices
+// =========================================================================
+template <ColorPrimitives CP, ColorConversionDir CCD, ColorDepth CD>
+    requires one_of_v<CD_t<CD>, TypeList<CD_t<ColorDepth::p10bit>, CD_t<ColorDepth::p12bit>>>
+constexpr M3x3Float
+    ccMatrixTest<ColorRange::Limited, CP, CCD, CD> =
+        ccMatrixTest<ColorRange::Full, CP, CCD, CD> * limitedFactors<CCD, CD>;
+
+// Normalized float (fn) matrices share the exact same scaling ratio as their integer equivalents.
+template <ColorRange CR, ColorPrimitives CP, ColorConversionDir CCD>
+constexpr M3x3Float ccMatrixTest<CR, CP, CCD, ColorDepth::fn8bit> = ccMatrixTest<CR, CP, CCD, ColorDepth::p8bit>;
+
+template <ColorRange CR, ColorPrimitives CP, ColorConversionDir CCD>
+constexpr M3x3Float ccMatrixTest<CR, CP, CCD, ColorDepth::fn10bit> = ccMatrixTest<CR, CP, CCD, ColorDepth::p10bit>;
+
+template <ColorRange CR, ColorPrimitives CP, ColorConversionDir CCD>
+constexpr M3x3Float ccMatrixTest<CR, CP, CCD, ColorDepth::fn12bit> = ccMatrixTest<CR, CP, CCD, ColorDepth::p12bit>;
+
+constexpr bool equalM3x3(const M3x3Float& first, const M3x3Float& second) {
+    return (first.x == second.x) && (first.y == second.y) && (first.z == second.z);
+}
+
+template <ColorPrimitives CP, ColorDepth CD>
+constexpr bool testTransformationMatrixValues_helper() {
+    using CR_t = ColorRange;
+    using CCD_t = ColorConversionDir;
+
+    constexpr bool fullRGB2YCBCR = equalM3x3(ccMatrixTest<CR_t::Full, CP, CCD_t::RGB2YCbCr, CD>,
+                                             ccMatrix<CR_t::Full, CP, CCD_t::RGB2YCbCr, CD>);
+    constexpr bool fullYCbCr2RGB = equalM3x3(ccMatrixTest<CR_t::Full, CP, CCD_t::YCbCr2RGB, CD>,
+                                             ccMatrix<CR_t::Full, CP, CCD_t::YCbCr2RGB, CD>);
+    constexpr bool limitedRGB2YCBCR = equalM3x3(ccMatrixTest<CR_t::Limited, CP, CCD_t::RGB2YCbCr, CD>,
+                                                ccMatrix<CR_t::Limited, CP, CCD_t::RGB2YCbCr, CD>);
+    constexpr bool limitedYCbCr2RGB = equalM3x3(ccMatrixTest<CR_t::Limited, CP, CCD_t::YCbCr2RGB, CD>,
+                                                ccMatrix<CR_t::Limited, CP, CCD_t::YCbCr2RGB, CD>);
+
+    static_assert(fullRGB2YCBCR, "Something wrong in color conversion matrix Full and RGB2YCbCr");
+    static_assert(fullYCbCr2RGB, "Something wrong in color conversion matrix Full and YCbCr2RGB");
+    static_assert(limitedRGB2YCBCR, "Something wrong in color conversion matrix Limited and RGB2YCbCr");
+    static_assert(limitedYCbCr2RGB, "Something wrong in color conversion matrix Limited and YCbCr2RGB");
+
+    return and_v<fullRGB2YCBCR, fullYCbCr2RGB, limitedRGB2YCBCR, limitedYCbCr2RGB>;
+}
+} // namespace fk
+
+constexpr bool testTransformationMatrixValues() {
+    using namespace fk;
+    constexpr bool res_p8_601 = testTransformationMatrixValues_helper<ColorPrimitives::bt601, ColorDepth::p8bit>();
+    constexpr bool res_p8_709 = testTransformationMatrixValues_helper<ColorPrimitives::bt709, ColorDepth::p8bit>();
+    constexpr bool res_p8_2020 = testTransformationMatrixValues_helper<ColorPrimitives::bt2020, ColorDepth::p8bit>();
+    
+    // --- 10-bit Integer ---
+    constexpr bool res_p10_601 = testTransformationMatrixValues_helper<ColorPrimitives::bt601, ColorDepth::p10bit>();
+    constexpr bool res_p10_709 = testTransformationMatrixValues_helper<ColorPrimitives::bt709, ColorDepth::p10bit>();
+    constexpr bool res_p10_2020 = testTransformationMatrixValues_helper<ColorPrimitives::bt2020, ColorDepth::p10bit>();
+
+    // --- 12-bit Integer ---
+    constexpr bool res_p12_601 = testTransformationMatrixValues_helper<ColorPrimitives::bt601, ColorDepth::p12bit>();
+    constexpr bool res_p12_709 = testTransformationMatrixValues_helper<ColorPrimitives::bt709, ColorDepth::p12bit>();
+    constexpr bool res_p12_2020 = testTransformationMatrixValues_helper<ColorPrimitives::bt2020, ColorDepth::p12bit>();
+
+    // --- 8-bit Normalized Float ---
+    constexpr bool res_fn8_601 = testTransformationMatrixValues_helper<ColorPrimitives::bt601, ColorDepth::fn8bit>();
+    constexpr bool res_fn8_709 = testTransformationMatrixValues_helper<ColorPrimitives::bt709, ColorDepth::fn8bit>();
+    constexpr bool res_fn8_2020 = testTransformationMatrixValues_helper<ColorPrimitives::bt2020, ColorDepth::fn8bit>();
+
+    // --- 10-bit Normalized Float ---
+    constexpr bool res_fn10_601 = testTransformationMatrixValues_helper<ColorPrimitives::bt601, ColorDepth::fn10bit>();
+    constexpr bool res_fn10_709 = testTransformationMatrixValues_helper<ColorPrimitives::bt709, ColorDepth::fn10bit>();
+    constexpr bool res_fn10_2020 = testTransformationMatrixValues_helper<ColorPrimitives::bt2020, ColorDepth::fn10bit>();
+
+    // --- 12-bit Normalized Float ---
+    constexpr bool res_fn12_601 = testTransformationMatrixValues_helper<ColorPrimitives::bt601, ColorDepth::fn12bit>();
+    constexpr bool res_fn12_709 = testTransformationMatrixValues_helper<ColorPrimitives::bt709, ColorDepth::fn12bit>();
+    constexpr bool res_fn12_2020 = testTransformationMatrixValues_helper<ColorPrimitives::bt2020, ColorDepth::fn12bit>();
+
+    return and_v<res_p8_601, res_p8_709, res_p8_2020, res_p10_601, res_p10_709, res_p10_2020, res_p12_601, res_p12_709,
+                 res_p12_2020, res_fn8_601, res_fn8_709, res_fn8_2020, res_fn10_601, res_fn10_709, res_fn10_2020,
+                 res_fn12_601, res_fn12_709, res_fn12_2020>;
+}
+
 START_ADDING_TESTS
 // Test UYVY pixel format traits
 testUYVYPixelFormatTraits();
@@ -442,10 +659,10 @@ testAddOpaqueAlphaStruct();
 testDenormalizePixel();
 testNormalizePixel();
 testSaturateDenormalizePixel();
-testNormalizeColorRangeDepth();
 
 // Test ReadYUV operation
 testReadYUV();
+testTransformationMatrixValues();
 STOP_ADDING_TESTS
 
 int launch() {

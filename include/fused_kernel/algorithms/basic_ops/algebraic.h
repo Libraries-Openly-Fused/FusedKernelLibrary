@@ -16,16 +16,9 @@
 #define FK_ALGEBRAIC
 
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
-#include <fused_kernel/core/utils/vector_utils.h>
+#include <fused_kernel/core/data/static_matrix.h>
 
 namespace fk {
-
-    struct M3x3Float {
-        const float3 x;
-        const float3 y;
-        const float3 z;
-    };
-
     template <typename OpInstanceType = BinaryType>
     struct MxVFloat3;
 
