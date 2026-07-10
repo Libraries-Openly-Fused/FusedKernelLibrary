@@ -409,7 +409,7 @@ namespace cxp {
                 // If they evaluate as equal, return the one with the positive sign bit.
                 if (s1 == s2) {
                     // Extract the 31st bit (sign bit) via our unified bit_cast
-                    bool s1_is_negative = (cxp::bit_cast<uint32_t>(s1) & 0x80000000) != 0;
+                    bool s1_is_negative = (cxp::bit_cast<uint>(s1) & 0x80000000) != 0;
                     return s1_is_negative ? s2 : s1;
                 }
 
@@ -456,7 +456,7 @@ namespace cxp {
                 // If they evaluate as equal, return the one with the negative sign bit.
                 if (s1 == s2) {
                     // Extract the 31st bit (sign bit) via our unified bit_cast
-                    bool s1_is_negative = (cxp::bit_cast<uint32_t>(s1) & 0x80000000) != 0;
+                    bool s1_is_negative = (cxp::bit_cast<uint>(s1) & 0x80000000) != 0;
                     return s1_is_negative ? s1 : s2;
                 }
 
@@ -582,7 +582,7 @@ namespace cxp {
             float exec(const float x, const int exp) 
             { 
                 // Replace union with standard C++20 bit_cast
-                uint32_t ui = cxp::bit_cast<uint32_t>(x);
+                uint ui = cxp::bit_cast<uint>(x);
 
                 // Extract the 8-bit exponent
                 int32_t e = (ui >> 23) & 0xFF;
@@ -594,7 +594,7 @@ namespace cxp {
                         return x;
 
                     // Subnormal normalization: multiply by 2^24 to push into normal range
-                    ui = cxp::bit_cast<uint32_t>(x * 16777216.0f); // Re-cast after math
+                    ui = cxp::bit_cast<uint>(x * 16777216.0f); // Re-cast after math
                     e = ((ui >> 23) & 0xFF) - 24;
                 } else if (e == 0xFF) {
                     // Infinity or NaN
@@ -672,7 +672,7 @@ namespace cxp {
                 // 4. Reconstruction: e^x = e^r * 2^k
                 if (k >= -126) {
                     // Fast bit manipulation for normal IEEE 754 floats
-                    uint32_t twok_i = static_cast<uint32_t>(k + 127) << 23;
+                    uint twok_i = static_cast<uint>(k + 127) << 23;
                     return poly * cxp::bit_cast<float>(twok_i);
                 } else {
                     // Fallback for subnormal numbers using your custom ldexpf
