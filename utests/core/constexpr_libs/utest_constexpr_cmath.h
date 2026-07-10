@@ -23,6 +23,7 @@
 #include <iostream>
 #include <algorithm>
 #include <iomanip>
+#include <cstring>
 
 // Test isnan function compile-time
 template <typename T>
