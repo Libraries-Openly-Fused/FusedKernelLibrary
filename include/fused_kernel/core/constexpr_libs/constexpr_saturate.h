@@ -39,7 +39,7 @@ namespace cxp {
                 }
 
                 // Mathematical exact extraction (UB-free since abs_v < 2^53)
-                std::int64_t i = static_cast<std::int64_t>(abs_v);
+                longlong i = static_cast<longlong>(abs_v);
 
                 // By Sterbenz's Lemma, this subtraction is exactly representable.
                 ST diff = abs_v - static_cast<ST>(i);
