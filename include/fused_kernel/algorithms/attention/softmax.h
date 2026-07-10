@@ -94,9 +94,9 @@ template <typename OT> struct CastF32ToLowFP {
     FK_DEVICE_FUSE OT exec(const InputType &v) { return low_precission::attnFromF32<OT>(v); }
 };
 
-template <int BLOCK_SIZE = 256>
+template <int BLOCK_SIZE_ = 256>
 struct SoftmaxDPPDetails {
-    static constexpr int BLOCK_SIZE = BLOCK_SIZE;
+    static constexpr int BLOCK_SIZE = BLOCK_SIZE_;
 };
 
 /* InIOp is an INSTANTIABLE Read or ReadBack IOp (possibly a fusion
