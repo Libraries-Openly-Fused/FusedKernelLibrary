@@ -16,30 +16,7 @@
 #define FK_ALGEBRAIC
 
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
-#include <fused_kernel/core/utils/vector_utils.h>
-
-namespace fk {
-    struct M3x3Float {
-        const float3 x;
-        const float3 y;
-        const float3 z;
-    };
-} // namespace fk
-
-// Matrix * Scalar
-FK_HOST_DEVICE_CNST fk::M3x3Float operator*(const fk::M3x3Float &matrix, float scalar) {
-    return {matrix.x * scalar, matrix.y * scalar, matrix.z * scalar};
-}
-
-// Scalar * Matrix (Commutative)
-FK_HOST_DEVICE_CNST fk::M3x3Float operator*(float scalar, const fk::M3x3Float &matrix) {
-    return matrix * scalar; // Re-uses the implementation above
-}
-
-// Element-wise (Hadamard) multiplication. Note: this is NOT standard matrix multiplication.
-FK_HOST_DEVICE_CNST fk::M3x3Float operator*(const fk::M3x3Float& a, const fk::M3x3Float& b) {
-    return {a.x * b.x, a.y * b.y, a.z * b.z};
-}
+#include <fused_kernel/core/data/static_matrix.h>
 
 namespace fk {
     template <typename OpInstanceType = BinaryType>

@@ -16,8 +16,7 @@
 #ifndef FK_ITU_COLOR
 #define FK_ITU_COLOR
 
-#include <fused_kernel/core/utils/vector_utils.h>
-#include <fused_kernel/algorithms/basic_ops/algebraic.h>
+#include <fused_kernel/core/data/static_matrix.h>
 
 namespace fk {
     enum class ColorSpace { YUV420, YUV422, YUV444, RGB, RGBA };
