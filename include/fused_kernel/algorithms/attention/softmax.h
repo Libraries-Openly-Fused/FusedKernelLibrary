@@ -149,7 +149,6 @@ private:
         const float invL = 1.f / states[0].l;
 
         for (int x = tid; x < width; x += SoftmaxDetails::BLOCK_SIZE) {
-            // EPILOGUE: element read through the IOp (pass 2)
             const float result = cxp::expf::f(InIOp::Operation::exec(Point{x, row, 0}, input) - m) * invL;
             OutIOp::Operation::exec(Point{x, row, 0}, result, output);
         }
