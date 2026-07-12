@@ -134,6 +134,20 @@ inline auto makeAttentionRead(const T* data, const int batchHeads,
     return PerThreadRead<ND::_3D, T>::build(ptr);
 }
 
+// Wrap a raw (batch*heads, seq, head_dim) C-contiguous OUTPUT pointer as the
+// canonical attention Write IOp. Fuse extra postprocessing by chaining
+// compute IOps in front of it: chain.then(makeAttentionWrite(...)).
+template <typename T>
+inline auto makeAttentionWrite(T* data, const int batchHeads,
+                               const int seq, const int headDim) {
+    const RawPtr<ND::_3D, T> ptr{
+        data,
+        PtrDims<ND::_3D>(static_cast<uint>(headDim), static_cast<uint>(seq),
+                         static_cast<uint>(batchHeads), 1,
+                         static_cast<uint>(headDim * sizeof(T))) };
+    return PerThreadWrite<ND::_3D, T>::build(ptr);
+}
+
 // int8-per-token compressed K or V cache as a dequantizing Read IOp.
 inline auto makeInt8KVRead(const int8_t* data, const float* scales,
                            const int batchHeads, const int seq,
@@ -262,10 +276,18 @@ public:
             const long oRow = ((long)bh * p.seq_q + qIdx) * HEAD_DIM;
             #pragma unroll
             for (int e = 0; e < ELEMS_PER_LANE; ++e) {
-                // EPILOGUE FUSION: the FKL IOp chain runs in-register on the
-                // normalized output, then ONE global write.
-                const float r = (oAcc[e] * invL) | p.epilogue;
-                p.o[oRow + lane + 32 * e] = attnFromF32<OT>(r);
+                if constexpr (isAnyWriteType<EpilogueIOp>) {
+                    // FUSED WRITE IOp: the whole compute.then(write) chain
+                    // runs in-register and performs the single global write
+                    // itself (same 3D addressing convention as the prologues).
+                    EpilogueIOp::Operation::exec(Point{ lane + 32 * e, qIdx, bh },
+                                                 oAcc[e] * invL, p.epilogue);
+                } else {
+                    // EPILOGUE FUSION: the FKL IOp chain runs in-register on the
+                    // normalized output, then ONE global write.
+                    const float r = (oAcc[e] * invL) | p.epilogue;
+                    p.o[oRow + lane + 32 * e] = attnFromF32<OT>(r);
+                }
             }
         }
     }
@@ -297,6 +319,22 @@ inline void executeFlashAttention(
     launchFlashAttentionDPP_Kernel<OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_N, WARPS_PER_BLOCK>
         <<<grid, block, 0, stream.getCUDAStream()>>>(params);
     gpuErrchk(cudaGetLastError());
+}
+
+/* IOp-first API, FUSED WRITE IOp output: pass the output as a Write IOp
+ * (possibly fused: chain.then(makeAttentionWrite(...))). The DPP performs
+ * the global write through the IOp, running any fused compute in-register. */
+template <int HEAD_DIM, int BLOCK_N = 32, int WARPS_PER_BLOCK = 4,
+          typename QIOp, typename KIOp, typename VIOp, typename WriteIOp,
+          std::enable_if_t<isAnyWriteType<WriteIOp>, int> = 0>
+inline void executeFlashAttention(
+        const QIOp& q, const KIOp& k, const VIOp& v, const WriteIOp& out,
+        const int batchHeads, const int seqQ, const int seqK,
+        const bool causal, Stream_<ParArch::GPU_NVIDIA>& stream,
+        const float scaleOverride = -1.f) {
+    executeFlashAttention<HEAD_DIM, BLOCK_N, WARPS_PER_BLOCK, float>(
+        q, k, v, static_cast<float*>(nullptr), batchHeads, seqQ, seqK,
+        causal, stream, scaleOverride, out);
 }
 
 /* Pointer convenience API (kept for compatibility): builds the canonical
