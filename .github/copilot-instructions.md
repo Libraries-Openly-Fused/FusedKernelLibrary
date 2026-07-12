@@ -139,7 +139,7 @@ Files ending in `_common.h` (matching `*_common.*`) are shared helpers, not test
 Code in this repository is strictly divided into two namespaces based on its domain:
 
 *   **Core Library (`fk::`)**: The vast majority of FKL code (operations, data structures, executors) lives in the `fk` namespace. Use `using namespace fk;` in test and example files.
-*   **Standard Polyfills (`cxp::`)**: Code located in the `constexpr-libs` directory must use the `cxp` namespace. This namespace is strictly reserved for implementing `std` functionality that is either unavailable on the GPU, unavailable as `constexpr`, or both.
+*   **Standard Polyfills (`cxp::`)**: Code located in the `constexpr_libs` directory must use the `cxp` namespace. This namespace is strictly reserved for implementing `std` functionality that is either unavailable on the GPU, unavailable as `constexpr`, or both.
 
 ### Function/Method Macros
 All functions in headers use one of these macros (from `include/fused_kernel/core/utils/utils.h`):
