@@ -44,6 +44,7 @@ namespace cxp {
 #else
 #include <bit>
 #include <algorithm>
+#include <utility>
 namespace cxp {
     using std::bit_cast;
     namespace base {
