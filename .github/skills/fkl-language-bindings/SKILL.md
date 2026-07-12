@@ -1,11 +1,11 @@
 ---
 name: fkl-language-bindings
-description: Wrap FKL from another language (Python, Rust, Julia...) using an AST/graph approach and JIT compilation. Covers why NVRTC fails, the unified byte-buffer ABI (including RawPtrs for I/O), generating C++ source strings for IOps and static DPP execution, zero-copy interop, and cross-platform shared library generation (.so/.dll). Use when building or extending a language binding for FKL.
+description: Wrap FKL from another language (Python, Rust, Julia...) using an AST/graph approach and JIT compilation. Covers why NVRTC fails, the Pointer Array ABI (void** for aligned parameters and I/O), generating C++ source strings for IOps and static DPP execution, zero-copy interop, and cross-platform shared library generation (.so/.dll). Use when building or extending a language binding for FKL.
 ---
 
 # Building language bindings for FKL
 
-Proven architecture: dynamic front-ends (like fkl-python) compose an Abstract Syntax Tree (AST) of operations, serialize their parameter structs, and generate a single fused C++ translation unit at runtime.
+Proven architecture: dynamic front-ends (like fkl-python) compose an Abstract Syntax Tree (AST) of operations, serialize their parameter structs into aligned memory, and generate a single fused C++ translation unit at runtime.
 
 ## Why the obvious approaches fail
 
@@ -15,7 +15,7 @@ Proven architecture: dynamic front-ends (like fkl-python) compose an Abstract Sy
 
 ## The AST/Graph Architecture
 
-Instead of binding C++ functions, the host language represents Operations and DPPs as graph nodes. Each node stores the literal C++ type string (e.g., `"fk::Add<float>"`) and the exact binary representation of its parameter struct.
+Instead of binding C++ functions, the host language represents Operations and DPPs as graph nodes. Each node stores the literal C++ type string (e.g., `"fk::Add<float>"`) and the host language allocates its parameter struct.
 
 The host language (Python, Rust, etc.) is responsible for **writing the C++ source strings** for steps 1, 2, 3, and 4 below, concatenating them to generate the final `.cu` file:
 
@@ -25,15 +25,15 @@ The host language (Python, Rust, etc.) is responsible for **writing the C++ sour
 //      v   first call with concrete dtype/shape
 // generate ONE .cu translation unit:
 
-extern "C" void fkl_entry(const uint8_t* params_bytes, void* stream)
+extern "C" void fkl_entry(const void** params_ptrs, void* stream)
 { 
     // THE HOST LANGUAGE GENERATES THE C++ SOURCE STRINGS FOR STEPS 1 THROUGH 4:
 
-    // 1. Cast byte offsets into parameter structs (including RawPtrs for I/O)
-    auto in_ptr  = *reinterpret_cast<const fk::RawPtr<fk::ND::_2D, float>*>(params_bytes + 0);
-    auto p1      = *reinterpret_cast<const float*>(params_bytes + offset1);
-    auto p2      = *reinterpret_cast<const fk::Rect*>(params_bytes + offset2);
-    auto out_ptr = *reinterpret_cast<const fk::RawPtr<fk::ND::_2D, float>*>(params_bytes + offset3);
+    // 1. Cast pointers to their exact struct types and dereference (guarantees alignment)
+    auto in_ptr  = *reinterpret_cast<const fk::RawPtr<fk::ND::_2D, float>*>(params_ptrs[0]);
+    auto p1      = *reinterpret_cast<const float*>(params_ptrs[1]);
+    auto p2      = *reinterpret_cast<const fk::Rect*>(params_ptrs[2]);
+    auto out_ptr = *reinterpret_cast<const fk::RawPtr<fk::ND::_2D, float>*>(params_ptrs[3]);
     
     // 2. Instantiate Read IOp via ::build()
     auto in_op  = fk::PerThreadRead<fk::ND::_2D, float>::build(in_ptr);
@@ -57,21 +57,22 @@ extern "C" void fkl_entry(const uint8_t* params_bytes, void* stream)
 
 Key decisions:
 
-1. **Types compile, values don't.** The cache key contains: op tokens (names + template args), dtypes, layout (2D vs planes), batch size, OS, compiler, and FKL versions. Runtime values are passed through a flat byte buffer at every call. Changing a value NEVER recompiles; changing the chain shape compiles exactly once.
+1. **Types compile, values don't.** The cache key contains: op tokens (names + template args), dtypes, layout (2D vs planes), batch size, OS, compiler, and FKL versions. Runtime values are passed through the pointer array at every call. Changing a value NEVER recompiles; changing the chain shape compiles exactly once.
 2. **Generate what a C++ user would write.** The binding emits the exact `::build(params)` calls and static `executeOperations` sequences a human would write.
 3. **clang first.** clang compiles host+device CUDA in one invocation and is Apache-2.0; fall back to nvcc. Keep any required shims (texture header stubs, fatbinary flags) inside the binding.
 
-## The ABI (Unified Byte Buffer Architecture)
+## The ABI (Pointer Array Architecture)
 
-Keep `fkl_entry` dumb, stable, and strictly typed:
-- `const uint8_t* params_bytes`: **All** runtime values, inputs, and outputs tightly packed. 
-  - The host language packs device pointers and shapes into the exact binary layout of `fk::RawPtr` (e.g., a 64-bit pointer followed by pitch/dimensions) alongside standard structs like floats or Rects. 
-  - The generated C++ casts them sequentially to preserve exact precision without aliasing issues. This naturally supports graphs with any number of inputs and outputs without changing the FFI signature.
+Keep `fkl_entry` dumb, stable, and immune to memory alignment undefined behavior:
+- `const void** params_ptrs`: **All** runtime values, inputs, and outputs passed as an array of pointers. 
+  - The host language allocates device pointers/shapes as `fk::RawPtr` structs alongside standard structs (like floats or Rects) using its native FFI tools, ensuring OS-level memory alignment.
+  - It then passes an array of pointers to these structs (`void**`).
+  - The generated C++ casts each pointer to its exact type. This prevents C++ strict-aliasing and struct-packing alignment crashes while supporting graphs with any number of inputs and outputs without changing the FFI signature.
 - `void* stream`: external CUDA stream. If null, use a TU-local `static Stream`; if provided, run async and DON'T sync — the caller owns ordering (torch/cupy semantics).
 
 ## Zero-copy interop
 
-- Inputs: accept anything exposing a device pointer + shape + dtype (`__cuda_array_interface__` in Python). Serialize its pointer and strides directly into the `params_bytes` buffer as a `RawPtr` struct. Require C-contiguous or honor strides via the pitch argument.
+- Inputs: accept anything exposing a device pointer + shape + dtype (`__cuda_array_interface__` in Python). Allocate a `RawPtr` struct on the host containing its pointer and strides, and pass its address in the `params_ptrs` array. Require C-contiguous or honor strides via the pitch argument.
 - Outputs: allocate with the CUDA driver API and expose BOTH the array interface and DLPack so frameworks adopt the memory without copying. On DLPack export, transfer ownership to the consumer's deleter and disarm your own destructor (double-free guard).
 
 ## Mapping the fusion techniques
