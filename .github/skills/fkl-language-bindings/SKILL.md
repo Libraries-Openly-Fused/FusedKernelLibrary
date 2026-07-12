@@ -44,8 +44,8 @@ extern "C" void fkl_entry(const void** params_ptrs, void* stream)
     
     // 4. Instantiate Write IOp and Execute the static DPP
     auto out_op = fk::PerThreadWrite<fk::ND::_2D, float>::build(out_ptr);
-    fk::executeOperations<fk::TransformDPP<...>>(stream, in_op, op1, op2, out_op); 
-}
+    fk::Stream s(reinterpret_cast<cudaStream_t>(stream)); // non-owning wrapper
+    fk::executeOperations<fk::TransformDPP<...>>(s, in_op, op1, op2, out_op);
 
 //      |
 //      v
