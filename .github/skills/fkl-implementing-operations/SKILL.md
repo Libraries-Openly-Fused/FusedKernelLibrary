@@ -13,10 +13,10 @@ Every operation is a STATELESS struct: static `exec()`, type aliases from a Pare
 template <typename I, typename P = I, typename O = I>
 struct MyOp {
 private:
-    using SelfType = MyOp<I, O P,>;
+    using SelfType = MyOp<I, P, O>;
 public:
     FK_STATIC_STRUCT(MyOp, SelfType)               // deletes ctors: pure static
-    using Parent = BinaryOperation<I, O, P, SelfType>;
+    using Parent = BinaryOperation<I, P, O, SelfType>;
     DECLARE_BINARY_PARENT                          // pulls in aliases + build()
     FK_HOST_DEVICE_FUSE OutputType exec(const InputType input,
                                         const ParamsType& params) {
