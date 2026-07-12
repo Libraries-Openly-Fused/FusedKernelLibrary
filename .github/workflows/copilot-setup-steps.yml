@@ -4,10 +4,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  setup-agent:
-    # Route Copilot directly to your WSL2 instance using your existing tags
+  copilot-setup-steps:
+    # Run Copilot setup on the self-hosted Linux x64 runner
     runs-on: [self-hosted, linux, x64]
-    
+
+    permissions:
+      contents: read
+
     steps:
       - uses: actions/checkout@v6
       
