@@ -10,8 +10,7 @@ description: FKL data structures — Ptr2D, Tensor, TensorT, RawPtr, PtrDims, Me
 - `RawPtr<ND, T>` — POD: data pointer + `PtrDims<ND>`. What kernels see.
 - `Ptr<ND, T>` — ref-counted owner/wrapper around a RawPtr.
 - Convenience classes: `Ptr1D`, `Ptr2D`, `Ptr3D`, `Tensor`, `TensorT`.
-- `.ptr()` returns the RawPtr; `Op::build(container)` extracts what it
-  needs. Copies of Ptr objects are SHALLOW (shared refcount).
+- `.ptr()` returns the RawPtr; `Op::build(container)` extracts what it needs. Copies of Ptr objects are SHALLOW (shared refcount).
 
 ## Dimensionalities (ND)
 
@@ -36,22 +35,13 @@ Tensor<float> wrapT(devPtr, width, height, planes, color_planes, MemType::Device
 
 TRAPS (verified the hard way):
 1. `Tensor` has NO PtrDims-taking constructor — pass the dimension list.
-2. `Tensor`'s semantics for batch+channels: `planes` = batch (thread.z),
-   `color_planes` = channels. `TensorSplit` writes channel c of plane z at
-   offset `z * plane_pitch * color_planes + c * plane_pitch`.
-3. `TensorT(data, ...)` and the 4-arg `PtrDims<T3D>` constructor leave
-   pitches at ZERO (they are filled on allocation). When wrapping an
-   external pointer for T3D, build the PtrDims and set pitch,
-   plane_pitch, color_planes_pitch manually, then construct the
-   RawPtr<T3D> and pass it to `TensorTSplit<T>::build(rawPtr)`.
-4. Pitch is in BYTES. For tightly-packed external buffers,
-   pitch = width * sizeof(T).
+2. `Tensor`'s semantics for batch+channels: `planes` = batch (thread.z), `color_planes` = channels. `TensorSplit` writes channel c of plane z at offset `z * plane_pitch * color_planes + c * plane_pitch`.
+3. `TensorT(data, ...)` and the 4-arg `PtrDims<T3D>` constructor leave pitches at ZERO (they are filled on allocation). When wrapping an external pointer for T3D, build the PtrDims and set pitch, plane_pitch, color_planes_pitch manually, then construct the `RawPtr<T3D>` and pass it to `TensorTSplit<T>::build(rawPtr)`.
+4. Pitch is in BYTES. For tightly-packed external buffers, pitch = width * sizeof(T).
 
 ## MemType
 
-`Device`, `Host`, `HostPinned`, `DeviceAndPinned` (mirrored pair with
-`.upload(stream)` / `.download(stream)`). GPU pipelines require Device or
-DeviceAndPinned memory — CircularTensor enforces this at runtime.
+`Device`, `Host`, `HostPinned`, `DeviceAndPinned` (mirrored pair with `.upload(stream)` / `.download(stream)`). GPU pipelines require Device or DeviceAndPinned memory — CircularTensor enforces this at runtime.
 
 ## Layout cheat-sheet for DNN interop
 
@@ -76,5 +66,4 @@ A torch/cupy CUDA tensor is wrapped without copying:
 Ptr2D<float> in((float*)cuda_ptr, w, h, w * sizeof(float), MemType::Device);
 Stream s(reinterpret_cast<cudaStream_t>(framework_stream));  // non-owning
 ```
-Contiguity is the caller's responsibility (require C-contiguous or read
-strides into the pitch argument).
+Contiguity is the caller's responsibility (require C-contiguous or read strides into the pitch argument).
