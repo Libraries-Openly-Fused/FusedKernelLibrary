@@ -114,7 +114,4 @@ The same pipelines run on CPU: `executeOperations<TransformDPP<ParArch::CPU>>` w
 ## Pitfalls (each cost real debugging time)
 
 1. Mismatched adjacent types: read the static_assert chain bottom-up; the first frame names the two ops that disagree.
-2. `Ptr2D`/`Tensor` copies are SHALLOW (ref-counted). Use `.ptr()` to get the RawPtr for kernels; don't free the underlying memory manually.
-3. Resize with aspect-ratio preservation needs a background value.
-4. An array-built ReadBack (e.g. `Crop<>::build(std::array<Rect,N>)`) produces a BatchRead; it should be fused with the previous Read or Readback in the `executeOperations` function before passing the IOps to the kernel/DPP.
-5. CUDA 13.x deprecation warnings about long4/double4 are noise; only grep compiler output for "error".
+4. An array-built op (e.g. `Crop<>::build(std::array<Rect,N>)`) enables Horizontal Fusion (batch planes). Just pass the IOps to `executeOperations` as usual; the executor/BackFuser handles the fusion automatically. Ensure your output is a batched write (e.g. `TensorWrite`/`TensorSplit`) that matches the batch size N.
