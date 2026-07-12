@@ -355,47 +355,33 @@ inline void executeFlashAttention(
     gpuErrchk(cudaGetLastError());
 }
 
-template <int HEAD_DIM, int BLOCK_N = 32, int WARPS_PER_BLOCK = 4,
-          typename OT = float, typename QIOp, typename KIOp, typename VIOp,
-          typename EpilogueIOp = AttentionIdentityEpilogue>
-inline void executeFlashAttention(
-        const QIOp& q, const KIOp& k, const VIOp& v, OT* o,
-        const int batchHeads, const int seqQ, const int seqK,
-        const bool causal, Stream_<ParArch::GPU_NVIDIA>& stream,
-        const float scaleOverride = -1.f, const EpilogueIOp& epilogue = {}) {
-    const auto outIOp = makeAttentionOutput(o, batchHeads, seqQ, HEAD_DIM, epilogue);
-    executeFlashAttention<HEAD_DIM, BLOCK_N, WARPS_PER_BLOCK>(
-        q, k, v, outIOp, batchHeads, seqQ, seqK, causal, stream, scaleOverride);
-}
-
-/* Pointer convenience API (kept for compatibility): builds the canonical
- * prologue Read IOps and forwards. KVLayout::INT8_PER_TOKEN selects the
- * Int8TokenDequantRead prologue for K and V. */
+/* Pointer convenience API: builds the canonical prologue Read IOps and
+ * forwards to the IOp-first launch path. KVLayout::INT8_PER_TOKEN selects
+ * the Int8TokenDequantRead prologue for K and V. */
 template <typename T, int HEAD_DIM, KVLayout KVL = KVLayout::DENSE,
           int BLOCK_N = 32, int WARPS_PER_BLOCK = 4,
-          typename EpilogueIOp = AttentionIdentityEpilogue>
+          typename WriteIOp,
+          std::enable_if_t<isAnyWriteType<WriteIOp>, int> = 0>
 inline void executeFlashAttention(
         const T* q,
         const std::conditional_t<KVL == KVLayout::INT8_PER_TOKEN, int8_t, T>* k,
         const std::conditional_t<KVL == KVLayout::INT8_PER_TOKEN, int8_t, T>* v,
-        T* o, const int batchHeads, const int seqQ, const int seqK,
+        const WriteIOp& out, const int batchHeads, const int seqQ, const int seqK,
         const bool causal, Stream_<ParArch::GPU_NVIDIA>& stream,
         const float* kScale = nullptr, const float* vScale = nullptr,
-        const float scaleOverride = -1.f,
-        const EpilogueIOp& epilogue = {}) {
+        const float scaleOverride = -1.f) {
     const auto qIOp = makeAttentionRead(q, batchHeads, seqQ, HEAD_DIM);
-    const auto outIOp = makeAttentionOutput(o, batchHeads, seqQ, HEAD_DIM, epilogue);
     if constexpr (KVL == KVLayout::INT8_PER_TOKEN) {
         const auto kIOp = makeInt8KVRead(k, kScale, batchHeads, seqK, HEAD_DIM);
         const auto vIOp = makeInt8KVRead(v, vScale, batchHeads, seqK, HEAD_DIM);
         executeFlashAttention<HEAD_DIM, BLOCK_N, WARPS_PER_BLOCK>(
-            qIOp, kIOp, vIOp, outIOp, batchHeads, seqQ, seqK, causal, stream,
+            qIOp, kIOp, vIOp, out, batchHeads, seqQ, seqK, causal, stream,
             scaleOverride);
     } else {
         const auto kIOp = makeAttentionRead(k, batchHeads, seqK, HEAD_DIM);
         const auto vIOp = makeAttentionRead(v, batchHeads, seqK, HEAD_DIM);
         executeFlashAttention<HEAD_DIM, BLOCK_N, WARPS_PER_BLOCK>(
-            qIOp, kIOp, vIOp, outIOp, batchHeads, seqQ, seqK, causal, stream,
+            qIOp, kIOp, vIOp, out, batchHeads, seqQ, seqK, causal, stream,
             scaleOverride);
     }
 }

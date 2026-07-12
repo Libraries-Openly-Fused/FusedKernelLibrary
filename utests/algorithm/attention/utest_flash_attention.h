@@ -92,7 +92,8 @@ static void testDense(const char* name, const int bh, const int seqQ, const int 
     gpuErrchk(cudaMemcpy(v, hv.data(), nK * sizeof(float), cudaMemcpyHostToDevice));
 
     Stream stream;
-    executeFlashAttention<float, HEAD_DIM>(q, k, v, o, bh, seqQ, seqK, causal, stream);
+    const auto oIOp = makeAttentionWrite(o, bh, seqQ, HEAD_DIM);
+    executeFlashAttention<float, HEAD_DIM>(q, k, v, oIOp, bh, seqQ, seqK, causal, stream);
     stream.sync();
 
     std::vector<float> got(nQ);
@@ -146,8 +147,9 @@ static void testInt8KV(const char* name, const int bh, const int seqQ, const int
     gpuErrchk(cudaMemcpy(dvS, vSc.data(), nTok * sizeof(float), cudaMemcpyHostToDevice));
 
     Stream stream;
+    const auto oIOp = makeAttentionWrite(o, bh, seqQ, HEAD_DIM);
     executeFlashAttention<float, HEAD_DIM, KVLayout::INT8_PER_TOKEN>(
-        q, dk8, dv8, o, bh, seqQ, seqK, causal, stream, dkS, dvS);
+        q, dk8, dv8, oIOp, bh, seqQ, seqK, causal, stream, dkS, dvS);
     stream.sync();
 
     std::vector<float> got(nQ);
@@ -181,10 +183,12 @@ static void testFusedEpilogue() {
     gpuErrchk(cudaMemcpy(v, hv.data(), n * sizeof(float), cudaMemcpyHostToDevice));
 
     Stream stream;
-    executeFlashAttention<float, HEAD_DIM>(q, k, v, o1, BH, SQ, SK, false, stream);
+    const auto o1IOp = makeAttentionWrite(o1, BH, SQ, HEAD_DIM);
+    executeFlashAttention<float, HEAD_DIM>(q, k, v, o1IOp, BH, SQ, SK, false, stream);
     const auto epilogue = Mul<float>::build(2.f).then(Add<float>::build(0.5f));
+    const auto o2IOp = makeAttentionOutput(o2, BH, SQ, HEAD_DIM, epilogue);
     executeFlashAttention<float, HEAD_DIM, KVLayout::DENSE, 32, 4>(
-        q, k, v, o2, BH, SQ, SK, false, stream, nullptr, nullptr, -1.f, epilogue);
+        q, k, v, o2IOp, BH, SQ, SK, false, stream, nullptr, nullptr, -1.f);
     stream.sync();
 
     std::vector<float> g1(n), g2(n);
@@ -234,7 +238,8 @@ static void testFusedPrologue() {
                               .then(Mul<float>::build(2.f));
         const auto kIOp = makeAttentionRead(k, BH, SK, HEAD_DIM);
         const auto vIOp = makeAttentionRead(v, BH, SK, HEAD_DIM);
-        executeFlashAttention<HEAD_DIM>(qIOp, kIOp, vIOp, o, BH, SQ, SK,
+        const auto oIOp = makeAttentionWrite(o, BH, SQ, HEAD_DIM);
+        executeFlashAttention<HEAD_DIM>(qIOp, kIOp, vIOp, oIOp, BH, SQ, SK,
                                         false, stream);
         stream.sync();
         std::vector<float> got(nQ);
@@ -254,7 +259,8 @@ static void testFusedPrologue() {
         const auto vIOp = makeAttentionRead(v, BH, SK, HEAD_DIM)
                               .then(Mul<float>::build(3.f))
                               .then(Add<float>::build(1.f));
-        executeFlashAttention<HEAD_DIM>(qIOp, kIOp, vIOp, o, BH, SQ, SK,
+        const auto oIOp = makeAttentionWrite(o, BH, SQ, HEAD_DIM);
+        executeFlashAttention<HEAD_DIM>(qIOp, kIOp, vIOp, oIOp, BH, SQ, SK,
                                         false, stream);
         stream.sync();
         std::vector<float> got(nQ);

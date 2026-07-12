@@ -19,23 +19,12 @@
  * for consumer Blackwell (sm_120: no WGMMA/tcgen05/TMEM — same constraint
  * set as Dao-AILab/flash-attention PR #2634 and CUTLASS PR #3030).
  *
- * AUTOMATIC SCHEDULE SELECTION (the FKL "smart fusion" play):
- * the kernel inspects the prologue IOp types AT COMPILE TIME:
- *
- *  - RAW prologue (identity read of bf16, from makeAttentionRead on a
- *    __nv_bfloat16 pointer): K/V tiles stream with REAL cp.async
- *    (16B cg copies, commit/wait groups, K double-buffered + V
- *    single-buffered — the fa-5090 v5 schedule). Loads are truly
- *    asynchronous: bytes fly while tensor cores work.
- *
- *  - FUSED prologue (dequant int8, Mul/Add chains, any .then):
- *    cp.async copies raw bytes and cannot run an IOp chain per element,
- *    so tiles are prefetched THROUGH the IOp into registers one
- *    iteration ahead (2-stage), then packed to swizzled smem.
- *
- * Either way the user writes the same compose-style code; FKL picks the
- * fastest legal schedule. Epilogue IOps always run in-register on the
- * output before the single global write.
+ * The kernel inspects the prologue IOp types AT COMPILE TIME for tile
+ * selection and feature gating, but every global-memory Q/K/V load now
+ * goes THROUGH the provided Read IOp. Raw bf16 reads, dequantizing reads,
+ * and fused read.then(...) chains all stage tiles through the same IOp
+ * entry point before the MMA pipeline consumes them. Epilogue IOps always
+ * run in-register on the output before the single global write.
  *
  * Ladder: v1 mma.sync + FA-2 warp split + online softmax on fp32 regs;
  * v2 XOR-swizzled smem (bank-conflict-free stores + ldmatrix);
@@ -96,6 +85,28 @@ inline auto makeAttentionRead(const __nv_bfloat16* data, const int batchHeads,
                          static_cast<uint>(batchHeads), 1,
                          static_cast<uint>(headDim * sizeof(__nv_bfloat16))) };
     return Bf16AttentionRead::build(ptr);
+}
+
+inline auto makeAttentionPartialRead(const float* data, const int batchHeads,
+                                     const int seq, const int splits,
+                                     const int elemsPerSplit) {
+    const RawPtr<ND::_3D, float> ptr{
+        const_cast<float*>(data),
+        PtrDims<ND::_3D>(static_cast<uint>(elemsPerSplit), static_cast<uint>(seq),
+                         static_cast<uint>(batchHeads * splits), 1,
+                         static_cast<uint>(elemsPerSplit * sizeof(float))) };
+    return PerThreadRead<ND::_3D, float>::build(ptr);
+}
+
+inline auto makeAttentionPartialWrite(float* data, const int batchHeads,
+                                      const int seq, const int splits,
+                                      const int elemsPerSplit) {
+    const RawPtr<ND::_3D, float> ptr{
+        data,
+        PtrDims<ND::_3D>(static_cast<uint>(elemsPerSplit), static_cast<uint>(seq),
+                         static_cast<uint>(batchHeads * splits), 1,
+                         static_cast<uint>(elemsPerSplit * sizeof(float))) };
+    return PerThreadWrite<ND::_3D, float>::build(ptr);
 }
 
 template <typename IOp>
@@ -219,26 +230,6 @@ __device__ __forceinline__ void mma_m16n8k16(const uint32_t A[4], const uint32_t
                    "f"(D[0]), "f"(D[1]), "f"(D[2]), "f"(D[3]));
 }
 
-// 16-byte async copy; srcSize=0 zero-fills (tail/ragged guard).
-__device__ __forceinline__ void cp_async_16(uint32_t dst, const void* src,
-                                            const int srcSize) {
-    asm volatile("cp.async.cg.shared.global [%0], [%1], 16, %2;"
-                 :: "r"(dst), "l"(src), "r"(srcSize));
-}
-// 8-byte async copy (ca path; cg only supports 16B).
-__device__ __forceinline__ void cp_async_8(uint32_t dst, const void* src,
-                                           const int srcSize) {
-    asm volatile("cp.async.ca.shared.global [%0], [%1], 8, %2;"
-                 :: "r"(dst), "l"(src), "r"(srcSize));
-}
-__device__ __forceinline__ void cp_async_commit() {
-    asm volatile("cp.async.commit_group;");
-}
-template <int N>
-__device__ __forceinline__ void cp_async_wait() {
-    asm volatile("cp.async.wait_group %0;" :: "n"(N));
-}
-
 struct alignas(16) Bf16x8 { __nv_bfloat162 h[4]; };
 
 // two-phase-lookup-safe fast exp (visible at template definition time).
@@ -326,17 +317,12 @@ public:
     static_assert(WARP_Q % 16 == 0, "BLOCK_Q/NUM_WARPS must be a multiple of 16");
     static constexpr int MMA_M = 16, MMA_N = 8, MMA_K = 16;
 
-    // RAW = identity bf16 reads -> real cp.async streaming (fa-5090 v5).
+    // Prologue classifiers used for tile heuristics / feature gating.
     static constexpr bool RAW_KV = isRawBf16Read<KIOp> && isRawBf16Read<VIOp>;
     static constexpr bool RAW_Q = isRawBf16Read<QIOp>;
-    // QUANT_KV = fp8/int8 per-token KV -> cp.async the RAW QUANTIZED bytes
-    // (HALF the global traffic of bf16!) + smem->smem dequant pass.
     static constexpr bool QUANT_KV =
         (isFp8KVRead<KIOp> && isFp8KVRead<VIOp>) ||
         (isInt8KVRead<KIOp> && isInt8KVRead<VIOp>);
-    // FP8_QK: QK^T runs on the fp8 tensor-core path (kind::f8f6f4 m16n8k32)
-    // directly on the raw e4m3 K bytes; Q is quantized per-row in-kernel.
-    // The K dequant pass disappears. PV stays bf16 (P is computed online).
     static constexpr bool FP8_QK =
         FK_ENABLE_FP8_QK != 0 && isFp8KVRead<KIOp> && isFp8KVRead<VIOp>;
 
@@ -349,11 +335,8 @@ public:
                   "BLOCK_KV*HEAD_DIM must be a multiple of THREADS*8");
 
     static constexpr int KV_BUF_B = BLOCK_KV * STRIDE_B;
-    // RAW schedule uses K double + V single (3 bf16 buffers) — keeping smem
-    // at 3 bufs is REQUIRED for 4 blocks/SM (ncu: smem limited occupancy to
-    // 3 blocks at 4 bufs). QUANT/register-prefetch use 4 (+byte staging).
-    static constexpr int KV_BUFS = RAW_KV ? 3 : 4;
-    static constexpr int Q_STAGE_B = QUANT_KV ? 4 * (KV_BUF_B / 2) : 0;
+    static constexpr int KV_BUFS = 4;
+    static constexpr int Q_STAGE_B = 0;
     // DEEP_Q_SMEM: BUILT AND MEASURED OFF. Streaming Q from resident smem
     // with the mkv-outer loop does eliminate qReg, but replays each Q
     // fragment for every K fragment (0.255 ms vs BQ64's 0.216 on d128
@@ -395,14 +378,15 @@ public:
         (DEEP_Q_SMEM || DUAL_Q_SMEM) ? BLOCK_Q * STRIDE_B : 0;
     // FP8_QK: the Q phase additionally holds the e4m3 Q tile + per-row
     // scales NEXT TO the staged bf16 Q (both alive during quantizeQTile).
-    static constexpr int Q_PHASE_B =
-        BLOCK_Q * STRIDE_B + (FP8_QK ? BLOCK_Q * HEAD_DIM + BLOCK_Q * 4 : 0);
+    static constexpr int Q_PHASE_B = BLOCK_Q * STRIDE_B;
     static constexpr int SMEM_BYTES =
         (Q_PHASE_B > Q_RES_B + KV_BUFS * KV_BUF_B + Q_STAGE_B
              ? Q_PHASE_B
              : Q_RES_B + KV_BUFS * KV_BUF_B + Q_STAGE_B);
 
     struct Params {
+        using PartialWriteIOp =
+            decltype(makeAttentionPartialWrite(static_cast<float*>(nullptr), 0, 0, 0, HEAD_DIM + 2));
         QIOp q; KIOp k; VIOp v;
         OutIOp out;
         int seq_q, seq_k;
@@ -416,7 +400,8 @@ public:
         // [bh, seq_q, splits, HEAD_DIM+2]. Saturates the GPU on small grids
         // (bh*numQ << 1 wave) — ncu: FA runs 5.45 waves vs our 0.68 on
         // d128 bh8 s2048, hiding everything; this is that lever.
-        float* partial = nullptr;
+        PartialWriteIOp partial =
+            makeAttentionPartialWrite(nullptr, 0, 0, 0, HEAD_DIM + 2);
         int splits = 1;
     };
     // log2-domain softmax is active for these functor types (see softmaxTile);
@@ -439,11 +424,6 @@ public:
     FK_DEVICE_FUSE void prefetchTile(const IOp& iop, const int rowBase,
                                      const int seqLen, const int bh,
                                      float (&regs)[GROUPS][8]) {
-        // VECTORIZED FAST PATH for the quantized KV prologues: ONE 8-byte
-        // load per thread-group (vs 8 scattered byte loads) + the per-token
-        // scale hoisted out of the element loop. Generic IOps keep the
-        // element-wise path (they may fuse arbitrary compute chains).
-        constexpr bool QUANT8 = isFp8KVRead<IOp> || isInt8KVRead<IOp>;
         #pragma unroll
         for (int g = 0; g < GROUPS; ++g) {
             const int idx = (g * THREADS + (int)threadIdx.x) * 8;
@@ -451,32 +431,9 @@ public:
             const int c = idx % HEAD_DIM;
             const int row = rowBase + r;
             if (row < seqLen) {
-                if constexpr (QUANT8) {
-                    const auto& prm = iop.params;
-                    const int seq = static_cast<int>(prm.data.dims.height);
-                    const float sc = prm.scales[(long)bh * seq + row];
-                    const int8_t* base = reinterpret_cast<const int8_t*>(prm.data.data)
-                                       + ((long)bh * seq + row) * HEAD_DIM + c;
-                    // one coalesced 8-byte load
-                    const uint64_t packed = *reinterpret_cast<const uint64_t*>(base);
-                    #pragma unroll
-                    for (int e = 0; e < 8; ++e) {
-                        const int8_t b = static_cast<int8_t>((packed >> (8 * e)) & 0xFF);
-                        if constexpr (isFp8KVRead<IOp>) {
-#ifdef FK_HAS_FP8
-                            __nv_fp8_e4m3 f8;
-                            f8.__x = static_cast<__nv_fp8_storage_t>(b);
-                            regs[g][e] = static_cast<float>(f8) * sc;
-#endif
-                        } else {
-                            regs[g][e] = static_cast<float>(b) * sc;
-                        }
-                    }
-                } else {
-                    #pragma unroll
-                    for (int e = 0; e < 8; ++e)
-                        regs[g][e] = readElem(iop, c + e, row, bh);
-                }
+                #pragma unroll
+                for (int e = 0; e < 8; ++e)
+                    regs[g][e] = readElem(iop, c + e, row, bh);
             } else {
                 #pragma unroll
                 for (int e = 0; e < 8; ++e) regs[g][e] = 0.f;
@@ -498,112 +455,6 @@ public:
                                                       regs[g][2 * h + 1] });
             *reinterpret_cast<Bf16x8*>(
                 smemBytes + bufOff + swz(idx * (uint32_t)sizeof(__nv_bfloat16))) = packed;
-        }
-    }
-
-    // ---- raw staging: real cp.async, zero-fill on ragged tails -------------
-    template <int GROUPS>
-    FK_DEVICE_FUSE void cpasyncTile(const uint32_t dstBase /* smem addr + buf */,
-                                    const __nv_bfloat16* srcPlane, const int rowBase,
-                                    const int seqLen) {
-        using namespace attention_mma_detail;
-        constexpr int ROWS = GROUPS * THREADS * 8 / HEAD_DIM;
-#ifndef FK_CPASYNC_FAST
-#define FK_CPASYNC_FAST 1
-#endif
-        if (FK_CPASYNC_FAST && rowBase + ROWS <= seqLen) {
-            // FULL-TILE FAST PATH (the common case on interior tiles): no
-            // per-group bounds predicate, no safeRow select — and the src
-            // address becomes base + compile-time stride (idx = g*THREADS*8
-            // + tid*8), which ptxas folds into the LDGSTS immediate. The
-            // ragged path below costs ISETP+SEL+IMAD per group per tile in
-            // the hot loop (SASS: ISETP was 1.3/HMMA vs FA's 0.19).
-            const __nv_bfloat16* base = srcPlane + (long)rowBase * HEAD_DIM;
-            #pragma unroll
-            for (int g = 0; g < GROUPS; ++g) {
-                const int idx = (g * THREADS + (int)threadIdx.x) * 8;
-                cp_async_16(dstBase + swz(idx * (uint32_t)sizeof(__nv_bfloat16)),
-                            base + idx, 16);
-            }
-        } else {
-            #pragma unroll
-            for (int g = 0; g < GROUPS; ++g) {
-                const int idx = (g * THREADS + (int)threadIdx.x) * 8;
-                const int r = idx / HEAD_DIM;
-                const int c = idx % HEAD_DIM;
-                const int row = rowBase + r;
-                const bool ok = row < seqLen;
-                const int safeRow = ok ? row : (seqLen > 0 ? seqLen - 1 : 0);
-                cp_async_16(dstBase + swz(idx * (uint32_t)sizeof(__nv_bfloat16)),
-                            srcPlane + (long)safeRow * HEAD_DIM + c, ok ? 16 : 0);
-            }
-        }
-    }
-
-    // ---- quantized staging: cp.async the RAW BYTES (half the traffic) ------
-    // SWZ8: XOR-swizzle each 8B chunk by ((row&7)*8) — used by the FP8 QK^T
-    // path so direct 4B fragment reads don't bank-conflict (d128 rows are
-    // exactly 32 banks wide -> every token would hit bank 0 unswizzled).
-    template <int GROUPS, bool SWZ8 = false>
-    FK_DEVICE_FUSE void cpasyncQuantTile(const uint32_t dstBase,
-                                         const int8_t* srcPlane, const int rowBase,
-                                         const int seqLen) {
-        using namespace attention_mma_detail;
-        #pragma unroll
-        for (int g = 0; g < GROUPS; ++g) {
-            const int idx = (g * THREADS + (int)threadIdx.x) * 8;
-            const int r = idx / HEAD_DIM;
-            const int c = idx % HEAD_DIM;
-            const int row = rowBase + r;
-            const bool ok = row < seqLen;
-            const int safeRow = ok ? row : (seqLen > 0 ? seqLen - 1 : 0);
-            // unswizzled byte staging: 8B per thread-group
-            uint32_t off = (uint32_t)idx;
-            if constexpr (SWZ8) off ^= (uint32_t)((r & 7) * 8);
-            cp_async_8(dstBase + off,
-                       srcPlane + (long)safeRow * HEAD_DIM + c, ok ? 8 : 0);
-        }
-    }
-
-    /* smem bytes -> swizzled bf16 smem, dequantizing in-register. scales
-       read from global (coalesced; BLOCK_KV floats per tile). */
-    template <int GROUPS, bool FP8>
-    FK_DEVICE_FUSE void dequantTile(char* smemBytes, const uint32_t stageOff,
-                                    const uint32_t bf16Off, const float* scales,
-                                    const int rowBase, const int seqLen) {
-        using attention_mma_detail::Bf16x8;
-        #pragma unroll
-        for (int g = 0; g < GROUPS; ++g) {
-            const int idx = (g * THREADS + (int)threadIdx.x) * 8;
-            const int r = idx / HEAD_DIM;
-            const int row = rowBase + r;
-            const float sc = (row < seqLen) ? scales[row] : 0.f;
-            const uint64_t packed =
-                *reinterpret_cast<const uint64_t*>(smemBytes + stageOff + idx);
-            Bf16x8 out;
-            #pragma unroll
-            for (int h = 0; h < 4; ++h) {
-                float lo, hi;
-                const int8_t b0 = static_cast<int8_t>((packed >> (16 * h)) & 0xFF);
-                const int8_t b1 = static_cast<int8_t>((packed >> (16 * h + 8)) & 0xFF);
-                if constexpr (FP8) {
-#ifdef FK_HAS_FP8
-                    __nv_fp8_e4m3 f0, f1;
-                    f0.__x = static_cast<__nv_fp8_storage_t>(b0);
-                    f1.__x = static_cast<__nv_fp8_storage_t>(b1);
-                    lo = static_cast<float>(f0) * sc;
-                    hi = static_cast<float>(f1) * sc;
-#else
-                    lo = hi = 0.f;
-#endif
-                } else {
-                    lo = static_cast<float>(b0) * sc;
-                    hi = static_cast<float>(b1) * sc;
-                }
-                out.h[h] = __float22bfloat162_rn({ lo, hi });
-            }
-            *reinterpret_cast<Bf16x8*>(
-                smemBytes + bf16Off + swz(idx * (uint32_t)sizeof(__nv_bfloat16))) = out;
         }
     }
 
@@ -710,54 +561,6 @@ public:
         }
     }
 
-    /* QK^T on raw e4m3: stream B-fragments (2x u32 = 8 tokens' k-chunks)
-       straight from the SWZ8-swizzled byte stage — no kReg staging, no K
-       dequant pass. B mapping: b0 = token (mkv*8+g), dims [4t, 4t+4);
-       b1 = +16 dims. After the md accumulation completes for a token
-       column block, folds qScale[row]*kScale[col] into the raw scores
-       (D cols of lane (g,t) are 2t and 2t+1 — validated in
-       spikes/spike_fp8_qk_mapping.cu). */
-    FK_DEVICE_FUSE void sMmaFp8(const uint32_t (&qReg8)[WARP_Q / MMA_M][HEAD_DIM / 32][4],
-                                const float (&qs)[WARP_Q / MMA_M][2],
-                                const char* smemBytes, const uint32_t kStageOff,
-                                const float* kScalesPlane, const int offKV,
-                                const int seqK,
-                                SPTile (&sp)[WARP_Q / MMA_M], const int laneId) {
-        using namespace attention_mma_detail;
-        const int g = laneId >> 2, tig = laneId & 3;
-        #pragma unroll
-        for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv) {
-            const int tok = mkv * MMA_N + g;
-            const uint32_t rowOff = (uint32_t)(tok * HEAD_DIM);
-            const uint32_t sw = (uint32_t)((tok & 7) * 8);
-            #pragma unroll
-            for (int md = 0; md < HEAD_DIM / 32; ++md) {
-                uint32_t b[2];
-                const uint32_t base = rowOff + (uint32_t)(md * 32 + 4 * tig);
-                b[0] = *reinterpret_cast<const uint32_t*>(
-                    smemBytes + kStageOff + (base ^ sw));
-                b[1] = *reinterpret_cast<const uint32_t*>(
-                    smemBytes + kStageOff + ((base + 16) ^ sw));
-                #pragma unroll
-                for (int mq = 0; mq < WARP_Q / MMA_M; ++mq)
-                    mma_fp8_m16n8k32(qReg8[mq][md], b, sp[mq].s[mkv]);
-            }
-            // scale fold: cols of this lane within the 8-wide N block.
-            // L1-cached global reads (whole block touches BLOCK_KV floats);
-            // ragged guard avoids OOB scale reads past seq_k.
-            const int c0 = offKV + mkv * MMA_N + 2 * tig;
-            const float kc0 = (c0 < seqK) ? kScalesPlane[c0] : 0.f;
-            const float kc1 = (c0 + 1 < seqK) ? kScalesPlane[c0 + 1] : 0.f;
-            #pragma unroll
-            for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
-                float* r = sp[mq].s[mkv];
-                r[0] *= qs[mq][0] * kc0;
-                r[1] *= qs[mq][0] * kc1;
-                r[2] *= qs[mq][1] * kc0;
-                r[3] *= qs[mq][1] * kc1;
-            }
-        }
-    }
 #endif // FK_HAS_FP8
 
     // ---- shared fragment loaders / mma helpers ------------------------------
@@ -1299,7 +1102,7 @@ public:
                                      const Params& p, const int qBlockBase,
                                      const int warpId, const int laneId, const int bh) {
         const int split = blockIdx.z;
-        const long strideRow = (long)p.splits * (HEAD_DIM + 2);
+        const int splitPlane = bh * p.splits + split;
         #pragma unroll
         for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
             const int rowA = qBlockBase + warpId * WARP_Q + mq * MMA_M + laneId / 4;
@@ -1308,18 +1111,19 @@ public:
             for (int half = 0; half < 2; ++half) {
                 const int row = half == 0 ? rowA : rowB;
                 if (row >= p.seq_q) continue;
-                float* dst = p.partial
-                    + ((long)bh * p.seq_q + row) * strideRow
-                    + (long)split * (HEAD_DIM + 2);
                 #pragma unroll
                 for (int md = 0; md < HEAD_DIM / MMA_N; ++md) {
                     const int col = md * MMA_N + (laneId % 4) * 2;
-                    dst[col]     = oAcc[mq][md][half * 2];
-                    dst[col + 1] = oAcc[mq][md][half * 2 + 1];
+                    Params::PartialWriteIOp::Operation::exec(
+                        Point{ col, row, splitPlane }, oAcc[mq][md][half * 2], p.partial);
+                    Params::PartialWriteIOp::Operation::exec(
+                        Point{ col + 1, row, splitPlane }, oAcc[mq][md][half * 2 + 1], p.partial);
                 }
                 if (laneId % 4 == 0) {
-                    dst[HEAD_DIM]     = rowMax[mq][half];
-                    dst[HEAD_DIM + 1] = rowSum[mq][half];
+                    Params::PartialWriteIOp::Operation::exec(
+                        Point{ HEAD_DIM, row, splitPlane }, rowMax[mq][half], p.partial);
+                    Params::PartialWriteIOp::Operation::exec(
+                        Point{ HEAD_DIM + 1, row, splitPlane }, rowSum[mq][half], p.partial);
                 }
             }
         }
@@ -1358,33 +1162,15 @@ public:
         const uint32_t vThread = swz(((laneId % 16) * HEAD_DIM
                                       + (laneId / 16) * 8) * sizeof(__nv_bfloat16));
 
-        // ---- Q -> smem -> registers (one-time) -----------------------------
-        if constexpr (RAW_Q) {
-            const __nv_bfloat16* qPlane = p.q.params.data
-                                          + (long)bh * p.seq_q * HEAD_DIM;
-            cpasyncTile<Q_GROUPS>(smemBase, qPlane, qBlockBase, p.seq_q);
-            cp_async_commit();
-            cp_async_wait<0>();
-        } else {
-            float qStage[Q_GROUPS][8];
-            prefetchTile<Q_GROUPS>(p.q, qBlockBase, p.seq_q, bh, qStage);
-            storeTile<Q_GROUPS>(smemBytes, 0, qStage);
-        }
+        // ---- Q -> smem -> registers (one-time, always through the Read IOp) -
+        float qStage[Q_GROUPS][8];
+        prefetchTile<Q_GROUPS>(p.q, qBlockBase, p.seq_q, bh, qStage);
+        storeTile<Q_GROUPS>(smemBytes, 0, qStage);
         __syncthreads();
 
         uint32_t qReg[(DEEP_Q_SMEM || DUAL_Q_SMEM) ? 1 : WARP_Q / MMA_M]
                      [(DEEP_Q_SMEM || DUAL_Q_SMEM) ? 1 : HEAD_DIM / MMA_K][4];
-        // FP8_QK state (dead/eliminated when the path is off — all uses sit
-        // inside `if constexpr (FP8_QK)`).
-        uint32_t qReg8[WARP_Q / MMA_M][HEAD_DIM / 32][4];
-        float qs[WARP_Q / MMA_M][2];
-        if constexpr (FP8_QK) {
-#ifdef FK_HAS_FP8
-            // quantize the staged bf16 Q per-row to e4m3 + pull A-fragments.
-            quantizeQTile(smemBytes, warpId, laneId);
-            loadQF8Frags(smemBytes, qReg8, qs, warpId, laneId);
-#endif
-        } else if constexpr (!DEEP_Q_SMEM && !DUAL_Q_SMEM) {
+        if constexpr (!DEEP_Q_SMEM && !DUAL_Q_SMEM) {
             #pragma unroll
             for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
                 #pragma unroll
@@ -1463,349 +1249,53 @@ public:
             itBegin = ::min(s0, itEnd);
         }
 
-        if constexpr (RAW_KV) {
-            // ============= cp.async schedule (fa-5090 v5 staggering) =========
-            // K double-buffered, V single-buffered; K[kv+1] is issued right
-            // after the QK^T mma so it streams during softmax + PV.
-            const __nv_bfloat16* kPlane = p.k.params.data + (long)bh * p.seq_k * HEAD_DIM;
-            const __nv_bfloat16* vPlane = p.v.params.data + (long)bh * p.seq_k * HEAD_DIM;
-            // DEEP_Q_SMEM: KV buffers live after the resident Q tile.
-            const auto kBuf = [&](int i) {
-                return Q_RES_B + (uint32_t)(i % 2) * KV_BUF_B; };
-            const uint32_t vBufOff = Q_RES_B + 2 * KV_BUF_B;  // single V buffer
+        // ============== register-prefetch schedule (all DRAM via IOps) ======
+        const auto kBuf = [](int i) -> uint32_t { return (i % 2) * KV_BUF_B; };
+        const auto vBuf = [](int i) -> uint32_t { return (2 + (i % 2)) * KV_BUF_B; };
 
-            // prefetch first in-range tile
-            if (itBegin < itEnd && tileActive(itBegin * BLOCK_KV)) {
-                cpasyncTile<KV_GROUPS>(smemBase + kBuf(itBegin), kPlane,
-                                       itBegin * BLOCK_KV, p.seq_k);
-            }
-            cp_async_commit();
+        float kPre[KV_GROUPS][8], vPre[KV_GROUPS][8];
+        if (itBegin < itEnd) {
+            prefetchTile<KV_GROUPS>(p.k, itBegin * BLOCK_KV, p.seq_k, bh, kPre);
+            prefetchTile<KV_GROUPS>(p.v, itBegin * BLOCK_KV, p.seq_k, bh, vPre);
+            storeTile<KV_GROUPS>(smemBytes, kBuf(itBegin), kPre);
+            storeTile<KV_GROUPS>(smemBytes, vBuf(itBegin), vPre);
+        }
+        __syncthreads();
 
-            // Hoisted per-md swizzled base addresses (see sMmaStreamH /
-            // sMmaStreamDualQ addressing notes): computed ONCE before the kv
-            // loop; the hot loop then addresses with reg + constant only.
-            // GATED to d128 (measured, 4-binary ABAB): d128 +1-6% (causal
-            // s2048 257->272 TF); d64 BQ128 (250 regs) has no headroom for
-            // the kmd/vmd arrays -> s8192 dense 369->348 TF. d64 keeps the
-            // in-loop addressing.
-            static constexpr bool HOIST_ADDR = HEAD_DIM == 128;
-            uint32_t qmd[DUAL_Q_SMEM ? HEAD_DIM / MMA_K : 1];
-            uint32_t kmd[HOIST_ADDR ? HEAD_DIM / MMA_K : 1];
-            uint32_t vmd[HOIST_ADDR ? HEAD_DIM / MMA_N : 1];
-            if constexpr (HOIST_ADDR) {
-                #pragma unroll
-                for (int md = 0; md < HEAD_DIM / MMA_K; ++md) {
-                    const uint32_t x = md * MMA_K * (uint32_t)sizeof(__nv_bfloat16);
-                    kmd[md] = (smemBase + kThread) ^ x;
-                    if constexpr (DUAL_Q_SMEM) qmd[md] = (smemBase + qThread) ^ x;
-                }
-                #pragma unroll
-                for (int md = 0; md < HEAD_DIM / MMA_N; ++md) {
-                    vmd[md] = (smemBase + vBufOff + vThread)
-                              ^ (md * MMA_N * (uint32_t)sizeof(__nv_bfloat16));
-                }
-            } else if constexpr (DUAL_Q_SMEM) {
-                #pragma unroll
-                for (int md = 0; md < HEAD_DIM / MMA_K; ++md) {
-                    qmd[md] = (smemBase + qThread)
-                              ^ (md * MMA_K * (uint32_t)sizeof(__nv_bfloat16));
-                }
+        for (int kv = itBegin; kv < itEnd; ++kv) {
+            const int offKV = kv * BLOCK_KV;
+            const bool act = tileActive(offKV);
+            const bool nextAct = (kv + 1) < itEnd && tileActive(offKV + BLOCK_KV);
+            if (nextAct) {
+                prefetchTile<KV_GROUPS>(p.k, offKV + BLOCK_KV, p.seq_k, bh, kPre);
+                prefetchTile<KV_GROUPS>(p.v, offKV + BLOCK_KV, p.seq_k, bh, vPre);
             }
 
-            // NOTE (round 9bis, rejected): #pragma unroll 2 on this loop was
-            // measured at -9..-14% on most shapes (+2..6% on two) — the
-            // bigger body blows the I-cache/sched window; reverted.
-            for (int kv = itBegin; kv < itEnd; ++kv) {
-                const int offKV = kv * BLOCK_KV;
-                const bool act = tileActive(offKV);
-
-                // V uses a single buffer: previous PV must be done.
-                __syncthreads();
-                if (act) {
-                    cpasyncTile<KV_GROUPS>(smemBase + vBufOff, vPlane, offKV, p.seq_k);
-                }
-                cp_async_commit();
-
-                // wait K[kv] (1 group outstanding: V[kv])
-                cp_async_wait<1>();
-                __syncthreads();
-
-                if constexpr (SPLIT_S) {
-                    // ============== split-S: two SEQUENTIAL KV_SPAN passes ==
-                    // Only ONE SPSpan (16 fp32 regs at BKV64) is live at a
-                    // time: span0 runs QK^T->softmax->PV to completion before
-                    // span1 starts. Safe because K[kv] is double-buffered
-                    // (K[kv+1] streams into the OTHER buffer) and V[kv] is
-                    // single-buffered but only overwritten after the next
-                    // iteration's __syncthreads. The K[kv+1] prefetch is
-                    // issued between span0's QK^T and softmax (v5 stagger);
-                    // V wait happens before span0's PV, so span1 runs with
-                    // both tiles resident — zero extra syncs vs the fused
-                    // tile.
-                    // span 0 ---------------------------------------------
-                    SPSpan sp[WARP_Q / MMA_M] = {};
-                    if (act) {
-                        if constexpr (HOIST_ADDR) {
-                            sMmaStreamH<KV_SPAN>(qReg, kBuf(kv), kmd, sp, 0);
-                        } else {
-                            sMmaStream<KV_SPAN>(qReg, smemBase + kBuf(kv),
-                                                kThread, sp, 0);
-                        }
-                    }
-
-                    // prefetch K[kv+1] (overlaps softmax + PV, v5 staggering)
-                    if (kv + 1 < itEnd && tileActive(offKV + BLOCK_KV)) {
-                        cpasyncTile<KV_GROUPS>(smemBase + kBuf(kv + 1), kPlane,
-                                               offKV + BLOCK_KV, p.seq_k);
-                    }
-                    cp_async_commit();
-
-                    const bool needsMask = tileNeedsMask(offKV);
-                    if (act) {
-                        if (needsMask) {
-                            softmaxTile<false, KV_SPAN>(sp, oAcc, rowMax, rowSum,
-                                                        p, offKV, qBlockBase,
-                                                        warpId, laneId);
-                        } else {
-                            softmaxTile<true, KV_SPAN>(sp, oAcc, rowMax, rowSum,
-                                                       p, offKV, qBlockBase,
-                                                       warpId, laneId);
-                        }
-                    }
-
-                    // wait V[kv] (1 group outstanding: K[kv+1])
-                    cp_async_wait<1>();
-                    __syncthreads();
-
-                    if (act) {
-                        if constexpr (HOIST_ADDR) {
-                            pvMmaStreamH<KV_SPAN>(sp, vmd, oAcc, 0);
-                        } else {
-                            pvMmaStream<KV_SPAN>(sp, smemBase + vBufOff,
-                                                 vThread, oAcc, 0);
-                        }
-                        // span 1 ------------------------------------------
-                        // reuses the same sp storage; K[kv]/V[kv] still
-                        // resident (see buffer-lifetime note above).
-                        #pragma unroll
-                        for (int mq = 0; mq < WARP_Q / MMA_M; ++mq)
-                            #pragma unroll
-                            for (int i = 0; i < KV_SPAN / MMA_N; ++i)
-                                #pragma unroll
-                                for (int e = 0; e < 4; ++e) sp[mq].s[i][e] = 0.f;
-                        if constexpr (HOIST_ADDR) {
-                            sMmaStreamH<KV_SPAN>(qReg, kBuf(kv), kmd, sp, KV_SPAN);
-                        } else {
-                            sMmaStream<KV_SPAN>(qReg, smemBase + kBuf(kv),
-                                                kThread, sp, KV_SPAN);
-                        }
-                        if (needsMask) {
-                            softmaxTile<false, KV_SPAN>(sp, oAcc, rowMax, rowSum,
-                                                        p, offKV + KV_SPAN,
-                                                        qBlockBase, warpId, laneId);
-                        } else {
-                            softmaxTile<true, KV_SPAN>(sp, oAcc, rowMax, rowSum,
-                                                       p, offKV + KV_SPAN,
-                                                       qBlockBase, warpId, laneId);
-                        }
-                        pvMmaStream<KV_SPAN>(sp, smemBase + vBufOff, vThread,
-                                             oAcc, KV_SPAN);
-                    }
-                } else {
-                    SPTile sp[WARP_Q / MMA_M] = {};
-                    if (act) {
-                        if constexpr (DUAL_Q_SMEM) {
-                            // dual-reuse schedule: Q resident at smem[0],
-                            // md-pair outer / mkv inner (see sMmaStreamDualQ)
-                            sMmaStreamDualQ(kBuf(kv), qmd, kmd, sp);
-                        } else if constexpr (DEEP_Q_SMEM) {
-                            // deep schedule: Q AND K streamed from smem
-                            sMmaStreamDeepQ(smemBase, qThread,
-                                            smemBase + kBuf(kv), kThread, sp);
-                        } else {
-                            uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
-                            loadKFrags(smemBase + kBuf(kv), kThread, kReg);
-                            sMma(qReg, kReg, sp);
-                        }
-                    }
-
-                    // prefetch K[kv+1] (overlaps softmax + PV, v5 staggering)
-                    if (kv + 1 < itEnd && tileActive(offKV + BLOCK_KV)) {
-                        cpasyncTile<KV_GROUPS>(smemBase + kBuf(kv + 1), kPlane,
-                                               offKV + BLOCK_KV, p.seq_k);
-                    }
-                    cp_async_commit();
-
-                    if (act) {
-                        if (tileNeedsMask(offKV)) {
-                            softmaxTile<false>(sp, oAcc, rowMax, rowSum, p, offKV,
-                                               qBlockBase, warpId, laneId);
-                        } else {
-                            softmaxTile<true>(sp, oAcc, rowMax, rowSum, p, offKV,
-                                              qBlockBase, warpId, laneId);
-                        }
-                    }
-
-                    // wait V[kv] (1 group outstanding: K[kv+1])
-                    cp_async_wait<1>();
-                    __syncthreads();
-
-                    if (act) {
-                        if constexpr (DUAL_Q_SMEM) {
-                            pvMmaStreamDual(sp, smemBase + vBufOff, vThread, oAcc);
-                        } else if constexpr (HOIST_ADDR) {
-                            // stream V frags ldmatrix->mma (no vReg staging)
-                            pvMmaStreamH(sp, vmd, oAcc);
-                        } else {
-                            pvMmaStream(sp, smemBase + vBufOff, vThread, oAcc);
-                        }
-                    }
-                }
-            }
-        } else if constexpr (QUANT_KV) {
-            // ====== quantized cp.async schedule: stream RAW BYTES (2x less
-            // global traffic than bf16), dequantize smem->smem in-register.
-            // Same v5 staggering as the raw path.
-            constexpr bool IS_FP8 = isFp8KVRead<KIOp>;
-            const int seqK = static_cast<int>(p.k.params.data.dims.height);
-            const int8_t* kPlane = reinterpret_cast<const int8_t*>(p.k.params.data.data)
-                                   + (long)bh * seqK * HEAD_DIM;
-            const int8_t* vPlane = reinterpret_cast<const int8_t*>(p.v.params.data.data)
-                                   + (long)bh * seqK * HEAD_DIM;
-            const float* kScales = p.k.params.scales + (long)bh * seqK;
-            const float* vScales = p.v.params.scales + (long)bh * seqK;
-
-            const auto kBuf = [&](int i) { return (uint32_t)(i % 2) * KV_BUF_B; };
-            const uint32_t vBufOff = 2 * KV_BUF_B;
-            // byte staging area after the 4 bf16 buffers
-            const uint32_t stageBase = 4 * KV_BUF_B;
-            const auto kStage = [&](int i) {
-                return stageBase + (uint32_t)(i % 2) * (KV_BUF_B / 2); };
-            const uint32_t vStage = stageBase + 2 * (KV_BUF_B / 2);
-
-            // prefetch first in-range tile bytes (FP8_QK: SWZ8-swizzled K so
-            // sMmaFp8's direct 4B fragment reads don't bank-conflict)
-            if (itBegin < itEnd && tileActive(itBegin * BLOCK_KV)) {
-                cpasyncQuantTile<KV_GROUPS, FP8_QK>(smemBase + kStage(itBegin), kPlane,
-                                                    itBegin * BLOCK_KV, p.seq_k);
-            }
-            cp_async_commit();
-
-            for (int kv = itBegin; kv < itEnd; ++kv) {
-                const int offKV = kv * BLOCK_KV;
-                const bool act = tileActive(offKV);
-
-                __syncthreads();
-                if (act) {
-                    cpasyncQuantTile<KV_GROUPS>(smemBase + vStage, vPlane, offKV, p.seq_k);
-                }
-                cp_async_commit();
-
-                cp_async_wait<1>();   // K bytes ready
-                __syncthreads();
-                if constexpr (!FP8_QK) {
-                    // bf16 fallback: dequant K smem->smem, then ldmatrix
-                    if (act) {
-                        dequantTile<KV_GROUPS, IS_FP8>(smemBytes, kStage(kv), kBuf(kv),
-                                                       kScales, offKV, p.seq_k);
-                    }
-                    __syncthreads();
-                }
+            if (act) {
+                uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
+                loadKFrags(smemBase + kBuf(kv), kThread, kReg);
 
                 SPTile sp[WARP_Q / MMA_M] = {};
-                if (act) {
-                    if constexpr (FP8_QK) {
-#ifdef FK_HAS_FP8
-                        // QK^T straight on the raw e4m3 bytes (no K dequant)
-                        sMmaFp8(qReg8, qs, smemBytes, kStage(kv), kScales,
-                                offKV, p.seq_k, sp, laneId);
-#endif
-                    } else {
-                        uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
-                        loadKFrags(smemBase + kBuf(kv), kThread, kReg);
-                        sMma(qReg, kReg, sp);
-                    }
+                sMma(qReg, kReg, sp);
+
+                if (tileNeedsMask(offKV)) {
+                    softmaxTile<false>(sp, oAcc, rowMax, rowSum, p, offKV,
+                                       qBlockBase, warpId, laneId);
+                } else {
+                    softmaxTile<true>(sp, oAcc, rowMax, rowSum, p, offKV,
+                                      qBlockBase, warpId, laneId);
                 }
 
-                if (kv + 1 < itEnd && tileActive(offKV + BLOCK_KV)) {
-                    cpasyncQuantTile<KV_GROUPS, FP8_QK>(smemBase + kStage(kv + 1), kPlane,
-                                                        offKV + BLOCK_KV, p.seq_k);
-                }
-                cp_async_commit();
-
-                if (act) {
-                    if (tileNeedsMask(offKV)) {
-                        softmaxTile<false>(sp, oAcc, rowMax, rowSum, p, offKV,
-                                           qBlockBase, warpId, laneId);
-                    } else {
-                        softmaxTile<true>(sp, oAcc, rowMax, rowSum, p, offKV,
-                                          qBlockBase, warpId, laneId);
-                    }
-                }
-
-                cp_async_wait<1>();   // V bytes ready
-                __syncthreads();
-                if (act) {
-                    dequantTile<KV_GROUPS, IS_FP8>(smemBytes, vStage, vBufOff,
-                                                   vScales, offKV, p.seq_k);
-                }
-                __syncthreads();
-
-                if (act) {
-                    uint32_t vReg[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2];
-                    loadVFrags(smemBase + vBufOff, vThread, vReg);
-                    pvMma(sp, vReg, oAcc);
-                }
+                uint32_t vReg[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2];
+                loadVFrags(smemBase + vBuf(kv), vThread, vReg);
+                pvMma(sp, vReg, oAcc);
             }
-        } else {
-            // ============== register-prefetch schedule (fused prologues) =====
-            const auto kBuf = [](int i) -> uint32_t { return (i % 2) * KV_BUF_B; };
-            const auto vBuf = [](int i) -> uint32_t { return (2 + (i % 2)) * KV_BUF_B; };
 
-            float kPre[KV_GROUPS][8], vPre[KV_GROUPS][8];
-            if (itBegin < itEnd) {
-                prefetchTile<KV_GROUPS>(p.k, itBegin * BLOCK_KV, p.seq_k, bh, kPre);
-                prefetchTile<KV_GROUPS>(p.v, itBegin * BLOCK_KV, p.seq_k, bh, vPre);
-                storeTile<KV_GROUPS>(smemBytes, kBuf(itBegin), kPre);
-                storeTile<KV_GROUPS>(smemBytes, vBuf(itBegin), vPre);
+            if (nextAct) {
+                storeTile<KV_GROUPS>(smemBytes, kBuf(kv + 1), kPre);
+                storeTile<KV_GROUPS>(smemBytes, vBuf(kv + 1), vPre);
             }
             __syncthreads();
-
-            for (int kv = itBegin; kv < itEnd; ++kv) {
-                const int offKV = kv * BLOCK_KV;
-                const bool act = tileActive(offKV);
-                const bool nextAct = (kv + 1) < itEnd && tileActive(offKV + BLOCK_KV);
-                if (nextAct) {
-                    prefetchTile<KV_GROUPS>(p.k, offKV + BLOCK_KV, p.seq_k, bh, kPre);
-                    prefetchTile<KV_GROUPS>(p.v, offKV + BLOCK_KV, p.seq_k, bh, vPre);
-                }
-
-                if (act) {
-                    uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
-                    loadKFrags(smemBase + kBuf(kv), kThread, kReg);
-
-                    SPTile sp[WARP_Q / MMA_M] = {};
-                    sMma(qReg, kReg, sp);
-
-                    if (tileNeedsMask(offKV)) {
-                        softmaxTile<false>(sp, oAcc, rowMax, rowSum, p, offKV,
-                                           qBlockBase, warpId, laneId);
-                    } else {
-                        softmaxTile<true>(sp, oAcc, rowMax, rowSum, p, offKV,
-                                          qBlockBase, warpId, laneId);
-                    }
-
-                    uint32_t vReg[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2];
-                    loadVFrags(smemBase + vBuf(kv), vThread, vReg);
-                    pvMma(sp, vReg, oAcc);
-                }
-
-                if (nextAct) {
-                    storeTile<KV_GROUPS>(smemBytes, kBuf(kv + 1), kPre);
-                    storeTile<KV_GROUPS>(smemBytes, vBuf(kv + 1), vPre);
-                }
-                __syncthreads();
-            }
         }
 
         if constexpr (SPLIT_KV) {
@@ -1821,31 +1311,33 @@ public:
    kernel ran log2-domain softmax, e^x otherwise. The fused epilogue runs
    here (the producer wrote UNNORMALIZED partials); a write-type epilogue
    performs the global writes itself. */
-template <int HEAD_DIM, bool LOG2D, typename OutIOp>
-__global__ void flashFwdSplitCombineKernel(const float* __restrict__ partial,
+template <int HEAD_DIM, bool LOG2D, typename PartialReadIOp, typename OutIOp>
+__global__ void flashFwdSplitCombineKernel(const PartialReadIOp partial,
                                            const OutIOp out,
                                            const int seqQ, const int splits) {
     const int bh = blockIdx.y;
     const int row = blockIdx.x * blockDim.y + threadIdx.y;
     if (row >= seqQ) return;
-    const float* base = partial
-        + ((long)bh * seqQ + row) * (long)splits * (HEAD_DIM + 2);
     // global max over splits (uniform across the row's threads)
     float gm = -FLT_MAX;
     for (int s = 0; s < splits; ++s)
-        gm = fmaxf(gm, base[s * (HEAD_DIM + 2) + HEAD_DIM]);
+        gm = fmaxf(gm, PartialReadIOp::Operation::exec(
+            Point{ HEAD_DIM, row, bh * splits + s }, partial));
     // each thread owns HEAD_DIM/32 columns
     float acc[HEAD_DIM / 32] = {};
     float l = 0.f;
     for (int s = 0; s < splits; ++s) {
-        const float* ps = base + s * (HEAD_DIM + 2);
-        const float m = ps[HEAD_DIM];
+        const int splitPlane = bh * splits + s;
+        const float m = PartialReadIOp::Operation::exec(
+            Point{ HEAD_DIM, row, splitPlane }, partial);
         if (m == -FLT_MAX) continue;            // empty chunk
         const float w = LOG2D ? exp2f(m - gm) : __expf(m - gm);
-        l += ps[HEAD_DIM + 1] * w;
+        l += PartialReadIOp::Operation::exec(
+            Point{ HEAD_DIM + 1, row, splitPlane }, partial) * w;
         #pragma unroll
         for (int c = 0; c < HEAD_DIM / 32; ++c)
-            acc[c] += ps[threadIdx.x + c * 32] * w;
+            acc[c] += PartialReadIOp::Operation::exec(
+                Point{ (int)threadIdx.x + c * 32, row, splitPlane }, partial) * w;
     }
     const float inv = l > 0.f ? 1.f / l : 0.f;
     #pragma unroll
@@ -1867,12 +1359,9 @@ __global__ void launchFlashAttentionMmaDPP_Kernel(
                          ScoreModOp>::template exec<SPLIT_KV>(params);
 }
 
-/* IOp-first API. The DPP auto-selects cp.async streaming (raw bf16
- * prologues) or register prefetch (fused prologues) at compile time, and
- * auto-tunes tile sizes per schedule (pass BLOCK_Q/BLOCK_KV > 0 to
- * override): raw path prefers BQ64/BKV64 (deep cp.async overlap; with the
- * S/P union d128 fits at 174 regs and BKV64 beats BKV32 by ~13%),
- * fused-prologue path prefers BQ128/BKV32 (register headroom). */
+/* IOp-first API. All global-memory reads/writes go through the provided
+ * Read/Write IOps. The launch still auto-tunes tile sizes from the
+ * prologue types (pass BLOCK_Q/BLOCK_KV > 0 to override). */
 template <int HEAD_DIM, int BLOCK_Q = 0, int BLOCK_KV = 0, int NUM_WARPS = 4,
           typename QIOp, typename KIOp, typename VIOp, typename WriteIOp,
           typename ScoreModOp = NoScoreMod,
@@ -1976,7 +1465,7 @@ inline void executeFlashAttentionMma(
     // online-softmax combine kernel. Disabled for block-sparse (the sparse
     // iteration trim already reshapes the range per q-block).
     int splits = 1;
-    float* partial = nullptr;
+    float* partialData = nullptr;
     if (sparse.mask == nullptr) {
         static const int wave = [&] {
             int bpm = 0, dev = 0, sms = 0;
@@ -2006,8 +1495,9 @@ inline void executeFlashAttentionMma(
         if (splits > 1) {
             const size_t bytes = (size_t)batchHeads * seqQ * splits
                                  * (HEAD_DIM + 2) * sizeof(float);
-            gpuErrchk(cudaMallocAsync(&partial, bytes, stream.getCUDAStream()));
-            params.partial = partial;
+            gpuErrchk(cudaMallocAsync(&partialData, bytes, stream.getCUDAStream()));
+            params.partial = makeAttentionPartialWrite(
+                partialData, batchHeads, seqQ, splits, HEAD_DIM + 2);
             params.splits = splits;
         }
     }
@@ -2025,31 +1515,16 @@ inline void executeFlashAttentionMma(
         // combine: 32 threads per row (HEAD_DIM/32 cols each), 4 rows/block
         const dim3 cblock(32, 4, 1);
         const dim3 cgrid((seqQ + 3) / 4, batchHeads, 1);
-        flashFwdSplitCombineKernel<HEAD_DIM, DPP::LOG2_DOMAIN, WriteIOp>
-            <<<cgrid, cblock, 0, stream.getCUDAStream()>>>(partial, out, seqQ, splits);
+        const auto partialRead = makeAttentionPartialRead(
+            partialData, batchHeads, seqQ, splits, HEAD_DIM + 2);
+        flashFwdSplitCombineKernel<HEAD_DIM, DPP::LOG2_DOMAIN, decltype(partialRead), WriteIOp>
+            <<<cgrid, cblock, 0, stream.getCUDAStream()>>>(partialRead, out, seqQ, splits);
         gpuErrchk(cudaGetLastError());
-        gpuErrchk(cudaFreeAsync(partial, stream.getCUDAStream()));
+        gpuErrchk(cudaFreeAsync(partialData, stream.getCUDAStream()));
     } else {
         kernel<<<grid, block, smemBytes, stream.getCUDAStream()>>>(params);
         gpuErrchk(cudaGetLastError());
     }
-}
-
-template <int HEAD_DIM, int BLOCK_Q = 0, int BLOCK_KV = 0, int NUM_WARPS = 4,
-          typename OT = float, typename QIOp, typename KIOp, typename VIOp,
-          typename EpilogueIOp = AttentionIdentityEpilogue,
-          typename ScoreModOp = NoScoreMod>
-inline void executeFlashAttentionMma(
-        const QIOp& q, const KIOp& k, const VIOp& v, OT* o,
-        const int batchHeads, const int seqQ, const int seqK,
-        const bool causal, Stream_<ParArch::GPU_NVIDIA>& stream,
-        const float scaleOverride = -1.f,
-        const EpilogueIOp& epilogue = {},
-        const ScoreModOp& scoreMod = {}, const BlockSparsity& sparse = {}) {
-    const auto outIOp = makeAttentionOutput(o, batchHeads, seqQ, HEAD_DIM, epilogue);
-    executeFlashAttentionMma<HEAD_DIM, BLOCK_Q, BLOCK_KV, NUM_WARPS>(
-        q, k, v, outIOp, batchHeads, seqQ, seqK, causal, stream,
-        scaleOverride, scoreMod, sparse);
 }
 
 } // namespace fk

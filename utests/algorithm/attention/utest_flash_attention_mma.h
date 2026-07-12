@@ -102,7 +102,8 @@ static void testDense(const char* name, const int bh, const int seqQ, const int 
     const auto qIOp = makeAttentionRead(q, bh, seqQ, HEAD_DIM);
     const auto kIOp = makeAttentionRead(k, bh, seqK, HEAD_DIM);
     const auto vIOp = makeAttentionRead(v, bh, seqK, HEAD_DIM);
-    executeFlashAttentionMma<HEAD_DIM>(qIOp, kIOp, vIOp, o, bh, seqQ, seqK,
+    const auto oIOp = makeAttentionWrite(o, bh, seqQ, HEAD_DIM);
+    executeFlashAttentionMma<HEAD_DIM>(qIOp, kIOp, vIOp, oIOp, bh, seqQ, seqK,
                                        causal, stream);
     stream.sync();
 
@@ -115,7 +116,7 @@ static void testDense(const char* name, const int bh, const int seqQ, const int 
     report(name, maxErr, tol);
 }
 
-// RAW bf16 prologues -> the cp.async streaming schedule (fa-5090 v5).
+// RAW bf16 Read IOps.
 template <int HEAD_DIM>
 static void testDenseBf16Raw(const char* name, const int bh, const int seqQ,
                              const int seqK, const bool causal, const double tol,
@@ -145,7 +146,8 @@ static void testDenseBf16Raw(const char* name, const int bh, const int seqQ,
     const auto qIOp = makeAttentionRead(q, bh, seqQ, HEAD_DIM);
     const auto kIOp = makeAttentionRead(k, bh, seqK, HEAD_DIM);
     const auto vIOp = makeAttentionRead(v, bh, seqK, HEAD_DIM);
-    executeFlashAttentionMma<HEAD_DIM>(qIOp, kIOp, vIOp, o, bh, seqQ, seqK,
+    const auto oIOp = makeAttentionWrite(o, bh, seqQ, HEAD_DIM);
+    executeFlashAttentionMma<HEAD_DIM>(qIOp, kIOp, vIOp, oIOp, bh, seqQ, seqK,
                                        causal, stream);
     stream.sync();
 
@@ -183,11 +185,13 @@ static void testFusedEpilogue() {
     const auto qIOp = makeAttentionRead(q, BH, SQ, HEAD_DIM);
     const auto kIOp = makeAttentionRead(k, BH, SK, HEAD_DIM);
     const auto vIOp = makeAttentionRead(v, BH, SK, HEAD_DIM);
-    executeFlashAttentionMma<HEAD_DIM>(qIOp, kIOp, vIOp, o1, BH, SQ, SK,
+    const auto o1IOp = makeAttentionWrite(o1, BH, SQ, HEAD_DIM);
+    executeFlashAttentionMma<HEAD_DIM>(qIOp, kIOp, vIOp, o1IOp, BH, SQ, SK,
                                        false, stream);
     const auto epilogue = Mul<float>::build(2.f).then(Add<float>::build(0.5f));
-    executeFlashAttentionMma<HEAD_DIM>(qIOp, kIOp, vIOp, o2, BH, SQ, SK,
-                                       false, stream, -1.f, epilogue);
+    const auto o2IOp = makeAttentionOutput(o2, BH, SQ, HEAD_DIM, epilogue);
+    executeFlashAttentionMma<HEAD_DIM>(qIOp, kIOp, vIOp, o2IOp, BH, SQ, SK,
+                                       false, stream);
     stream.sync();
 
     std::vector<float> g1(n), g2(n);
@@ -235,7 +239,8 @@ static void testFusedPrologue() {
                               .then(Mul<float>::build(2.f));
         const auto kIOp = makeAttentionRead(k, BH, SK, HEAD_DIM);
         const auto vIOp = makeAttentionRead(v, BH, SK, HEAD_DIM);
-        executeFlashAttentionMma<HEAD_DIM>(qIOp, kIOp, vIOp, o, BH, SQ, SK,
+        const auto oIOp = makeAttentionWrite(o, BH, SQ, HEAD_DIM);
+        executeFlashAttentionMma<HEAD_DIM>(qIOp, kIOp, vIOp, oIOp, BH, SQ, SK,
                                            false, stream);
         stream.sync();
         std::vector<float> got(nQ);
@@ -255,7 +260,8 @@ static void testFusedPrologue() {
         const auto vIOp = makeAttentionRead(v, BH, SK, HEAD_DIM)
                               .then(Mul<float>::build(3.f))
                               .then(Add<float>::build(1.f));
-        executeFlashAttentionMma<HEAD_DIM>(qIOp, kIOp, vIOp, o, BH, SQ, SK,
+        const auto oIOp = makeAttentionWrite(o, BH, SQ, HEAD_DIM);
+        executeFlashAttentionMma<HEAD_DIM>(qIOp, kIOp, vIOp, oIOp, BH, SQ, SK,
                                            false, stream);
         stream.sync();
         std::vector<float> got(nQ);
