@@ -30,7 +30,6 @@ cmake --build ../build --config Release
 - Requires CMake >= 3.28, a C++ host compiler, and CUDA.
 - Options: `ENABLE_CUDA` (default ON if found), `ENABLE_CPU` (ON),
   `ENABLE_BENCHMARK` (OFF) for the benchmark targets.
-- Without CUDA the CPU backend still builds and tests run on CPU.
 - Binaries land in `../build` — one executable per test unit,
   suffixed `_cu` (CUDA) / `_cpp` (CPU).
 
