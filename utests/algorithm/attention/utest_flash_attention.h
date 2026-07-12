@@ -324,6 +324,49 @@ static void testFusedReadWrite(const char* name, const int bh, const int seqQ,
     report(name, maxErr, tol);
 }
 
+template <int HEAD_DIM>
+static void testHalfWriteIOp() {
+    constexpr int BH = 2, SQ = 24, SK = 40;
+    std::mt19937 rng(321);
+    std::uniform_real_distribution<float> dist(-1.f, 1.f);
+    const size_t nQ = (size_t)BH * SQ * HEAD_DIM, nK = (size_t)BH * SK * HEAD_DIM;
+    std::vector<float> hq(nQ), hk(nK), hv(nK);
+    std::vector<double> dq(nQ), dk(nK), dv(nK), ref;
+    for (size_t i = 0; i < nQ; ++i) { hq[i] = dist(rng); dq[i] = hq[i]; }
+    for (size_t i = 0; i < nK; ++i) { hk[i] = dist(rng); dk[i] = hk[i]; }
+    for (size_t i = 0; i < nK; ++i) { hv[i] = dist(rng); dv[i] = hv[i]; }
+    cpuAttention(dq, dk, dv, ref, BH, SQ, SK, HEAD_DIM,
+                 1.0 / std::sqrt((double)HEAD_DIM), false);
+
+    float *q, *k, *v;
+    __half* o;
+    gpuErrchk(cudaMalloc(&q, nQ * sizeof(float)));
+    gpuErrchk(cudaMalloc(&k, nK * sizeof(float)));
+    gpuErrchk(cudaMalloc(&v, nK * sizeof(float)));
+    gpuErrchk(cudaMalloc(&o, nQ * sizeof(__half)));
+    gpuErrchk(cudaMemcpy(q, hq.data(), nQ * sizeof(float), cudaMemcpyHostToDevice));
+    gpuErrchk(cudaMemcpy(k, hk.data(), nK * sizeof(float), cudaMemcpyHostToDevice));
+    gpuErrchk(cudaMemcpy(v, hv.data(), nK * sizeof(float), cudaMemcpyHostToDevice));
+
+    Stream stream;
+    const auto qIOp = makeAttentionRead(q, BH, SQ, HEAD_DIM);
+    const auto kIOp = makeAttentionRead(k, BH, SK, HEAD_DIM);
+    const auto vIOp = makeAttentionRead(v, BH, SK, HEAD_DIM);
+    executeFlashAttention<HEAD_DIM>(qIOp, kIOp, vIOp,
+                                    makeAttentionWrite(o, BH, SQ, HEAD_DIM),
+                                    BH, SQ, SK, false, stream);
+    stream.sync();
+
+    std::vector<__half> got(nQ);
+    gpuErrchk(cudaMemcpy(got.data(), o, nQ * sizeof(__half), cudaMemcpyDeviceToHost));
+    cudaFree(q); cudaFree(k); cudaFree(v); cudaFree(o);
+
+    double maxErr = 0.0;
+    for (size_t i = 0; i < nQ; ++i)
+        maxErr = std::max(maxErr, std::abs((double)__half2float(got[i]) - ref[i]));
+    report("FlashAttention canonical WriteIOp fp32->fp16", maxErr, 1e-3);
+}
+
 int launch() {
     testDense<64>("FA dense d64 b2 s64 causal", 2, 64, 64, true, 5e-6, 1);
     testDense<64>("FA dense d64 ragged s67/s131", 2, 67, 131, false, 5e-6, 2);
@@ -339,6 +382,7 @@ int launch() {
     testFusedReadWrite<64>("FA fused R/W IOps d64 b4 s256 causal", 4, 256, 256, true, 5e-5, 8);
     testFusedReadWrite<64>("FA fused R/W IOps d64 b8 s512/s384", 8, 512, 384, false, 5e-5, 9);
     testFusedReadWrite<128>("FA fused R/W IOps d128 b2 s333/s517", 2, 333, 517, false, 5e-5, 10);
+    testHalfWriteIOp<64>();
     if (failures == 0) { return 0; }
     std::cout << failures << " attention test(s) FAILED" << std::endl;
     return -1;

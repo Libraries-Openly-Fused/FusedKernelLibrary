@@ -74,6 +74,39 @@ struct AttentionIdentityEpilogue {
     }
 };
 
+template <typename T>
+struct AttentionWrite {
+private:
+    using Parent = WriteOperation<float, RawPtr<ND::_3D, T>, T,
+                                  TF::DISABLED, AttentionWrite<T>>;
+    using SelfType = AttentionWrite<T>;
+public:
+    FK_STATIC_STRUCT(AttentionWrite, SelfType)
+    DECLARE_WRITE_PARENT
+
+    FK_HOST_DEVICE_FUSE void exec(const Point thread, const InputType input,
+                                  const ParamsType& params) {
+        *PtrAccessor<ND::_3D>::point(thread, params) = attnFromF32<T>(input);
+    }
+    FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
+        return opData.params.dims.width;
+    }
+    FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
+        return opData.params.dims.height;
+    }
+    FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
+        return opData.params.dims.planes;
+    }
+    FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {
+        return opData.params.dims.pitch;
+    }
+    FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
+        return { num_elems_x(Point{0,0,0}, opData),
+                 num_elems_y(Point{0,0,0}, opData),
+                 num_elems_z(Point{0,0,0}, opData) };
+    }
+};
+
 /* Int8TokenDequantRead: Read IOp for the compressed KV cache.
  * data  : (batch*heads, seq, head_dim) int8, C-contiguous
  * scales: one float per token, laid out (batch*heads * seq)
@@ -145,7 +178,19 @@ inline auto makeAttentionWrite(T* data, const int batchHeads,
         PtrDims<ND::_3D>(static_cast<uint>(headDim), static_cast<uint>(seq),
                          static_cast<uint>(batchHeads), 1,
                          static_cast<uint>(headDim * sizeof(T))) };
-    return PerThreadWrite<ND::_3D, T>::build(ptr);
+    return AttentionWrite<T>::build(ptr);
+}
+
+template <typename T, typename EpilogueIOp>
+inline auto makeAttentionOutput(T* data, const int batchHeads,
+                                const int seq, const int headDim,
+                                const EpilogueIOp& epilogue) {
+    const auto writeIOp = makeAttentionWrite(data, batchHeads, seq, headDim);
+    if constexpr (std::is_same_v<std::decay_t<EpilogueIOp>, AttentionIdentityEpilogue>) {
+        return writeIOp;
+    } else {
+        return epilogue.then(writeIOp);
+    }
 }
 
 // int8-per-token compressed K or V cache as a dequantizing Read IOp.
@@ -165,14 +210,13 @@ inline auto makeInt8KVRead(const int8_t* data, const float* scales,
 /* The DPP. QIOp/KIOp/VIOp are INSTANTIABLE Read or ReadBack IOps (possibly
  * fused with compute continuations): the algorithm reads each element of
  * Q, K and V exclusively through IOp::Operation::exec(thread, iop). */
-template <typename OT, int HEAD_DIM,
-          typename QIOp, typename KIOp, typename VIOp,
-          typename EpilogueIOp = AttentionIdentityEpilogue,
+template <int HEAD_DIM,
+          typename QIOp, typename KIOp, typename VIOp, typename OutIOp,
           int BLOCK_N = 32, int WARPS_PER_BLOCK = 4>
 struct FlashAttentionDPP {
 private:
-    using SelfType = FlashAttentionDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp,
-                                       EpilogueIOp, BLOCK_N, WARPS_PER_BLOCK>;
+    using SelfType = FlashAttentionDPP<HEAD_DIM, QIOp, KIOp, VIOp,
+                                       OutIOp, BLOCK_N, WARPS_PER_BLOCK>;
 public:
     FK_STATIC_STRUCT(FlashAttentionDPP, SelfType)
 
@@ -180,6 +224,7 @@ public:
     static_assert(isAnyReadType<QIOp>, "Q prologue must be a Read or ReadBack IOp");
     static_assert(isAnyReadType<KIOp>, "K prologue must be a Read or ReadBack IOp");
     static_assert(isAnyReadType<VIOp>, "V prologue must be a Read or ReadBack IOp");
+    static_assert(isAnyWriteType<OutIOp>, "Output must be a Write IOp");
     static constexpr int ELEMS_PER_LANE = HEAD_DIM / 32;
     static constexpr int THREADS = WARPS_PER_BLOCK * 32;
 
@@ -187,12 +232,11 @@ public:
         QIOp q;                  // prologue Read/ReadBack IOp for Q
         KIOp k;                  // prologue Read/ReadBack IOp for K
         VIOp v;                  // prologue Read/ReadBack IOp for V
-        OT* o;                   // (batch*heads, seq_q, HEAD_DIM) output
+        OutIOp out;              // (batch*heads, seq_q, HEAD_DIM) output Write IOp
         int seq_q;
         int seq_k;
         float scale;             // logit scale, usually rsqrt(HEAD_DIM)
         bool causal;
-        EpilogueIOp epilogue;    // fused IOp chain on the output (pre-write)
     };
 
     template <typename IOp>
@@ -273,57 +317,24 @@ public:
 
         if (active) {
             const float invL = l > 0.f ? 1.f / l : 0.f;
-            const long oRow = ((long)bh * p.seq_q + qIdx) * HEAD_DIM;
             #pragma unroll
             for (int e = 0; e < ELEMS_PER_LANE; ++e) {
-                if constexpr (isAnyWriteType<EpilogueIOp>) {
-                    // FUSED WRITE IOp: the whole compute.then(write) chain
-                    // runs in-register and performs the single global write
-                    // itself (same 3D addressing convention as the prologues).
-                    EpilogueIOp::Operation::exec(Point{ lane + 32 * e, qIdx, bh },
-                                                 oAcc[e] * invL, p.epilogue);
-                } else {
-                    // EPILOGUE FUSION: the FKL IOp chain runs in-register on the
-                    // normalized output, then ONE global write.
-                    const float r = (oAcc[e] * invL) | p.epilogue;
-                    p.o[oRow + lane + 32 * e] = attnFromF32<OT>(r);
-                }
+                OutIOp::Operation::exec(Point{ lane + 32 * e, qIdx, bh },
+                                        oAcc[e] * invL, p.out);
             }
         }
     }
 };
 
-template <typename OT, int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp,
-          typename EpilogueIOp, int BLOCK_N, int WARPS_PER_BLOCK>
+template <int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp,
+          typename OutIOp, int BLOCK_N, int WARPS_PER_BLOCK>
 __global__ void launchFlashAttentionDPP_Kernel(
-        const __grid_constant__ typename FlashAttentionDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_N, WARPS_PER_BLOCK>::Params params) {
-    FlashAttentionDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_N, WARPS_PER_BLOCK>::exec(params);
+        const __grid_constant__ typename FlashAttentionDPP<HEAD_DIM, QIOp, KIOp, VIOp, OutIOp, BLOCK_N, WARPS_PER_BLOCK>::Params params) {
+    FlashAttentionDPP<HEAD_DIM, QIOp, KIOp, VIOp, OutIOp, BLOCK_N, WARPS_PER_BLOCK>::exec(params);
 }
 
-/* IOp-first API: pass Q/K/V as Read/ReadBack IOps (the prologues). */
-template <int HEAD_DIM, int BLOCK_N = 32, int WARPS_PER_BLOCK = 4,
-          typename OT = float, typename QIOp, typename KIOp, typename VIOp,
-          typename EpilogueIOp = AttentionIdentityEpilogue>
-inline void executeFlashAttention(
-        const QIOp& q, const KIOp& k, const VIOp& v, OT* o,
-        const int batchHeads, const int seqQ, const int seqK,
-        const bool causal, Stream_<ParArch::GPU_NVIDIA>& stream,
-        const float scaleOverride = -1.f, const EpilogueIOp& epilogue = {}) {
-    using DPP = FlashAttentionDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp,
-                                  EpilogueIOp, BLOCK_N, WARPS_PER_BLOCK>;
-    const float scale = scaleOverride > 0.f ? scaleOverride
-                                            : rsqrtf(static_cast<float>(HEAD_DIM));
-    const typename DPP::Params params{ q, k, v, o, seqQ, seqK, scale, causal, epilogue };
-    const dim3 grid((seqQ + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK, batchHeads, 1);
-    const dim3 block(DPP::THREADS, 1, 1);
-    launchFlashAttentionDPP_Kernel<OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_N, WARPS_PER_BLOCK>
-        <<<grid, block, 0, stream.getCUDAStream()>>>(params);
-    gpuErrchk(cudaGetLastError());
-}
-
-/* IOp-first API, FUSED WRITE IOp output: pass the output as a Write IOp
- * (possibly fused: chain.then(makeAttentionWrite(...))). The DPP performs
- * the global write through the IOp, running any fused compute in-register. */
+/* IOp-first API: pass Q/K/V as Read/ReadBack IOps (the prologues) and the
+ * output as a Write IOp (optionally chain.then(makeAttentionWrite(...))). */
 template <int HEAD_DIM, int BLOCK_N = 32, int WARPS_PER_BLOCK = 4,
           typename QIOp, typename KIOp, typename VIOp, typename WriteIOp,
           std::enable_if_t<isAnyWriteType<WriteIOp>, int> = 0>
@@ -332,9 +343,29 @@ inline void executeFlashAttention(
         const int batchHeads, const int seqQ, const int seqK,
         const bool causal, Stream_<ParArch::GPU_NVIDIA>& stream,
         const float scaleOverride = -1.f) {
-    executeFlashAttention<HEAD_DIM, BLOCK_N, WARPS_PER_BLOCK, float>(
-        q, k, v, static_cast<float*>(nullptr), batchHeads, seqQ, seqK,
-        causal, stream, scaleOverride, out);
+    using DPP = FlashAttentionDPP<HEAD_DIM, QIOp, KIOp, VIOp,
+                                  WriteIOp, BLOCK_N, WARPS_PER_BLOCK>;
+    const float scale = scaleOverride > 0.f ? scaleOverride
+                                            : rsqrtf(static_cast<float>(HEAD_DIM));
+    const typename DPP::Params params{ q, k, v, out, seqQ, seqK, scale, causal };
+    const dim3 grid((seqQ + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK, batchHeads, 1);
+    const dim3 block(DPP::THREADS, 1, 1);
+    launchFlashAttentionDPP_Kernel<HEAD_DIM, QIOp, KIOp, VIOp, WriteIOp, BLOCK_N, WARPS_PER_BLOCK>
+        <<<grid, block, 0, stream.getCUDAStream()>>>(params);
+    gpuErrchk(cudaGetLastError());
+}
+
+template <int HEAD_DIM, int BLOCK_N = 32, int WARPS_PER_BLOCK = 4,
+          typename OT = float, typename QIOp, typename KIOp, typename VIOp,
+          typename EpilogueIOp = AttentionIdentityEpilogue>
+inline void executeFlashAttention(
+        const QIOp& q, const KIOp& k, const VIOp& v, OT* o,
+        const int batchHeads, const int seqQ, const int seqK,
+        const bool causal, Stream_<ParArch::GPU_NVIDIA>& stream,
+        const float scaleOverride = -1.f, const EpilogueIOp& epilogue = {}) {
+    const auto outIOp = makeAttentionOutput(o, batchHeads, seqQ, HEAD_DIM, epilogue);
+    executeFlashAttention<HEAD_DIM, BLOCK_N, WARPS_PER_BLOCK>(
+        q, k, v, outIOp, batchHeads, seqQ, seqK, causal, stream, scaleOverride);
 }
 
 /* Pointer convenience API (kept for compatibility): builds the canonical
@@ -353,18 +384,19 @@ inline void executeFlashAttention(
         const float scaleOverride = -1.f,
         const EpilogueIOp& epilogue = {}) {
     const auto qIOp = makeAttentionRead(q, batchHeads, seqQ, HEAD_DIM);
+    const auto outIOp = makeAttentionOutput(o, batchHeads, seqQ, HEAD_DIM, epilogue);
     if constexpr (KVL == KVLayout::INT8_PER_TOKEN) {
         const auto kIOp = makeInt8KVRead(k, kScale, batchHeads, seqK, HEAD_DIM);
         const auto vIOp = makeInt8KVRead(v, vScale, batchHeads, seqK, HEAD_DIM);
         executeFlashAttention<HEAD_DIM, BLOCK_N, WARPS_PER_BLOCK>(
-            qIOp, kIOp, vIOp, o, batchHeads, seqQ, seqK, causal, stream,
-            scaleOverride, epilogue);
+            qIOp, kIOp, vIOp, outIOp, batchHeads, seqQ, seqK, causal, stream,
+            scaleOverride);
     } else {
         const auto kIOp = makeAttentionRead(k, batchHeads, seqK, HEAD_DIM);
         const auto vIOp = makeAttentionRead(v, batchHeads, seqK, HEAD_DIM);
         executeFlashAttention<HEAD_DIM, BLOCK_N, WARPS_PER_BLOCK>(
-            qIOp, kIOp, vIOp, o, batchHeads, seqQ, seqK, causal, stream,
-            scaleOverride, epilogue);
+            qIOp, kIOp, vIOp, outIOp, batchHeads, seqQ, seqK, causal, stream,
+            scaleOverride);
     }
 }
 

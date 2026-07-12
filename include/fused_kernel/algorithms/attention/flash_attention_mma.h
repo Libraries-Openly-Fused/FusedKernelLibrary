@@ -291,15 +291,14 @@ __device__ __forceinline__ void mma_fp8_m16n8k32(const uint32_t A[4],
 
 } // namespace attention_mma_detail
 
-template <typename OT, int HEAD_DIM,
-          typename QIOp, typename KIOp, typename VIOp,
-          typename EpilogueIOp = AttentionIdentityEpilogue,
+template <int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp,
+          typename OutIOp,
           int BLOCK_Q = (HEAD_DIM <= 64 ? 128 : 64), int BLOCK_KV = 32,
           int NUM_WARPS = 4, typename ScoreModOp = NoScoreMod>
 struct FlashAttentionMmaDPP {
 private:
-    using SelfType = FlashAttentionMmaDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp,
-                                          EpilogueIOp, BLOCK_Q, BLOCK_KV, NUM_WARPS,
+    using SelfType = FlashAttentionMmaDPP<HEAD_DIM, QIOp, KIOp, VIOp,
+                                          OutIOp, BLOCK_Q, BLOCK_KV, NUM_WARPS,
                                           ScoreModOp>;
 public:
     static constexpr bool HAS_SCORE_MOD = !std::is_same_v<ScoreModOp, NoScoreMod>;
@@ -320,6 +319,7 @@ public:
     static_assert(isAnyReadType<QIOp>, "Q prologue must be a Read or ReadBack IOp");
     static_assert(isAnyReadType<KIOp>, "K prologue must be a Read or ReadBack IOp");
     static_assert(isAnyReadType<VIOp>, "V prologue must be a Read or ReadBack IOp");
+    static_assert(isAnyWriteType<OutIOp>, "Output must be a Write IOp");
 
     static constexpr int THREADS = NUM_WARPS * 32;
     static constexpr int WARP_Q = BLOCK_Q / NUM_WARPS;
@@ -404,11 +404,10 @@ public:
 
     struct Params {
         QIOp q; KIOp k; VIOp v;
-        OT* o;
+        OutIOp out;
         int seq_q, seq_k;
         float scale;
         bool causal;
-        EpilogueIOp epilogue;
         ScoreModOp scoreMod;     // flex-attention score_mod / mask_mod
         BlockSparsity sparse;    // block-sparse tile skipping (nullptr = dense)
         // SPLIT-KV FORWARD (FA-style): when splits > 1, blockIdx.z selects a
@@ -1279,32 +1278,13 @@ public:
             for (int md = 0; md < HEAD_DIM / MMA_N; ++md) {
                 const int col = md * MMA_N + (laneId % 4) * 2;
                 const float* r = oAcc[mq][md];
-                if constexpr (isAnyWriteType<EpilogueIOp>) {
-                    // FUSED WRITE IOp: the compute.then(write) chain performs
-                    // the global writes itself (prologue 3D addressing).
-                    if (rowA < p.seq_q) {
-                        EpilogueIOp::Operation::exec(Point{ col, rowA, bh },
-                                                     r[0] * invA, p.epilogue);
-                        EpilogueIOp::Operation::exec(Point{ col + 1, rowA, bh },
-                                                     r[1] * invA, p.epilogue);
-                    }
-                    if (rowB < p.seq_q) {
-                        EpilogueIOp::Operation::exec(Point{ col, rowB, bh },
-                                                     r[2] * invB, p.epilogue);
-                        EpilogueIOp::Operation::exec(Point{ col + 1, rowB, bh },
-                                                     r[3] * invB, p.epilogue);
-                    }
-                } else {
-                    if (rowA < p.seq_q) {
-                        const long base = ((long)bh * p.seq_q + rowA) * HEAD_DIM + col;
-                        storePair(p.o + base, (r[0] * invA) | p.epilogue,
-                                              (r[1] * invA) | p.epilogue);
-                    }
-                    if (rowB < p.seq_q) {
-                        const long base = ((long)bh * p.seq_q + rowB) * HEAD_DIM + col;
-                        storePair(p.o + base, (r[2] * invB) | p.epilogue,
-                                              (r[3] * invB) | p.epilogue);
-                    }
+                if (rowA < p.seq_q) {
+                    OutIOp::Operation::exec(Point{ col, rowA, bh }, r[0] * invA, p.out);
+                    OutIOp::Operation::exec(Point{ col + 1, rowA, bh }, r[1] * invA, p.out);
+                }
+                if (rowB < p.seq_q) {
+                    OutIOp::Operation::exec(Point{ col, rowB, bh }, r[2] * invB, p.out);
+                    OutIOp::Operation::exec(Point{ col + 1, rowB, bh }, r[3] * invB, p.out);
                 }
             }
         }
@@ -1342,15 +1322,6 @@ public:
                     dst[HEAD_DIM + 1] = rowSum[mq][half];
                 }
             }
-        }
-    }
-
-    FK_DEVICE_FUSE void storePair(OT* dst, const float a, const float b) {
-        if constexpr (std::is_same_v<OT, __nv_bfloat16>) {
-            *reinterpret_cast<__nv_bfloat162*>(dst) = __float22bfloat162_rn({ a, b });
-        } else {
-            dst[0] = attnFromF32<OT>(a);
-            dst[1] = attnFromF32<OT>(b);
         }
     }
 
@@ -1850,12 +1821,10 @@ public:
    kernel ran log2-domain softmax, e^x otherwise. The fused epilogue runs
    here (the producer wrote UNNORMALIZED partials); a write-type epilogue
    performs the global writes itself. */
-template <typename OT, int HEAD_DIM, bool LOG2D,
-          typename EpilogueIOp = AttentionIdentityEpilogue>
+template <int HEAD_DIM, bool LOG2D, typename OutIOp>
 __global__ void flashFwdSplitCombineKernel(const float* __restrict__ partial,
-                                           OT* __restrict__ o,
-                                           const int seqQ, const int splits,
-                                           const EpilogueIOp epilogue = {}) {
+                                           const OutIOp out,
+                                           const int seqQ, const int splits) {
     const int bh = blockIdx.y;
     const int row = blockIdx.x * blockDim.y + threadIdx.y;
     if (row >= seqQ) return;
@@ -1879,34 +1848,21 @@ __global__ void flashFwdSplitCombineKernel(const float* __restrict__ partial,
             acc[c] += ps[threadIdx.x + c * 32] * w;
     }
     const float inv = l > 0.f ? 1.f / l : 0.f;
-    if constexpr (isAnyWriteType<EpilogueIOp>) {
-        #pragma unroll
-        for (int c = 0; c < HEAD_DIM / 32; ++c) {
-            EpilogueIOp::Operation::exec(Point{ (int)threadIdx.x + c * 32, row, bh },
-                                         acc[c] * inv, epilogue);
-        }
-    } else {
-        OT* dst = o + ((long)bh * seqQ + row) * HEAD_DIM;
-        #pragma unroll
-        for (int c = 0; c < HEAD_DIM / 32; ++c) {
-            const float r = (acc[c] * inv) | epilogue;
-            if constexpr (std::is_same_v<OT, __nv_bfloat16>) {
-                dst[threadIdx.x + c * 32] = __float2bfloat16(r);
-            } else {
-                dst[threadIdx.x + c * 32] = static_cast<OT>(r);
-            }
-        }
+    #pragma unroll
+    for (int c = 0; c < HEAD_DIM / 32; ++c) {
+        OutIOp::Operation::exec(Point{ (int)threadIdx.x + c * 32, row, bh },
+                                acc[c] * inv, out);
     }
 }
 
-template <typename OT, int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp,
-          typename EpilogueIOp, int BLOCK_Q, int BLOCK_KV, int NUM_WARPS,
+template <int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp,
+          typename OutIOp, int BLOCK_Q, int BLOCK_KV, int NUM_WARPS,
           typename ScoreModOp, bool SPLIT_KV = false>
 __global__ void launchFlashAttentionMmaDPP_Kernel(
         const __grid_constant__ typename FlashAttentionMmaDPP<
-            OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp,
+            HEAD_DIM, QIOp, KIOp, VIOp, OutIOp,
             BLOCK_Q, BLOCK_KV, NUM_WARPS, ScoreModOp>::Params params) {
-    FlashAttentionMmaDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp,
+    FlashAttentionMmaDPP<HEAD_DIM, QIOp, KIOp, VIOp, OutIOp,
                          BLOCK_Q, BLOCK_KV, NUM_WARPS,
                          ScoreModOp>::template exec<SPLIT_KV>(params);
 }
@@ -1918,14 +1874,14 @@ __global__ void launchFlashAttentionMmaDPP_Kernel(
  * S/P union d128 fits at 174 regs and BKV64 beats BKV32 by ~13%),
  * fused-prologue path prefers BQ128/BKV32 (register headroom). */
 template <int HEAD_DIM, int BLOCK_Q = 0, int BLOCK_KV = 0, int NUM_WARPS = 4,
-          typename OT = float, typename QIOp, typename KIOp, typename VIOp,
-          typename EpilogueIOp = AttentionIdentityEpilogue,
-          typename ScoreModOp = NoScoreMod>
+          typename QIOp, typename KIOp, typename VIOp, typename WriteIOp,
+          typename ScoreModOp = NoScoreMod,
+          std::enable_if_t<isAnyWriteType<WriteIOp>, int> = 0>
 inline void executeFlashAttentionMma(
-        const QIOp& q, const KIOp& k, const VIOp& v, OT* o,
+        const QIOp& q, const KIOp& k, const VIOp& v, const WriteIOp& out,
         const int batchHeads, const int seqQ, const int seqK,
         const bool causal, Stream_<ParArch::GPU_NVIDIA>& stream,
-        const float scaleOverride = -1.f, const EpilogueIOp& epilogue = {},
+        const float scaleOverride = -1.f,
         const ScoreModOp& scoreMod = {}, const BlockSparsity& sparse = {}) {
     constexpr bool RAW = isRawBf16Read<KIOp> && isRawBf16Read<VIOp>;
     // RAW auto-tile is REGIME-DEPENDENT. Swept exhaustively with REAL data
@@ -1953,8 +1909,8 @@ inline void executeFlashAttentionMma(
                        : ((long)batchHeads * seqQ >= 65536);
             if (wantBQ128 && maskFits(128, 64)) {
                 executeFlashAttentionMma<HEAD_DIM, 128, 64, NUM_WARPS>(
-                    q, k, v, o, batchHeads, seqQ, seqK, causal, stream,
-                    scaleOverride, epilogue, scoreMod, sparse);
+                    q, k, v, out, batchHeads, seqQ, seqK, causal, stream,
+                    scaleOverride, scoreMod, sparse);
                 return;
             }
             // ROUND-8 RESWEEP (spikes/resweep_r8.cu + guard_r8.cu, post
@@ -1965,8 +1921,8 @@ inline void executeFlashAttentionMma(
             // (BKV128 measured slower on every dense shape).
             if (causal && seqQ >= 1024 && maskFits(64, 128)) {
                 executeFlashAttentionMma<HEAD_DIM, 64, 128, NUM_WARPS>(
-                    q, k, v, o, batchHeads, seqQ, seqK, causal, stream,
-                    scaleOverride, epilogue, scoreMod, sparse);
+                    q, k, v, out, batchHeads, seqQ, seqK, causal, stream,
+                    scaleOverride, scoreMod, sparse);
                 return;
             }
         } else if constexpr (HEAD_DIM == 128) {
@@ -1980,8 +1936,8 @@ inline void executeFlashAttentionMma(
             // seqQ >= 16384 -> BQ128/BKV128/NW8; else plain BQ64/BKV64.
             if (seqQ >= 16384 && maskFits(128, 128)) {
                 executeFlashAttentionMma<HEAD_DIM, 128, 128, 8>(
-                    q, k, v, o, batchHeads, seqQ, seqK, causal, stream,
-                    scaleOverride, epilogue, scoreMod, sparse);
+                    q, k, v, out, batchHeads, seqQ, seqK, causal, stream,
+                    scaleOverride, scoreMod, sparse);
                 return;
             }
         }
@@ -1989,8 +1945,8 @@ inline void executeFlashAttentionMma(
     constexpr int BQ = BLOCK_Q > 0 ? BLOCK_Q
                                    : (RAW ? 64 : (HEAD_DIM <= 64 ? 128 : 64));
     constexpr int BKV = BLOCK_KV > 0 ? BLOCK_KV : (RAW ? 64 : 32);
-    using DPP = FlashAttentionMmaDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp,
-                                     EpilogueIOp, BQ, BKV, NUM_WARPS, ScoreModOp>;
+    using DPP = FlashAttentionMmaDPP<HEAD_DIM, QIOp, KIOp, VIOp,
+                                     WriteIOp, BQ, BKV, NUM_WARPS, ScoreModOp>;
     const float scale = scaleOverride > 0.f ? scaleOverride
                                             : rsqrtf(static_cast<float>(HEAD_DIM));
     if (sparse.mask != nullptr) {
@@ -2001,13 +1957,13 @@ inline void executeFlashAttentionMma(
                 "tiles (BQ=" + std::to_string(BQ) + ", BKV=" + std::to_string(BKV) + ")");
         }
     }
-    typename DPP::Params params{ q, k, v, o, seqQ, seqK, scale, causal,
-                                 epilogue, scoreMod, sparse };
+    typename DPP::Params params{ q, k, v, out, seqQ, seqK, scale, causal,
+                                 scoreMod, sparse };
     const int numQ = (seqQ + BQ - 1) / BQ;
     const dim3 block(DPP::THREADS, 1, 1);
     const int smemBytes = DPP::SMEM_BYTES;
-    auto* kernel = launchFlashAttentionMmaDPP_Kernel<OT, HEAD_DIM, QIOp, KIOp, VIOp,
-                                                     EpilogueIOp, BQ, BKV, NUM_WARPS,
+    auto* kernel = launchFlashAttentionMmaDPP_Kernel<HEAD_DIM, QIOp, KIOp, VIOp,
+                                                     WriteIOp, BQ, BKV, NUM_WARPS,
                                                      ScoreModOp>;
     if (smemBytes > 48000) {
         gpuErrchk(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
@@ -2058,7 +2014,7 @@ inline void executeFlashAttentionMma(
     const dim3 grid(numQ, batchHeads, splits);
     if (splits > 1) {
         auto* splitKernel = launchFlashAttentionMmaDPP_Kernel<
-            OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BQ, BKV, NUM_WARPS,
+            HEAD_DIM, QIOp, KIOp, VIOp, WriteIOp, BQ, BKV, NUM_WARPS,
             ScoreModOp, /*SPLIT_KV=*/true>;
         if (smemBytes > 48000) {
             gpuErrchk(cudaFuncSetAttribute(splitKernel,
@@ -2069,9 +2025,8 @@ inline void executeFlashAttentionMma(
         // combine: 32 threads per row (HEAD_DIM/32 cols each), 4 rows/block
         const dim3 cblock(32, 4, 1);
         const dim3 cgrid((seqQ + 3) / 4, batchHeads, 1);
-        flashFwdSplitCombineKernel<OT, HEAD_DIM, DPP::LOG2_DOMAIN>
-            <<<cgrid, cblock, 0, stream.getCUDAStream()>>>(partial, o, seqQ, splits,
-                                                           epilogue);
+        flashFwdSplitCombineKernel<HEAD_DIM, DPP::LOG2_DOMAIN, WriteIOp>
+            <<<cgrid, cblock, 0, stream.getCUDAStream()>>>(partial, out, seqQ, splits);
         gpuErrchk(cudaGetLastError());
         gpuErrchk(cudaFreeAsync(partial, stream.getCUDAStream()));
     } else {
@@ -2080,23 +2035,21 @@ inline void executeFlashAttentionMma(
     }
 }
 
-/* IOp-first API, FUSED WRITE IOp output: pass the output as a Write IOp
- * (possibly fused: chain.then(makeAttentionWrite(...))). The writeout (or
- * the split-KV combine) performs the global writes through the IOp, running
- * any fused compute in-register. */
 template <int HEAD_DIM, int BLOCK_Q = 0, int BLOCK_KV = 0, int NUM_WARPS = 4,
-          typename QIOp, typename KIOp, typename VIOp, typename WriteIOp,
-          typename ScoreModOp = NoScoreMod,
-          std::enable_if_t<isAnyWriteType<WriteIOp>, int> = 0>
+          typename OT = float, typename QIOp, typename KIOp, typename VIOp,
+          typename EpilogueIOp = AttentionIdentityEpilogue,
+          typename ScoreModOp = NoScoreMod>
 inline void executeFlashAttentionMma(
-        const QIOp& q, const KIOp& k, const VIOp& v, const WriteIOp& out,
+        const QIOp& q, const KIOp& k, const VIOp& v, OT* o,
         const int batchHeads, const int seqQ, const int seqK,
         const bool causal, Stream_<ParArch::GPU_NVIDIA>& stream,
         const float scaleOverride = -1.f,
+        const EpilogueIOp& epilogue = {},
         const ScoreModOp& scoreMod = {}, const BlockSparsity& sparse = {}) {
-    executeFlashAttentionMma<HEAD_DIM, BLOCK_Q, BLOCK_KV, NUM_WARPS, float>(
-        q, k, v, static_cast<float*>(nullptr), batchHeads, seqQ, seqK,
-        causal, stream, scaleOverride, out, scoreMod, sparse);
+    const auto outIOp = makeAttentionOutput(o, batchHeads, seqQ, HEAD_DIM, epilogue);
+    executeFlashAttentionMma<HEAD_DIM, BLOCK_Q, BLOCK_KV, NUM_WARPS>(
+        q, k, v, outIOp, batchHeads, seqQ, seqK, causal, stream,
+        scaleOverride, scoreMod, sparse);
 }
 
 } // namespace fk
