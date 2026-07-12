@@ -34,6 +34,7 @@ FusedKernelLibrary/
 │   ├── fused_kernel.h            # Main API entry point (includes executors.h)
 │   ├── algorithms/               # Operations: arithmetic, cast, image processing, etc.
 │   └── core/                     # Infrastructure: execution model, data types, utils
+│       ├── constexpr_libs/       # Contains std functionalities (and few others) not available on GPU or not available as constexpr or both, implemented in namespace cxp
 │       ├── execution_model/      # Executors, DPP patterns, operation model
 │       │   └── operation_model/  # Parent Operations, special operations like Batch and Fused Operations, and operation fusion infrastructure
 │       ├── data/                 # Ptr, Ptr2D, Tensor, RawPtr types
@@ -51,7 +52,7 @@ FusedKernelLibrary/
 ### Requirements
 - **CMake** >= 3.28
 - **C++ compiler** with C++20 support
-- **CUDA** (optional): requires NVCC. **Only nvcc is supported as the CUDA compiler**; clang-as-CUDA-compiler is not supported despite `CLANG_HOST_DEVICE` macro existing.
+- **CUDA** (optional): requires NVCC. **Only nvcc is supported as the CUDA compiler**;
 - **MSVC**: Visual Studio 2022 or Visual Studio 2026 (MSVC_VERSION >= 1930) required;
 
 ### Configure and Build (typical)
@@ -133,8 +134,12 @@ Files ending in `_common.h` (matching `*_common.*`) are shared helpers, not test
 
 ## Code Conventions
 
-### Namespace
-All library code lives in namespace `fk`. Use `using namespace fk;` in test/example files.
+### Namespaces
+
+Code in this repository is strictly divided into two namespaces based on its domain:
+
+*   **Core Library (`fk::`)**: The vast majority of FKL code (operations, data structures, executors) lives in the `fk` namespace. Use `using namespace fk;` in test and example files.
+*   **Standard Polyfills (`cxp::`)**: Code located in the `constexpr-libs` directory must use the `cxp` namespace. This namespace is strictly reserved for implementing `std` functionality that is either unavailable on the GPU, unavailable as `constexpr`, or both.
 
 ### Function/Method Macros
 All functions in headers use one of these macros (from `include/fused_kernel/core/utils/utils.h`):
