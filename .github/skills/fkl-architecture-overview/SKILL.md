@@ -1,6 +1,6 @@
 ---
 name: fkl-architecture-overview
-description: "Classify FKL work as Op, DPP, policy, or fused IOp."
+description: "Use this skill to classify any FKL work as an Operation (Op), Data Parallel Pattern (DPP), or constexpr_lib. Trigger this before writing a new algorithm, when adapting an existing kernel to FKL standards, or when addressing PR review comments like 'should be a DPP' or 'not FKL'."
 version: 0.1.0
 metadata:
   hermes:
@@ -12,6 +12,7 @@ metadata:
 A fast classification guide for the Fused Kernel Library: given an algorithm,
 decide whether it is an **Operation** or a **Data Parallel Pattern (DPP)**, or if
 it should be split into a DPP and several Operations and route its data correctly.
+The algorithm, or parts of it, could also be a function in constexpr_lib.
 It does NOT replace `fkl-implementing-operations` or
 `fkl-implementing-data-parallel-patterns` (those are
 authoritative and go deeper) — it is the 60-second "what am I building?" filter
@@ -19,23 +20,29 @@ to apply before reaching for them, plus the most common review-fix mappings.
 
 ## When to Use
 
-- Before writing a new algorithm, to decide Op vs DPP.
+- Before writing a new algorithm, to decide Op vs DPP vs cxp::.
 - When a review says "this should be a DPP, not an Operation or standard Kernel",
   "this is not FKL / I can't fuse this", or "use standard Ops".
-- When deciding how a kernel's read, compute, and write should flow through IOps.
+- When adapting an existing kernel to FKL standards, and having to refactor how 
+a kernel reads, computes, and writes, using IOps.
 
 ## The single classifying rule
 
 > An Operation is strictly ALWAYS single-thread code. If more than one thread
 > must participate in the code, that code belongs in a DPP.
 
-- **Op** — one thread's work; stateless struct, static `exec()`. Single-thread.
-- **DPP** — anything needing >1 thread to cooperate: shared memory,
-  `__syncthreads`, `__shfl`, warp-collective `mma.sync`, cp.async tile staging.
+- **Op** — code that defines how a single thread has to modify the data. One thread's work; stateless struct,
+  static `exec()`. Single-thread.
+- **DPP** — code that defined thread behavior. Anything needing >1 thread to cooperate: shared memory,
+  `__syncthreads`, `__shfl`, warp-collective `mma.sync`, cp.async tile staging,
+  CPU threads in case of CPU multithreaded implementations of the DPP.
   A DPP routes data through IOps and never modifies the data directly, it always
-  does it using IOps. 
+  does it using IOps, except when using tensor cores and specialized hardware that
+  determines both thread behavior and modifications over data.  
 - **IOp** (Instantiable Operation) — an Op plus its params, produced by
-  `::build()`, invoked as `IOp::Operation::exec(...)`, never the raw Op struct.
+  `::build()`, invoked as `IOp::Operation::exec(...)`. Exceptionally, and only
+  to avoid code duplication, can use `Operation::exec(...)` without having an IOp and
+  only inside the implementation of another Op.
 
 ## Operation types
 
