@@ -78,7 +78,7 @@ executeOperations<TransformDPP<>>(stream,
 ### Color conversion + channel ops
 
 ```cpp
-ColorConversion<ColorConversionCodes::COLOR_RGB2GRAY, uchar uchar3,>::build()
+ColorConversion<ColorConversionCodes::COLOR_RGB2GRAY, uchar3, uchar>::build()
 VectorReorder<uchar3, 2, 1, 0>::build()      // compile-time channel shuffle
 VectorReorderRT<uchar3>::build({2, 1, 0})    // runtime shuffle (params)
 Discard<uchar4, uchar3>::build()             // drop alpha
