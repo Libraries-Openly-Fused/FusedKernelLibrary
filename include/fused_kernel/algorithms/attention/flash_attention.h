@@ -60,6 +60,7 @@
  */
 
 #include <fused_kernel/algorithms/attention/softmax.h>
+#include <fused_kernel/algorithms/basic_ops/cast.h>
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 
 namespace fk {
@@ -77,7 +78,7 @@ struct AttentionIdentityEpilogue {
 template <typename T>
 struct AttentionWrite {
 private:
-    using Parent = WriteOperation<float, RawPtr<ND::_3D, T>, T,
+    using Parent = WriteOperation<T, RawPtr<ND::_3D, T>, T,
                                   TF::DISABLED, AttentionWrite<T>>;
     using SelfType = AttentionWrite<T>;
 public:
@@ -86,7 +87,7 @@ public:
 
     FK_HOST_DEVICE_FUSE void exec(const Point thread, const InputType input,
                                   const ParamsType& params) {
-        *PtrAccessor<ND::_3D>::point(thread, params) = attnFromF32<T>(input);
+        *PtrAccessor<ND::_3D>::point(thread, params) = input;
     }
     FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
         return opData.params.dims.width;
@@ -164,12 +165,19 @@ inline auto makeAttentionRead(const T* data, const int batchHeads,
         PtrDims<ND::_3D>(static_cast<uint>(headDim), static_cast<uint>(seq),
                          static_cast<uint>(batchHeads), 1,
                          static_cast<uint>(headDim * sizeof(T))) };
-    return PerThreadRead<ND::_3D, T>::build(ptr);
+#if defined(__NVCC__)
+    if constexpr (std::is_same_v<T, __half>) {
+        return PerThreadRead<ND::_3D, T>::build(ptr).then(Cast<T, float>::build());
+    } else
+#endif
+    {
+        return PerThreadRead<ND::_3D, T>::build(ptr);
+    }
 }
 
 // Wrap a raw (batch*heads, seq, head_dim) C-contiguous OUTPUT pointer as the
-// canonical attention Write IOp. Fuse extra postprocessing by chaining
-// compute IOps in front of it: chain.then(makeAttentionWrite(...)).
+// canonical attention Write IOp. Non-float outputs are lowered to
+// Cast<float, T>.then(raw_write), so the memory IOp stays a pure write.
 template <typename T>
 inline auto makeAttentionWrite(T* data, const int batchHeads,
                                const int seq, const int headDim) {
@@ -178,7 +186,11 @@ inline auto makeAttentionWrite(T* data, const int batchHeads,
         PtrDims<ND::_3D>(static_cast<uint>(headDim), static_cast<uint>(seq),
                          static_cast<uint>(batchHeads), 1,
                          static_cast<uint>(headDim * sizeof(T))) };
-    return AttentionWrite<T>::build(ptr);
+    if constexpr (std::is_same_v<T, float>) {
+        return AttentionWrite<T>::build(ptr);
+    } else {
+        return Cast<float, T>::build().then(AttentionWrite<T>::build(ptr));
+    }
 }
 
 template <typename T, typename EpilogueIOp>

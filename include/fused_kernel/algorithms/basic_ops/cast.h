@@ -18,6 +18,11 @@
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 
+#if defined(__NVCC__)
+#include <cuda_bf16.h>
+#include <cuda_fp16.h>
+#endif
+
 namespace fk {
     template <typename I, typename O>
     struct Cast {
@@ -31,6 +36,64 @@ namespace fk {
             return cxp::cast<OutputType>::f(input);
         }
     };
+
+#if defined(__NVCC__)
+    template <>
+    struct Cast<__half, float> {
+    private:
+        using SelfType = Cast<__half, float>;
+    public:
+        FK_STATIC_STRUCT(Cast, SelfType)
+        using Parent = UnaryOperation<__half, float, SelfType>;
+        DECLARE_UNARY_PARENT
+        static __host__ __device__ __forceinline__
+        OutputType exec(const InputType input) {
+            return __half2float(input);
+        }
+    };
+
+    template <>
+    struct Cast<float, __half> {
+    private:
+        using SelfType = Cast<float, __half>;
+    public:
+        FK_STATIC_STRUCT(Cast, SelfType)
+        using Parent = UnaryOperation<float, __half, SelfType>;
+        DECLARE_UNARY_PARENT
+        static __host__ __device__ __forceinline__
+        OutputType exec(const InputType input) {
+            return __float2half(input);
+        }
+    };
+
+    template <>
+    struct Cast<__nv_bfloat16, float> {
+    private:
+        using SelfType = Cast<__nv_bfloat16, float>;
+    public:
+        FK_STATIC_STRUCT(Cast, SelfType)
+        using Parent = UnaryOperation<__nv_bfloat16, float, SelfType>;
+        DECLARE_UNARY_PARENT
+        static __host__ __device__ __forceinline__
+        OutputType exec(const InputType input) {
+            return __bfloat162float(input);
+        }
+    };
+
+    template <>
+    struct Cast<float, __nv_bfloat16> {
+    private:
+        using SelfType = Cast<float, __nv_bfloat16>;
+    public:
+        FK_STATIC_STRUCT(Cast, SelfType)
+        using Parent = UnaryOperation<float, __nv_bfloat16, SelfType>;
+        DECLARE_UNARY_PARENT
+        static __host__ __device__ __forceinline__
+        OutputType exec(const InputType input) {
+            return __float2bfloat16(input);
+        }
+    };
+#endif
 } // namespace fk
 
 #endif

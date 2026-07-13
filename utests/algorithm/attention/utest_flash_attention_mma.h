@@ -33,6 +33,14 @@ static float bf16Round(const float x) {
     return __bfloat162float(__float2bfloat16(x));
 }
 
+#ifdef FK_HAS_FP8
+static float fp8DequantHost(const int8_t raw, const float scale) {
+    __nv_fp8_e4m3 f8;
+    f8.__x = static_cast<__nv_fp8_storage_t>(raw);
+    return static_cast<float>(f8) * scale;
+}
+#endif
+
 // double-precision CPU oracle: O = softmax(scale * Q K^T [causal]) V
 static void cpuAttention(const std::vector<double>& q, const std::vector<double>& k,
                          const std::vector<double>& v, std::vector<double>& o,
@@ -159,6 +167,120 @@ static void testDenseBf16Raw(const char* name, const int bh, const int seqQ,
     for (size_t i = 0; i < nQ; ++i) maxErr = std::max(maxErr, std::abs((double)got[i] - dref[i]));
     report(name, maxErr, tol);
 }
+
+template <int HEAD_DIM>
+static void testInt8KV(const char* name, const int bh, const int seqQ, const int seqK,
+                       const bool causal, const double tol, const unsigned seed) {
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> dist(-1.f, 1.f);
+    const size_t nQ = (size_t)bh * seqQ * HEAD_DIM, nK = (size_t)bh * seqK * HEAD_DIM;
+    const size_t nTok = (size_t)bh * seqK;
+    std::vector<float> hq(nQ), hk(nK), hv(nK);
+    std::vector<double> dq(nQ), dk(nK), dv(nK), dref;
+    for (size_t i = 0; i < nQ; ++i) { hq[i] = bf16Round(dist(rng)); dq[i] = hq[i]; }
+    for (size_t i = 0; i < nK; ++i) hk[i] = dist(rng);
+    for (size_t i = 0; i < nK; ++i) hv[i] = dist(rng);
+
+    std::vector<int8_t> k8(nK), v8(nK);
+    std::vector<float> kSc(nTok), vSc(nTok);
+    quantizeKVCacheHost(hk.data(), k8.data(), kSc.data(), (int)nTok, HEAD_DIM);
+    quantizeKVCacheHost(hv.data(), v8.data(), vSc.data(), (int)nTok, HEAD_DIM);
+
+    for (size_t i = 0; i < nK; ++i) dk[i] = bf16Round((float)k8[i] * kSc[i / HEAD_DIM]);
+    for (size_t i = 0; i < nK; ++i) dv[i] = bf16Round((float)v8[i] * vSc[i / HEAD_DIM]);
+    cpuAttention(dq, dk, dv, dref, bh, seqQ, seqK, HEAD_DIM,
+                 1.0 / std::sqrt((double)HEAD_DIM), causal);
+
+    float *q, *o, *dkS, *dvS;
+    int8_t *dk8, *dv8;
+    gpuErrchk(cudaMalloc(&q, nQ * sizeof(float)));
+    gpuErrchk(cudaMalloc(&o, nQ * sizeof(float)));
+    gpuErrchk(cudaMalloc(&dk8, nK));
+    gpuErrchk(cudaMalloc(&dv8, nK));
+    gpuErrchk(cudaMalloc(&dkS, nTok * sizeof(float)));
+    gpuErrchk(cudaMalloc(&dvS, nTok * sizeof(float)));
+    gpuErrchk(cudaMemcpy(q, hq.data(), nQ * sizeof(float), cudaMemcpyHostToDevice));
+    gpuErrchk(cudaMemcpy(dk8, k8.data(), nK, cudaMemcpyHostToDevice));
+    gpuErrchk(cudaMemcpy(dv8, v8.data(), nK, cudaMemcpyHostToDevice));
+    gpuErrchk(cudaMemcpy(dkS, kSc.data(), nTok * sizeof(float), cudaMemcpyHostToDevice));
+    gpuErrchk(cudaMemcpy(dvS, vSc.data(), nTok * sizeof(float), cudaMemcpyHostToDevice));
+
+    Stream stream;
+    const auto qIOp = makeAttentionRead(q, bh, seqQ, HEAD_DIM);
+    const auto kIOp = makeInt8KVRead(dk8, dkS, bh, seqK, HEAD_DIM);
+    const auto vIOp = makeInt8KVRead(dv8, dvS, bh, seqK, HEAD_DIM);
+    const auto oIOp = makeAttentionWrite(o, bh, seqQ, HEAD_DIM);
+    executeFlashAttentionMma<HEAD_DIM>(qIOp, kIOp, vIOp, oIOp, bh, seqQ, seqK,
+                                       causal, stream);
+    stream.sync();
+
+    std::vector<float> got(nQ);
+    gpuErrchk(cudaMemcpy(got.data(), o, nQ * sizeof(float), cudaMemcpyDeviceToHost));
+    cudaFree(q); cudaFree(o); cudaFree(dk8); cudaFree(dv8); cudaFree(dkS); cudaFree(dvS);
+
+    double maxErr = 0.0;
+    for (size_t i = 0; i < nQ; ++i)
+        maxErr = std::max(maxErr, std::abs((double)got[i] - dref[i]));
+    report(name, maxErr, tol);
+}
+
+#ifdef FK_HAS_FP8
+template <int HEAD_DIM>
+static void testFp8KV(const char* name, const int bh, const int seqQ, const int seqK,
+                      const bool causal, const double tol, const unsigned seed) {
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> dist(-1.f, 1.f);
+    const size_t nQ = (size_t)bh * seqQ * HEAD_DIM, nK = (size_t)bh * seqK * HEAD_DIM;
+    const size_t nTok = (size_t)bh * seqK;
+    std::vector<float> hq(nQ), hk(nK), hv(nK);
+    std::vector<double> dq(nQ), dk(nK), dv(nK), dref;
+    for (size_t i = 0; i < nQ; ++i) { hq[i] = bf16Round(dist(rng)); dq[i] = hq[i]; }
+    for (size_t i = 0; i < nK; ++i) hk[i] = dist(rng);
+    for (size_t i = 0; i < nK; ++i) hv[i] = dist(rng);
+
+    std::vector<int8_t> k8(nK), v8(nK);
+    std::vector<float> kSc(nTok), vSc(nTok);
+    quantizeKVCacheFp8Host(hk.data(), k8.data(), kSc.data(), (int)nTok, HEAD_DIM);
+    quantizeKVCacheFp8Host(hv.data(), v8.data(), vSc.data(), (int)nTok, HEAD_DIM);
+
+    for (size_t i = 0; i < nK; ++i) dk[i] = bf16Round(fp8DequantHost(k8[i], kSc[i / HEAD_DIM]));
+    for (size_t i = 0; i < nK; ++i) dv[i] = bf16Round(fp8DequantHost(v8[i], vSc[i / HEAD_DIM]));
+    cpuAttention(dq, dk, dv, dref, bh, seqQ, seqK, HEAD_DIM,
+                 1.0 / std::sqrt((double)HEAD_DIM), causal);
+
+    float *q, *o, *dkS, *dvS;
+    int8_t *dk8, *dv8;
+    gpuErrchk(cudaMalloc(&q, nQ * sizeof(float)));
+    gpuErrchk(cudaMalloc(&o, nQ * sizeof(float)));
+    gpuErrchk(cudaMalloc(&dk8, nK));
+    gpuErrchk(cudaMalloc(&dv8, nK));
+    gpuErrchk(cudaMalloc(&dkS, nTok * sizeof(float)));
+    gpuErrchk(cudaMalloc(&dvS, nTok * sizeof(float)));
+    gpuErrchk(cudaMemcpy(q, hq.data(), nQ * sizeof(float), cudaMemcpyHostToDevice));
+    gpuErrchk(cudaMemcpy(dk8, k8.data(), nK, cudaMemcpyHostToDevice));
+    gpuErrchk(cudaMemcpy(dv8, v8.data(), nK, cudaMemcpyHostToDevice));
+    gpuErrchk(cudaMemcpy(dkS, kSc.data(), nTok * sizeof(float), cudaMemcpyHostToDevice));
+    gpuErrchk(cudaMemcpy(dvS, vSc.data(), nTok * sizeof(float), cudaMemcpyHostToDevice));
+
+    Stream stream;
+    const auto qIOp = makeAttentionRead(q, bh, seqQ, HEAD_DIM);
+    const auto kIOp = makeFp8KVRead(dk8, dkS, bh, seqK, HEAD_DIM);
+    const auto vIOp = makeFp8KVRead(dv8, dvS, bh, seqK, HEAD_DIM);
+    const auto oIOp = makeAttentionWrite(o, bh, seqQ, HEAD_DIM);
+    executeFlashAttentionMma<HEAD_DIM>(qIOp, kIOp, vIOp, oIOp, bh, seqQ, seqK,
+                                       causal, stream);
+    stream.sync();
+
+    std::vector<float> got(nQ);
+    gpuErrchk(cudaMemcpy(got.data(), o, nQ * sizeof(float), cudaMemcpyDeviceToHost));
+    cudaFree(q); cudaFree(o); cudaFree(dk8); cudaFree(dv8); cudaFree(dkS); cudaFree(dvS);
+
+    double maxErr = 0.0;
+    for (size_t i = 0; i < nQ; ++i)
+        maxErr = std::max(maxErr, std::abs((double)got[i] - dref[i]));
+    report(name, maxErr, tol);
+}
+#endif
 
 static void testFusedEpilogue() {
     // attention output | Mul(2) | Add(0.5) fused in-register: compare against
@@ -380,6 +502,10 @@ int launch() {
     testDense<128>("FA-mma dense d128 b1 s128", 1, 128, 128, false, 2.5e-2, 4);
     testDenseBf16Raw<64>("FA-mma RAW bf16 d64 b2 s128 causal", 2, 128, 128, true, 2.5e-2, 5);
     testDenseBf16Raw<128>("FA-mma RAW bf16 d128 b2 s256", 2, 256, 256, false, 2.5e-2, 6);
+    testInt8KV<64>("FA-mma int8-KV d64 b2 s128 causal", 2, 128, 128, true, 3e-2, 11);
+#ifdef FK_HAS_FP8
+    testFp8KV<64>("FA-mma fp8-KV d64 ragged s96/s160", 2, 96, 160, false, 4e-2, 12);
+#endif
     testFusedEpilogue();
     testFusedPrologue();
     // fused Read IOps + fused Write IOp, small and BIG shapes

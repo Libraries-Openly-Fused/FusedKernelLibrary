@@ -44,18 +44,14 @@ namespace fk {
 struct Bf16AttentionRead {
 private:
     using Parent = ReadOperation<__nv_bfloat16, RawPtr<ND::_3D, __nv_bfloat16>,
-                                 float, TF::DISABLED, Bf16AttentionRead>;
+                                 __nv_bfloat16, TF::DISABLED, Bf16AttentionRead>;
     using SelfType = Bf16AttentionRead;
 public:
     FK_STATIC_STRUCT(Bf16AttentionRead, SelfType)
     DECLARE_READ_PARENT
 
-    FK_HOST_DEVICE_FUSE float exec(const Point thread, const ParamsType& params) {
-#if defined(__CUDA_ARCH__)
-        return __bfloat162float(*PtrAccessor<ND::_3D>::cr_point(thread, params));
-#else
-        return 0.f;  // host never executes this
-#endif
+    FK_HOST_DEVICE_FUSE OutputType exec(const Point thread, const ParamsType& params) {
+        return *PtrAccessor<ND::_3D>::cr_point(thread, params);
     }
     FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
         return opData.params.dims.width;
@@ -84,7 +80,7 @@ inline auto makeAttentionRead(const __nv_bfloat16* data, const int batchHeads,
         PtrDims<ND::_3D>(static_cast<uint>(headDim), static_cast<uint>(seq),
                          static_cast<uint>(batchHeads), 1,
                          static_cast<uint>(headDim * sizeof(__nv_bfloat16))) };
-    return Bf16AttentionRead::build(ptr);
+    return Bf16AttentionRead::build(ptr).then(Cast<__nv_bfloat16, float>::build());
 }
 
 inline auto makeAttentionPartialRead(const float* data, const int batchHeads,
@@ -109,8 +105,20 @@ inline auto makeAttentionPartialWrite(float* data, const int batchHeads,
     return PerThreadWrite<ND::_3D, float>::build(ptr);
 }
 
+template <typename IOp, typename Op, bool IS_FUSED = IOp::Operation::IS_FUSED_OP>
+struct AttentionStartsWithOp : std::false_type {};
+
+template <typename IOp, typename Op>
+struct AttentionStartsWithOp<IOp, Op, false>
+    : std::bool_constant<std::is_same_v<typename IOp::Operation, Op>> {};
+
+template <typename IOp, typename Op>
+struct AttentionStartsWithOp<IOp, Op, true>
+    : std::bool_constant<std::is_same_v<
+          typename TypeAt_t<0, typename IOp::Operation::Operations>::Operation, Op>> {};
+
 template <typename IOp>
-constexpr bool isRawBf16Read = std::is_same_v<typename IOp::Operation, Bf16AttentionRead>;
+constexpr bool isRawBf16Read = AttentionStartsWithOp<IOp, Bf16AttentionRead>::value;
 
 #ifdef FK_HAS_FP8
 template <typename IOp>
