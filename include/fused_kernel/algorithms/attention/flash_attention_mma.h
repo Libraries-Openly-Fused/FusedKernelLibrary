@@ -105,6 +105,8 @@ inline auto makeAttentionPartialWrite(float* data, const int batchHeads,
     return PerThreadWrite<ND::_3D, float>::build(ptr);
 }
 
+// Detect whether an IOp is exactly Op or, when IS_FUSED is true, whether the
+// first stage inside the fused IOp is Op.
 template <typename IOp, typename Op, bool IS_FUSED = IOp::Operation::IS_FUSED_OP>
 struct AttentionStartsWithOp : std::false_type {};
 

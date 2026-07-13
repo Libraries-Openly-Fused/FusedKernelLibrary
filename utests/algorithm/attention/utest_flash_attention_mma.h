@@ -33,11 +33,15 @@ static float bf16Round(const float x) {
     return __bfloat162float(__float2bfloat16(x));
 }
 
+static float dequantizeInt8Host(const int8_t raw, const float scale) {
+    return static_cast<float>(raw) * scale;
+}
+
 #ifdef FK_HAS_FP8
-static float fp8DequantHost(const int8_t raw, const float scale) {
-    __nv_fp8_e4m3 f8;
-    f8.__x = static_cast<__nv_fp8_storage_t>(raw);
-    return static_cast<float>(f8) * scale;
+static float dequantizeFp8Host(const int8_t raw, const float scale) {
+    __nv_fp8_e4m3 fp8Value;
+    fp8Value.__x = static_cast<__nv_fp8_storage_t>(raw);
+    return static_cast<float>(fp8Value) * scale;
 }
 #endif
 
@@ -91,7 +95,10 @@ static void testDense(const char* name, const int bh, const int seqQ, const int 
     const size_t nQ = (size_t)bh * seqQ * HEAD_DIM, nK = (size_t)bh * seqK * HEAD_DIM;
     std::vector<float> hq(nQ), hk(nK), hv(nK);
     std::vector<double> dq(nQ), dk(nK), dv(nK), dref;
-    for (size_t i = 0; i < nQ; ++i) { hq[i] = bf16Round(dist(rng)); dq[i] = hq[i]; }
+    for (size_t i = 0; i < nQ; ++i) {
+        hq[i] = bf16Round(dist(rng));
+        dq[i] = hq[i];
+    }
     for (size_t i = 0; i < nK; ++i) { hk[i] = bf16Round(dist(rng)); dk[i] = hk[i]; }
     for (size_t i = 0; i < nK; ++i) { hv[i] = bf16Round(dist(rng)); dv[i] = hv[i]; }
     cpuAttention(dq, dk, dv, dref, bh, seqQ, seqK, HEAD_DIM,
@@ -177,7 +184,10 @@ static void testInt8KV(const char* name, const int bh, const int seqQ, const int
     const size_t nTok = (size_t)bh * seqK;
     std::vector<float> hq(nQ), hk(nK), hv(nK);
     std::vector<double> dq(nQ), dk(nK), dv(nK), dref;
-    for (size_t i = 0; i < nQ; ++i) { hq[i] = bf16Round(dist(rng)); dq[i] = hq[i]; }
+    for (size_t i = 0; i < nQ; ++i) {
+        hq[i] = bf16Round(dist(rng));
+        dq[i] = hq[i];
+    }
     for (size_t i = 0; i < nK; ++i) hk[i] = dist(rng);
     for (size_t i = 0; i < nK; ++i) hv[i] = dist(rng);
 
@@ -186,8 +196,13 @@ static void testInt8KV(const char* name, const int bh, const int seqQ, const int
     quantizeKVCacheHost(hk.data(), k8.data(), kSc.data(), (int)nTok, HEAD_DIM);
     quantizeKVCacheHost(hv.data(), v8.data(), vSc.data(), (int)nTok, HEAD_DIM);
 
-    for (size_t i = 0; i < nK; ++i) dk[i] = bf16Round((float)k8[i] * kSc[i / HEAD_DIM]);
-    for (size_t i = 0; i < nK; ++i) dv[i] = bf16Round((float)v8[i] * vSc[i / HEAD_DIM]);
+    for (size_t tok = 0; tok < nTok; ++tok) {
+        for (int d = 0; d < HEAD_DIM; ++d) {
+            const size_t idx = tok * HEAD_DIM + d;
+            dk[idx] = bf16Round(dequantizeInt8Host(k8[idx], kSc[tok]));
+            dv[idx] = bf16Round(dequantizeInt8Host(v8[idx], vSc[tok]));
+        }
+    }
     cpuAttention(dq, dk, dv, dref, bh, seqQ, seqK, HEAD_DIM,
                  1.0 / std::sqrt((double)HEAD_DIM), causal);
 
@@ -216,7 +231,12 @@ static void testInt8KV(const char* name, const int bh, const int seqQ, const int
 
     std::vector<float> got(nQ);
     gpuErrchk(cudaMemcpy(got.data(), o, nQ * sizeof(float), cudaMemcpyDeviceToHost));
-    cudaFree(q); cudaFree(o); cudaFree(dk8); cudaFree(dv8); cudaFree(dkS); cudaFree(dvS);
+    gpuErrchk(cudaFree(q));
+    gpuErrchk(cudaFree(o));
+    gpuErrchk(cudaFree(dk8));
+    gpuErrchk(cudaFree(dv8));
+    gpuErrchk(cudaFree(dkS));
+    gpuErrchk(cudaFree(dvS));
 
     double maxErr = 0.0;
     for (size_t i = 0; i < nQ; ++i)
@@ -243,8 +263,13 @@ static void testFp8KV(const char* name, const int bh, const int seqQ, const int 
     quantizeKVCacheFp8Host(hk.data(), k8.data(), kSc.data(), (int)nTok, HEAD_DIM);
     quantizeKVCacheFp8Host(hv.data(), v8.data(), vSc.data(), (int)nTok, HEAD_DIM);
 
-    for (size_t i = 0; i < nK; ++i) dk[i] = bf16Round(fp8DequantHost(k8[i], kSc[i / HEAD_DIM]));
-    for (size_t i = 0; i < nK; ++i) dv[i] = bf16Round(fp8DequantHost(v8[i], vSc[i / HEAD_DIM]));
+    for (size_t tok = 0; tok < nTok; ++tok) {
+        for (int d = 0; d < HEAD_DIM; ++d) {
+            const size_t idx = tok * HEAD_DIM + d;
+            dk[idx] = bf16Round(dequantizeFp8Host(k8[idx], kSc[tok]));
+            dv[idx] = bf16Round(dequantizeFp8Host(v8[idx], vSc[tok]));
+        }
+    }
     cpuAttention(dq, dk, dv, dref, bh, seqQ, seqK, HEAD_DIM,
                  1.0 / std::sqrt((double)HEAD_DIM), causal);
 
@@ -273,7 +298,12 @@ static void testFp8KV(const char* name, const int bh, const int seqQ, const int 
 
     std::vector<float> got(nQ);
     gpuErrchk(cudaMemcpy(got.data(), o, nQ * sizeof(float), cudaMemcpyDeviceToHost));
-    cudaFree(q); cudaFree(o); cudaFree(dk8); cudaFree(dv8); cudaFree(dkS); cudaFree(dvS);
+    gpuErrchk(cudaFree(q));
+    gpuErrchk(cudaFree(o));
+    gpuErrchk(cudaFree(dk8));
+    gpuErrchk(cudaFree(dv8));
+    gpuErrchk(cudaFree(dkS));
+    gpuErrchk(cudaFree(dvS));
 
     double maxErr = 0.0;
     for (size_t i = 0; i < nQ; ++i)

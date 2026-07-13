@@ -166,13 +166,14 @@ inline auto makeAttentionRead(const T* data, const int batchHeads,
                          static_cast<uint>(batchHeads), 1,
                          static_cast<uint>(headDim * sizeof(T))) };
 #if defined(__NVCC__)
+    // fp16 uses a Cast op after PerThreadRead; bf16 follows the same pattern
+    // via a dedicated raw Read IOp in flash_attention_mma.h because
+    // PerThreadRead does not instantiate for __nv_bfloat16.
     if constexpr (std::is_same_v<T, __half>) {
         return PerThreadRead<ND::_3D, T>::build(ptr).then(Cast<T, float>::build());
-    } else
-#endif
-    {
-        return PerThreadRead<ND::_3D, T>::build(ptr);
     }
+#endif
+    return PerThreadRead<ND::_3D, T>::build(ptr);
 }
 
 // Wrap a raw (batch*heads, seq, head_dim) C-contiguous OUTPUT pointer as the

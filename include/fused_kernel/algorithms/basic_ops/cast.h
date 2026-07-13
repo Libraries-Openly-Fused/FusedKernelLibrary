@@ -15,13 +15,13 @@
 #ifndef FK_CAST
 #define FK_CAST
 
-#include <fused_kernel/core/execution_model/operation_model/operation_model.h>
-#include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
-
 #if defined(__NVCC__)
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
 #endif
+
+#include <fused_kernel/core/execution_model/operation_model/operation_model.h>
+#include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 
 namespace fk {
     template <typename I, typename O>
@@ -46,9 +46,12 @@ namespace fk {
         FK_STATIC_STRUCT(Cast, SelfType)
         using Parent = UnaryOperation<__half, float, SelfType>;
         DECLARE_UNARY_PARENT
-        static __host__ __device__ __forceinline__
-        OutputType exec(const InputType input) {
+        FK_HOST_DEVICE_STATIC OutputType exec(const InputType input) {
+#if defined(__CUDA_ARCH__)
             return __half2float(input);
+#else
+            return static_cast<float>(input);
+#endif
         }
     };
 
@@ -60,9 +63,12 @@ namespace fk {
         FK_STATIC_STRUCT(Cast, SelfType)
         using Parent = UnaryOperation<float, __half, SelfType>;
         DECLARE_UNARY_PARENT
-        static __host__ __device__ __forceinline__
-        OutputType exec(const InputType input) {
+        FK_HOST_DEVICE_STATIC OutputType exec(const InputType input) {
+#if defined(__CUDA_ARCH__)
             return __float2half(input);
+#else
+            return static_cast<__half>(input);
+#endif
         }
     };
 
@@ -74,9 +80,12 @@ namespace fk {
         FK_STATIC_STRUCT(Cast, SelfType)
         using Parent = UnaryOperation<__nv_bfloat16, float, SelfType>;
         DECLARE_UNARY_PARENT
-        static __host__ __device__ __forceinline__
-        OutputType exec(const InputType input) {
+        FK_HOST_DEVICE_STATIC OutputType exec(const InputType input) {
+#if defined(__CUDA_ARCH__)
             return __bfloat162float(input);
+#else
+            return static_cast<float>(input);
+#endif
         }
     };
 
@@ -88,9 +97,12 @@ namespace fk {
         FK_STATIC_STRUCT(Cast, SelfType)
         using Parent = UnaryOperation<float, __nv_bfloat16, SelfType>;
         DECLARE_UNARY_PARENT
-        static __host__ __device__ __forceinline__
-        OutputType exec(const InputType input) {
+        FK_HOST_DEVICE_STATIC OutputType exec(const InputType input) {
+#if defined(__CUDA_ARCH__)
             return __float2bfloat16(input);
+#else
+            return static_cast<__nv_bfloat16>(input);
+#endif
         }
     };
 #endif
