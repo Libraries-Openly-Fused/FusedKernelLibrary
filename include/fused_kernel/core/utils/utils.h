@@ -33,6 +33,7 @@
 
 #if defined(__NVCC__)
 #define FK_DEVICE_FUSE __device__ __forceinline__ static constexpr
+#define FK_DEVICE_STATIC __device__ __forceinline__ static
 #define FK_DEVICE_CNST __device__ __forceinline__ constexpr
 #define FK_HOST_DEVICE_FUSE __host__ FK_DEVICE_FUSE
 #define FK_HOST_DEVICE_CNST __host__ FK_DEVICE_CNST
@@ -44,6 +45,7 @@
 #define FK_RESTRICT __restrict__
 #elif defined(NVRTC_COMPILER)
 #define FK_DEVICE_FUSE static constexpr __forceinline__
+#define FK_DEVICE_STATIC static __forceinline__
 #define FK_DEVICE_CNST constexpr __forceinline__
 #define FK_HOST_DEVICE_FUSE FK_DEVICE_FUSE
 #define FK_HOST_DEVICE_CNST FK_DEVICE_CNST
@@ -55,6 +57,7 @@
 #define FK_RESTRICT __restrict__
 #else
 #define FK_DEVICE_FUSE static constexpr inline
+#define FK_DEVICE_STATIC static inline
 #define FK_DEVICE_CNST constexpr inline
 #define FK_HOST_DEVICE_FUSE FK_DEVICE_FUSE
 #define FK_HOST_DEVICE_CNST FK_DEVICE_CNST
