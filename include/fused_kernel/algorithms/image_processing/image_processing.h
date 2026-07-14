@@ -23,5 +23,6 @@
 #include <fused_kernel/algorithms/image_processing/resize.h>
 #include <fused_kernel/algorithms/image_processing/saturate.h>
 #include <fused_kernel/algorithms/image_processing/warping.h>
+#include <fused_kernel/algorithms/image_processing/morphology.h>
 
 #endif // FK_IMAGE_PROCESSING
