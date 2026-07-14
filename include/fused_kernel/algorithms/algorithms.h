@@ -17,5 +17,6 @@
 
 #include <fused_kernel/algorithms/basic_ops/basic_ops.h>
 #include <fused_kernel/algorithms/image_processing/image_processing.h>
+#include <fused_kernel/algorithms/collective/collective.h>
 
 #endif // FK_ALGORITHMS
