@@ -202,7 +202,7 @@ public:
                 #pragma unroll
                 for (int e = 0; e < ELEMS; ++e)
                     p.o[(long)bh * HEAD_DIM + ELEMS * lane + e] =
-                        low_precission::attnFromF32<OT>(gO[e] * inv);
+                        low_precision::attnFromF32<OT>(gO[e] * inv);
             } else {
                 float* dst = p.partial + ((long)bh * p.splits + split) * (HEAD_DIM + 2);
                 #pragma unroll
@@ -243,7 +243,7 @@ public:
                 acc += base[s * (HEAD_DIM + 2) + d] * c;
             }
             const float inv = gl2 > 0.f ? 1.f / gl2 : 0.f;
-            p.o[(long)bh * HEAD_DIM + d] = low_precission::attnFromF32<OT>(acc * inv);
+            p.o[(long)bh * HEAD_DIM + d] = low_precision::attnFromF32<OT>(acc * inv);
         }
     }
 };
@@ -275,7 +275,7 @@ __global__ void flashDecodeMerge_Kernel(const float* partial, OT* o,
         acc += base[s * (HEAD_DIM + 2) + lane] * c;
     }
     const float inv = gl > 0.f ? 1.f / gl : 0.f;
-    o[(long)bh * HEAD_DIM + lane] = low_precission::attnFromF32<OT>(acc * inv);
+    o[(long)bh * HEAD_DIM + lane] = low_precision::attnFromF32<OT>(acc * inv);
 }
 
 /* Decode workspace: caller-owned, reusable across steps.

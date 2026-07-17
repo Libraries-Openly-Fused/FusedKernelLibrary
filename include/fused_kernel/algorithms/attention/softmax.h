@@ -52,7 +52,7 @@ namespace fk {
 // constexpr (FK_DEVICE_FUSE). Plain static device inline qualifier:
 #define FK_COOP_DEVICE_FUSE static __device__ __forceinline__ void
 
-    namespace low_precission {
+    namespace low_precision {
     template <typename T>
     FK_DEVICE_CNST float attnToF32(const T &v) {
         if constexpr (std::is_same_v<T, __half>) {
@@ -70,7 +70,7 @@ namespace fk {
             return static_cast<T>(v);
         }
     }
-    } // namespace low_precission
+    } // namespace low_precision
 
 template <typename IT>
 struct CastLowFPToF32 {
@@ -81,7 +81,7 @@ struct CastLowFPToF32 {
   public:
     FK_STATIC_STRUCT(CastLowFPToF32, SelfType)
     DECLARE_UNARY_PARENT
-    FK_DEVICE_FUSE float exec(const InputType &v) { return low_precission::attnToF32(v); }
+    FK_DEVICE_FUSE float exec(const InputType &v) { return low_precision::attnToF32(v); }
 };
 
 template <typename OT> struct CastF32ToLowFP {
@@ -92,7 +92,7 @@ template <typename OT> struct CastF32ToLowFP {
   public:
     FK_STATIC_STRUCT(CastF32ToLowFP, SelfType)
     DECLARE_UNARY_PARENT
-    FK_DEVICE_FUSE OT exec(const InputType &v) { return low_precission::attnFromF32<OT>(v); }
+    FK_DEVICE_FUSE OT exec(const InputType &v) { return low_precision::attnFromF32<OT>(v); }
 };
 
 template <int BLOCK_SIZE_ = 256>
