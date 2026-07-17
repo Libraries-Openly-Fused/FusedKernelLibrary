@@ -185,7 +185,7 @@ public:
     FK_DEVICE_FUSE float readElem(const IOp& iop, const int x, const int y, const int z) {
         // ALL data elements enter the algorithm through this single point:
         // the prologue IOp's exec. Fused continuations run here, in-register.
-        return attnToF32(IOp::Operation::exec(Point{ x, y, z }, iop));
+        return low_precision::attnToF32(IOp::Operation::exec(Point{ x, y, z }, iop));
     }
 
     FK_COOP_DEVICE_FUSE exec(const Params& p) {
@@ -245,9 +245,9 @@ public:
                 }
                 const float s = partial * p.scale;
 
-                const float mNew = attnMaxF(m, s);
-                const float corr = attnExpF(m - mNew);
-                const float pj = attnExpF(s - mNew);
+                const float mNew = cxp::max::f(m, s);
+                const float corr = cxp::expf::f(m - mNew);
+                const float pj = cxp::expf::f(s - mNew);
                 l = l * corr + pj;
                 #pragma unroll
                 for (int e = 0; e < ELEMS_PER_LANE; ++e) {
@@ -265,7 +265,7 @@ public:
                 // EPILOGUE FUSION: the FKL IOp chain runs in-register on the
                 // normalized output, then ONE global write.
                 const float r = (oAcc[e] * invL) | p.epilogue;
-                p.o[oRow + lane + 32 * e] = attnFromF32<OT>(r);
+                p.o[oRow + lane + 32 * e] = low_precision::attnFromF32<OT>(r);
             }
         }
     }
@@ -342,12 +342,12 @@ inline void quantizeKVCacheHost(const T* dense, int8_t* q8, float* scales,
     for (int t = 0; t < tokens; ++t) {
         float mx = 0.f;
         for (int d = 0; d < headDim; ++d) {
-            mx = std::max(mx, std::abs(attnToF32(dense[(long)t * headDim + d])));
+            mx = std::max(mx, std::abs(low_precision::attnToF32(dense[(long)t * headDim + d])));
         }
         const float sc = mx > 0.f ? mx / 127.f : 1.f;
         scales[t] = sc;
         for (int d = 0; d < headDim; ++d) {
-            const float x = attnToF32(dense[(long)t * headDim + d]) / sc;
+            const float x = low_precision::attnToF32(dense[(long)t * headDim + d]) / sc;
             q8[(long)t * headDim + d] = static_cast<int8_t>(std::nearbyint(x));
         }
     }
@@ -437,12 +437,12 @@ inline void quantizeKVCacheFp8Host(const T* dense, void* f8out, float* scales,
     for (int t = 0; t < tokens; ++t) {
         float mx = 0.f;
         for (int d = 0; d < headDim; ++d) {
-            mx = std::max(mx, std::abs(attnToF32(dense[(long)t * headDim + d])));
+            mx = std::max(mx, std::abs(low_precision::attnToF32(dense[(long)t * headDim + d])));
         }
         const float sc = mx > 0.f ? mx / 448.f : 1.f;
         scales[t] = sc;
         for (int d = 0; d < headDim; ++d) {
-            const float x = attnToF32(dense[(long)t * headDim + d]) / sc;
+            const float x = low_precision::attnToF32(dense[(long)t * headDim + d]) / sc;
             const __nv_fp8_e4m3 f8(x);
             out[(long)t * headDim + d] = static_cast<int8_t>(f8.__x);
         }

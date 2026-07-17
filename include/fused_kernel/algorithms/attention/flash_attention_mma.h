@@ -197,19 +197,19 @@ makeSlidingWindowBlockMask(const int batchHeads, const int seqQ, const int seqK,
 #endif
 
 namespace attention_mma_detail {
-__device__ __forceinline__ void ldmatrix_x4(uint32_t regs[4], uint32_t addr) {
+__device__ __forceinline__ void ldmatrix_x4(uint regs[4], uint addr) {
     asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];"
                  : "=r"(regs[0]), "=r"(regs[1]), "=r"(regs[2]), "=r"(regs[3])
                  : "r"(addr));
 }
 
-__device__ __forceinline__ void ldmatrix_x4_trans(uint32_t regs[4], uint32_t addr) {
+__device__ __forceinline__ void ldmatrix_x4_trans(uint regs[4], uint addr) {
     asm volatile("ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 {%0, %1, %2, %3}, [%4];"
                  : "=r"(regs[0]), "=r"(regs[1]), "=r"(regs[2]), "=r"(regs[3])
                  : "r"(addr));
 }
 
-__device__ __forceinline__ void mma_m16n8k16(const uint32_t A[4], const uint32_t B[2],
+__device__ __forceinline__ void mma_m16n8k16(const uint A[4], const uint B[2],
                                              float D[4]) {
     asm volatile("mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
                  "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%10, %11, %12, %13};"
@@ -220,13 +220,13 @@ __device__ __forceinline__ void mma_m16n8k16(const uint32_t A[4], const uint32_t
 }
 
 // 16-byte async copy; srcSize=0 zero-fills (tail/ragged guard).
-__device__ __forceinline__ void cp_async_16(uint32_t dst, const void* src,
+__device__ __forceinline__ void cp_async_16(uint dst, const void* src,
                                             const int srcSize) {
     asm volatile("cp.async.cg.shared.global [%0], [%1], 16, %2;"
                  :: "r"(dst), "l"(src), "r"(srcSize));
 }
 // 8-byte async copy (ca path; cg only supports 16B).
-__device__ __forceinline__ void cp_async_8(uint32_t dst, const void* src,
+__device__ __forceinline__ void cp_async_8(uint dst, const void* src,
                                            const int srcSize) {
     asm volatile("cp.async.ca.shared.global [%0], [%1], 8, %2;"
                  :: "r"(dst), "l"(src), "r"(srcSize));
@@ -263,11 +263,11 @@ __device__ __forceinline__ float fastExp2(const float x) {
 #endif
 }
 
-// pack two fp32 into one bf16x2 register (uint32_t) — used by the in-place
+// pack two fp32 into one bf16x2 register (uint) — used by the in-place
 // S/P union pack in softmaxTile.
-__device__ __forceinline__ uint32_t packBf162(const float lo, const float hi) {
+__device__ __forceinline__ uint packBf162(const float lo, const float hi) {
     const __nv_bfloat162 h = __float22bfloat162_rn({ lo, hi });
-    uint32_t r;
+    uint r;
     memcpy(&r, &h, sizeof(r));
     return r;
 }
@@ -275,8 +275,8 @@ __device__ __forceinline__ uint32_t packBf162(const float lo, const float hi) {
 // fp8 e4m3 mma: kind::f8f6f4 m16n8k32, A 4 regs (16 e4m3), B 2 regs (8 e4m3).
 // Always declared so `if constexpr` branches type-check; the instruction is
 // only emitted when FK_ENABLE_FP8_QK (needs sm_120a/121a feature set).
-__device__ __forceinline__ void mma_fp8_m16n8k32(const uint32_t A[4],
-                                                 const uint32_t B[2],
+__device__ __forceinline__ void mma_fp8_m16n8k32(const uint A[4],
+                                                 const uint B[2],
                                                  float D[4]) {
 #if FK_ENABLE_FP8_QK
     asm volatile(
@@ -424,15 +424,15 @@ public:
     // the split combine must interpret stored row-maxes in the same base.
     static constexpr bool LOG2_DOMAIN = !HAS_SCORE_MOD || IS_ALIBI;
 
-    FK_DEVICE_FUSE uint32_t swz(const uint32_t byteOff) {
-        const uint32_t row = (byteOff / STRIDE_B) % 8;
-        constexpr uint32_t div = (64 / STRIDE_B > 1 ? 64 / STRIDE_B : 1);
+    FK_DEVICE_FUSE uint swz(const uint byteOff) {
+        const uint row = (byteOff / STRIDE_B) % 8;
+        constexpr uint div = (64 / STRIDE_B > 1 ? 64 / STRIDE_B : 1);
         return byteOff ^ ((row / div) << 4);
     }
 
     template <typename IOp>
     FK_DEVICE_FUSE float readElem(const IOp& iop, const int x, const int y, const int z) {
-        return attnToF32(IOp::Operation::exec(Point{ x, y, z }, iop));
+        return low_precision::attnToF32(IOp::Operation::exec(Point{ x, y, z }, iop));
     }
 
     // ---- generic staging (prologue runs per element, packs 16B stores) -----
@@ -459,7 +459,7 @@ public:
                     const int8_t* base = reinterpret_cast<const int8_t*>(prm.data.data)
                                        + ((long)bh * seq + row) * HEAD_DIM + c;
                     // one coalesced 8-byte load
-                    const uint64_t packed = *reinterpret_cast<const uint64_t*>(base);
+                    const ulonglong packed = *reinterpret_cast<const ulonglong*>(base);
                     #pragma unroll
                     for (int e = 0; e < 8; ++e) {
                         const int8_t b = static_cast<int8_t>((packed >> (8 * e)) & 0xFF);
@@ -486,25 +486,25 @@ public:
     }
 
     template <int GROUPS>
-    FK_DEVICE_FUSE void storeTile(char* smemBytes, const uint32_t bufOff,
+    FK_DEVICE_FUSE void storeTile(char* smemBytes, const uint bufOff,
                                   const float (&regs)[GROUPS][8]) {
         using attention_mma_detail::Bf16x8;
         #pragma unroll
         for (int g = 0; g < GROUPS; ++g) {
-            const uint32_t idx = (g * THREADS + threadIdx.x) * 8;
+            const uint idx = (g * THREADS + threadIdx.x) * 8;
             Bf16x8 packed;
             #pragma unroll
             for (int h = 0; h < 4; ++h)
                 packed.h[h] = __float22bfloat162_rn({ regs[g][2 * h],
                                                       regs[g][2 * h + 1] });
             *reinterpret_cast<Bf16x8*>(
-                smemBytes + bufOff + swz(idx * (uint32_t)sizeof(__nv_bfloat16))) = packed;
+                smemBytes + bufOff + swz(idx * (uint)sizeof(__nv_bfloat16))) = packed;
         }
     }
 
     // ---- raw staging: real cp.async, zero-fill on ragged tails -------------
     template <int GROUPS>
-    FK_DEVICE_FUSE void cpasyncTile(const uint32_t dstBase /* smem addr + buf */,
+    FK_DEVICE_FUSE void cpasyncTile(const uint dstBase /* smem addr + buf */,
                                     const __nv_bfloat16* srcPlane, const int rowBase,
                                     const int seqLen) {
         using namespace attention_mma_detail;
@@ -523,7 +523,7 @@ public:
             #pragma unroll
             for (int g = 0; g < GROUPS; ++g) {
                 const int idx = (g * THREADS + (int)threadIdx.x) * 8;
-                cp_async_16(dstBase + swz(idx * (uint32_t)sizeof(__nv_bfloat16)),
+                cp_async_16(dstBase + swz(idx * (uint)sizeof(__nv_bfloat16)),
                             base + idx, 16);
             }
         } else {
@@ -535,7 +535,7 @@ public:
                 const int row = rowBase + r;
                 const bool ok = row < seqLen;
                 const int safeRow = ok ? row : (seqLen > 0 ? seqLen - 1 : 0);
-                cp_async_16(dstBase + swz(idx * (uint32_t)sizeof(__nv_bfloat16)),
+                cp_async_16(dstBase + swz(idx * (uint)sizeof(__nv_bfloat16)),
                             srcPlane + (long)safeRow * HEAD_DIM + c, ok ? 16 : 0);
             }
         }
@@ -546,7 +546,7 @@ public:
     // path so direct 4B fragment reads don't bank-conflict (d128 rows are
     // exactly 32 banks wide -> every token would hit bank 0 unswizzled).
     template <int GROUPS, bool SWZ8 = false>
-    FK_DEVICE_FUSE void cpasyncQuantTile(const uint32_t dstBase,
+    FK_DEVICE_FUSE void cpasyncQuantTile(const uint dstBase,
                                          const int8_t* srcPlane, const int rowBase,
                                          const int seqLen) {
         using namespace attention_mma_detail;
@@ -559,8 +559,8 @@ public:
             const bool ok = row < seqLen;
             const int safeRow = ok ? row : (seqLen > 0 ? seqLen - 1 : 0);
             // unswizzled byte staging: 8B per thread-group
-            uint32_t off = (uint32_t)idx;
-            if constexpr (SWZ8) off ^= (uint32_t)((r & 7) * 8);
+            uint off = (uint)idx;
+            if constexpr (SWZ8) off ^= (uint)((r & 7) * 8);
             cp_async_8(dstBase + off,
                        srcPlane + (long)safeRow * HEAD_DIM + c, ok ? 8 : 0);
         }
@@ -569,8 +569,8 @@ public:
     /* smem bytes -> swizzled bf16 smem, dequantizing in-register. scales
        read from global (coalesced; BLOCK_KV floats per tile). */
     template <int GROUPS, bool FP8>
-    FK_DEVICE_FUSE void dequantTile(char* smemBytes, const uint32_t stageOff,
-                                    const uint32_t bf16Off, const float* scales,
+    FK_DEVICE_FUSE void dequantTile(char* smemBytes, const uint stageOff,
+                                    const uint bf16Off, const float* scales,
                                     const int rowBase, const int seqLen) {
         using attention_mma_detail::Bf16x8;
         #pragma unroll
@@ -579,8 +579,8 @@ public:
             const int r = idx / HEAD_DIM;
             const int row = rowBase + r;
             const float sc = (row < seqLen) ? scales[row] : 0.f;
-            const uint64_t packed =
-                *reinterpret_cast<const uint64_t*>(smemBytes + stageOff + idx);
+            const ulonglong packed =
+                *reinterpret_cast<const ulonglong*>(smemBytes + stageOff + idx);
             Bf16x8 out;
             #pragma unroll
             for (int h = 0; h < 4; ++h) {
@@ -604,7 +604,7 @@ public:
                 out.h[h] = __float22bfloat162_rn({ lo, hi });
             }
             *reinterpret_cast<Bf16x8*>(
-                smemBytes + bf16Off + swz(idx * (uint32_t)sizeof(__nv_bfloat16))) = out;
+                smemBytes + bf16Off + swz(idx * (uint)sizeof(__nv_bfloat16))) = out;
         }
     }
 
@@ -620,7 +620,7 @@ public:
     template <int SPAN>
     union SPTileT {
         float    s[SPAN / MMA_N][4];   // QK^T scores / exp(s - m), fp32
-        uint32_t p[SPAN / MMA_K][4];   // packed bf16x2 P (first half of s)
+        uint p[SPAN / MMA_K][4];   // packed bf16x2 P (first half of s)
     };
     using SPTile = SPTileT<BLOCK_KV>;
     // SPLIT-S: measured ineffective everywhere it was tried (d64: allocator
@@ -644,8 +644,8 @@ public:
     // Q8 stage layout (Q-phase only; dead once qReg8/qs are in registers):
     //   [BLOCK_Q*STRIDE_B, +BLOCK_Q*HEAD_DIM)        row-major e4m3 Q bytes
     //   [.. +BLOCK_Q*4)                              per-row scales (fp32)
-    static constexpr uint32_t Q8_OFF = BLOCK_Q * STRIDE_B;
-    static constexpr uint32_t QSC_OFF = Q8_OFF + BLOCK_Q * HEAD_DIM;
+    static constexpr uint Q8_OFF = BLOCK_Q * STRIDE_B;
+    static constexpr uint QSC_OFF = Q8_OFF + BLOCK_Q * HEAD_DIM;
 
 #ifdef FK_HAS_FP8
     /* Per-row symmetric e4m3 quantization of the staged Q tile (each warp
@@ -662,7 +662,7 @@ public:
             for (int e = 0; e < EPL; ++e) {
                 const int c = laneId * EPL + e;
                 const __nv_bfloat16 b = *reinterpret_cast<const __nv_bfloat16*>(
-                    smemBytes + swz((uint32_t)(row * HEAD_DIM + c) * 2u));
+                    smemBytes + swz((uint)(row * HEAD_DIM + c) * 2u));
                 vals[e] = __bfloat162float(b);
                 am = fmaxf(am, fabsf(vals[e]));
             }
@@ -675,7 +675,7 @@ public:
             #pragma unroll
             for (int e = 0; e < EPL; ++e) {
                 const __nv_fp8_e4m3 f8{ vals[e] * inv };
-                smemBytes[Q8_OFF + (uint32_t)(row * HEAD_DIM + laneId * EPL + e)] =
+                smemBytes[Q8_OFF + (uint)(row * HEAD_DIM + laneId * EPL + e)] =
                     static_cast<char>(f8.__x);
             }
         }
@@ -688,7 +688,7 @@ public:
        (t = lane%4, g = lane/4; validated vs fp64 oracle in
        spikes/spike_fp8_qk_mapping.cu). Also pulls the 2 per-row scales. */
     FK_DEVICE_FUSE void loadQF8Frags(const char* smemBytes,
-                                     uint32_t (&qReg8)[WARP_Q / MMA_M][HEAD_DIM / 32][4],
+                                     uint (&qReg8)[WARP_Q / MMA_M][HEAD_DIM / 32][4],
                                      float (&qs)[WARP_Q / MMA_M][2],
                                      const int warpId, const int laneId) {
         const float* qScalesArr = reinterpret_cast<const float*>(smemBytes + QSC_OFF);
@@ -701,12 +701,12 @@ public:
             qs[mq][1] = qScalesArr[rowB];
             #pragma unroll
             for (int md = 0; md < HEAD_DIM / 32; ++md) {
-                const uint32_t a = Q8_OFF + (uint32_t)(rowA * HEAD_DIM + md * 32 + 4 * tig);
-                const uint32_t b = Q8_OFF + (uint32_t)(rowB * HEAD_DIM + md * 32 + 4 * tig);
-                qReg8[mq][md][0] = *reinterpret_cast<const uint32_t*>(smemBytes + a);
-                qReg8[mq][md][1] = *reinterpret_cast<const uint32_t*>(smemBytes + b);
-                qReg8[mq][md][2] = *reinterpret_cast<const uint32_t*>(smemBytes + a + 16);
-                qReg8[mq][md][3] = *reinterpret_cast<const uint32_t*>(smemBytes + b + 16);
+                const uint a = Q8_OFF + (uint)(rowA * HEAD_DIM + md * 32 + 4 * tig);
+                const uint b = Q8_OFF + (uint)(rowB * HEAD_DIM + md * 32 + 4 * tig);
+                qReg8[mq][md][0] = *reinterpret_cast<const uint*>(smemBytes + a);
+                qReg8[mq][md][1] = *reinterpret_cast<const uint*>(smemBytes + b);
+                qReg8[mq][md][2] = *reinterpret_cast<const uint*>(smemBytes + a + 16);
+                qReg8[mq][md][3] = *reinterpret_cast<const uint*>(smemBytes + b + 16);
             }
         }
     }
@@ -718,9 +718,9 @@ public:
        column block, folds qScale[row]*kScale[col] into the raw scores
        (D cols of lane (g,t) are 2t and 2t+1 — validated in
        spikes/spike_fp8_qk_mapping.cu). */
-    FK_DEVICE_FUSE void sMmaFp8(const uint32_t (&qReg8)[WARP_Q / MMA_M][HEAD_DIM / 32][4],
+    FK_DEVICE_FUSE void sMmaFp8(const uint (&qReg8)[WARP_Q / MMA_M][HEAD_DIM / 32][4],
                                 const float (&qs)[WARP_Q / MMA_M][2],
-                                const char* smemBytes, const uint32_t kStageOff,
+                                const char* smemBytes, const uint kStageOff,
                                 const float* kScalesPlane, const int offKV,
                                 const int seqK,
                                 SPTile (&sp)[WARP_Q / MMA_M], const int laneId) {
@@ -729,15 +729,15 @@ public:
         #pragma unroll
         for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv) {
             const int tok = mkv * MMA_N + g;
-            const uint32_t rowOff = (uint32_t)(tok * HEAD_DIM);
-            const uint32_t sw = (uint32_t)((tok & 7) * 8);
+            const uint rowOff = (uint)(tok * HEAD_DIM);
+            const uint sw = (uint)((tok & 7) * 8);
             #pragma unroll
             for (int md = 0; md < HEAD_DIM / 32; ++md) {
-                uint32_t b[2];
-                const uint32_t base = rowOff + (uint32_t)(md * 32 + 4 * tig);
-                b[0] = *reinterpret_cast<const uint32_t*>(
+                uint b[2];
+                const uint base = rowOff + (uint)(md * 32 + 4 * tig);
+                b[0] = *reinterpret_cast<const uint*>(
                     smemBytes + kStageOff + (base ^ sw));
-                b[1] = *reinterpret_cast<const uint32_t*>(
+                b[1] = *reinterpret_cast<const uint*>(
                     smemBytes + kStageOff + ((base + 16) ^ sw));
                 #pragma unroll
                 for (int mq = 0; mq < WARP_Q / MMA_M; ++mq)
@@ -762,14 +762,14 @@ public:
 #endif // FK_HAS_FP8
 
     // ---- shared fragment loaders / mma helpers ------------------------------
-    FK_DEVICE_FUSE void loadKFrags(const uint32_t base, const uint32_t kThread,
-                                   uint32_t (&kReg)[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2]) {
+    FK_DEVICE_FUSE void loadKFrags(const uint base, const uint kThread,
+                                   uint (&kReg)[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2]) {
         using namespace attention_mma_detail;
         #pragma unroll
         for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv) {
             #pragma unroll
             for (int md = 0; md < HEAD_DIM / MMA_K; md += 2) {
-                uint32_t addr = base + kThread;
+                uint addr = base + kThread;
                 addr += mkv * MMA_N * STRIDE_B;
                 addr ^= md * MMA_K * sizeof(__nv_bfloat16);
                 ldmatrix_x4(&kReg[mkv][md][0], addr);
@@ -777,14 +777,14 @@ public:
         }
     }
 
-    FK_DEVICE_FUSE void loadVFrags(const uint32_t base, const uint32_t vThread,
-                                   uint32_t (&vReg)[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2]) {
+    FK_DEVICE_FUSE void loadVFrags(const uint base, const uint vThread,
+                                   uint (&vReg)[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2]) {
         using namespace attention_mma_detail;
         #pragma unroll
         for (int mkv = 0; mkv < BLOCK_KV / MMA_K; ++mkv) {
             #pragma unroll
             for (int md = 0; md < HEAD_DIM / MMA_N; md += 2) {
-                uint32_t addr = base + vThread;
+                uint addr = base + vThread;
                 addr += mkv * MMA_K * STRIDE_B;
                 addr ^= md * MMA_N * sizeof(__nv_bfloat16);
                 ldmatrix_x4_trans(&vReg[mkv][md][0], addr);
@@ -1012,8 +1012,8 @@ public:
         }
     }
 
-    FK_DEVICE_FUSE void sMma(const uint32_t (&qReg)[WARP_Q / MMA_M][HEAD_DIM / MMA_K][4],
-                             const uint32_t (&kReg)[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2],
+    FK_DEVICE_FUSE void sMma(const uint (&qReg)[WARP_Q / MMA_M][HEAD_DIM / MMA_K][4],
+                             const uint (&kReg)[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2],
                              SPTile (&sp)[WARP_Q / MMA_M]) {
         using namespace attention_mma_detail;
         #pragma unroll
@@ -1032,8 +1032,8 @@ public:
      * (+V below, +3 smem bufs) unlocks the 4th block.
      * SPAN/tokOff: split-S processes the smem tile in KV_SPAN-token spans. */
     template <int SPAN = BLOCK_KV>
-    FK_DEVICE_FUSE void sMmaStream(const uint32_t (&qReg)[WARP_Q / MMA_M][HEAD_DIM / MMA_K][4],
-                                   const uint32_t base, const uint32_t kThread,
+    FK_DEVICE_FUSE void sMmaStream(const uint (&qReg)[WARP_Q / MMA_M][HEAD_DIM / MMA_K][4],
+                                   const uint base, const uint kThread,
                                    SPTileT<SPAN> (&sp)[WARP_Q / MMA_M],
                                    const int tokOff = 0) {
         using namespace attention_mma_detail;
@@ -1043,8 +1043,8 @@ public:
             for (int md = 0; md < HEAD_DIM / MMA_K; md += 2) {
                 // identical x4 pattern to loadKFrags: one mkv row, fragments
                 // for md (regs 0-1) and md+1 (regs 2-3).
-                uint32_t frag[4];
-                uint32_t addr = base + kThread;
+                uint frag[4];
+                uint addr = base + kThread;
                 addr += (tokOff + mkv * MMA_N) * STRIDE_B;
                 addr ^= md * MMA_K * sizeof(__nv_bfloat16);
                 ldmatrix_x4(frag, addr);
@@ -1065,9 +1065,9 @@ public:
        folded into the LDSM immediate — the per-fragment LOP3+IADD chains
        disappear from the hot loop (SASS: LOP3 was 2.1/HMMA vs FA 0.086). */
     template <int SPAN = BLOCK_KV>
-    FK_DEVICE_FUSE void sMmaStreamH(const uint32_t (&qReg)[WARP_Q / MMA_M][HEAD_DIM / MMA_K][4],
-                                    const uint32_t bufOff,
-                                    const uint32_t (&kmd)[HEAD_DIM / MMA_K],
+    FK_DEVICE_FUSE void sMmaStreamH(const uint (&qReg)[WARP_Q / MMA_M][HEAD_DIM / MMA_K][4],
+                                    const uint bufOff,
+                                    const uint (&kmd)[HEAD_DIM / MMA_K],
                                     SPTileT<SPAN> (&sp)[WARP_Q / MMA_M],
                                     const int tokOff = 0) {
         using namespace attention_mma_detail;
@@ -1075,7 +1075,7 @@ public:
         for (int mkv = 0; mkv < SPAN / MMA_N; ++mkv) {
             #pragma unroll
             for (int md = 0; md < HEAD_DIM / MMA_K; md += 2) {
-                uint32_t frag[4];
+                uint frag[4];
                 ldmatrix_x4(frag, kmd[md] + bufOff
                                   + (tokOff + mkv * MMA_N) * STRIDE_B);
                 #pragma unroll
@@ -1092,23 +1092,23 @@ public:
        across all WARP_Q/MMA_M row-blocks (mq=2 at BQ128/NW4 — each ldmatrix
        feeds 2 mmas, FA's instruction-efficiency trick) while Q fragments
        stream per (mq, md-pair) — qReg's 64 regs/thread never exist. */
-    FK_DEVICE_FUSE void sMmaStreamDeepQ(const uint32_t qBase, const uint32_t qThread,
-                                        const uint32_t kBase, const uint32_t kThread,
+    FK_DEVICE_FUSE void sMmaStreamDeepQ(const uint qBase, const uint qThread,
+                                        const uint kBase, const uint kThread,
                                         SPTile (&sp)[WARP_Q / MMA_M]) {
         using namespace attention_mma_detail;
         #pragma unroll
         for (int mkv = 0; mkv < BLOCK_KV / MMA_N; ++mkv) {
             #pragma unroll
             for (int md = 0; md < HEAD_DIM / MMA_K; md += 2) {
-                uint32_t kFrag[4];
-                uint32_t kAddr = kBase + kThread;
+                uint kFrag[4];
+                uint kAddr = kBase + kThread;
                 kAddr += mkv * MMA_N * STRIDE_B;
                 kAddr ^= md * MMA_K * sizeof(__nv_bfloat16);
                 ldmatrix_x4(kFrag, kAddr);
                 #pragma unroll
                 for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
-                    uint32_t qFrag[4], qFrag2[4];
-                    uint32_t qAddr = qBase + qThread;
+                    uint qFrag[4], qFrag2[4];
+                    uint qAddr = qBase + qThread;
                     qAddr += mq * MMA_M * STRIDE_B;
                     ldmatrix_x4(qFrag,  qAddr ^ (md       * MMA_K * (int)sizeof(__nv_bfloat16)));
                     ldmatrix_x4(qFrag2, qAddr ^ ((md + 1) * MMA_K * (int)sizeof(__nv_bfloat16)));
@@ -1133,9 +1133,9 @@ public:
        offset field — zero LOP3/IADD in the hot loop (the SASS histogram
        showed LOP3 at 1.06/HMMA vs FA's 0.086 before this). */
     template <int SPAN = BLOCK_KV>
-    FK_DEVICE_FUSE void sMmaStreamDualQ(const uint32_t kBufOff,
-                                        const uint32_t (&qmd)[HEAD_DIM / MMA_K],
-                                        const uint32_t (&kmd)[HEAD_DIM / MMA_K],
+    FK_DEVICE_FUSE void sMmaStreamDualQ(const uint kBufOff,
+                                        const uint (&qmd)[HEAD_DIM / MMA_K],
+                                        const uint (&kmd)[HEAD_DIM / MMA_K],
                                         SPTileT<SPAN> (&sp)[WARP_Q / MMA_M],
                                         const int tokOff = 0) {
         using namespace attention_mma_detail;
@@ -1145,14 +1145,14 @@ public:
         // BEFORE the current mmas (CUTLASS mainloop discipline).
         #pragma unroll
         for (int md = 0; md < HEAD_DIM / MMA_K; md += 2) {
-            uint32_t qFrag[WARP_Q / MMA_M][2][4];
+            uint qFrag[WARP_Q / MMA_M][2][4];
             #pragma unroll
             for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
-                const uint32_t rowOff = mq * MMA_M * STRIDE_B;
+                const uint rowOff = mq * MMA_M * STRIDE_B;
                 ldmatrix_x4(qFrag[mq][0], qmd[md]     + rowOff);
                 ldmatrix_x4(qFrag[mq][1], qmd[md + 1] + rowOff);
             }
-            uint32_t kFrag[2][4];
+            uint kFrag[2][4];
             ldmatrix_x4(kFrag[0], kmd[md] + kBufOff + tokOff * STRIDE_B);
             #pragma unroll
             for (int mkv = 0; mkv < SPAN / MMA_N; ++mkv) {
@@ -1161,7 +1161,7 @@ public:
                                 kmd[md] + kBufOff
                                 + (tokOff + (mkv + 1) * MMA_N) * STRIDE_B);
                 }
-                const uint32_t (&kf)[4] = kFrag[mkv & 1];
+                const uint (&kf)[4] = kFrag[mkv & 1];
                 #pragma unroll
                 for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
                     mma_m16n8k16(qFrag[mq][0], kf + 0, sp[mq].s[mkv]);
@@ -1175,24 +1175,24 @@ public:
        runs at 1 CTA/SM: V fragment ldmatrix must lead its mmas). */
     template <int SPAN = BLOCK_KV>
     FK_DEVICE_FUSE void pvMmaStreamDual(const SPTileT<SPAN> (&sp)[WARP_Q / MMA_M],
-                                        const uint32_t base, const uint32_t vThread,
+                                        const uint base, const uint vThread,
                                         float (&oAcc)[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4],
                                         const int tokOff = 0) {
         using namespace attention_mma_detail;
         constexpr int MD_IT = HEAD_DIM / MMA_N / 2;
         #pragma unroll
         for (int mkv = 0; mkv < SPAN / MMA_K; ++mkv) {
-            const uint32_t rowAddr = base + vThread + (tokOff + mkv * MMA_K) * STRIDE_B;
-            uint32_t frag[2][4];
+            const uint rowAddr = base + vThread + (tokOff + mkv * MMA_K) * STRIDE_B;
+            uint frag[2][4];
             ldmatrix_x4_trans(frag[0], rowAddr ^ 0u);
             #pragma unroll
             for (int mdp = 0; mdp < MD_IT; ++mdp) {
                 if (mdp + 1 < MD_IT) {
                     ldmatrix_x4_trans(frag[(mdp + 1) & 1],
                                       rowAddr ^ ((mdp + 1) * 2 * MMA_N
-                                                 * (uint32_t)sizeof(__nv_bfloat16)));
+                                                 * (uint)sizeof(__nv_bfloat16)));
                 }
-                const uint32_t (&vf)[4] = frag[mdp & 1];
+                const uint (&vf)[4] = frag[mdp & 1];
                 #pragma unroll
                 for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
                     mma_m16n8k16(sp[mq].p[mkv], vf + 0, oAcc[mq][mdp * 2]);
@@ -1203,7 +1203,7 @@ public:
     }
 
     FK_DEVICE_FUSE void pvMma(const SPTile (&sp)[WARP_Q / MMA_M],
-                              const uint32_t (&vReg)[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2],
+                              const uint (&vReg)[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2],
                               float (&oAcc)[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4]) {
         using namespace attention_mma_detail;
         #pragma unroll
@@ -1219,7 +1219,7 @@ public:
      * before use. vReg was another 32-64 live regs. */
     template <int SPAN = BLOCK_KV>
     FK_DEVICE_FUSE void pvMmaStream(const SPTileT<SPAN> (&sp)[WARP_Q / MMA_M],
-                                    const uint32_t base, const uint32_t vThread,
+                                    const uint base, const uint vThread,
                                     float (&oAcc)[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4],
                                     const int tokOff = 0) {
         using namespace attention_mma_detail;
@@ -1227,8 +1227,8 @@ public:
         for (int mkv = 0; mkv < SPAN / MMA_K; ++mkv) {
             #pragma unroll
             for (int md = 0; md < HEAD_DIM / MMA_N; md += 2) {
-                uint32_t frag[4];
-                uint32_t addr = base + vThread;
+                uint frag[4];
+                uint addr = base + vThread;
                 addr += (tokOff + mkv * MMA_K) * STRIDE_B;
                 addr ^= md * MMA_N * sizeof(__nv_bfloat16);
                 ldmatrix_x4_trans(frag, addr);
@@ -1245,7 +1245,7 @@ public:
        (smemBase + vBufOff + vThread) ^ (md*MMA_N*2), precomputed once. */
     template <int SPAN = BLOCK_KV>
     FK_DEVICE_FUSE void pvMmaStreamH(const SPTileT<SPAN> (&sp)[WARP_Q / MMA_M],
-                                     const uint32_t (&vmd)[HEAD_DIM / MMA_N],
+                                     const uint (&vmd)[HEAD_DIM / MMA_N],
                                      float (&oAcc)[WARP_Q / MMA_M][HEAD_DIM / MMA_N][4],
                                      const int tokOff = 0) {
         using namespace attention_mma_detail;
@@ -1253,7 +1253,7 @@ public:
         for (int mkv = 0; mkv < SPAN / MMA_K; ++mkv) {
             #pragma unroll
             for (int md = 0; md < HEAD_DIM / MMA_N; md += 2) {
-                uint32_t frag[4];
+                uint frag[4];
                 ldmatrix_x4_trans(frag, vmd[md]
                                         + (tokOff + mkv * MMA_K) * STRIDE_B);
                 #pragma unroll
@@ -1332,8 +1332,8 @@ public:
         if constexpr (std::is_same_v<OT, __nv_bfloat16>) {
             *reinterpret_cast<__nv_bfloat162*>(dst) = __float22bfloat162_rn({ a, b });
         } else {
-            dst[0] = attnFromF32<OT>(a);
-            dst[1] = attnFromF32<OT>(b);
+            dst[0] = low_precision::attnFromF32<OT>(a);
+            dst[1] = low_precision::attnFromF32<OT>(b);
         }
     }
 
@@ -1342,8 +1342,8 @@ public:
         using namespace attention_mma_detail;
         extern __shared__ char smemRaw[];
         char* smemBytes = smemRaw;
-        const uint32_t smemBase =
-            static_cast<uint32_t>(__cvta_generic_to_shared(smemRaw));
+        const uint smemBase =
+            static_cast<uint>(__cvta_generic_to_shared(smemRaw));
 
         const int tid = threadIdx.x;
         const int warpId = tid / 32;
@@ -1363,11 +1363,11 @@ public:
                                        : (int)blockIdx.x;
         const int qBlockBase = qBlockIdx * BLOCK_Q;
 
-        const uint32_t qThread = swz(((warpId * WARP_Q + laneId % 16) * HEAD_DIM
+        const uint qThread = swz(((warpId * WARP_Q + laneId % 16) * HEAD_DIM
                                       + (laneId / 16) * 8) * sizeof(__nv_bfloat16));
-        const uint32_t kThread = swz(((laneId % 8) * HEAD_DIM
+        const uint kThread = swz(((laneId % 8) * HEAD_DIM
                                       + (laneId / 8) * 8) * sizeof(__nv_bfloat16));
-        const uint32_t vThread = swz(((laneId % 16) * HEAD_DIM
+        const uint vThread = swz(((laneId % 16) * HEAD_DIM
                                       + (laneId / 16) * 8) * sizeof(__nv_bfloat16));
 
         // ---- Q -> smem -> registers (one-time) -----------------------------
@@ -1384,11 +1384,11 @@ public:
         }
         __syncthreads();
 
-        uint32_t qReg[(DEEP_Q_SMEM || DUAL_Q_SMEM) ? 1 : WARP_Q / MMA_M]
+        uint qReg[(DEEP_Q_SMEM || DUAL_Q_SMEM) ? 1 : WARP_Q / MMA_M]
                      [(DEEP_Q_SMEM || DUAL_Q_SMEM) ? 1 : HEAD_DIM / MMA_K][4];
         // FP8_QK state (dead/eliminated when the path is off — all uses sit
         // inside `if constexpr (FP8_QK)`).
-        uint32_t qReg8[WARP_Q / MMA_M][HEAD_DIM / 32][4];
+        uint qReg8[WARP_Q / MMA_M][HEAD_DIM / 32][4];
         float qs[WARP_Q / MMA_M][2];
         if constexpr (FP8_QK) {
 #ifdef FK_HAS_FP8
@@ -1401,7 +1401,7 @@ public:
             for (int mq = 0; mq < WARP_Q / MMA_M; ++mq) {
                 #pragma unroll
                 for (int md = 0; md < HEAD_DIM / MMA_K; ++md) {
-                    uint32_t addr = smemBase + qThread;
+                    uint addr = smemBase + qThread;
                     addr += mq * MMA_M * STRIDE_B;
                     addr ^= md * MMA_K * sizeof(__nv_bfloat16);
                     ldmatrix_x4(qReg[mq][md], addr);
@@ -1483,8 +1483,8 @@ public:
             const __nv_bfloat16* vPlane = p.v.params.data + (long)bh * p.seq_k * HEAD_DIM;
             // DEEP_Q_SMEM: KV buffers live after the resident Q tile.
             const auto kBuf = [&](int i) {
-                return Q_RES_B + (uint32_t)(i % 2) * KV_BUF_B; };
-            const uint32_t vBufOff = Q_RES_B + 2 * KV_BUF_B;  // single V buffer
+                return Q_RES_B + (uint)(i % 2) * KV_BUF_B; };
+            const uint vBufOff = Q_RES_B + 2 * KV_BUF_B;  // single V buffer
 
             // prefetch first in-range tile
             if (itBegin < itEnd && tileActive(itBegin * BLOCK_KV)) {
@@ -1501,26 +1501,26 @@ public:
             // the kmd/vmd arrays -> s8192 dense 369->348 TF. d64 keeps the
             // in-loop addressing.
             static constexpr bool HOIST_ADDR = HEAD_DIM == 128;
-            uint32_t qmd[DUAL_Q_SMEM ? HEAD_DIM / MMA_K : 1];
-            uint32_t kmd[HOIST_ADDR ? HEAD_DIM / MMA_K : 1];
-            uint32_t vmd[HOIST_ADDR ? HEAD_DIM / MMA_N : 1];
+            uint qmd[DUAL_Q_SMEM ? HEAD_DIM / MMA_K : 1];
+            uint kmd[HOIST_ADDR ? HEAD_DIM / MMA_K : 1];
+            uint vmd[HOIST_ADDR ? HEAD_DIM / MMA_N : 1];
             if constexpr (HOIST_ADDR) {
                 #pragma unroll
                 for (int md = 0; md < HEAD_DIM / MMA_K; ++md) {
-                    const uint32_t x = md * MMA_K * (uint32_t)sizeof(__nv_bfloat16);
+                    const uint x = md * MMA_K * (uint)sizeof(__nv_bfloat16);
                     kmd[md] = (smemBase + kThread) ^ x;
                     if constexpr (DUAL_Q_SMEM) qmd[md] = (smemBase + qThread) ^ x;
                 }
                 #pragma unroll
                 for (int md = 0; md < HEAD_DIM / MMA_N; ++md) {
                     vmd[md] = (smemBase + vBufOff + vThread)
-                              ^ (md * MMA_N * (uint32_t)sizeof(__nv_bfloat16));
+                              ^ (md * MMA_N * (uint)sizeof(__nv_bfloat16));
                 }
             } else if constexpr (DUAL_Q_SMEM) {
                 #pragma unroll
                 for (int md = 0; md < HEAD_DIM / MMA_K; ++md) {
                     qmd[md] = (smemBase + qThread)
-                              ^ (md * MMA_K * (uint32_t)sizeof(__nv_bfloat16));
+                              ^ (md * MMA_K * (uint)sizeof(__nv_bfloat16));
                 }
             }
 
@@ -1635,7 +1635,7 @@ public:
                             sMmaStreamDeepQ(smemBase, qThread,
                                             smemBase + kBuf(kv), kThread, sp);
                         } else {
-                            uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
+                            uint kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
                             loadKFrags(smemBase + kBuf(kv), kThread, kReg);
                             sMma(qReg, kReg, sp);
                         }
@@ -1687,13 +1687,13 @@ public:
             const float* kScales = p.k.params.scales + (long)bh * seqK;
             const float* vScales = p.v.params.scales + (long)bh * seqK;
 
-            const auto kBuf = [&](int i) { return (uint32_t)(i % 2) * KV_BUF_B; };
-            const uint32_t vBufOff = 2 * KV_BUF_B;
+            const auto kBuf = [&](int i) { return (uint)(i % 2) * KV_BUF_B; };
+            const uint vBufOff = 2 * KV_BUF_B;
             // byte staging area after the 4 bf16 buffers
-            const uint32_t stageBase = 4 * KV_BUF_B;
+            const uint stageBase = 4 * KV_BUF_B;
             const auto kStage = [&](int i) {
-                return stageBase + (uint32_t)(i % 2) * (KV_BUF_B / 2); };
-            const uint32_t vStage = stageBase + 2 * (KV_BUF_B / 2);
+                return stageBase + (uint)(i % 2) * (KV_BUF_B / 2); };
+            const uint vStage = stageBase + 2 * (KV_BUF_B / 2);
 
             // prefetch first in-range tile bytes (FP8_QK: SWZ8-swizzled K so
             // sMmaFp8's direct 4B fragment reads don't bank-conflict)
@@ -1733,7 +1733,7 @@ public:
                                 offKV, p.seq_k, sp, laneId);
 #endif
                     } else {
-                        uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
+                        uint kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
                         loadKFrags(smemBase + kBuf(kv), kThread, kReg);
                         sMma(qReg, kReg, sp);
                     }
@@ -1764,15 +1764,15 @@ public:
                 __syncthreads();
 
                 if (act) {
-                    uint32_t vReg[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2];
+                    uint vReg[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2];
                     loadVFrags(smemBase + vBufOff, vThread, vReg);
                     pvMma(sp, vReg, oAcc);
                 }
             }
         } else {
             // ============== register-prefetch schedule (fused prologues) =====
-            const auto kBuf = [](int i) -> uint32_t { return (i % 2) * KV_BUF_B; };
-            const auto vBuf = [](int i) -> uint32_t { return (2 + (i % 2)) * KV_BUF_B; };
+            const auto kBuf = [](int i) -> uint { return (i % 2) * KV_BUF_B; };
+            const auto vBuf = [](int i) -> uint { return (2 + (i % 2)) * KV_BUF_B; };
 
             float kPre[KV_GROUPS][8], vPre[KV_GROUPS][8];
             if (itBegin < itEnd) {
@@ -1793,7 +1793,7 @@ public:
                 }
 
                 if (act) {
-                    uint32_t kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
+                    uint kReg[BLOCK_KV / MMA_N][HEAD_DIM / MMA_K][2];
                     loadKFrags(smemBase + kBuf(kv), kThread, kReg);
 
                     SPTile sp[WARP_Q / MMA_M] = {};
@@ -1807,7 +1807,7 @@ public:
                                           qBlockBase, warpId, laneId);
                     }
 
-                    uint32_t vReg[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2];
+                    uint vReg[BLOCK_KV / MMA_K][HEAD_DIM / MMA_N][2];
                     loadVFrags(smemBase + vBuf(kv), vThread, vReg);
                     pvMma(sp, vReg, oAcc);
                 }
