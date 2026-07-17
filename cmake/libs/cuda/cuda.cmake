@@ -13,9 +13,9 @@ endfunction()
 find_package(CUDAToolkit REQUIRED)
 
 # CUDA 13.0 moved CCCL headers to a separate cccl/ directory.
-# We must manually inject this for the MSVC host compiler.
+# This file is included before targets are created, so apply it at directory scope.
 if(IS_DIRECTORY "${CUDAToolkit_INCLUDE_DIRS}/cccl")
-    target_include_directories(FusedKernelLibrary PRIVATE "${CUDAToolkit_INCLUDE_DIRS}/cccl")
+    include_directories("${CUDAToolkit_INCLUDE_DIRS}/cccl")
 endif()
 
 # extra cuda_libraries only detected after project() this is needed for compatibility with old local builds that only
