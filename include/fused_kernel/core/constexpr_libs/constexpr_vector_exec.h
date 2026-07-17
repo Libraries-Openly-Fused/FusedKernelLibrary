@@ -118,8 +118,8 @@ namespace cxp {
     template <typename Op>
     struct Exec<Op, std::enable_if_t<std::is_same_v<typename Op::InstanceType, fk::TernaryType>>> {
         template <fk::vector_type VT1, fk::vector_type VT2, fk::vector_type VT3>
-        FK_HOST_DEVICE_FUSE auto exec(const VT1 v1, const VT2 v2, const VT3 v3) {
-            using BaseO = decltype(Op::exec(std::declval<fk::VBase<VT1>>(), std::declval<fk::VBase<VT2>>(), std::declval<fk::VBase<VT3>>()));
+            requires(fk::AreVVEqCN<VT1, VT2>::value && fk::AreVVEqCN<VT1, VT3>::value)
+        FK_HOST_DEVICE_FUSE auto exec(const VT1& v1, const VT2& v2, const VT3& v3) {
             if constexpr (fk::cn<VT1> == 1) {
                 return fk::VectorType_t<BaseO, 1>{Op::exec(v1.x, v2.x, v3.x)};
             } else if constexpr (fk::cn<VT1> == 2) {
