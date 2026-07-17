@@ -38,6 +38,7 @@
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/core/utils/utils.h>
+#include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 
 #include <cfloat>
 #include <cmath>
