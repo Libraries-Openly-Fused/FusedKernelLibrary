@@ -59,7 +59,7 @@ namespace fk {
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             static_assert(std::is_same_v<VBase<T>, float>, "Saturate float only works with float base types.");
             
-            return cxp::fmaxf::f(make_set<InputType>(0.f), cxp::fminf::f(input, make_set<InputType>(1.f)));;
+            return cxp::fmaxf::f(make_set<InputType>(0.f), cxp::fminf::f(input, make_set<InputType>(1.f)));
         }
     };
 
