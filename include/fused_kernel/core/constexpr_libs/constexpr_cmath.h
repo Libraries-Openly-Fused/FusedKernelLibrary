@@ -25,39 +25,57 @@
 
 #ifdef __CUDACC__
 #include <cuda/std/bit>
-#include <cuda/std/algorithm>
 #include <cuda/std/utility>
+
+// Conditionally include the algorithm header if compiling on CUDA 13.3+
+#if __has_include(<cuda/std/algorithm>)
+#include <cuda/std/algorithm>
+#endif
+
 namespace cxp {
-    using cuda::std::bit_cast;
-    namespace base {
-        using cuda::std::max;
-        using cuda::std::min;
-        using cuda::std::cmp_equal;
-        using cuda::std::cmp_not_equal;
-        using cuda::std::cmp_less;
-        using cuda::std::cmp_greater;
-        using cuda::std::cmp_less_equal;
-        using cuda::std::cmp_greater_equal;
-        using cuda::std::clamp;
-    } // namespace base
+using cuda::std::bit_cast;
+namespace base {
+using cuda::std::cmp_equal;
+using cuda::std::cmp_greater;
+using cuda::std::cmp_greater_equal;
+using cuda::std::cmp_less;
+using cuda::std::cmp_less_equal;
+using cuda::std::cmp_not_equal;
+
+// If the header exists, alias the cuda::std versions
+#if __has_include(<cuda/std/algorithm>)
+using cuda::std::clamp;
+using cuda::std::max;
+using cuda::std::min;
+#else
+// Polyfill for CUDA < 13.3 where <cuda/std/algorithm> is missing
+template <typename T> constexpr __host__ __device__ const T &max(const T &a, const T &b) { return (a < b) ? b : a; }
+
+template <typename T> constexpr __host__ __device__ const T &min(const T &a, const T &b) { return (b < a) ? b : a; }
+
+template <typename T> constexpr __host__ __device__ const T &clamp(const T &v, const T &lo, const T &hi) {
+    return (v < lo) ? lo : ((hi < v) ? hi : v);
+}
+#endif
+} // namespace base
 } // namespace cxp
 #else
-#include <bit>
 #include <algorithm>
+#include <bit>
 #include <utility>
 namespace cxp {
-    using std::bit_cast;
-    namespace base {
-        using std::max;
-        using std::min;
-        using std::cmp_equal;
-        using std::cmp_not_equal;
-        using std::cmp_less;
-        using std::cmp_greater;
-        using std::cmp_less_equal;
-        using std::cmp_greater_equal;
-        using std::clamp;
-    } // namespace base
+using std::bit_cast;
+namespace base {
+using std::clamp;
+using std::cmp_equal;
+using std::cmp_greater;
+using std::cmp_greater_equal;
+using std::cmp_less;
+using std::cmp_less_equal;
+using std::cmp_not_equal;
+using std::max;
+using std::min;
+} // namespace base
 } // namespace cxp
 #endif
 
