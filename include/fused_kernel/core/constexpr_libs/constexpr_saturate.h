@@ -27,6 +27,12 @@ namespace cxp {
             using InstanceType = fk::UnaryType;
             template <typename ST>
             FK_HOST_DEVICE_FUSE auto exec(const ST& s) {
+                if constexpr (fk::isReducedFloat<ST>) {
+                    // Promote reduced float sources once: every reduced value is exactly
+                    // representable in float, and the float path already handles rounding
+                    // and clamping towards any output type.
+                    return exec(static_cast<float>(s));
+                } else {
                 constexpr auto maxValOutput = maxValue<fk::VBase<OT>>;
                 constexpr auto minValueOutput = minValue<fk::VBase<OT>>;
                 if (cxp::cmp_greater::BaseFunc::exec(s, maxValOutput)) {
@@ -43,6 +49,7 @@ namespace cxp {
                         // For any other case, we can cast directly
                         return static_cast<fk::VBase<OT>>(s);
                     }
+                }
                 }
             }
         };

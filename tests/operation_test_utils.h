@@ -88,7 +88,12 @@ return correct ? 0 : -1;
 
 template <typename T>
 constexpr inline bool equalValues(const T & val1, const T & val2) {
-    if constexpr (std::is_floating_point_v<T>) {
+    if constexpr (fk::isReducedFloat<T>) {
+        // Bit exact comparison: a float tolerance would quantize to 0 on fp8/fp4 grids,
+        // and two NaNs (any payload) must compare equal.
+        return fk::toBits(val1) == fk::toBits(val2) ||
+               (fk::ReducedFloatTraits<T>::isNaN(val1) && fk::ReducedFloatTraits<T>::isNaN(val2));
+    } else if constexpr (std::is_floating_point_v<T>) {
         return std::abs(val1 - val2) < static_cast<T>(0.0001);
     } else {
         return val1 == val2;
@@ -389,6 +394,41 @@ struct TestCaseBuilder<Operation, std::enable_if_t<fk::OpIs<fk::UnaryType, Opera
             }
             if (result)
                 std::cout << "\033[32m" << "Success!!" << "\033[0m" <<std::endl;
+            return result;
+            };
+    }
+};
+
+// Unary operations whose input or output is a reduced float scalar (they are neither
+// std::is_fundamental nor CUDA vectors, so the other two specializations do not apply).
+template <typename Operation>
+struct TestCaseBuilder<Operation, std::enable_if_t<fk::OpIs<fk::UnaryType, Operation>::value &&
+                                    !fk::validCUDAVec<typename Operation::InputType> &&
+                                    !fk::validCUDAVec<typename Operation::OutputType> &&
+                                    (fk::isReducedFloat<typename Operation::InputType> ||
+                                     fk::isReducedFloat<typename Operation::OutputType>), void>> {
+    template <size_t N>
+    static inline void addTest(std::map<std::string, std::function<bool()>>& testCases,
+                               const std::array<typename Operation::InputType, N>& inputElems,
+                               const std::array<typename Operation::OutputType, N>& expectedElems) {
+        const std::string testName = fk::typeToString<Operation>();
+        testCases[testName] = [testName, inputElems, expectedElems]() {
+            const auto outputPtr = test_case_builder::detail::launchUnary<Operation>(testName, inputElems);
+            bool result{ true };
+            for (size_t i = 0; i < N; ++i) {
+                const auto generated = outputPtr.at(fk::Point{ static_cast<int>(i), 0, 0 });
+                static_assert(std::is_same_v<std::decay_t<decltype(generated)>, std::decay_t<decltype(expectedElems[i])>>, "Output and Expected types are not the same");
+                const auto resultV = equalValues(generated, expectedElems[i]);
+                if (!resultV) {
+                    std::cout << "\033[31m" << "FAIL!!" << "\033[0m" << std::endl;
+                    std::cout << "\033[31m Mismatch at test element index " << i << ": Expected value "
+                              << static_cast<float>(expectedElems[i]) << ", got "
+                              << static_cast<float>(generated) << "\033[0m" << std::endl;
+                }
+                result &= resultV;
+            }
+            if (result)
+                std::cout << "\033[32m" << "Success!!" << "\033[0m" << std::endl;
             return result;
             };
     }

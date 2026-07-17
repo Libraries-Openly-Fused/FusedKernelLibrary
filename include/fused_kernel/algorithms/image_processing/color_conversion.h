@@ -70,6 +70,9 @@ namespace fk {
 #endif
             } else if constexpr (std::is_floating_point_v<OutputType>) {
                 return compute_luminance(input);
+            } else {
+                static_assert(isReducedFloat<OutputType>, "RGB2Gray: unsupported output type");
+                return static_cast<OutputType>(compute_luminance(input));
             }
         }
     private:
