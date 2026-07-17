@@ -78,7 +78,7 @@ namespace fk {
 namespace fk {
     namespace detail {
         // Demangles a C++ name using abi::__cxa_demangle
-        std::string demangle_name(const char* mangled_name) {
+        inline std::string demangle_name(const char* mangled_name) {
             int status = 0;
             // abi::__cxa_demangle allocates memory using malloc, which must be freed by std::free
             char* demangled_c_str = abi::__cxa_demangle(mangled_name, nullptr, nullptr, &status);
@@ -94,7 +94,7 @@ namespace fk {
 
         // Convert C-style casts to static_cast for NVRTC compatibility
         // Converts (Type)value to static_cast<Type>(value)
-        std::string convert_c_casts_to_static_cast(std::string type_str) {
+        inline std::string convert_c_casts_to_static_cast(std::string type_str) {
             size_t pos = 0;
             while ((pos = type_str.find('(', pos)) != std::string::npos) {
                 // Look for pattern: (Type)value
@@ -154,7 +154,7 @@ namespace fk {
     } // namespace detail
 
     template <typename T>
-    std::string typeToString() {
+    inline std::string typeToString() {
         return detail::convert_c_casts_to_static_cast(detail::demangle_name(typeid(T).name()));
     }
 } // namespace fk
@@ -164,7 +164,7 @@ namespace fk {
 namespace fk {
     namespace detail {
         // Helper to remove common prefixes from MSVC's typeid(T).name() output.
-        std::string clean_msvc_typename(std::string name) {
+        inline std::string clean_msvc_typename(std::string name) {
             // List of prefixes to remove
             const std::string prefixes[] = { "class ", "struct ", "enum " };
 
@@ -181,7 +181,7 @@ namespace fk {
 
         // Convert C-style casts to static_cast for NVRTC compatibility
         // Converts (Type)value to static_cast<Type>(value)
-        std::string convert_c_casts_to_static_cast(std::string type_str) {
+        inline std::string convert_c_casts_to_static_cast(std::string type_str) {
             size_t pos = 0;
             while ((pos = type_str.find('(', pos)) != std::string::npos) {
                 // Look for pattern: (Type)value
@@ -241,7 +241,7 @@ namespace fk {
     } // namespace detail
 
     template <typename T>
-    std::string typeToString() {
+    inline std::string typeToString() {
         return detail::convert_c_casts_to_static_cast(detail::clean_msvc_typename(typeid(T).name()));
     }
 } // namespace fk
@@ -252,7 +252,7 @@ namespace fk {
     namespace detail {
         // Convert C-style casts to static_cast for NVRTC compatibility
         // Converts (Type)value to static_cast<Type>(value)
-        std::string convert_c_casts_to_static_cast(std::string type_str) {
+        inline std::string convert_c_casts_to_static_cast(std::string type_str) {
             size_t pos = 0;
             while ((pos = type_str.find('(', pos)) != std::string::npos) {
                 // Look for pattern: (Type)value
@@ -312,7 +312,7 @@ namespace fk {
     } // namespace detail
 
     template <typename T>
-    std::string typeToString() {
+    inline std::string typeToString() {
         return detail::convert_c_casts_to_static_cast(typeid(T).name());
     }
 } // namespace fk

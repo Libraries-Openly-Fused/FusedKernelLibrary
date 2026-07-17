@@ -11,7 +11,7 @@
 The library has CPU and CUDA backends. HIP support is architecturally possible but not yet implemented.
 
 **License**: Apache 2.0  
-**Version**: 0.2.0 (main branch — API may break for maintainability)
+**Version**: 0.2.0 (main branch — API may break due to new features)
 
 ---
 
@@ -19,28 +19,30 @@ The library has CPU and CUDA backends. HIP support is architecturally possible b
 
 ```
 FusedKernelLibrary/
-├── .clang-format               # LLVM-based style, 4-space indent, 120-char column limit
-├── .github/workflows/          # CI: cmake-linux-amd64.yml, cmake-linux-arm64.yml, cmake-windows-amd64.yml
-├── CMakeLists.txt              # Root build (v0.2.0, requires CMake >= 3.28 C++ and optional CUDA)
-├── cmake/                      # CMake helpers: arch flags, CUDA init, test discovery, generators
-│   ├── archflags.cmake         # CPU SIMD flags (AVX2 default on MSVC x64, native on Unix)
-│   ├── cmake_init.cmake        # Global CMake settings
-│   ├── cuda_init.cmake         # CUDA language enablement and NVCC path (Ninja/Windows workaround)
-│   ├── libs/cuda/archs.cmake   # CUDA arch selection/filtering (requires compute_70+ for CUDA < 13)
-│   └── tests/                  # Test discovery and stub generation
+├── .clang-format                 # LLVM-based style, 4-space indent, 120-char column limit
+├── .github/workflows/            # CI: cmake-linux-amd64.yml, cmake-linux-arm64.yml, cmake-windows-amd64.yml
+├── CMakeLists.txt                # Root build (v0.2.0, requires CMake >= 3.28, C++20, and CUDA)
+├── cmake/                        # CMake helpers: arch flags, CUDA init, test discovery, generators
+│   ├── archflags.cmake           # CPU SIMD flags (AVX2 default on MSVC x64, native on Unix)
+│   ├── cmake_init.cmake          # Global CMake settings
+│   ├── cuda_init.cmake           # CUDA language enablement and NVCC path (Ninja/Windows workaround)
+│   ├── libs/cuda/archs.cmake     # CUDA arch selection/filtering (requires compute_70+ for CUDA < 13)
+│   └── tests/                    # Test discovery and stub generation
 │       ├── discover_tests.cmake
 │       └── add_generated_test.cmake
-├── include/fused_kernel/       # All public headers (header-only library)
-│   ├── fused_kernel.h          # Main API entry point (includes executors.h)
-│   ├── algorithms/             # Operations: arithmetic, cast, image processing, etc.
-│   └── core/                   # Infrastructure: execution model, data types, utils
-│       ├── execution_model/    # Executors, DPP patterns, operation model
-│       ├── data/               # Ptr, Ptr2D, Tensor, RawPtr types
-│       └── utils/              # Macros (utils.h), compiler detection (compiler_macros.h)
-├── lib/                        # CMake library target definition and version config
-├── tests/                      # Integration tests (header .h files, auto-discovered)
-├── utests/                     # Unit tests (header .h files, auto-discovered)
-└── benchmarks/                 # Benchmarks (disabled by default, ENABLE_BENCHMARK=ON)
+├── include/fused_kernel/         # All public headers (header-only library)
+│   ├── fused_kernel.h            # Main API entry point (includes executors.h)
+│   ├── algorithms/               # Operations: arithmetic, cast, image processing, etc.
+│   └── core/                     # Infrastructure: execution model, data types, utils
+│       ├── constexpr_libs/       # Contains std functionalities (and few others) not available on GPU or not available as constexpr or both, implemented in namespace cxp
+│       ├── execution_model/      # Executors, DPP patterns, operation model
+│       │   └── operation_model/  # Parent Operations, special operations like Batch and Fused Operations, and operation fusion infrastructure
+│       ├── data/                 # Ptr, Ptr2D, Tensor, RawPtr types
+│       └── utils/                # Macros (utils.h), compiler detection (compiler_macros.h)
+├── lib/                          # CMake library target definition and version config
+├── tests/                        # Integration tests (header .h files, auto-discovered)
+├── utests/                       # Unit tests (header .h files, auto-discovered)
+└── benchmarks/                   # Benchmarks (disabled by default, ENABLE_BENCHMARK=ON)
 ```
 
 ---
@@ -50,8 +52,8 @@ FusedKernelLibrary/
 ### Requirements
 - **CMake** >= 3.28
 - **C++ compiler** with C++20 support
-- **CUDA** (optional): requires NVCC. **Only nvcc is supported as the CUDA compiler**; clang-as-CUDA-compiler is not supported despite `CLANG_HOST_DEVICE` macro existing.
-- **MSVC**: Visual Studio 2022+ (MSVC_VERSION >= 1930) required;
+- **CUDA** (required): requires NVCC. **Only nvcc is supported as the CUDA compiler**; clang-as-CUDA-compiler is not supported despite `CLANG_HOST_DEVICE` macro existing.
+- **MSVC**: Visual Studio 2022 or Visual Studio 2026 (MSVC_VERSION >= 1930) required;
 
 ### Configure and Build (typical)
 ```bash
@@ -132,8 +134,12 @@ Files ending in `_common.h` (matching `*_common.*`) are shared helpers, not test
 
 ## Code Conventions
 
-### Namespace
-All library code lives in namespace `fk`. Use `using namespace fk;` in test/example files.
+### Namespaces
+
+Code in this repository is strictly divided into two namespaces based on its domain:
+
+*   **Core Library (`fk::`)**: The vast majority of FKL code (operations, data structures, executors) lives in the `fk` namespace. Use `using namespace fk;` in test and example files.
+*   **Standard Polyfills (`cxp::`)**: Code located in the `constexpr_libs` directory must use the `cxp` namespace. This namespace is strictly reserved for implementing `std` functionality that is either unavailable on the GPU, unavailable as `constexpr`, or both.
 
 ### Function/Method Macros
 All functions in headers use one of these macros (from `include/fused_kernel/core/utils/utils.h`):
@@ -219,7 +225,7 @@ All three workflow files trigger on **pull requests to `main`** (push triggers a
 
 ### Linux (cmake-linux-amd64.yml, cmake-linux-arm64.yml)
 - **Compilers**: `g++-13`, `clang++-21`
-- **CUDA**: 12.9, 13.3 (via `/usr/local/cuda-<version>/bin/nvcc`)
+- **CUDA**: 13.3 (via `/usr/local/cuda-<version>/bin/nvcc`)
 - **CMake**: Custom installation at `/home/cudeiro/cmake-4.3.3-linux-x86_64/bin/` (added to PATH)
 - **Generator**: Ninja
 - **Build type**: Release
@@ -227,7 +233,7 @@ All three workflow files trigger on **pull requests to `main`** (push triggers a
 ### Windows (cmake-windows-amd64.yml)
 - **Host compilers**: `cl` (MSVC), `clang-cl`
 - **MSVC versions**: 14.44, 14.51 (via `-vcvars_ver`)
-- **CUDA**: 12.9, 13.3 (NVCC at `%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v<version>\bin\nvcc.exe`)
+- **CUDA**: 13.0, 13.3 (NVCC at `%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v<version>\bin\nvcc.exe`)
 - **LLVM**: `D:/clang+llvm-21.1.0-x86_64-pc-windows-msvc/bin/` (added to PATH)
 - **Generator**: Ninja
 - **Workaround**: After CMake configure, `rules.ninja` may contain an empty NVCC path that is patched with PowerShell string replacement.
@@ -257,8 +263,3 @@ See existing operations like `Mul`, `Add`, `SaturateCast` in `include/fused_kern
 
 1. **Windows Ninja + NVCC path**: After CMake configure on Windows with Ninja, `<build_dir>/CMakeFiles/rules.ninja` may contain an incorrect path to `nvcc.exe`. The CI workflow patches this with PowerShell `Set-Content`. If you hit this locally, check that `CUDACXX` env var is set before invoking CMake and verify the generated `rules.ninja`.
 
-2. **CUDA < 13 + old GPUs**: If your GPU has compute capability < 7.0 (pre-Volta), building will fail. Use a newer GPU or set `CUDA_ARCH` explicitly to a supported arch.
-
-3. **MSVC < 2019**: CPU backend is automatically disabled with a warning. The CUDA backend may still work if NVCC is available.
-
-4. **Clang as CUDA compiler**: While `CLANG_HOST_DEVICE` macro exists and Clang can be used as a host compiler (including `clang++-21` on Linux and `clang-cl` on Windows with nvcc as the CUDA compiler), **using Clang as the CUDA compiler itself (replacing nvcc) is not supported**.

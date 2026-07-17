@@ -16,13 +16,7 @@ function(add_cuda_lineinfo_to_target TARGET_NAME)
     endif()    
 endfunction()
 
-
-function(add_nvtx_support_to_target TARGET_NAME)    
-    if (${CMAKE_VERSION} GREATER_EQUAL "3.25.0")
-        target_link_libraries(${TARGET_NAME} PRIVATE CUDA::nvtx3)
-        else()
-        target_include_directories(${TARGET_NAME} PRIVATE ${CUDA_TOOLKIT_ROOT_DIR}/include)
-    endif()
-        
+function(add_nvtx_support_to_target TARGET_NAME)        
+    target_link_libraries(${TARGET_NAME} PRIVATE CUDA::nvtx3)        
     target_compile_definitions(${TARGET_NAME} PUBLIC ENABLE_NVTX)    
 endfunction()

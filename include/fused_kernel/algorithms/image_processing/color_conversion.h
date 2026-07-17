@@ -1,4 +1,5 @@
 /* Copyright 2023-2026 Oscar Amoros Huguet
+*  Copyright 2026 Grup Mediapro S.L.U
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -17,9 +18,10 @@
 
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <fused_kernel/core/data/ptr_nd.h>
-#include <fused_kernel/algorithms/basic_ops/algebraic.h>
 #include <fused_kernel/algorithms/image_processing/saturate.h>
 #include <fused_kernel/algorithms/image_processing/raw_image.h>
+#include <fused_kernel/algorithms/image_processing/itu_color.h>
+#include <fused_kernel/algorithms/basic_ops/algebraic.h>
 #include <fused_kernel/algorithms/basic_ops/vector_ops.h>
 
 namespace fk {
@@ -76,32 +78,6 @@ namespace fk {
         }
     };
 
-    
-
-    template <PixelFormat PF>
-    using PackedPixelType = VectorType_t<ColorDepthPixelBaseType<static_cast<ColorDepth>(PixelFormatTraits<PF>::depth)>, PixelFormatTraits<PF>::cn>;
-
-    template <PixelFormat PF, bool ALPHA>
-    using YUVOutputPixelType = VectorType_t<ColorDepthPixelBaseType<PixelFormatTraits<PF>::depth>, ALPHA ? 4 : PixelFormatTraits<PF>::cn>;
-
-    struct SubCoefficients {
-        const float luma;
-        const float chroma;
-    };
-
-    template <ColorDepth CD>
-    constexpr SubCoefficients subCoefficients{};
-    template <> constexpr SubCoefficients subCoefficients<ColorDepth::p8bit>{ 16.f, 128.f };
-    template <> constexpr SubCoefficients subCoefficients<ColorDepth::p10bit>{ 64.f, 512.f };
-    template <> constexpr SubCoefficients subCoefficients<ColorDepth::p12bit>{ 64.f, 2048.f };
-
-    template <ColorDepth CD>
-    constexpr ColorDepthPixelBaseType<CD> maxDepthValue{};
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::p8bit>  maxDepthValue<ColorDepth::p8bit> { 255u };
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::p10bit> maxDepthValue<ColorDepth::p10bit> { 1023u };
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::p12bit> maxDepthValue<ColorDepth::p12bit> { 4095u };
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::f24bit> maxDepthValue<ColorDepth::f24bit> { 1.f };
-
     template <typename I, ColorDepth CD>
     struct AddOpaqueAlpha {
     private:
@@ -128,61 +104,6 @@ namespace fk {
             return Saturate<float>::exec(input, { { 0.f, static_cast<float>(maxDepthValue<CD>) } });
         }
     };
-
-    enum class ColorConversionDir { YCbCr2RGB, RGB2YCbCr };
-
-    template <ColorRange CR, ColorPrimitives CP, ColorConversionDir CCD>
-    constexpr M3x3Float ccMatrix{};
-    // Source: https://en.wikipedia.org/wiki/YCbCr
-    template <> constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt601, ColorConversionDir::YCbCr2RGB>{
-        { 1.164383562f,           0.f,       1.596026786f  },
-        { 1.164383562f,  -0.39176229f,       -0.812967647f },
-        { 1.164383562f,  2.017232143f,       0.f           }};
-
-    // Source: https://en.wikipedia.org/wiki/YCbCr
-    template <> constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt709, ColorConversionDir::YCbCr2RGB>{
-        { 1.f,               0.f,            1.5748f },
-        { 1.f,          -0.1873f,           -0.4681f },
-        { 1.f,           1.8556f,                0.f }};
-
-    // To be verified
-    template <> constexpr M3x3Float ccMatrix<ColorRange::Limited, ColorPrimitives::bt709, ColorConversionDir::YCbCr2RGB>{
-        { 1.f,               0.f,            1.402f },
-        { 1.f,         -0.34414f,         -0.71414f },
-        { 1.f,            1.772f,               0.f }};
-        /*{  1.f,              0.f,            1.4746f },
-        { 1.f,          -0.1646f,           -0.5713f },
-        { 1.f,           1.8814f,            0.f     }};*/
-
-    // Source: https://en.wikipedia.org/wiki/YCbCr
-    template <> constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt709, ColorConversionDir::RGB2YCbCr>{
-        {  0.2126f, 0.7152f, 0.0722f           },
-        { -0.1146f,      -0.3854f,            0.5f },
-        { 0.5f,         -0.4542f,           -0.0458f }};
-
-    // Source: https://en.wikipedia.org/wiki/YCbCr
-    template <> constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt2020, ColorConversionDir::YCbCr2RGB>{
-        {  1.f, 0.f, 1.4746f           },
-        { 1.f,          -0.16455312684366f, -0.57135312684366f },
-        { 1.f,           1.8814f,            0.f }};
-
-    // Computed from ccMatrix<ColorRange::Full, ColorPrimitives::bt2020, ColorConversionDir::YCbCr2RGB>
-    template <> constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt2020, ColorConversionDir::RGB2YCbCr>{
-        { -0.73792134831461f, 1.90449438202248f, -0.16657303370787f },
-        { 0.39221927730127f, -1.01227510472121f,  0.62005582741994f },
-        { 1.17857137414527f, -1.29153287808387f,  0.11296150393861f }};
-
-    template <ColorDepth CD> constexpr ColorDepthPixelBaseType<CD> shiftFactor{};
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::p8bit>  shiftFactor<ColorDepth::p8bit>{ 0u };
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::p10bit> shiftFactor<ColorDepth::p10bit>{ 6u };
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::p12bit> shiftFactor<ColorDepth::p12bit>{ 4u };
-
-    template <ColorDepth CD>
-    constexpr float floatShiftFactor{};
-    template <> constexpr float floatShiftFactor<ColorDepth::p8bit>{ 1.f };
-    template <> constexpr float floatShiftFactor<ColorDepth::p10bit>{ 64.f };
-    template <> constexpr float floatShiftFactor<ColorDepth::p12bit>{ 16.f };
-
 
     template <typename O, ColorDepth CD>
     struct DenormalizePixel {
@@ -226,28 +147,6 @@ namespace fk {
         }
     };
 
-    template <typename T, ColorDepth CD>
-    struct NormalizeColorRangeDepth {
-    private:
-        using SelfType = NormalizeColorRangeDepth<T, CD>;
-    public:
-        FK_STATIC_STRUCT(NormalizeColorRangeDepth, SelfType)
-        using Parent = UnaryOperation<T, T, NormalizeColorRangeDepth<T, CD>>;
-        DECLARE_UNARY_PARENT
-        using Base = typename VectorTraits<T>::base;
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
-            static_assert(std::is_floating_point_v<VBase<T>>, "NormalizeColorRangeDepth only works for floating point values");
-            // The nvcc compiler will only be able to use the global constexpr floatShiftFactor<CD> variable if it is stored in 
-            // a local variable.
-            // By storing it into a local variable, you are forcing the value to exist in private memory, so that each thread has
-            // a copy of the value on registers.
-            // In a later stage, since the variable is constexpr, the compiler will be able to inline the value in the
-            // multiplication instruction, and won't be stored in private memory.
-            constexpr auto shiftFactor = floatShiftFactor<CD>;
-            return input * shiftFactor;
-        }
-    };
-
     template <PixelFormat PF, ColorRange CR, ColorPrimitives CP, bool ALPHA, typename ReturnType = YUVOutputPixelType<PF, ALPHA>>
     struct ConvertYUVToRGB {
     private:
@@ -263,9 +162,9 @@ namespace fk {
         // Cb(U) -> input.y
         // Cr(V) -> input.z
         FK_HOST_DEVICE_FUSE float3 computeRGB(const InputType pixel) {
-            constexpr M3x3Float coefficients = ccMatrix<CR, CP, ColorConversionDir::YCbCr2RGB>;
+            constexpr M3x3Float coefficients = ccMatrix<CR, CP, ColorConversionDir::YCbCr2RGB, CD>;
             constexpr float CSub = subCoefficients<CD>.chroma;
-            if constexpr (CP == ColorPrimitives::bt601) {
+            if constexpr (CR == ColorRange::Limited) {
                 constexpr float YSub = subCoefficients<CD>.luma;
                 return MxVFloat3<UnaryType>::exec({ make_<float3>(pixel.x - YSub, pixel.y - CSub, pixel.z - CSub), coefficients });
             } else {
@@ -273,8 +172,9 @@ namespace fk {
             }
         }
 
-        FK_HOST_DEVICE_FUSE OutputType computePixel(const InputType pixel) {
-            const float3 pixelRGBFloat = computeRGB(pixel);
+        public:
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
+            const float3 pixelRGBFloat = computeRGB(input);
             if constexpr (std::is_same_v<VBase<OutputType>, float>) {
                 if constexpr (ALPHA) {
                     return { pixelRGBFloat.x, pixelRGBFloat.y, pixelRGBFloat.z, (float)maxDepthValue<CD> };
@@ -289,30 +189,13 @@ namespace fk {
                     return pixelRGB;
                 }
             }
-
-        }
-
-        public:
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
-            // Pixel data shifted to the right to it's color depth numerical range
-            constexpr auto shiftFactorLocal = shiftFactor<CD>;
-            const InputType shiftedPixel = input >> shiftFactorLocal;
-
-            // Using color depth numerical range to compute the RGB pixel
-            const OutputType computedPixel = computePixel(shiftedPixel);
-            if constexpr (std::is_same_v<VBase<OutputType>, float>) {
-                // Moving back the pixel channels to data type numerical range, either 8bit or 16bit
-                return NormalizeColorRangeDepth<OutputType, CD>::exec(computedPixel);
-            } else {
-                // Moving back the pixel channels to data type numerical range, either 8bit or 16bit
-                return computedPixel << shiftFactorLocal;
-            }
         }
     };
 
     template <PixelFormat PF>
     class Image;
 
+    // Direct chroma replication, no interpolation
     template <PixelFormat PF>
     struct ReadYUV {
     private:
