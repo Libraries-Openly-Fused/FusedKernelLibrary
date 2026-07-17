@@ -251,7 +251,7 @@ namespace fk {
     struct make {
         template <typename T, typename... Numbers>
         FK_HOST_DEVICE_FUSE T type(const Numbers&... pack) {
-            static_assert(vector_type<T>, "Non valid vetor type: make::type<invalid_type>()");
+            static_assert(vector_type<T>, "Non valid vector type: make::type<invalid_type>()");
             if constexpr (std::is_union_v<T>) {
                 return T{ static_cast<std::decay_t<decltype(T::at[0])>>(pack)... };
             }
