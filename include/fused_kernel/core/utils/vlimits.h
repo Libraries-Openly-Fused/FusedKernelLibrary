@@ -20,18 +20,35 @@
 #include <limits>
 
 namespace fk {
+    namespace vlimits_detail {
+        // std::numeric_limits' primary template silently returns value initialized (zero)
+        // limits for unspecialized types: turn that into a loud compile error.
+        template <typename T>
+        FK_HOST_DEVICE_CNST T checkedMax() {
+            static_assert(std::numeric_limits<T>::is_specialized,
+                          "fk::maxValue: std::numeric_limits is not specialized for this type");
+            return std::numeric_limits<T>::max();
+        }
+        template <typename T>
+        FK_HOST_DEVICE_CNST T checkedLowest() {
+            static_assert(std::numeric_limits<T>::is_specialized,
+                          "fk::minValue: std::numeric_limits is not specialized for this type");
+            return std::numeric_limits<T>::lowest();
+        }
+    } // namespace vlimits_detail
+
     // Limits
     template <typename T, typename Enabler = void>
     constexpr T maxValue{};
     template <typename T>
-    constexpr T maxValue <T, std::enable_if_t<!validCUDAVec<T> && !std::is_aggregate_v<T>>> = std::numeric_limits<T>::max();
+    constexpr T maxValue <T, std::enable_if_t<!validCUDAVec<T> && !std::is_aggregate_v<T>>> = vlimits_detail::checkedMax<T>();
     template <typename T>
     constexpr T maxValue <T, std::enable_if_t<validCUDAVec<T>>> = make_set<T>(maxValue<VBase<T>>);
 
     template <typename T, typename Enabler = void>
     constexpr T minValue{};
     template <typename T>
-    constexpr T minValue <T, std::enable_if_t<!validCUDAVec<T> && !std::is_aggregate_v<T>>> = std::numeric_limits<T>::lowest();
+    constexpr T minValue <T, std::enable_if_t<!validCUDAVec<T> && !std::is_aggregate_v<T>>> = vlimits_detail::checkedLowest<T>();
     template <typename T>
     constexpr T minValue <T, std::enable_if_t<validCUDAVec<T>>> = make_set<T>(minValue<VBase<T>>);
 

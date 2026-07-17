@@ -47,16 +47,68 @@ namespace fk {
     Times bigger can be: 1, 2, 4
     */
 
-    using TFSourceTypes = TypeListCat_t<BaseTypes, VOne, VTwo, VThree, VFour>;
-    using TFBiggerTypes = TypeList<bool4, uchar4,  char4,  ushort2,  short2,  uint2, int2, ulong,  long,  ulonglong,  longlong,  float2, double,
-                                   bool4, uchar4,  char4,  ushort2,  short2,  uint2, int2, ulong,  long,  ulonglong,  longlong,  float2, double,
-                                   bool4, uchar4,  char4,  ushort2,  short2,  uint2, int2, ulong2, long2, ulonglong2, longlong2, float2, double2,
-                                   bool3, uchar3,  char3,  ushort3,  short3,  uint3, int3, ulong3, long3, ulonglong3, longlong3, float3, double3,
-                                   bool4, uchar4,  char4,  ushort4,  short4,  uint4, int4, ulong4, long4, ulonglong4, longlong4, float4, double4>;
+    // The reduced float entries are appended as a self contained block AFTER the standard
+    // types, so the positional correspondence of the existing 65 pairs cannot shift.
+    // Mappings follow the size precedents above: 2 byte scalars fuse x2 (short -> short2),
+    // 1 byte scalars fuse x4 (char -> char4), everything of 4+ bytes stays as is.
+    using RFTFSourceTypes = TypeList<fp16,  bf16,  fp8_e4m3,   fp8_e5m2,   fp4_e2m1>;
+    using RFTFBiggerTypes = TypeList<fp16_2, bf16_2, fp8_e4m3_4, fp8_e5m2_4, fp4_e2m1_4>;
+
+    using TFSourceTypes = TypeListCat_t<BaseTypes, VOne, VTwo, VThree, VFour,
+                                        RFTFSourceTypes, RFVOne, RFVTwo, RFVThree, RFVFour>;
+    using TFBiggerTypes = TypeListCat_t<
+        TypeList<bool4, uchar4,  char4,  ushort2,  short2,  uint2, int2, ulong,  long,  ulonglong,  longlong,  float2, double,
+                 bool4, uchar4,  char4,  ushort2,  short2,  uint2, int2, ulong,  long,  ulonglong,  longlong,  float2, double,
+                 bool4, uchar4,  char4,  ushort2,  short2,  uint2, int2, ulong2, long2, ulonglong2, longlong2, float2, double2,
+                 bool3, uchar3,  char3,  ushort3,  short3,  uint3, int3, ulong3, long3, ulonglong3, longlong3, float3, double3,
+                 bool4, uchar4,  char4,  ushort4,  short4,  uint4, int4, ulong4, long4, ulonglong4, longlong4, float4, double4>,
+        RFTFBiggerTypes /*scalars*/, RFTFBiggerTypes /*x1*/, RFTFBiggerTypes /*x2*/,
+        RFVThree /*x3: no fusion*/, RFVFour /*x4: no fusion*/>;
     template <typename T>
     using FilteredType_t = std::conditional_t<std::is_same_v<T, char>, typename VectorTraits<T>::base, T>;
     template <typename SourceType>
     using TFBiggerType_t = EquivalentType_t<FilteredType_t<SourceType>, TFSourceTypes, TFBiggerTypes>;
+
+    // The source/bigger mapping is positional: a misaligned insertion corrupts vectorized loads
+    // silently. These asserts pin every reduced float mapping and the legacy row boundaries.
+    static_assert(TFSourceTypes::size == TFBiggerTypes::size,
+                  "TFSourceTypes and TFBiggerTypes must have the same number of entries");
+    static_assert(std::is_same_v<TFBiggerType_t<bool>, bool4> && std::is_same_v<TFBiggerType_t<double>, double> &&
+                  std::is_same_v<TFBiggerType_t<bool1>, bool4> && std::is_same_v<TFBiggerType_t<double1>, double> &&
+                  std::is_same_v<TFBiggerType_t<bool2>, bool4> && std::is_same_v<TFBiggerType_t<double2>, double2> &&
+                  std::is_same_v<TFBiggerType_t<bool3>, bool3> && std::is_same_v<TFBiggerType_t<double3>, double3> &&
+                  std::is_same_v<TFBiggerType_t<bool4>, bool4> && std::is_same_v<TFBiggerType_t<double4>, double4>,
+                  "Legacy thread fusion row boundaries shifted");
+    static_assert(std::is_same_v<TFBiggerType_t<fp16>, fp16_2> &&
+                  std::is_same_v<TFBiggerType_t<bf16>, bf16_2> &&
+                  std::is_same_v<TFBiggerType_t<fp8_e4m3>, fp8_e4m3_4> &&
+                  std::is_same_v<TFBiggerType_t<fp8_e5m2>, fp8_e5m2_4> &&
+                  std::is_same_v<TFBiggerType_t<fp4_e2m1>, fp4_e2m1_4>,
+                  "Reduced float scalar thread fusion mappings shifted");
+    static_assert(std::is_same_v<TFBiggerType_t<fp16_1>, fp16_2> &&
+                  std::is_same_v<TFBiggerType_t<bf16_1>, bf16_2> &&
+                  std::is_same_v<TFBiggerType_t<fp8_e4m3_1>, fp8_e4m3_4> &&
+                  std::is_same_v<TFBiggerType_t<fp8_e5m2_1>, fp8_e5m2_4> &&
+                  std::is_same_v<TFBiggerType_t<fp4_e2m1_1>, fp4_e2m1_4>,
+                  "Reduced float x1 thread fusion mappings shifted");
+    static_assert(std::is_same_v<TFBiggerType_t<fp16_2>, fp16_2> &&
+                  std::is_same_v<TFBiggerType_t<bf16_2>, bf16_2> &&
+                  std::is_same_v<TFBiggerType_t<fp8_e4m3_2>, fp8_e4m3_4> &&
+                  std::is_same_v<TFBiggerType_t<fp8_e5m2_2>, fp8_e5m2_4> &&
+                  std::is_same_v<TFBiggerType_t<fp4_e2m1_2>, fp4_e2m1_4>,
+                  "Reduced float x2 thread fusion mappings shifted");
+    static_assert(std::is_same_v<TFBiggerType_t<fp16_3>, fp16_3> &&
+                  std::is_same_v<TFBiggerType_t<bf16_3>, bf16_3> &&
+                  std::is_same_v<TFBiggerType_t<fp8_e4m3_3>, fp8_e4m3_3> &&
+                  std::is_same_v<TFBiggerType_t<fp8_e5m2_3>, fp8_e5m2_3> &&
+                  std::is_same_v<TFBiggerType_t<fp4_e2m1_3>, fp4_e2m1_3>,
+                  "Reduced float x3 thread fusion mappings shifted");
+    static_assert(std::is_same_v<TFBiggerType_t<fp16_4>, fp16_4> &&
+                  std::is_same_v<TFBiggerType_t<bf16_4>, bf16_4> &&
+                  std::is_same_v<TFBiggerType_t<fp8_e4m3_4>, fp8_e4m3_4> &&
+                  std::is_same_v<TFBiggerType_t<fp8_e5m2_4>, fp8_e5m2_4> &&
+                  std::is_same_v<TFBiggerType_t<fp4_e2m1_4>, fp4_e2m1_4>,
+                  "Reduced float x4 thread fusion mappings shifted");
 
     constexpr std::integer_sequence<uint, 1, 2, 3, 4> validChannelsSequence;
 

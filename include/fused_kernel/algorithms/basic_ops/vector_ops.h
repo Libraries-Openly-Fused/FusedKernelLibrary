@@ -32,7 +32,7 @@ namespace fk {
             static_assert(std::is_same_v<VBase<I>, VBase<O>>,
                 "Base types should be the same");
             const auto result = cxp::discard<cn<OutputType>>::f(input);
-            if constexpr (std::is_fundamental_v<OutputType>) {
+            if constexpr (validScalar<OutputType>) {
                 return result.x;
             } else {
                 return result;

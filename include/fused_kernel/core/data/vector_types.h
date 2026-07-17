@@ -18,6 +18,7 @@
 
 #include <fused_kernel/core/utils/type_lists.h>
 #include <fused_kernel/core/utils/utils.h>
+#include <fused_kernel/core/data/reduced_float_types.h>
 
 namespace fk {
 
@@ -257,6 +258,119 @@ namespace fk {
     struct alignas(16) Double4 {
         double x, y, z, w;
     };
+
+    // Reduced precision vector types. Like the Bool vectors, they are fk-owned aggregates on
+    // every backend: CUDA provides no 3/4 channel variants, and its 2 channel types (__half2,
+    // __nv_bfloat162) are non-aggregate classes that would diverge per backend. Layouts match
+    // the CUDA counterparts where one exists (__half2/__nv_bfloat162: 4 bytes, alignment 4;
+    // __nv_fp8x2_*: 2/2; __nv_fp8x4_*: 4/4). They live in the fk namespace only, because CUDA
+    // headers define global half/half2/nv_bfloat162 typedefs that must not be shadowed.
+    struct Fp16_1 {
+        fp16 x;
+    };
+
+    struct alignas(4) Fp16_2 {
+        fp16 x, y;
+    };
+
+    struct Fp16_3 {
+        fp16 x, y, z;
+    };
+
+    struct alignas(8) Fp16_4 {
+        fp16 x, y, z, w;
+    };
+
+    struct Bf16_1 {
+        bf16 x;
+    };
+
+    struct alignas(4) Bf16_2 {
+        bf16 x, y;
+    };
+
+    struct Bf16_3 {
+        bf16 x, y, z;
+    };
+
+    struct alignas(8) Bf16_4 {
+        bf16 x, y, z, w;
+    };
+
+    struct Fp8E4m3_1 {
+        fp8_e4m3 x;
+    };
+
+    struct alignas(2) Fp8E4m3_2 {
+        fp8_e4m3 x, y;
+    };
+
+    struct Fp8E4m3_3 {
+        fp8_e4m3 x, y, z;
+    };
+
+    struct alignas(4) Fp8E4m3_4 {
+        fp8_e4m3 x, y, z, w;
+    };
+
+    struct Fp8E5m2_1 {
+        fp8_e5m2 x;
+    };
+
+    struct alignas(2) Fp8E5m2_2 {
+        fp8_e5m2 x, y;
+    };
+
+    struct Fp8E5m2_3 {
+        fp8_e5m2 x, y, z;
+    };
+
+    struct alignas(4) Fp8E5m2_4 {
+        fp8_e5m2 x, y, z, w;
+    };
+
+    struct Fp4E2m1_1 {
+        fp4_e2m1 x;
+    };
+
+    struct alignas(2) Fp4E2m1_2 {
+        fp4_e2m1 x, y;
+    };
+
+    struct Fp4E2m1_3 {
+        fp4_e2m1 x, y, z;
+    };
+
+    struct alignas(4) Fp4E2m1_4 {
+        fp4_e2m1 x, y, z, w;
+    };
+
+    using fp16_1 = Fp16_1;
+    using fp16_2 = Fp16_2;
+    using fp16_3 = Fp16_3;
+    using fp16_4 = Fp16_4;
+    using bf16_1 = Bf16_1;
+    using bf16_2 = Bf16_2;
+    using bf16_3 = Bf16_3;
+    using bf16_4 = Bf16_4;
+    using fp8_e4m3_1 = Fp8E4m3_1;
+    using fp8_e4m3_2 = Fp8E4m3_2;
+    using fp8_e4m3_3 = Fp8E4m3_3;
+    using fp8_e4m3_4 = Fp8E4m3_4;
+    using fp8_e5m2_1 = Fp8E5m2_1;
+    using fp8_e5m2_2 = Fp8E5m2_2;
+    using fp8_e5m2_3 = Fp8E5m2_3;
+    using fp8_e5m2_4 = Fp8E5m2_4;
+    using fp4_e2m1_1 = Fp4E2m1_1;
+    using fp4_e2m1_2 = Fp4E2m1_2;
+    using fp4_e2m1_3 = Fp4E2m1_3;
+    using fp4_e2m1_4 = Fp4E2m1_4;
+
+    static_assert(sizeof(fp16_2) == 4 && alignof(fp16_2) == 4, "fp16_2 layout must match __half2");
+    static_assert(sizeof(bf16_2) == 4 && alignof(bf16_2) == 4, "bf16_2 layout must match __nv_bfloat162");
+    static_assert(sizeof(fp16_4) == 8 && sizeof(fp16_3) == 6, "fp16_3/fp16_4 unexpected layout");
+    static_assert(sizeof(fp8_e4m3_2) == 2 && alignof(fp8_e4m3_2) == 2, "fp8x2 layout must match __nv_fp8x2_e4m3");
+    static_assert(sizeof(fp8_e4m3_4) == 4 && alignof(fp8_e4m3_4) == 4, "fp8x4 layout must match __nv_fp8x4_e4m3");
 } // namespace fk
 
 #if defined(__NVCC__)

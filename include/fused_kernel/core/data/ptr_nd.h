@@ -539,7 +539,7 @@ namespace fk {
                 return *At::cr_point(p, ptr_pinned);
             } else {
                 throw std::runtime_error("Cannot access data in Device memory from host code");
-                return make_set<T>(0);
+                return T{};
             }
         }
 

@@ -31,7 +31,21 @@ namespace cxp {
     constexpr T maxValue = std::numeric_limits<T>::max();
 
     template <typename T>
-    constexpr T smallestPositiveValue = std::is_floating_point_v<T> ? std::numeric_limits<T>::min() : static_cast<T>(1);
+    constexpr T smallestPositiveValue = fk::validFloatingPoint<T> ? std::numeric_limits<T>::min() : static_cast<T>(1);
+
+    namespace detail {
+        // Reduced floats promote to float for generic comparisons/arithmetic: their mixed
+        // implicit conversions are ambiguous (fp16/bf16) or non existent (fp8/fp4).
+        template <typename T>
+        FK_HOST_DEVICE_CNST auto promoteReduced(const T& value) {
+            if constexpr (fk::isReducedFloat<T>) {
+                return static_cast<float>(value);
+            } else {
+                return value;
+            }
+        }
+    } // namespace detail
+    using detail::promoteReduced;
 
 #define CXP_F_FUNC                                     \
     template <typename... Types>                       \
@@ -44,7 +58,13 @@ namespace cxp {
             using InstanceType = fk::UnaryType;
             template <typename ST>
             FK_HOST_DEVICE_FUSE bool exec(const ST& s) {
-                return s != s;
+                if constexpr (fk::isReducedFloat<ST>) {
+                    // fp8/fp4 have no comparison operators, and e4m3/e2m1 NaN is not
+                    // detectable via s != s anyway: classify by bit pattern.
+                    return fk::ReducedFloatTraits<ST>::isNaN(s);
+                } else {
+                    return s != s;
+                }
             }
         };
         CXP_F_FUNC
@@ -55,7 +75,11 @@ namespace cxp {
             using InstanceType = fk::UnaryType;
             template <typename ST>
             FK_HOST_DEVICE_FUSE bool exec(const ST& s) {
-                return s == s && s != ST(0) && s + s == s;
+                if constexpr (fk::isReducedFloat<ST>) {
+                    return fk::ReducedFloatTraits<ST>::isInf(s);
+                } else {
+                    return s == s && s != ST(0) && s + s == s;
+                }
             }
         };
         CXP_F_FUNC
@@ -79,23 +103,29 @@ namespace cxp {
             using InstanceType = fk::BinaryType;
             template<typename ST1, typename ST2>
             FK_HOST_DEVICE_FUSE bool exec(const ST1& s1, const ST2& s2) {
-                static_assert(!std::is_same_v<ST1, bool> && std::is_fundamental_v<ST1>,
-                    "First parameter must be a fundamental type other than bool");
-                static_assert(!std::is_same_v<ST2, bool> && std::is_fundamental_v<ST2>,
-                    "Second parameter must be a fundamental type other than bool");
-                constexpr bool isAnyFloatingPoint = std::is_floating_point_v<ST1> || std::is_floating_point_v<ST2>;
-                constexpr bool areBothSigned = std::is_signed_v<ST1> == std::is_signed_v<ST2>;
-                if constexpr (isAnyFloatingPoint || areBothSigned) {
-                    // Safe comparison cases
-                    return s1 == s2;
-                } else if constexpr (std::is_signed_v<ST1>) {
-                    // T is signed, U is unsigned, both are integers
-                    if (s1 < 0) return false; // Negative cannot equal any unsigned.
-                    return static_cast<std::make_unsigned_t<ST1>>(s1) == s2;
+                if constexpr (fk::isReducedFloat<ST1> || fk::isReducedFloat<ST2>) {
+                    // Promote reduced floats explicitly: mixed implicit conversions between
+                    // float and half-like types are ambiguous, and fp8/fp4 have no operators.
+                    return exec(promoteReduced(s1), promoteReduced(s2));
                 } else {
-                    // T is unsigned, U is signed, both are integers
-                    if (s2 < 0) return false; // Negative cannot equal any unsigned.
-                    return s1 == static_cast<std::make_unsigned_t<ST2>>(s2);
+                    static_assert(!std::is_same_v<ST1, bool> && std::is_fundamental_v<ST1>,
+                        "First parameter must be a fundamental type other than bool");
+                    static_assert(!std::is_same_v<ST2, bool> && std::is_fundamental_v<ST2>,
+                        "Second parameter must be a fundamental type other than bool");
+                    constexpr bool isAnyFloatingPoint = std::is_floating_point_v<ST1> || std::is_floating_point_v<ST2>;
+                    constexpr bool areBothSigned = std::is_signed_v<ST1> == std::is_signed_v<ST2>;
+                    if constexpr (isAnyFloatingPoint || areBothSigned) {
+                        // Safe comparison cases
+                        return s1 == s2;
+                    } else if constexpr (std::is_signed_v<ST1>) {
+                        // T is signed, U is unsigned, both are integers
+                        if (s1 < 0) return false; // Negative cannot equal any unsigned.
+                        return static_cast<std::make_unsigned_t<ST1>>(s1) == s2;
+                    } else {
+                        // T is unsigned, U is signed, both are integers
+                        if (s2 < 0) return false; // Negative cannot equal any unsigned.
+                        return s1 == static_cast<std::make_unsigned_t<ST2>>(s2);
+                    }
                 }
             }
         };
@@ -120,23 +150,27 @@ namespace cxp {
             using InstanceType = fk::BinaryType;
             template<typename ST1, typename ST2>
             FK_HOST_DEVICE_FUSE bool exec(const ST1& s1, const ST2& s2) {
-                static_assert(!std::is_same_v<ST1, bool> && std::is_fundamental_v<ST1>,
-                    "First parameter must be a fundamental type other than bool");
-                static_assert(!std::is_same_v<ST2, bool> && std::is_fundamental_v<ST2>,
-                    "Second parameter must be a fundamental type other than bool");
-                constexpr bool isAnyFloatingPoint = std::is_floating_point_v<ST1> || std::is_floating_point_v<ST2>;
-                constexpr bool areBothSigned = std::is_signed_v<ST1> == std::is_signed_v<ST2>;
-                if constexpr (isAnyFloatingPoint || areBothSigned) {
-                    // Safe comparison cases
-                    return s1 < s2;
-                } else if constexpr (std::is_signed_v<ST1>) {
-                    // T is signed, U is unsigned, both are integers
-                    if (s1 < 0) return true; // Signed negative is always less than unsigned.
-                    return static_cast<std::make_unsigned_t<ST1>>(s1) < s2;
+                if constexpr (fk::isReducedFloat<ST1> || fk::isReducedFloat<ST2>) {
+                    return exec(promoteReduced(s1), promoteReduced(s2));
                 } else {
-                    // T is unsigned, U is signed, both are integers
-                    if (s2 < 0) return false; // Unsigned is never less than a signed negative.
-                    return s1 < static_cast<std::make_unsigned_t<ST2>>(s2);
+                    static_assert(!std::is_same_v<ST1, bool> && std::is_fundamental_v<ST1>,
+                        "First parameter must be a fundamental type other than bool");
+                    static_assert(!std::is_same_v<ST2, bool> && std::is_fundamental_v<ST2>,
+                        "Second parameter must be a fundamental type other than bool");
+                    constexpr bool isAnyFloatingPoint = std::is_floating_point_v<ST1> || std::is_floating_point_v<ST2>;
+                    constexpr bool areBothSigned = std::is_signed_v<ST1> == std::is_signed_v<ST2>;
+                    if constexpr (isAnyFloatingPoint || areBothSigned) {
+                        // Safe comparison cases
+                        return s1 < s2;
+                    } else if constexpr (std::is_signed_v<ST1>) {
+                        // T is signed, U is unsigned, both are integers
+                        if (s1 < 0) return true; // Signed negative is always less than unsigned.
+                        return static_cast<std::make_unsigned_t<ST1>>(s1) < s2;
+                    } else {
+                        // T is unsigned, U is signed, both are integers
+                        if (s2 < 0) return false; // Unsigned is never less than a signed negative.
+                        return s1 < static_cast<std::make_unsigned_t<ST2>>(s2);
+                    }
                 }
             }
         };
@@ -296,14 +330,19 @@ namespace cxp {
             using InstanceType = fk::BinaryType;
             template <typename ST>
             FK_HOST_DEVICE_FUSE auto exec(const ST& s1, const ST& s2)
-                -> std::enable_if_t<std::is_fundamental_v<ST>, ST> {
-                return s1 >= s2 ? s1 : s2;
+                -> std::enable_if_t<fk::validScalar<ST>, ST> {
+                if constexpr (fk::isReducedFloat<ST>) {
+                    // fp8/fp4 have no comparison operators: compare in float.
+                    return static_cast<float>(s1) >= static_cast<float>(s2) ? s1 : s2;
+                } else {
+                    return s1 >= s2 ? s1 : s2;
+                }
             }
         };
         CXP_F_FUNC
         template <typename ST>
         FK_HOST_DEVICE_FUSE ST f(const ST& s) {
-            return s; 
+            return s;
         }
     };
 
@@ -311,15 +350,19 @@ namespace cxp {
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
             template <typename ST>
-            FK_HOST_DEVICE_FUSE auto exec(const ST& s1, const ST& s2) 
-                -> std::enable_if_t<std::is_fundamental_v<ST>, ST> {
-                return s1 <= s2 ? s1 : s2;
+            FK_HOST_DEVICE_FUSE auto exec(const ST& s1, const ST& s2)
+                -> std::enable_if_t<fk::validScalar<ST>, ST> {
+                if constexpr (fk::isReducedFloat<ST>) {
+                    return static_cast<float>(s1) <= static_cast<float>(s2) ? s1 : s2;
+                } else {
+                    return s1 <= s2 ? s1 : s2;
+                }
             }
         };
         CXP_F_FUNC
         template <typename ST>
         FK_HOST_DEVICE_FUSE ST f(const ST& value) {
-            return value; 
+            return value;
         }
     };
 
@@ -328,8 +371,11 @@ namespace cxp {
             using InstanceType = fk::UnaryType;
             template <typename ST>
             FK_HOST_DEVICE_FUSE auto exec(const ST& s) {
-                static_assert(std::is_fundamental_v<ST>, "abs does not support non fundamental types");
-                if constexpr (std::is_signed_v<ST>) {
+                static_assert(fk::validScalar<ST>, "abs does not support non fundamental types");
+                if constexpr (fk::isReducedFloat<ST>) {
+                    // Sign-magnitude formats: clearing the sign bit is exact (and NaN safe).
+                    return fk::ReducedFloatTraits<ST>::abs(s);
+                } else if constexpr (std::is_signed_v<ST>) {
                     // For signed integrals, when x is std::numerical_limits<T>::lowest(),
                     // the result is undefined behavior in C++. So, for the sake of performance,
                     // we will not do any special treatment for those cases.
