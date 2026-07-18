@@ -1,6 +1,6 @@
 # Fused Kernel Library (FKL) Main branch
   
-The Fused Kernel Library is a C++20 implementation of a methodology that allows to define a set of operations that need to be executed inside a kernel, in the same order that they are expressed. The library currently has CPU and CUDA backends, but other GPU language implemenations (such as HIP) are possible.
+The Fused Kernel Library is a C++17 (with some C++20 features) implementation of a methodology that allows to define a set of operations that need to be executed inside a kernel, in the same order that they are expressed. The library currently has CPU and CUDA backends, but other GPU language implemenations (such as HIP) are possible.
 
 It automatically implements Vertical and Horizontal fusion, and also implements two new Fusion techniques, Backwards Vertical Fusion (akin to OpenCV Filters, but with an standard generic API), and Divergent Horizontal Fusion.
 
@@ -153,9 +153,9 @@ This is way faster to program than the conventional way of programming CUDA.
 
 ### Divergent Horizontal Fusion
 
-This novel type of Horizontal Fusion, allows to Horizontally Fuse kernels that are completelly different, and read the same or different data, but write the results in different memory regions.
+This novel type of Horizontal Fusion allows to horizontally fuse kernels that are completely different and read the same or different data but write the results in different memory regions.
 
-This has been tested before, by creating special compilers that generate the assembly code, and the performance benefits have been already reported. The novelty in our approach is that we do not require a different compiler. We do this by leveraging the C++17 capabilities found in nvcc.
+This has been tested before by creating special compilers that generate the assembly code and the performance benefits have been already reported. The novelty in our approach is that we do not require a different compiler. We do this by leveraging the [C++17](https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/cpp-language-support.html#c-17-language-features) and [C++20 capabilities found in nvcc](https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/cpp-language-support.html#c-20-language-features).
 
 ## Closed source friendly
 
