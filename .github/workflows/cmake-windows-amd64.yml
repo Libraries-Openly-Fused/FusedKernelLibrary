@@ -17,7 +17,7 @@ jobs:
         include:
           - host_compiler: "cl"
             msvc_env_version: "14.44"
-            cuda_version: "13.0"
+            cuda_version: "13.3"
 
           - host_compiler: "cl"
             msvc_env_version: "14.51"

@@ -167,6 +167,8 @@ With this strategy, they don't need to share any of their code. They just need t
 
 This is an Apache 2.0 OpenSource project, currently with no funding. The 3 main contributors work on the project on their spare time. In the case of the main author, he can work on solving bugs or adding features during his work hours on Grup Mediapro S.L.U. The code added during that time will include Copyright Grup Mediapro S.L.U.
 
+The minimum supported CUDA Toolkit version is 13.3: FKL delegates to libcu++ (CCCL >= 3.3) functionality, such as `<cuda/std/algorithm>`, that first shipped with it. CPU-only builds (`-DENABLE_CUDA=OFF` or no nvcc installed) do not require CUDA at all.
+
 As per Apache 2.0 we provide no guaratees, or free support. Nevertheless, the software has some testing on the following OS and compiler versions:
 - Ubuntu 24.04 g++ 13 + CUDA 13.3 or clang21 + CUDA 13.3 for both amd64 and arm64 systems.
-- Windows 11 Visual Studio 2022 + CUDA 13.0 or Visual Studio 2026 + CUDA 13.3 or clang-cl (VS2026) + CUDA 13.3 on amd64 systems.
+- Windows 11 Visual Studio 2022 + CUDA 13.3 or Visual Studio 2026 + CUDA 13.3 or clang-cl (VS2026) + CUDA 13.3 on amd64 systems.

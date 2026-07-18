@@ -10,7 +10,7 @@ Deep per-topic docs live in `.github/skills/*/SKILL.md` (implementing operations
 
 ## Build and test commands
 
-Requires CMake >= 3.28, a C++20 host compiler, and CUDA (nvcc). Project policy and CI treat CUDA as required, but CMake degrades gracefully: without nvcc it configures CPU-only and generates only `*_cpp` targets.
+Requires CMake >= 3.28, a C++20 host compiler, and CUDA >= 13.3 (nvcc). Project policy and CI treat CUDA as required, but CMake degrades gracefully: without nvcc it configures CPU-only and generates only `*_cpp` targets (an nvcc older than 13.3 is rejected with a FATAL_ERROR at configure time and a `#error` in `core/utils/utils.h`; `-DFK_ALLOW_OLDER_CUDA=ON` bypasses both for newer header-only CCCL >= 3.3 on an older toolkit).
 
 ```bash
 cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -S .   # configure
@@ -29,7 +29,7 @@ ctest -R '_cpp$'                                 # CPU-backend tests only (no GP
 
 Key CMake options: `ENABLE_CPU` (ON), `ENABLE_CUDA` (ON if nvcc found), `BUILD_TEST` (ON), `BUILD_UTEST` (ON), `ENABLE_BENCHMARK` (OFF), `CUDA_ARCH` ("native", passed verbatim to `CUDA_ARCHITECTURES` — no arch filtering exists), `ARCH_FLAGS` (CPU SIMD), `ENABLE_NVTX`, `ENABLE_DEBUG`, `TEMPLATE_DEPTH` (1000).
 
-There is no lint/format gate. Format manually with `clang-format -i` using the repo-root `.clang-format` (LLVM base, 4-space indent, 120-char lines, `PointerAlignment: Right`). The merge gate is the full ctest suite building and passing across CI's compiler matrix (no `-Werror` anywhere, though the skills' PR checklists ask for warning-clean nvcc and clang builds). CI runs only on PRs to `main` (self-hosted runners): Linux amd64/arm64 with g++-13 and clang++-21 + CUDA 13.3; Windows with cl 14.44 + CUDA 13.0, cl 14.51 + CUDA 13.3, and clang-cl 14.51 + CUDA 13.3.
+There is no lint/format gate. Format manually with `clang-format -i` using the repo-root `.clang-format` (LLVM base, 4-space indent, 120-char lines, `PointerAlignment: Right`). The merge gate is the full ctest suite building and passing across CI's compiler matrix (no `-Werror` anywhere, though the skills' PR checklists ask for warning-clean nvcc and clang builds). CI runs only on PRs to `main` (self-hosted runners): Linux amd64/arm64 with g++-13 and clang++-21 + CUDA 13.3; Windows with cl 14.44 + CUDA 13.3, cl 14.51 + CUDA 13.3, and clang-cl 14.51 + CUDA 13.3.
 
 ## Test infrastructure (no framework — no GTest/Catch2)
 
@@ -85,7 +85,6 @@ Pattern (see `Mul` in `algorithms/basic_ops/arithmetic.h`, `Crop` in `algorithms
 ## Stale documentation — do not trust these claims
 
 - `CLANG_HOST_DEVICE` does not exist; `core/utils/compiler_macros.h` defines only `_MSC_VER_EXISTS` (docs referencing it are stale).
-- No CUDA arch filtering / `nvidia-smi` detection / compute_70 minimum exists in cmake — `CUDA_ARCH` is passed verbatim (copilot-instructions claim is stale).
 - `ENABLE_CPU` is never auto-disabled for old MSVC.
 - The README example includes `<fused_kernel/core/execution_model/memory_operations.h>` — the real path is `include/fused_kernel/algorithms/basic_ops/memory_operations.h`.
 - `attention/` is absent from all skills, README, and copilot-instructions.

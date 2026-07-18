@@ -170,4 +170,4 @@ apply([](const auto&... iOps) { return BackFuser::fuse_back(iOps...); }, tup);
 - [ ] `FK_STATIC_STRUCT`
 - [ ] CPU exec() is `FK_HOST_FUSE`; GPU exec() is `FK_DEVICE_FUSE`
 - [ ] utest instantiating every public alias/build path
-- [ ] compiles warning-clean on nvcc AND clang (CUDA 12.x and 13.x)
+- [ ] compiles warning-clean on nvcc AND clang (CUDA 13.3+)

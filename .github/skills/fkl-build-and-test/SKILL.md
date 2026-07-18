@@ -9,7 +9,7 @@ running or adding tests, or debugging a compile failure in the test tree on any 
 # Building and testing FKL
 
 ## Build Options & Requirements
-- Requires CMake >= 3.28, a C++20 host compiler, and CUDA.
+- Requires CMake >= 3.28, a C++20 host compiler, and CUDA 13.3 or newer.
 - **Only nvcc is supported as the CUDA compiler**; clang-as-CUDA-compiler is not supported despite the
   `CLANG_HOST_DEVICE` macro.
 - Options: `ENABLE_CUDA` (default ON if found), `ENABLE_CPU` (ON), `ENABLE_BENCHMARK` (OFF).
@@ -27,7 +27,7 @@ cmake -G "Ninja" -B ../build -DCMAKE_BUILD_TYPE=Release -S .
 cmake --build ../build --config Release
 ```
 
-- Requires CMake >= 3.28, a C++ host compiler, and CUDA.
+- Requires CMake >= 3.28, a C++ host compiler, and CUDA 13.3 or newer.
 - Options: `ENABLE_CUDA` (default ON if found), `ENABLE_CPU` (ON),
   `ENABLE_BENCHMARK` (OFF) for the benchmark targets.
 - Binaries land in `../build` — one executable per test unit,

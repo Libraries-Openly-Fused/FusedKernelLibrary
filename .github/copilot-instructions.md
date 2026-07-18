@@ -21,12 +21,12 @@ The library has CPU and CUDA backends. HIP support is architecturally possible b
 FusedKernelLibrary/
 ├── .clang-format                 # LLVM-based style, 4-space indent, 120-char column limit
 ├── .github/workflows/            # CI: cmake-linux-amd64.yml, cmake-linux-arm64.yml, cmake-windows-amd64.yml
-├── CMakeLists.txt                # Root build (v0.2.0, requires CMake >= 3.28, C++20, and CUDA)
+├── CMakeLists.txt                # Root build (v0.2.0, requires CMake >= 3.28, C++20, and CUDA >= 13.3)
 ├── cmake/                        # CMake helpers: arch flags, CUDA init, test discovery, generators
 │   ├── archflags.cmake           # CPU SIMD flags (AVX2 default on MSVC x64, native on Unix)
 │   ├── cmake_init.cmake          # Global CMake settings
 │   ├── cuda_init.cmake           # CUDA language enablement and NVCC path (Ninja/Windows workaround)
-│   ├── libs/cuda/archs.cmake     # CUDA arch selection/filtering (requires compute_70+ for CUDA < 13)
+│   ├── libs/cuda/archs.cmake     # CUDA arch selection
 │   └── tests/                    # Test discovery and stub generation
 │       ├── discover_tests.cmake
 │       └── add_generated_test.cmake
@@ -52,7 +52,7 @@ FusedKernelLibrary/
 ### Requirements
 - **CMake** >= 3.28
 - **C++ compiler** with C++20 support
-- **CUDA** (required): requires NVCC. **Only nvcc is supported as the CUDA compiler**; clang-as-CUDA-compiler is not supported despite `CLANG_HOST_DEVICE` macro existing.
+- **CUDA** (required): requires NVCC from CUDA 13.3 or newer. **Only nvcc is supported as the CUDA compiler**; clang-as-CUDA-compiler is not supported despite `CLANG_HOST_DEVICE` macro existing.
 - **MSVC**: Visual Studio 2022 or Visual Studio 2026 (MSVC_VERSION >= 1930) required;
 
 ### Configure and Build (typical)
@@ -78,9 +78,8 @@ cmake --build build --config Release
 | `ARCH_FLAGS` | `AVX2`/`native` | CPU SIMD flags (MSVC: AVX/AVX2/AVX512; Unix: native/haswell/…) |
 
 ### CUDA Architecture Notes
-- **CUDA < 13**: Architectures below `compute_70` (Volta) are filtered out automatically. A GPU with compute < 70 will trigger an error.
-- **`native` with CUDA < 13**: `nvidia-smi --query-gpu=compute_cap` is executed at CMake configure time to detect the local GPU.
-- **CUDA >= 13**: All architectures allowed.
+- `CUDA_ARCH` is passed verbatim to the `CUDA_ARCHITECTURES` target property; no arch filtering is performed.
+- The minimum supported CUDA Toolkit is 13.3 (enforced at CMake configure time and via `#error` in `core/utils/utils.h`).
 
 ### Windows-Specific Notes
 - CI uses self-hosted runners with LLVM 21.1.0 at `D:/clang+llvm-21.1.0-x86_64-pc-windows-msvc/bin/`.
@@ -233,7 +232,7 @@ All three workflow files trigger on **pull requests to `main`** (push triggers a
 ### Windows (cmake-windows-amd64.yml)
 - **Host compilers**: `cl` (MSVC), `clang-cl`
 - **MSVC versions**: 14.44, 14.51 (via `-vcvars_ver`)
-- **CUDA**: 13.0, 13.3 (NVCC at `%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v<version>\bin\nvcc.exe`)
+- **CUDA**: 13.3 (NVCC at `%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v<version>\bin\nvcc.exe`)
 - **LLVM**: `D:/clang+llvm-21.1.0-x86_64-pc-windows-msvc/bin/` (added to PATH)
 - **Generator**: Ninja
 - **Workaround**: After CMake configure, `rules.ninja` may contain an empty NVCC path that is patched with PowerShell string replacement.
