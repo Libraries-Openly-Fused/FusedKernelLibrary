@@ -101,7 +101,7 @@ namespace fk { // namespace FusedKernel
         FK_HOST_DEVICE_FUSE auto read(const Point thread, const ReadIOp& readDF) {
             if constexpr (TFI::ENABLED) {
                 static_assert(isAnyReadType<ReadIOp>, "ReadIOp is not ReadType or ReadBackType");
-                return ReadIOp::Operation::template exec<TFI::elems_per_thread>(thread, readDF);
+                return ThreadFusionAdapter<typename ReadIOp::Operation>::template read<TFI::elems_per_thread>(thread, readDF);
             } else {
                 return ReadIOp::Operation::exec(thread, readDF);
             }
@@ -120,9 +120,9 @@ namespace fk { // namespace FusedKernel
                 const auto tempI = read<TFI, ReadIOp>(thread, readDF);
                 if constexpr (sizeof...(iOps) > 1) {
                     const auto tempO = operate_thread_fusion<TFI>(thread, tempI, iOps...);
-                    WriteOperation::template exec<TFI::elems_per_thread>(thread, tempO, writeDF);
+                    ThreadFusionAdapter<WriteOperation>::template write<TFI::elems_per_thread>(thread, tempO, writeDF);
                 } else {
-                    WriteOperation::template exec<TFI::elems_per_thread>(thread, tempI, writeDF);
+                    ThreadFusionAdapter<WriteOperation>::template write<TFI::elems_per_thread>(thread, tempI, writeDF);
                 }
             } else {
                 const auto tempI = read<TFI, ReadIOp>(thread, readDF);

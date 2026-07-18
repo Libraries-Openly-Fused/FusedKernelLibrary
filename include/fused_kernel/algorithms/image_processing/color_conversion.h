@@ -206,7 +206,6 @@ namespace fk {
         using Parent = ReadOperation<PixelBaseType,
                                      RawImage<PF>,
                                      ColorDepthPixelType<(ColorDepth)PixelFormatTraits<PF>::depth>,
-                                     TF::DISABLED,
                                      ReadYUV<PF>>;
         DECLARE_READ_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const Point thread, const ParamsType& params) {
@@ -295,8 +294,7 @@ namespace fk {
         using PixelBaseType = ColorDepthPixelBaseType<PixelFormatTraits<PF>::depth>;
         using Parent = WriteOperation<ColorDepthPixelType<(ColorDepth)PixelFormatTraits<PF>::depth>,
                                       RawImage<PF>,
-                                      PixelBaseType, 
-                                      TF::DISABLED,
+                                      PixelBaseType,
                                       WriteYUV<PF>>;
         DECLARE_WRITE_PARENT
         FK_HOST_DEVICE_FUSE void exec(const Point thread, const InputType input, const ParamsType& params) {
