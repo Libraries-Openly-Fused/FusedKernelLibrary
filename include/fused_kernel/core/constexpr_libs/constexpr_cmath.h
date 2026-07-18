@@ -24,39 +24,22 @@
 #include <limits>
 
 #ifdef __CUDACC__
+#include <cuda/std/algorithm> // Requires CUDA 13.3+ (libcu++/CCCL >= 3.3); enforced in core/utils/utils.h
 #include <cuda/std/bit>
 #include <cuda/std/utility>
-
-// Conditionally include the algorithm header if compiling on CUDA 13.3+
-#if __has_include(<cuda/std/algorithm>)
-#include <cuda/std/algorithm>
-#endif
 
 namespace cxp {
 using cuda::std::bit_cast;
 namespace base {
+using cuda::std::clamp;
 using cuda::std::cmp_equal;
 using cuda::std::cmp_greater;
 using cuda::std::cmp_greater_equal;
 using cuda::std::cmp_less;
 using cuda::std::cmp_less_equal;
 using cuda::std::cmp_not_equal;
-
-// If the header exists, alias the cuda::std versions
-#if __has_include(<cuda/std/algorithm>)
-using cuda::std::clamp;
 using cuda::std::max;
 using cuda::std::min;
-#else
-// Polyfill for CUDA < 13.3 where <cuda/std/algorithm> is missing
-template <typename T> constexpr __host__ __device__ const T &max(const T &a, const T &b) { return (a < b) ? b : a; }
-
-template <typename T> constexpr __host__ __device__ const T &min(const T &a, const T &b) { return (b < a) ? b : a; }
-
-template <typename T> constexpr __host__ __device__ const T &clamp(const T &v, const T &lo, const T &hi) {
-    return (v < lo) ? lo : ((hi < v) ? hi : v);
-}
-#endif
 } // namespace base
 } // namespace cxp
 #else
@@ -95,6 +78,7 @@ namespace cxp {
         return Exec<BaseFunc>::exec(vals...);          \
     }
 
+    // Hand-rolled: std::isnan is constexpr only since C++23 (P0533) and the CPU backend compiles as plain C++20.
     struct isnan {
         struct BaseFunc {
             using InstanceType = fk::UnaryType;
@@ -106,6 +90,7 @@ namespace cxp {
         CXP_F_FUNC
     };
 
+    // Hand-rolled: std::isinf is constexpr only since C++23 (P0533) and the CPU backend compiles as plain C++20.
     struct isinf {
         struct BaseFunc {
             using InstanceType = fk::UnaryType;
@@ -117,6 +102,7 @@ namespace cxp {
         CXP_F_FUNC
     };
 
+    // Hand-rolled: no std equivalent.
     struct is_even {
         struct BaseFunc {
             using InstanceType = fk::UnaryType;
@@ -141,6 +127,7 @@ namespace cxp {
     };
 
     // safe cmp_equal all types, including floating point
+    // Hand-rolled: std::cmp_equal and friends only accept integral types, the *_u variants also take floating point.
     struct cmp_equal_u {
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
@@ -283,6 +270,7 @@ namespace cxp {
         CXP_F_FUNC
     };
 
+    // Hand-rolled: neither C++20 std::round nor cuda::std::round (libcu++/CCCL 3.3) is constexpr.
     struct round {
         struct BaseFunc {
             using InstanceType = fk::UnaryType;
@@ -301,6 +289,7 @@ namespace cxp {
         CXP_F_FUNC
     };
 
+    // Hand-rolled: neither C++20 std::floor nor cuda::std::floor (libcu++/CCCL 3.3) is constexpr.
     struct floor {
         struct BaseFunc {
             using InstanceType = fk::UnaryType;
@@ -330,6 +319,7 @@ namespace cxp {
         CXP_F_FUNC
     };
 
+    // Hand-rolled: neither C++20 std::nearbyint nor cuda::std::nearbyint (libcu++/CCCL 3.3) is constexpr.
     struct nearbyint {
         struct BaseFunc {
             using InstanceType = fk::UnaryType;
@@ -409,6 +399,9 @@ namespace cxp {
         }
     };
 
+    // Hand-rolled: cuda::std::fmaxf drops the IEEE-754 signed-zero ordering when constant-evaluated
+    // (fmax(-0.f, +0.f) yields -0.f) and host libm differs from the device instruction on signed zeros,
+    // breaking the compile-time/runtime and CPU/GPU bit-identity this library guarantees.
     struct fmaxf {
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
@@ -456,6 +449,7 @@ namespace cxp {
         }
     };
 
+    // Hand-rolled: same signed-zero bit-identity rationale as fmaxf.
     struct fminf {
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
@@ -487,6 +481,7 @@ namespace cxp {
         FK_HOST_DEVICE_FUSE float f(const float &s) { return s; }
     };
 
+    // Hand-rolled: same signed-zero bit-identity rationale as fmaxf.
     struct fmax {
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
@@ -516,6 +511,7 @@ namespace cxp {
         CXP_F_FUNC
     };
 
+    // Hand-rolled: same signed-zero bit-identity rationale as fmaxf.
     struct fmin {
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
@@ -546,6 +542,7 @@ namespace cxp {
         CXP_F_FUNC
     };
 
+    // Hand-rolled: std::abs is constexpr only since C++23 and has no overloads for unsigned types.
     struct abs {
         struct BaseFunc {
             using InstanceType = fk::UnaryType;
@@ -594,6 +591,7 @@ namespace cxp {
         }
     };
 
+    // Hand-rolled: neither C++20 std::ldexp nor cuda::std::ldexpf (libcu++/CCCL 3.3) is constexpr.
     struct ldexpf {
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
@@ -651,6 +649,8 @@ namespace cxp {
         CXP_F_FUNC
     };
 
+    // Hand-rolled: std::exp is constexpr only since C++26 (P1383) and cuda::std::expf (libcu++/CCCL 3.3)
+    // is not constexpr; also keeps CPU/GPU results bit-identical, which libm vs libdevice does not.
     struct expf {
         struct BaseFunc {
             using InstanceType = fk::UnaryType;
@@ -710,10 +710,7 @@ namespace cxp {
                 return base::clamp(val, minV, maxV);
             }
         };
-        template <typename... Types>
-        static constexpr inline auto f(const Types &...vals) {
-            return Exec<BaseFunc>::exec(vals...);
-        }
+        CXP_F_FUNC
     };
 
 #undef CXP_F_FUNC

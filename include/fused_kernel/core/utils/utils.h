@@ -17,6 +17,16 @@
 
 #include <fused_kernel/core/utils/compiler_macros.h>
 
+// FKL requires the CUDA 13.3+ toolchain: its libcu++ (CCCL >= 3.3) is the first to ship
+// <cuda/std/algorithm>, which the cxp:: layer delegates to. Newer CCCL headers on an older
+// toolkit (a configuration CCCL supports) can bypass this check by defining FK_ALLOW_OLDER_CUDA
+// (in-tree builds: configure with -DFK_ALLOW_OLDER_CUDA=ON, which also skips the CMake gate).
+#if defined(__CUDACC_VER_MAJOR__) && !defined(FK_ALLOW_OLDER_CUDA)
+#if (__CUDACC_VER_MAJOR__ < 13) || ((__CUDACC_VER_MAJOR__ == 13) && (__CUDACC_VER_MINOR__ < 3))
+#error "FusedKernelLibrary requires CUDA 13.3 or newer"
+#endif
+#endif // defined(__CUDACC_VER_MAJOR__) && !defined(FK_ALLOW_OLDER_CUDA)
+
 #if !defined(NVRTC_COMPILER)
 #include <string>
 #include <stdexcept>

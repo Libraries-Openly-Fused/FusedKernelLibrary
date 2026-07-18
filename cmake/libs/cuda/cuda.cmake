@@ -12,6 +12,24 @@ endfunction()
 
 find_package(CUDAToolkit REQUIRED)
 
+# FKL relies on libcu++ features (e.g. <cuda/std/algorithm>) that first shipped with CUDA 13.3.
+# FK_ALLOW_OLDER_CUDA covers the CCCL-supported configuration of newer header-only CCCL (>= 3.3)
+# on an older toolkit: it skips this check and defines FK_ALLOW_OLDER_CUDA so the matching
+# #error in include/fused_kernel/core/utils/utils.h is bypassed as well.
+option(FK_ALLOW_OLDER_CUDA "Allow CUDA toolkits older than 13.3 (requires header-only CCCL >= 3.3 on the include path)" OFF)
+if (CUDAToolkit_VERSION VERSION_LESS "13.3")
+    if (${FK_ALLOW_OLDER_CUDA})
+        message(WARNING
+            "CUDA ${CUDAToolkit_VERSION} is older than the required 13.3; continuing because FK_ALLOW_OLDER_CUDA is ON. "
+            "A newer header-only CCCL (>= 3.3, providing <cuda/std/algorithm>) must come first in the include path.")
+        add_compile_definitions(FK_ALLOW_OLDER_CUDA)
+    else()
+        message(FATAL_ERROR
+            "FusedKernelLibrary requires CUDA 13.3 or newer, but CUDA ${CUDAToolkit_VERSION} was found. "
+            "Please upgrade your CUDA Toolkit, or configure with -DENABLE_CUDA=OFF for a CPU-only build.")
+    endif()
+endif()
+
 # extra cuda_libraries only detected after project() this is needed for compatibility with old local builds that only
 # have cuda in normal location instead of custom location
  
