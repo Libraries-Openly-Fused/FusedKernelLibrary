@@ -29,6 +29,15 @@ __global__ void launchTransformDPP_Kernel(const __grid_constant__ TDPPDetails tD
     TransformDPP<PA, TFEN, TDPPDetails, THREAD_DIVISIBLE>::exec(tDPPDetails, operations...);
 }
 
+// Generic kernel for the InstantiableDPP execution path: any DPP conforming to the
+// InstantiableDPP protocol (see instantiable_dpp.h) is launched through this single
+// trampoline, so new DPPs do not need their own __global__ kernel.
+template <typename DPP, typename DPPDetails, typename... IOps>
+__global__ void launchInstantiableDPP_Kernel(const __grid_constant__ DPPDetails details,
+                                             const __grid_constant__ IOps... iOps) {
+    DPP::exec(details, iOps...);
+}
+
 } // namespace fk
 #endif
 

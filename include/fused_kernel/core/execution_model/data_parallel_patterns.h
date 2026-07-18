@@ -26,6 +26,7 @@ namespace cg = cooperative_groups;
 #include <fused_kernel/core/execution_model/thread_fusion.h>
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 #include <fused_kernel/core/execution_model/active_threads.h>
+#include <fused_kernel/core/execution_model/instantiable_dpp.h>
 #include <cmath>
 
 namespace fk { // namespace FusedKernel
@@ -183,7 +184,14 @@ namespace fk { // namespace FusedKernel
 
     template <enum ParArch PA, enum TF TFEN>
     struct TransformDPP<PA, TFEN, void, true, void> {
+    private:
+        using SelfType = TransformDPP<PA, TFEN>;
+    public:
         static constexpr ParArch PAR_ARCH = PA;
+        /** IO contract: one Read/ReadBack IOp in, an optional compute IOp chain, one Write IOp out. */
+        static constexpr DPPIOSpec IO_SPEC{ /*inputIOps*/ 1, /*outputIOps*/ 1,
+                                            /*acceptsComputeIOps*/ true, /*argsAreIOpSequences*/ false };
+
         template <typename FirstIOp, typename... IOps>
         FK_HOST_FUSE auto build_details(const FirstIOp& firstIOp, const IOps&... iOps) {
             using Details = TransformDPPDetails<static_cast<bool>(TFEN), FirstIOp, IOps...>;
@@ -199,6 +207,43 @@ namespace fk { // namespace FusedKernel
                 return details;
             } else {
                 return Details{};
+            }
+        }
+
+        /**
+         * @brief build: creates an InstantiableDPP (this DPP plus its runtime details and IOps),
+         * enforcing the IO contract (IO_SPEC) at compile time. Execute the result with
+         * fk::execute(stream, instantiableDPP).
+         */
+        template <typename... IOps>
+        FK_HOST_FUSE auto build(const IOps&... iOps) {
+            return buildInstantiableDPP<SelfType>(iOps...);
+        }
+
+        template <typename RTDetails, typename FirstIOp, typename... IOps>
+        FK_HOST_FUSE DPPLaunchConfig getLaunchConfig(const RTDetails& details, const FirstIOp& firstIOp, const IOps&...) {
+            if constexpr (RTDetails::TFI::ENABLED) {
+                return defaultDPPLaunchConfig(details.activeThreads);
+            } else {
+                return defaultDPPLaunchConfig(firstIOp.getActiveThreads());
+            }
+        }
+
+        /**
+         * @brief exec: generic entry point used by the InstantiableDPP execution path.
+         * Dispatches to the Details-resolved TransformDPP implementation. When thread fusion
+         * is enabled, the thread-divisibility variant is selected with a grid-uniform branch.
+         */
+        template <typename RTDetails, typename... IOps>
+        FK_HOST_DEVICE_FUSE void exec(const RTDetails& details, const IOps&... iOps) {
+            if constexpr (RTDetails::TFI::ENABLED) {
+                if (details.threadDivisible) {
+                    TransformDPP<PA, TFEN, RTDetails, true>::exec(details, iOps...);
+                } else {
+                    TransformDPP<PA, TFEN, RTDetails, false>::exec(details, iOps...);
+                }
+            } else {
+                TransformDPP<PA, TFEN, RTDetails, true>::exec(details, iOps...);
             }
         }
     };
@@ -306,9 +351,42 @@ namespace fk { // namespace FusedKernel
     struct DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelector> {
     private:
         using Parent = DivergentBatchTransformDPPBase<SequenceSelector>;
+        using SelfType = DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelector>;
     public:
         using DPPDetails = DivergentBatchTransformDPPDetails<ParArch::GPU_NVIDIA>;
         static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
+        /** IO contract: N (>=1) IOpSequences; each one holds one Read/ReadBack IOp,
+         *  an optional compute IOp chain and one Write IOp. */
+        static constexpr DPPIOSpec IO_SPEC{ /*inputIOps*/ 1, /*outputIOps*/ 1,
+                                            /*acceptsComputeIOps*/ true, /*argsAreIOpSequences*/ true };
+
+        template <typename... IOpSequenceTypes>
+        FK_HOST_FUSE DPPDetails build_details(const IOpSequenceTypes&...) {
+            return DPPDetails{};
+        }
+
+        /**
+         * @brief build: creates an InstantiableDPP from one IOpSequence per divergent branch,
+         * enforcing the IO contract (IO_SPEC) at compile time on each sequence. Execute the
+         * result with fk::execute(stream, instantiableDPP).
+         */
+        template <typename... IOpSequenceTypes>
+        FK_HOST_FUSE auto build(const IOpSequenceTypes&... iOpSequences) {
+            return buildInstantiableDPP<SelfType>(iOpSequences...);
+        }
+
+        template <typename... IOpSequenceTypes>
+        FK_HOST_FUSE DPPLaunchConfig getLaunchConfig(const DPPDetails&, const IOpSequenceTypes&... iOpSequences) {
+            const uint x = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().x...);
+            const uint y = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().y...);
+            const uint z = cxp::sum::f(get<0>(iOpSequences.iOps).getActiveThreads().z...);
+            const ActiveThreads block(cxp::min::f(x, 32u), cxp::min::f(y, 8u), 1u);
+            const ActiveThreads grid(static_cast<uint>(ceil(x / static_cast<float>(block.x))),
+                                     static_cast<uint>(ceil(y / static_cast<float>(block.y))),
+                                     z);
+            return { grid, block };
+        }
+
         template <typename... IOpSequenceTypes>
         FK_DEVICE_FUSE void exec(const DPPDetails&, const IOpSequenceTypes&... iOpSequences) {
 

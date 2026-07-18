@@ -190,8 +190,11 @@ struct InstantiableSimpleTransformDPPReference {
     static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
 };
 
+// Local prototype that predates (and is superseded by) fk::InstantiableDPP
+// (core/execution_model/instantiable_dpp.h). Renamed to LocalInstantiableDPP to
+// avoid ambiguity with the fk:: one (this TU does `using namespace fk`).
 template <typename DPP_, typename... Operations>
-struct InstantiableDPP {
+struct LocalInstantiableDPP {
     using DPP = DPP_;
     using OperationsTuple = Tuple<Operations...>;
     OperationsTuple ops;
@@ -200,12 +203,12 @@ struct InstantiableDPP {
 struct SimpleTransformDPPReferenceBuilder {
     template <typename... IOps>
     FK_HOST_FUSE auto build(const IOps&... iops) {
-        return InstantiableDPP<SimpleTransformDPPReferenceFoldExpr<ParArch::GPU_NVIDIA>, IOps...>{make_tuple(iops...)};
+        return LocalInstantiableDPP<SimpleTransformDPPReferenceFoldExpr<ParArch::GPU_NVIDIA>, IOps...>{make_tuple(iops...)};
     }
 };
 
 template <typename IDPP>
-__global__ void launchInstantiableDPP_Kernel(const __grid_constant__ IDPP idpp) {
+__global__ void launchLocalInstantiableDPP_Kernel(const __grid_constant__ IDPP idpp) {
     apply_d([](auto &&...args) { return std::decay_t<IDPP>::DPP::exec(std::forward<decltype(args)>(args)...); },
               idpp.ops);
 }
@@ -333,7 +336,7 @@ struct Executor<InstantiableSimpleTransformDPPReference> {
         const dim3 block{ctx_block.x, ctx_block.y, 1};
         const dim3 grid{static_cast<uint>(ceil(activeThreads.x / static_cast<float>(block.x))),
                         static_cast<uint>(ceil(activeThreads.y / static_cast<float>(block.y))), activeThreads.z};
-        launchInstantiableDPP_Kernel<<<grid, block, 0, stream>>>(idpp);
+        launchLocalInstantiableDPP_Kernel<<<grid, block, 0, stream>>>(idpp);
         gpuErrchk(cudaGetLastError());
     }
 

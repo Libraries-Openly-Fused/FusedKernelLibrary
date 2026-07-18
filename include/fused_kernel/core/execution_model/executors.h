@@ -19,6 +19,7 @@
 
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 #include <fused_kernel/core/execution_model/data_parallel_patterns.h>
+#include <fused_kernel/core/execution_model/executor_details/launch_config.h>
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/basic_ops/set.h>
 #include <fused_kernel/core/execution_model/stream.h>
@@ -28,19 +29,6 @@
 #endif
 
 namespace fk {
-
-#if defined(__NVCC__)
-    struct CtxDim3 {
-        uint x;
-        uint y;
-        uint z;
-        constexpr CtxDim3(const dim3& dims) : x(dims.x), y(dims.y), z(dims.z) {}
-        constexpr CtxDim3() : x(1), y(1), z(1) {}
-        constexpr CtxDim3(const uint& x) : x(x), y(1), z(1) {}
-        constexpr CtxDim3(const uint& x, const uint& y) : x(x), y(y), z(1) {}
-        constexpr CtxDim3(const uint& x, const uint& y, const uint& z) : x(x), y(y), z(z) {}
-    };
-#endif
 
     template <typename Child>
     struct BaseExecutor {
@@ -189,75 +177,6 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
     };
 
 #if defined(__NVCC__)
-    struct ComputeBestSolutionBase {
-        FK_HOST_FUSE uint computeDiscardedThreads(const uint width, const uint height, const uint blockDimx, const uint blockDimy) {
-            const uint modX = width % blockDimx;
-            const uint modY = height % blockDimy;
-            const uint th_disabled_in_X = modX == 0 ? 0 : blockDimx - modX;
-            const uint th_disabled_in_Y = modY == 0 ? 0 : blockDimy - modY;
-            return (th_disabled_in_X * (modY == 0 ? height : (height + blockDimy)) + th_disabled_in_Y * width);
-        }
-    };
-
-    template <uint bxS_t, uint byS_t>
-    struct computeBestSolution {};
-
-    template <uint bxS_t>
-    struct computeBestSolution<bxS_t, 0> final : public ComputeBestSolutionBase {
-        FK_HOST_FUSE void exec(const uint width, const uint height, uint& bxS, uint& byS, uint& minDiscardedThreads, const uint(&blockDimX)[4], const uint(&blockDimY)[2][4]) {
-            const uint currentDiscardedThreads = computeDiscardedThreads(width, height, blockDimX[bxS_t], blockDimY[0][bxS_t]);
-            if (minDiscardedThreads > currentDiscardedThreads) {
-                minDiscardedThreads = currentDiscardedThreads;
-                bxS = bxS_t;
-                byS = 0;
-                if (minDiscardedThreads == 0) return;
-            }
-            computeBestSolution<bxS_t, 1>::exec(width, height, bxS, byS, minDiscardedThreads, blockDimX, blockDimY);
-        }
-    };
-
-    template <uint bxS_t>
-    struct computeBestSolution<bxS_t, 1> final : public ComputeBestSolutionBase {
-        FK_HOST_FUSE void exec(const uint width, const uint height, uint& bxS, uint& byS, uint& minDiscardedThreads, const uint(&blockDimX)[4], const uint(&blockDimY)[2][4]) {
-            const uint currentDiscardedThreads = computeDiscardedThreads(width, height, blockDimX[bxS_t], blockDimY[1][bxS_t]);
-            if (minDiscardedThreads > currentDiscardedThreads) {
-                minDiscardedThreads = currentDiscardedThreads;
-                bxS = bxS_t;
-                byS = 1;
-                if constexpr (bxS_t == 3) return;
-                if (minDiscardedThreads == 0) return;
-            }
-            computeBestSolution<bxS_t + 1, 0>::exec(width, height, bxS, byS, minDiscardedThreads, blockDimX, blockDimY);
-        }
-    };
-
-    template <>
-    struct computeBestSolution<3, 1> final : public ComputeBestSolutionBase {
-        FK_HOST_FUSE void exec(const uint width, const uint height, uint& bxS, uint& byS, uint& minDiscardedThreads, const uint(&blockDimX)[4], const uint(&blockDimY)[2][4]) {
-            const uint currentDiscardedThreads = computeDiscardedThreads(width, height, blockDimX[3], blockDimY[1][3]);
-            if (minDiscardedThreads > currentDiscardedThreads) {
-                minDiscardedThreads = currentDiscardedThreads;
-                bxS = 3;
-                byS = 1;
-            }
-        }
-    };
-
-    FK_HOST_CNST CtxDim3 getDefaultBlockSize(const uint& width, const uint& height) {
-        constexpr uint blockDimX[4] = { 32, 64, 128, 256 };  // Possible block sizes in the x axis
-        constexpr uint blockDimY[2][4] = { { 8,  4,   2,   1},
-                                          { 6,  3,   3,   2} };  // Possible block sizes in the y axis according to blockDim.x
-
-        uint minDiscardedThreads = UINT_MAX;
-        uint bxS = 0; // from 0 to 3
-        uint byS = 0; // from 0 to 1
-
-        computeBestSolution<0, 0>::exec(width, height, bxS, byS, minDiscardedThreads, blockDimX, blockDimY);
-
-        return CtxDim3(blockDimX[bxS], blockDimY[byS][bxS]);
-    }
-#endif
-#if defined(__NVCC__)
     template <enum TF TFEN>
     struct Executor<TransformDPP<ParArch::GPU_NVIDIA, TFEN>> {
     private:
@@ -359,6 +278,63 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             executeOperations_helper(stream, iOpSequences...);
         }
     };
+#endif
+
+    // ===============================================================================
+    // Generic InstantiableDPP execution path
+    // ===============================================================================
+    // ONE executor path for every DPP that conforms to the InstantiableDPP protocol
+    // (see instantiable_dpp.h): no per-DPP Executor specialization and no per-DPP
+    // __global__ kernel are needed.
+
+    // hasGetLaunchConfig trait: detects the getLaunchConfig(details, iOps...) hook
+    template <typename DPP, typename Details, typename Enabler, typename... IOps>
+    struct HasGetLaunchConfig_ : std::false_type {};
+    template <typename DPP, typename Details, typename... IOps>
+    struct HasGetLaunchConfig_<DPP, Details,
+        std::void_t<decltype(DPP::getLaunchConfig(std::declval<const Details&>(), std::declval<const IOps&>()...))>,
+        IOps...> : std::true_type {};
+    template <typename DPP, typename Details, typename... IOps>
+    constexpr bool hasGetLaunchConfig_v = HasGetLaunchConfig_<DPP, Details, void, IOps...>::value;
+
+    /**
+     * @brief execute: executes an InstantiableDPP (built with DPP::build(iOps...)) on the
+     * CPU backend. The DPP's exec() implements the whole sequential loop.
+     */
+    template <typename DPP, typename DPPDetails, typename... IOps>
+    inline void execute(Stream_<ParArch::CPU>& stream, const InstantiableDPP<DPP, DPPDetails, IOps...>& iDPP) {
+        static_assert(DPP::PAR_ARCH == ParArch::CPU,
+            "fk::execute: the InstantiableDPP was built for a different backend than the Stream_<ParArch::CPU> provided.");
+        static_assert(dppIOContractSatisfied<DPP, IOps...>(),
+            "fk::execute: the InstantiableDPP does not conform to the IO contract (IO_SPEC) of its DPP.");
+        apply([&](const auto&... iOps) {
+            DPP::exec(iDPP.details, iOps...);
+        }, iDPP.iOps);
+        (void)stream; // CPU streams are synchronous
+    }
+
+#if defined(__NVCC__)
+    /**
+     * @brief execute: executes an InstantiableDPP (built with DPP::build(iOps...)) on the
+     * GPU_NVIDIA backend, launching the generic launchInstantiableDPP_Kernel with the
+     * grid/block configuration provided by the DPP's getLaunchConfig().
+     */
+    template <typename DPP, typename DPPDetails, typename... IOps>
+    inline void execute(Stream_<ParArch::GPU_NVIDIA>& stream, const InstantiableDPP<DPP, DPPDetails, IOps...>& iDPP) {
+        static_assert(DPP::PAR_ARCH == ParArch::GPU_NVIDIA,
+            "fk::execute: the InstantiableDPP was built for a different backend than the Stream_<ParArch::GPU_NVIDIA> provided.");
+        static_assert(dppIOContractSatisfied<DPP, IOps...>(),
+            "fk::execute: the InstantiableDPP does not conform to the IO contract (IO_SPEC) of its DPP.");
+        static_assert(hasGetLaunchConfig_v<DPP, DPPDetails, IOps...>,
+            "fk::execute: a GPU DPP must implement 'FK_HOST_FUSE DPPLaunchConfig getLaunchConfig(const Details&, const IOps&...)'.");
+        apply([&](const auto&... iOps) {
+            const DPPLaunchConfig config = DPP::getLaunchConfig(iDPP.details, iOps...);
+            const dim3 grid{ config.grid.x, config.grid.y, config.grid.z };
+            const dim3 block{ config.block.x, config.block.y, config.block.z };
+            launchInstantiableDPP_Kernel<DPP><<<grid, block, 0, stream.getCUDAStream()>>>(iDPP.details, iOps...);
+            gpuErrchk(cudaGetLastError());
+        }, iDPP.iOps);
+    }
 #endif
 } // namespace fk
 
