@@ -55,7 +55,7 @@ namespace fk {
 struct Bf16AttentionRead {
 private:
     using Parent = ReadOperation<__nv_bfloat16, RawPtr<ND::_3D, __nv_bfloat16>,
-                                 float, TF::DISABLED, Bf16AttentionRead>;
+                                 float, Bf16AttentionRead>;
     using SelfType = Bf16AttentionRead;
 public:
     FK_STATIC_STRUCT(Bf16AttentionRead, SelfType)

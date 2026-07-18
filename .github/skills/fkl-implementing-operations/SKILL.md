@@ -78,6 +78,37 @@ FK_HOST_FUSE auto build(const BIOp& backIOp, const InstantiableType& iOp) {
 }
 ```
 
+## Thread fusion (vectorized memory access) is NOT part of the authoring contract
+
+Read/Write Operations only implement their scalar `exec()`. The multi-element (vectorized) path
+used by `TransformDPP<PA, TF::ENABLED>` is synthesized centrally by `ThreadFusionAdapter`
+(`core/execution_model/thread_fusion.h`). By default an Operation does not support thread fusion;
+to opt in, declare exactly ONE static hook next to exec() (declaring both is rejected at compile
+time by `ThreadFusionAdapter`):
+
+```cpp
+// Plain pitch-linear access, thread.x indexes consecutive ReadDataType/WriteDataType elements
+// (see PerThreadRead/PerThreadWrite/TensorRead/TensorWrite):
+FK_HOST_DEVICE_FUSE const ParamsType& contiguous_data(const ParamsType& params) {
+    return params;  // must be (or return) a RawPtr<D, T> of the Operation's memory data type
+}
+
+// Wrapper Operations that only remap the thread / select per-plane data and delegate the
+// access to a wrapped Operation (see BatchRead/BatchWrite/CircularBatchRead):
+FK_HOST_DEVICE_FUSE ForwardedAccess<Operation> forwarded_access(const Point thread,
+                                                                const ParamsType& params) {
+    return { remappedThread, params.opData[remappedThread.z] };
+}
+```
+
+Never write `template <uint ELEMS_PER_THREAD> exec(...)` overloads — that machinery lives only in
+`thread_fusion.h`. If your exec() does anything else per element (defaults, format conversion,
+multi-pointer access), simply declare no hook. `contiguous_data` on a Write Operation additionally
+requires `InputType == WriteDataType` (the wide store is computed from `InputType`; enforced by a
+static_assert). At runtime, `isThreadDivisible` checks the row width of every z plane (batch
+Operations can hold a different width per plane); any non-divisible plane selects the
+remainder-path kernel variant instead of the wide-access one.
+
 ## Runtime values vs compile-time types (the golden rule)
 
 Anything users may change per call (factors, rects, matrices, sizes) goes in ParamsType. Anything that changes the generated code (dtype, channel count, batch size, interpolation mode) is a template parameter. Getting this wrong either recompiles on every value change or silently bakes stale values into kernels.

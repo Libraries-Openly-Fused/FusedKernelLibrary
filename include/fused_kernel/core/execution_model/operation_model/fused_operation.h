@@ -82,7 +82,7 @@ namespace fk {
       using FusedReadDataType = typename std::decay_t<FirstType_t<IOps...>>::Operation::ReadDataType;
       using FusedOutputType = typename LastType_t<IOps...>::Operation::OutputType;
 
-      using Parent = ReadOperation<FusedReadDataType, OperationTuple<IOps...>, FusedOutputType, TF::DISABLED, SelfType, true>;
+      using Parent = ReadOperation<FusedReadDataType, OperationTuple<IOps...>, FusedOutputType, SelfType, true>;
     public:
         FK_STATIC_STRUCT(FusedOperation_, SelfType)
         DECLARE_READ_PARENT
@@ -183,7 +183,7 @@ namespace fk {
         using FusedInputType = typename FirstType_t<IOps...>::Operation::InputType;
         using FusedWriteDataType = typename LastType_t<IOps...>::Operation::WriteDataType;
         using Parent = WriteOperation<FusedInputType,
-            OperationTuple<IOps...>, FusedWriteDataType, TF::DISABLED, SelfType, true>;
+            OperationTuple<IOps...>, FusedWriteDataType, SelfType, true>;
 
       public:
         FK_STATIC_STRUCT(FusedOperation_, SelfType)

@@ -32,7 +32,7 @@ namespace fk {
         using SelfType = ReadSet<T>;
     public:
         FK_STATIC_STRUCT(ReadSet, SelfType)
-        using Parent = ReadOperation<T, ReadSetParams<T>, T, TF::DISABLED, ReadSet<T>>;
+        using Parent = ReadOperation<T, ReadSetParams<T>, T, ReadSet<T>>;
         DECLARE_READ_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const Point thread, const ParamsType& params) {
             return params.value;

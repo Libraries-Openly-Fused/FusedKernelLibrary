@@ -88,7 +88,7 @@ struct Int8TokenDequantReadParams {
 struct Int8TokenDequantRead {
 private:
     using Parent = ReadOperation<int8_t, Int8TokenDequantReadParams, float,
-                                 TF::DISABLED, Int8TokenDequantRead>;
+                                 Int8TokenDequantRead>;
     using SelfType = Int8TokenDequantRead;
 public:
     FK_STATIC_STRUCT(Int8TokenDequantRead, SelfType)
@@ -375,7 +375,7 @@ struct Fp8TokenDequantReadParams {
 struct Fp8TokenDequantRead {
 private:
     using Parent = ReadOperation<int8_t, Fp8TokenDequantReadParams, float,
-                                 TF::DISABLED, Fp8TokenDequantRead>;
+                                 Fp8TokenDequantRead>;
     using SelfType = Fp8TokenDequantRead;
 public:
     FK_STATIC_STRUCT(Fp8TokenDequantRead, SelfType)
