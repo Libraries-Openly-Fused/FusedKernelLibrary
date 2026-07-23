@@ -27,7 +27,7 @@
 #include <fused_kernel/fused_kernel.h>
 #include "tests/nvtx.h"
 
-constexpr size_t NUM_EXPERIMENTS = 5;
+constexpr size_t NUM_EXPERIMENTS = 1;
 constexpr size_t FIRST_VALUE = 1024;
 constexpr size_t INCREMENT = 1024;
 constexpr std::array<size_t, NUM_EXPERIMENTS> variableDimensionValues = arrayIndexSecuence<FIRST_VALUE, INCREMENT, NUM_EXPERIMENTS>;

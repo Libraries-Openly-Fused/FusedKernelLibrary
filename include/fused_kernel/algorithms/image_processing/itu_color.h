@@ -38,10 +38,13 @@ namespace fk {
                  CD_t<ColorDepth::fn8bit>, CD_t<ColorDepth::fn10bit>, CD_t<ColorDepth::fn12bit>>;
     using ColorDepthPixelBaseTypes = TypeList<uchar, ushort, ushort, float, float, float>;
     using ColorDepthPixelTypes = TypeList<uchar3, ushort3, ushort3, float3, float3, float3>;
+    using ColorDepthPixelTypesAlpha = TypeList<uchar4, ushort4, ushort4, float4, float4, float4>;
     template <ColorDepth CD>
     using ColorDepthPixelBaseType = EquivalentType_t<CD_t<CD>, ColorDepthTypes, ColorDepthPixelBaseTypes>;
-    template <ColorDepth CD>
-    using ColorDepthPixelType = EquivalentType_t<CD_t<CD>, ColorDepthTypes, ColorDepthPixelTypes>;
+    template <ColorDepth CD, bool ALPHA>
+    using ColorDepthPixelType = std::conditional_t<ALPHA,
+                                                   EquivalentType_t<CD_t<CD>, ColorDepthTypes, ColorDepthPixelTypesAlpha>,
+                                                   EquivalentType_t<CD_t<CD>, ColorDepthTypes, ColorDepthPixelTypes>>;
 
     // Taking into account the color depth, the pixel base type is uchar, ushort or float
     // ResolutionFactors therefore are used to compute the number of pixel base type elements on width and height
@@ -100,14 +103,6 @@ namespace fk {
         static constexpr size_t cn = 3;
         static constexpr ResolutionFactors rf{2.f, 1.f};
     };
-
-    template <PixelFormat PF>
-    using PackedPixelType = VectorType_t<ColorDepthPixelBaseType<static_cast<ColorDepth>(PixelFormatTraits<PF>::depth)>,
-                                         PixelFormatTraits<PF>::cn>;
-
-    template <PixelFormat PF, bool ALPHA>
-    using YUVOutputPixelType =
-        VectorType_t<ColorDepthPixelBaseType<PixelFormatTraits<PF>::depth>, ALPHA ? 4 : PixelFormatTraits<PF>::cn>;
 
     template <ColorDepth CD> constexpr ColorDepthPixelBaseType<CD> maxDepthValue{};
     template <> constexpr ColorDepthPixelBaseType<ColorDepth::p8bit> maxDepthValue<ColorDepth::p8bit>{255u};

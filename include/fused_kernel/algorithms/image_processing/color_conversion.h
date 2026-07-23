@@ -147,14 +147,13 @@ namespace fk {
         }
     };
 
-    template <PixelFormat PF, ColorRange CR, ColorPrimitives CP, bool ALPHA, typename ReturnType = YUVOutputPixelType<PF, ALPHA>>
+    template <ColorDepth CD, ColorRange CR, ColorPrimitives CP, bool ALPHA>
     struct ConvertYUVToRGB {
     private:
-        using SelfType = ConvertYUVToRGB<PF, CR, CP, ALPHA, ReturnType>;
+        using SelfType = ConvertYUVToRGB<CD, CR, CP, ALPHA>;
+        using Parent = UnaryOperation<ColorDepthPixelType<CD, ALPHA>, ColorDepthPixelType<CD, ALPHA>, ConvertYUVToRGB<CD, CR, CP, ALPHA>>;
     public:
         FK_STATIC_STRUCT(ConvertYUVToRGB, SelfType)
-        static constexpr ColorDepth CD = (ColorDepth)PixelFormatTraits<PF>::depth;
-        using Parent = UnaryOperation<PackedPixelType<PF>, ReturnType, ConvertYUVToRGB<PF, CR, CP, ALPHA, ReturnType>>;
         DECLARE_UNARY_PARENT
 
         private:
@@ -168,26 +167,17 @@ namespace fk {
                 constexpr float YSub = subCoefficients<CD>.luma;
                 return MxVFloat3<UnaryType>::exec({ make_<float3>(pixel.x - YSub, pixel.y - CSub, pixel.z - CSub), coefficients });
             } else {
-                return MxVFloat3<UnaryType>::exec({ make_<float3>(pixel.x, pixel.y - CSub, pixel.z - CSub), coefficients });
+                return MxVFloat3<UnaryType>::exec({ make_<float3>(pixel.x,        pixel.y - CSub, pixel.z - CSub), coefficients });
             }
         }
 
         public:
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             const float3 pixelRGBFloat = computeRGB(input);
-            if constexpr (std::is_same_v<VBase<OutputType>, float>) {
-                if constexpr (ALPHA) {
-                    return { pixelRGBFloat.x, pixelRGBFloat.y, pixelRGBFloat.z, (float)maxDepthValue<CD> };
-                } else {
-                    return pixelRGBFloat;
-                }
+            if constexpr (ALPHA) {
+                return float4{pixelRGBFloat.x, pixelRGBFloat.y, pixelRGBFloat.z, input.w};
             } else {
-                const InputType pixelRGB = SaturateCast<float3, InputType>::exec(pixelRGBFloat);
-                if constexpr (ALPHA) {
-                    return { pixelRGB.x, pixelRGB.y, pixelRGB.z, maxDepthValue<CD> };
-                } else {
-                    return pixelRGB;
-                }
+                return pixelRGBFloat;
             }
         }
     };
@@ -205,7 +195,7 @@ namespace fk {
         using PixelBaseType = ColorDepthPixelBaseType<PixelFormatTraits<PF>::depth>;
         using Parent = ReadOperation<PixelBaseType,
                                      RawImage<PF>,
-                                     ColorDepthPixelType<(ColorDepth)PixelFormatTraits<PF>::depth>,
+                                     ColorDepthPixelType<(ColorDepth)PixelFormatTraits<PF>::depth, false>,
                                      TF::DISABLED,
                                      ReadYUV<PF>>;
         DECLARE_READ_PARENT
@@ -293,7 +283,7 @@ namespace fk {
     public:
         FK_STATIC_STRUCT(WriteYUV, SelfType)
         using PixelBaseType = ColorDepthPixelBaseType<PixelFormatTraits<PF>::depth>;
-        using Parent = WriteOperation<ColorDepthPixelType<(ColorDepth)PixelFormatTraits<PF>::depth>,
+        using Parent = WriteOperation<ColorDepthPixelType<(ColorDepth)PixelFormatTraits<PF>::depth, false>,
                                       RawImage<PF>,
                                       PixelBaseType, 
                                       TF::DISABLED,
