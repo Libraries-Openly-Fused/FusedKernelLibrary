@@ -29,21 +29,14 @@ stream.sync();
 ```
 
 Rules:
-1. First IOp must be a complete Read (`PerThreadRead`, `TensorRead`,
-   `ReadSet`, ...). Last must be a Write (`PerThreadWrite`, `TensorWrite`,
-   `TensorSplit`, ...).
-2. Each op's OutputType must match the next op's InputType. Type errors
-   are compile errors with the offending pair in the message.
-3. TYPES define the kernel. VALUES (`build()` arguments) are runtime
-   parameters: changing a factor or a crop rect does NOT create a new
-   kernel.
+1. First IOp must be a complete Read (`PerThreadRead`, `TensorRead`, `ReadSet`, ...). Last must be a Write (`PerThreadWrite`, `TensorWrite`, `TensorSplit`, ...).
+2. Each op's OutputType must match the next op's InputType. Type errors are compile errors with the offending pair in the message.
+3. TYPES define the kernel. VALUES (`build()` arguments) are runtime parameters: changing a factor or a crop rect does NOT create a new kernel.
 
 ## The two layers
 
-- `Operation` structs (e.g. `Mul<float3>`): static `exec()` + type
-  aliases. Pure compute, no state.
-- `InstantiableOperation` (IOp) = Operation + its runtime params, created
-  with `Op::build(args...)`. What you pass to `executeOperations`.
+- `Operation` structs (e.g. `Mul<float3>`): static `exec()` + type aliases. Pure compute, no state.
+- `InstantiableOperation` (IOp) = Operation + its runtime params, created with `Op::build(args...)`. What you pass to `executeOperations`.
 
 ## Common pipeline patterns (all verified)
 
@@ -52,11 +45,11 @@ Rules:
 ```cpp
 executeOperations<TransformDPP<>>(stream,
     PerThreadRead<ND::_2D, uchar3>::build(frame),
-    Crop<>::build(Rect(40, 30, 240, 180)),         // ReadBack: fused into read
-    Resize<InterpolationType::INTER_LINEAR>::build(Size(32, 32)),     // ReadBack, stacks on Crop
+    Crop<>::build(Rect(40, 30, 240, 180)),                         // ReadBack: fused into read
+    Resize<InterpolationType::INTER_LINEAR>::build(Size(32, 32)),  // ReadBack, stacks on Crop
     Sub<float3>::build({123.675f, 116.28f, 103.53f}),
     Div<float3>::build({58.395f, 57.12f, 57.375f}),
-    TensorSplit<float3>::build(chwTensor));        // packed -> planar CHW
+    TensorSplit<float3>::build(chwTensor));                        // packed -> planar CHW
 ```
 
 ### Many ROIs from one image (Horizontal Fusion: pass an array)
@@ -95,14 +88,12 @@ SaturateCast<float3, uchar3>::build()        // clamp + convert
 ## Streams
 
 - `Stream stream;` creates an owning CUDA stream; `stream.sync()` waits.
-- Wrap an external stream zero-cost: `Stream s(existingCudaStream);`
-  (FKL will NOT destroy it). Use this to interop with torch/cupy streams.
+- Wrap an external stream zero-cost: `Stream s(existingCudaStream);` (FKL will NOT destroy it). Use this to interop with torch/cupy streams.
 - All `executeOperations` overloads are async on the given stream.
 
 ## Out-of-bounds reads
 
-Wrap the read with a `BorderReader` policy BEFORE ops that may sample
-outside (Crop past the edge, warps). The backIOp is the complete read:
+Wrap the read with a `BorderReader` policy BEFORE ops that may sample outside (Crop past the edge, warps). The backIOp is the complete read:
 
 ```cpp
 BorderReader<BorderType::REPLICATE>::build(
@@ -114,24 +105,13 @@ Policies: CONSTANT, REPLICATE, REFLECT, WRAP, REFLECT_101.
 
 ## Temporal video windows
 
-`CircularTensor<T, COLOR_PLANES, BATCH, CircularTensorOrder, ColorPlanes>`
-keeps the last BATCH frames on the GPU; `update(stream, readIOp, ops...,
-writeIOp)` preprocesses + inserts + rotates in one Divergent-HF kernel.
+`CircularTensor<T, COLOR_PLANES, BATCH, CircularTensorOrder, ColorPlanes>` keeps the last BATCH frames on the GPU; `update(stream, readIOp, ops..., writeIOp)` preprocesses + inserts + rotates in one Divergent-HF kernel.
 
 ## CPU backend
 
-The same pipelines run on CPU: `executeOperations<TransformDPP<ParArch::CPU>>`
-with `Stream_<ParArch::CPU>`. Useful for tests without a GPU.
+The same pipelines run on CPU: `executeOperations<TransformDPP<ParArch::CPU>>` with `Stream_<ParArch::CPU>`. Useful for tests without a GPU.
 
 ## Pitfalls (each cost real debugging time)
 
-1. Mismatched adjacent types: read the static_assert chain bottom-up; the
-   first frame names the two ops that disagree.
-2. `Ptr2D`/`Tensor` copies are SHALLOW (ref-counted). Use `.ptr()` to get
-   the RawPtr for kernels; don't free the underlying memory manually.
-3. Resize with aspect-ratio preservation needs a background value.
-4. An array-built ReadBack (e.g. `Crop<>::build(std::array<Rect,N>)`)
-   produces a BatchRead; It should be fused with the previous Read or Readback in the executeOperations function
-   before passing the IOps to the kernel/DPP.
-6. CUDA 13.x deprecation warnings about long4/double4 are noise; only
-   grep compiler output for "error".
+1. Mismatched adjacent types: read the static_assert chain bottom-up; the first frame names the two ops that disagree.
+4. An array-built op (e.g. `Crop<>::build(std::array<Rect,N>)`) enables Horizontal Fusion (batch planes). Just pass the IOps to `executeOperations` as usual; the executor/BackFuser handles the fusion automatically. Ensure your output is a batched write (e.g. `TensorWrite`/`TensorSplit`) that matches the batch size N.

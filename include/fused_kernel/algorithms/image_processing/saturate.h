@@ -1,4 +1,4 @@
-/* Copyright 2023-2025 Oscar Amoros Huguet
+/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -44,8 +44,7 @@ namespace fk {
         using Parent = BinaryOperation<T, VectorType_t<VBase<T>, 2>, T, Saturate<T>>;
         DECLARE_BINARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params) {
-            static_assert(!validCUDAVec<T>, "Saturate only works with non cuda vector types");
-            return cxp::max::f(cxp::min::f(input, params.y), params.x);
+            return cxp::clamp::f(input, make_set<InputType>(params.x), make_set<InputType>(params.y));
         }
     };
 
@@ -60,7 +59,7 @@ namespace fk {
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             static_assert(std::is_same_v<VBase<T>, float>, "Saturate float only works with float base types.");
             
-            return cxp::max::f(make_set<InputType>(0.f), cxp::min::f(input, make_set<InputType>(1.f)));;
+            return cxp::fmaxf::f(make_set<InputType>(0.f), cxp::fminf::f(input, make_set<InputType>(1.f)));
         }
     };
 
