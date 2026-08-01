@@ -63,10 +63,7 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
 
     // Create the operation instances once, and use them multiple times
     const auto readIOp = ReadYUV<PixelFormat::NV12>::build(inputImage);
-    const auto yuvToRGB = ConvertYUVToRGB<PixelFormat::NV12,
-        ColorRange::Full,
-        ColorPrimitives::bt2020,
-        false, float3>::build();
+    const auto yuvToRGB = ConvertYUVToRGB<ColorDepth::p8bit, ColorRange::Full, ColorPrimitives::bt2020, false>::build();
     const auto borderReader = BorderReader<BorderType::REPLICATE>::build();
     const auto cropIOp = Crop<>::build(crops);
     const auto resizeIOp =
