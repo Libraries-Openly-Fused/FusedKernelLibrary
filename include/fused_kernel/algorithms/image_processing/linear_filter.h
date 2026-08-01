@@ -16,6 +16,7 @@
 #define FK_LINEAR_FILTER_DPP_H
 
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
+#include <fused_kernel/algorithms/image_processing/neighborhood.h>
 #include <fused_kernel/core/data/point.h>
 #include <fused_kernel/core/data/tuple.h>
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
@@ -31,19 +32,18 @@ template <typename T, int TILE_W = 16, int TILE_H = 8,
           int MAX_KERNEL_W = 7, int MAX_KERNEL_H = 7>
 struct LinearFilterDPPDetails {
     using ValueType = T;
-    static constexpr int TILE_WIDTH = TILE_W;
-    static constexpr int TILE_HEIGHT = TILE_H;
-    static constexpr int MAX_KERNEL_WIDTH = MAX_KERNEL_W;
-    static constexpr int MAX_KERNEL_HEIGHT = MAX_KERNEL_H;
-    static constexpr int MAX_HALO_WIDTH = TILE_W + MAX_KERNEL_W - 1;
-    static constexpr int MAX_HALO_HEIGHT = TILE_H + MAX_KERNEL_H - 1;
-
-    static_assert(TILE_W > 0 && TILE_H > 0,
-                  "Linear-filter tile dimensions must be positive");
-    static_assert(MAX_KERNEL_W > 0 && MAX_KERNEL_H > 0,
-                  "Linear-filter max kernel dimensions must be positive");
-    static_assert(TILE_W * TILE_H <= 1024,
-                  "Linear-filter tile exceeds CUDA block size");
+    using NeighborhoodPolicy = NeighborhoodDPPPolicy<
+        T, TILE_W, TILE_H, MAX_KERNEL_W, MAX_KERNEL_H>;
+    static constexpr int TILE_WIDTH = NeighborhoodPolicy::TILE_WIDTH;
+    static constexpr int TILE_HEIGHT = NeighborhoodPolicy::TILE_HEIGHT;
+    static constexpr int MAX_KERNEL_WIDTH =
+        NeighborhoodPolicy::MAX_WINDOW_WIDTH;
+    static constexpr int MAX_KERNEL_HEIGHT =
+        NeighborhoodPolicy::MAX_WINDOW_HEIGHT;
+    static constexpr int MAX_HALO_WIDTH =
+        NeighborhoodPolicy::MAX_HALO_WIDTH;
+    static constexpr int MAX_HALO_HEIGHT =
+        NeighborhoodPolicy::MAX_HALO_HEIGHT;
 
     int width;
     int height;
@@ -54,14 +54,10 @@ struct LinearFilterDPPDetails {
 
     FK_HOST_DEVICE_FUSE bool valid(
         const LinearFilterDPPDetails& details) {
-        return details.width > 0 && details.height > 0 &&
-               details.kernelWidth > 0 && details.kernelHeight > 0 &&
-               details.kernelWidth <= MAX_KERNEL_W &&
-               details.kernelHeight <= MAX_KERNEL_H &&
-               details.anchorX >= 0 &&
-               details.anchorX < details.kernelWidth &&
-               details.anchorY >= 0 &&
-               details.anchorY < details.kernelHeight;
+        return NeighborhoodDPPStage<NeighborhoodPolicy>::valid(
+            details.width, details.height,
+            details.kernelWidth, details.kernelHeight,
+            details.anchorX, details.anchorY, false);
     }
 };
 
@@ -96,15 +92,8 @@ struct LinearFilterDPP<ParArch::CPU, DPPDetails> {
 private:
     using SelfType = LinearFilterDPP<ParArch::CPU, DPPDetails>;
     using T = typename DPPDetails::ValueType;
-
-    template <typename ImageRead>
-    FK_HOST_STATIC T readReplicate(const DPPDetails& details,
-                                   const ImageRead& image,
-                                   int x, int y) {
-        x = x < 0 ? 0 : (x >= details.width ? details.width - 1 : x);
-        y = y < 0 ? 0 : (y >= details.height ? details.height - 1 : y);
-        return ImageRead::Operation::exec(Point{x, y, 0}, image);
-    }
+    using Stage = NeighborhoodDPPStage<
+        typename DPPDetails::NeighborhoodPolicy>;
 
 public:
     FK_STATIC_STRUCT(LinearFilterDPP, SelfType)
@@ -133,8 +122,8 @@ public:
                 T accumulator{};
                 for (int ky = 0; ky < details.kernelHeight; ++ky) {
                     for (int kx = 0; kx < details.kernelWidth; ++kx) {
-                        const T value = readReplicate(
-                            details, image,
+                        const T value = Stage::readReplicate(
+                            details.width, details.height, image,
                             ox + kx - details.anchorX,
                             oy + ky - details.anchorY);
                         const T coefficient =
@@ -159,15 +148,8 @@ struct LinearFilterDPP<ParArch::GPU_NVIDIA, DPPDetails> {
 private:
     using SelfType = LinearFilterDPP<ParArch::GPU_NVIDIA, DPPDetails>;
     using T = typename DPPDetails::ValueType;
-
-    template <typename ImageRead>
-    FK_DEVICE_STATIC T readReplicate(const DPPDetails& details,
-                                     const ImageRead& image,
-                                     int x, int y) {
-        x = x < 0 ? 0 : (x >= details.width ? details.width - 1 : x);
-        y = y < 0 ? 0 : (y >= details.height ? details.height - 1 : y);
-        return ImageRead::Operation::exec(Point{x, y, 0}, image);
-    }
+    using Stage = NeighborhoodDPPStage<
+        typename DPPDetails::NeighborhoodPolicy>;
 
 public:
     FK_STATIC_STRUCT(LinearFilterDPP, SelfType)
@@ -199,20 +181,13 @@ public:
         const int threads = blockDim.x * blockDim.y;
         const int haloWidth = DPPDetails::TILE_WIDTH +
                               details.kernelWidth - 1;
-        const int haloHeight = DPPDetails::TILE_HEIGHT +
-                               details.kernelHeight - 1;
         const int tileX = blockIdx.x * DPPDetails::TILE_WIDTH;
         const int tileY = blockIdx.y * DPPDetails::TILE_HEIGHT;
-        const int haloX = tileX - details.anchorX;
-        const int haloY = tileY - details.anchorY;
 
-        for (int index = tid; index < haloWidth * haloHeight;
-             index += threads) {
-            const int y = index / haloWidth;
-            const int x = index % haloWidth;
-            halo[index] = readReplicate(
-                details, image, haloX + x, haloY + y);
-        }
+        Stage::stageReplicate(
+            details.width, details.height,
+            details.kernelWidth, details.kernelHeight,
+            details.anchorX, details.anchorY, image, halo);
         for (int index = tid;
              index < details.kernelWidth * details.kernelHeight;
              index += threads) {
