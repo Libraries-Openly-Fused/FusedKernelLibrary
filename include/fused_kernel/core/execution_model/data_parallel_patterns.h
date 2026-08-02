@@ -217,6 +217,18 @@ namespace fk { // namespace FusedKernel
             return Parent::getActiveThreads(details, iOp);
         }
 
+        // Executes the work of a single thread. The caller is responsible for providing
+        // the thread coordinates, which allows other DPPs (like DivergentBatchTransformDPP)
+        // to reuse this implementation while owning the index generation.
+        template <typename... IOps>
+        FK_DEVICE_FUSE void exec_thread(const Point& thread, const Details& details, const IOps&... iOps) {
+            const ActiveThreads activeThreads = getActiveThreads(details, get_arg<0>(iOps...));
+
+            if (thread.x < activeThreads.x && thread.y < activeThreads.y) {
+                Parent::execute_thread(thread, activeThreads, iOps...);
+            }
+        }
+
         template <typename... IOps>
         FK_DEVICE_FUSE void exec(const Details& details, const IOps&... iOps) {
             const cg::thread_block g = cg::this_thread_block();
@@ -226,11 +238,7 @@ namespace fk { // namespace FusedKernel
             const int z = g.group_index().z; // So far we only consider the option of using the z dimension to specify n (x*y) thread planes
             const Point thread{ x, y, z };
 
-            const ActiveThreads activeThreads = getActiveThreads(details, get_arg<0>(iOps...));
-
-            if (x < activeThreads.x && y < activeThreads.y) {
-                Parent::execute_thread(thread, activeThreads, iOps...);
-            }
+            exec_thread(thread, details, iOps...);
         }
     };
 #endif // defined(__NVCC__)
@@ -248,16 +256,27 @@ namespace fk { // namespace FusedKernel
             return Parent::getActiveThreads(details, iOp);
         }
 
+        // Executes the work of a single thread. The caller is responsible for providing
+        // the thread coordinates, which allows other DPPs (like DivergentBatchTransformDPP)
+        // to reuse this implementation while owning the index generation.
+        template <typename... IOps>
+        FK_HOST_FUSE void exec_thread(const Point& thread, const Details& details, const IOps&... iOps) {
+            const ActiveThreads activeThreads = getActiveThreads(details, get_arg<0>(iOps...));
+
+            if (thread.x < activeThreads.x && thread.y < activeThreads.y) {
+                Parent::execute_thread(thread, activeThreads, iOps...);
+            }
+        }
+
         template <typename... IOps>
         FK_HOST_FUSE void exec(const Details& details, const IOps&... iOps) {
-            using TFI = typename Details::TFI;
             const ActiveThreads activeThreads = getActiveThreads(details, get_arg<0>(iOps...));
 
             for (int z = 0; z < activeThreads.z; ++z) {
                 for (int y = 0; y < activeThreads.y; ++y) {
                     for (int x = 0; x < activeThreads.x; ++x) {
                         const Point thread{ x, y, z };
-                        Parent::execute_thread(thread, activeThreads, iOps...);
+                        exec_thread(thread, details, iOps...);
                     }
                 }
             }
@@ -267,25 +286,47 @@ namespace fk { // namespace FusedKernel
     template <enum ParArch PA, typename SequenceSelector>
     struct DivergentBatchTransformDPP;
 
-    template <typename SequenceSelector>
+    template <enum ParArch PA, typename SequenceSelector>
     struct DivergentBatchTransformDPPBase {
         friend struct DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelector>; // Allow DivergentBatchTransformDPP to access private members
         friend struct DivergentBatchTransformDPP<ParArch::CPU, SequenceSelector>; // Allow DivergentBatchTransformDPPBase to access private members
     private:
         template <typename... IOps>
-        FK_HOST_DEVICE_FUSE void launchTransformDPP(const IOps&... iOps) {
+        FK_HOST_DEVICE_FUSE void launchTransformDPP(const Point& thread, const IOps&... iOps) {
             using Details = TransformDPPDetails<false, IOps...>;
-            TransformDPP<ParArch::GPU_NVIDIA, TF::DISABLED, Details, true>::exec(Details{}, iOps...);
+            using TDPP = TransformDPP<PA, TF::DISABLED, Details, true>;
+            if constexpr (PA == ParArch::CPU) {
+                // On CPU there is no thread grid: the x and y indices are generated here,
+                // from the geometry of this sequence, while the plane index comes from the caller.
+                const ActiveThreads activeThreads = TDPP::getActiveThreads(Details{}, get_arg<0>(iOps...));
+                for (int y = 0; y < static_cast<int>(activeThreads.y); ++y) {
+                    for (int x = 0; x < static_cast<int>(activeThreads.x); ++x) {
+                        TDPP::exec_thread(Point{ x, y, thread.z }, Details{}, iOps...);
+                    }
+                }
+            } else {
+                TDPP::exec_thread(thread, Details{}, iOps...);
+            }
         }
 
+        // Functor used to expand the IOp tuple of an operation sequence while carrying
+        // the thread coordinates, which are not part of the tuple.
+        template <typename... IOps>
+        struct LaunchTransformDPPForThread {
+            Point thread;
+            FK_HOST_DEVICE_CNST void operator()(const IOps&... iOps) const {
+                launchTransformDPP(thread, iOps...);
+            }
+        };
+
         template <int OpSequenceNumber, typename... IOps, typename... IOpSequenceTypes>
-        FK_HOST_DEVICE_FUSE void divergent_operate(const uint z,
+        FK_HOST_DEVICE_FUSE void divergent_operate(const Point& thread,
                                                    const InstantiableOperationSequence<IOps...>& iOpSequence,
                                                    const IOpSequenceTypes&... iOpSequences) {
-            if (OpSequenceNumber == SequenceSelector::at(z)) {
-                apply_d(launchTransformDPP<IOps...>, iOpSequence.iOps);
+            if (OpSequenceNumber == SequenceSelector::at(thread.z)) {
+                apply_d(LaunchTransformDPPForThread<IOps...>{ thread }, iOpSequence.iOps);
             } else if constexpr (sizeof...(iOpSequences) > 0) {
-                divergent_operate<OpSequenceNumber + 1>(z, iOpSequences...);
+                divergent_operate<OpSequenceNumber + 1>(thread, iOpSequences...);
             }
         }
     };
@@ -305,7 +346,7 @@ namespace fk { // namespace FusedKernel
     template <typename SequenceSelector>
     struct DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelector> {
     private:
-        using Parent = DivergentBatchTransformDPPBase<SequenceSelector>;
+        using Parent = DivergentBatchTransformDPPBase<ParArch::GPU_NVIDIA, SequenceSelector>;
     public:
         using DPPDetails = DivergentBatchTransformDPPDetails<ParArch::GPU_NVIDIA>;
         static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
@@ -313,23 +354,28 @@ namespace fk { // namespace FusedKernel
         FK_DEVICE_FUSE void exec(const DPPDetails&, const IOpSequenceTypes&... iOpSequences) {
 
             const cg::thread_block g = cg::this_thread_block();
-            const uint z = g.group_index().z;
 
-            Parent::template divergent_operate<0>(z, iOpSequences...);
+            const int x = (g.dim_threads().x * g.group_index().x) + g.thread_index().x;
+            const int y = (g.dim_threads().y * g.group_index().y) + g.thread_index().y;
+            const int z = g.group_index().z;
+            const Point thread{ x, y, z };
+
+            Parent::template divergent_operate<0>(thread, iOpSequences...);
         }
     };
 #endif // defined(__NVCC__)
     template <typename SequenceSelector>
     struct DivergentBatchTransformDPP<ParArch::CPU, SequenceSelector> {
     private:
-        using Parent = DivergentBatchTransformDPPBase<SequenceSelector>;
+        using Parent = DivergentBatchTransformDPPBase<ParArch::CPU, SequenceSelector>;
     public:
         using DPPDetails = DivergentBatchTransformDPPDetails<ParArch::CPU>;
         static constexpr ParArch PAR_ARCH = ParArch::CPU;
         template <typename... IOpSequenceTypes>
         FK_DEVICE_FUSE void exec(const DPPDetails& details, const IOpSequenceTypes&... iOpSequences) {
-            for (uint z = 0; z < details.numPlanes; ++z) {
-                Parent::template divergent_operate<0>(z, iOpSequences...);
+            for (int z = 0; z < static_cast<int>(details.numPlanes); ++z) {
+                const Point thread{ 0, 0, z };
+                Parent::template divergent_operate<0>(thread, iOpSequences...);
             }
         }
     };
