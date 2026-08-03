@@ -60,30 +60,32 @@ bool testCircularTensor() {
 }
 
 template <uint BATCH, uint WIDTH, uint HEIGHT, uint ITERS, typename IT, typename OT>
-void launchTest() {
+bool launchTest() {
     if (testCircularTensor<BATCH, WIDTH, HEIGHT, ITERS, IT, OT>()) {
         std::cout << "testCircularTensor<" << BATCH << ", " << WIDTH << ", " << HEIGHT << ", " << ITERS << ", " << typeid(IT).name() << ", " << typeid(OT).name() << "> OK" << std::endl;
+        return true;
     } else {
         std::cout << "testCircularTensor<" << BATCH << ", " << WIDTH << ", " << HEIGHT << ", " << ITERS << ", " << typeid(IT).name() << ", " << typeid(OT).name() << "> Failed!"
                   << std::endl;
+        return false;
     }
 }
 
 int launch() {
-    int returnValue = 0;
-    launchTest<2, 128, 128, 100, uchar3, float3>();
-    launchTest<3, 128, 128, 100, uchar3, float3>();
-    launchTest<4, 128, 128, 100, uchar3, float3>();
-    launchTest<5, 128, 128, 100, uchar3, float3>();
-    launchTest<6, 128, 128, 100, uchar3, float3>();
-    launchTest<7, 128, 128, 100, uchar3, float3>();
-    launchTest<8, 128, 128, 100, uchar3, float3>();
-    launchTest<9, 128, 128, 100, uchar3, float3>();
-    launchTest<10, 128, 128, 100, uchar3, float3>();
-    launchTest<11, 128, 128, 100, uchar3, float3>();
-    launchTest<12, 128, 128, 100, uchar3, float3>();
-    launchTest<13, 128, 128, 100, uchar3, float3>();
-    launchTest<14, 128, 128, 100, uchar3, float3>();
-    launchTest<15, 128, 128, 100, uchar3, float3>();
-    return returnValue;
+    bool correct = true;
+    correct &= launchTest<2, 128, 128, 100, uchar3, float3>();
+    correct &= launchTest<3, 128, 128, 100, uchar3, float3>();
+    correct &= launchTest<4, 128, 128, 100, uchar3, float3>();
+    correct &= launchTest<5, 128, 128, 100, uchar3, float3>();
+    correct &= launchTest<6, 128, 128, 100, uchar3, float3>();
+    correct &= launchTest<7, 128, 128, 100, uchar3, float3>();
+    correct &= launchTest<8, 128, 128, 100, uchar3, float3>();
+    correct &= launchTest<9, 128, 128, 100, uchar3, float3>();
+    correct &= launchTest<10, 128, 128, 100, uchar3, float3>();
+    correct &= launchTest<11, 128, 128, 100, uchar3, float3>();
+    correct &= launchTest<12, 128, 128, 100, uchar3, float3>();
+    correct &= launchTest<13, 128, 128, 100, uchar3, float3>();
+    correct &= launchTest<14, 128, 128, 100, uchar3, float3>();
+    correct &= launchTest<15, 128, 128, 100, uchar3, float3>();
+    return correct ? 0 : -1;
 }

@@ -20,12 +20,8 @@
 
 #include <iostream>
 
+template <uint WIDTH, uint HEIGHT, uint BATCH, uint FIRST>
 bool testCircularBatchRead() {
-    constexpr uint WIDTH = 32;
-    constexpr uint HEIGHT = 32;
-    constexpr uint BATCH = 15;
-    constexpr uint FIRST = 4;
-
     fk::Stream stream;
     fk::Stream fk_stream(stream);
 
@@ -78,13 +74,34 @@ bool testCircularBatchRead() {
     return correct;
 }
 
-int launch() {
-    int returnValue = 0;
-    if (testCircularBatchRead()) {
-        std::cout << "testCircularBatchRead OK" << std::endl;
+template <uint WIDTH, uint HEIGHT, uint BATCH, uint FIRST>
+bool launchTestCircularBatchRead() {
+    if (testCircularBatchRead<WIDTH, HEIGHT, BATCH, FIRST>()) {
+        std::cout << "testCircularBatchRead<" << WIDTH << ", " << HEIGHT << ", " << BATCH << ", " << FIRST << "> OK"
+                  << std::endl;
+        return true;
     } else {
-        std::cout << "testCircularBatchRead Failed!" << std::endl;
-        returnValue = -1;
+        std::cout << "testCircularBatchRead<" << WIDTH << ", " << HEIGHT << ", " << BATCH << ", " << FIRST
+                  << "> Failed!" << std::endl;
+        return false;
     }
-    return returnValue;
+}
+
+int launch() {
+    bool correct = true;
+    correct &= launchTestCircularBatchRead<32, 32, 2, 0>();
+    correct &= launchTestCircularBatchRead<32, 32, 3, 2>();
+    correct &= launchTestCircularBatchRead<32, 32, 4, 2>();
+    correct &= launchTestCircularBatchRead<32, 32, 5, 4>();
+    correct &= launchTestCircularBatchRead<32, 32, 6, 4>();
+    correct &= launchTestCircularBatchRead<32, 32, 7, 4>();
+    correct &= launchTestCircularBatchRead<32, 32, 8, 4>();
+    correct &= launchTestCircularBatchRead<32, 32, 9, 4>();
+    correct &= launchTestCircularBatchRead<32, 32, 10, 4>();
+    correct &= launchTestCircularBatchRead<32, 32, 11, 4>();
+    correct &= launchTestCircularBatchRead<32, 32, 12, 4>();
+    correct &= launchTestCircularBatchRead<32, 32, 13, 4>();
+    correct &= launchTestCircularBatchRead<32, 32, 14, 4>();
+    correct &= launchTestCircularBatchRead<32, 32, 15, 4>();
+    return correct ? 0 : -1;
 }
