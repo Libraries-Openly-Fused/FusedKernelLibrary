@@ -532,7 +532,14 @@ namespace fk {
         }
 
         FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
-            return BATCH;
+            // Report the planes of the view we were actually given, not the compile-time BATCH.
+            // BATCH stays the modulus used by computeCircularThreadIdx for the circular wrap-around,
+            // but it is not necessarily the number of planes this read is responsible for:
+            // CircularTensor::update narrows the copy sequence to BATCH - 1 planes so that the plane
+            // space of the DivergentBatchTransformDPP (the sum of the planes declared by each
+            // sequence) adds up to BATCH. Returning BATCH here made that total BATCH + 1 and let a
+            // thread address a plane past the end of the Tensor.
+            return Operation::num_elems_z(thread, opData.params.opData);
         }
 
         FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {
