@@ -50,7 +50,7 @@ bool testDivergentBatch() {
     for (int z = 0; z < BATCH; z++) {
         if (z == 0) {
             for (int y = 0; y < HEIGHT; y++) {
-                for (int x = 0; x < HEIGHT; x++) {
+                for (int x = 0; x < WIDTH; x++) {
                     const fk::Point p{x, y, z};
                     *fk::PtrAccessor<fk::ND::_3D>::point(p, h_groundTruth.ptr()) = VAL_SUM;
                 }
