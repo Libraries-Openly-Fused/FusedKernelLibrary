@@ -38,13 +38,10 @@ namespace fk {
                  CD_t<ColorDepth::fn8bit>, CD_t<ColorDepth::fn10bit>, CD_t<ColorDepth::fn12bit>>;
     using ColorDepthPixelBaseTypes = TypeList<uchar, ushort, ushort, float, float, float>;
     using ColorDepthPixelTypes = TypeList<uchar3, ushort3, ushort3, float3, float3, float3>;
-    using ColorDepthPixelTypesAlpha = TypeList<uchar4, ushort4, ushort4, float4, float4, float4>;
     template <ColorDepth CD>
     using ColorDepthPixelBaseType = EquivalentType_t<CD_t<CD>, ColorDepthTypes, ColorDepthPixelBaseTypes>;
-    template <ColorDepth CD, bool ALPHA>
-    using ColorDepthPixelType = std::conditional_t<ALPHA,
-                                                   EquivalentType_t<CD_t<CD>, ColorDepthTypes, ColorDepthPixelTypesAlpha>,
-                                                   EquivalentType_t<CD_t<CD>, ColorDepthTypes, ColorDepthPixelTypes>>;
+    template <ColorDepth CD>
+    using ColorDepthPixelType = EquivalentType_t<CD_t<CD>, ColorDepthTypes, ColorDepthPixelTypes>;
 
     // Taking into account the color depth, the pixel base type is uchar, ushort or float
     // ResolutionFactors therefore are used to compute the number of pixel base type elements on width and height
