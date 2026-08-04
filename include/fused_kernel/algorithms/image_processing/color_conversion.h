@@ -88,7 +88,7 @@ namespace fk {
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             constexpr auto alpha = maxDepthValue<CD>;
-            return AddLast<InputType, OutputType>::exec(input, { alpha });
+            return AddLast<InputType, OutputType>::exec(input, { static_cast<VBase<I>>(alpha) });
         }
     };
 
@@ -147,37 +147,28 @@ namespace fk {
         }
     };
 
-    template <ColorDepth CD, ColorRange CR, ColorPrimitives CP, bool ALPHA>
+    template <ColorDepth CD, ColorRange CR, ColorPrimitives CP>
     struct ConvertYUVToRGB {
     private:
-        using SelfType = ConvertYUVToRGB<CD, CR, CP, ALPHA>;
-        using Parent = UnaryOperation<ColorDepthPixelType<CD, ALPHA>, ColorDepthPixelType<CD, ALPHA>, ConvertYUVToRGB<CD, CR, CP, ALPHA>>;
+        using SelfType = ConvertYUVToRGB<CD, CR, CP>;
+        using Parent = UnaryOperation<ColorDepthPixelType<CD>, float3, SelfType >;
     public:
         FK_STATIC_STRUCT(ConvertYUVToRGB, SelfType)
         DECLARE_UNARY_PARENT
-
-        private:
         // Y     -> input.x
         // Cb(U) -> input.y
         // Cr(V) -> input.z
-        FK_HOST_DEVICE_FUSE float3 computeRGB(const InputType pixel) {
+        public:
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             constexpr M3x3Float coefficients = ccMatrix<CR, CP, ColorConversionDir::YCbCr2RGB, CD>;
             constexpr float CSub = subCoefficients<CD>.chroma;
             if constexpr (CR == ColorRange::Limited) {
                 constexpr float YSub = subCoefficients<CD>.luma;
-                return MxVFloat3<UnaryType>::exec({ make_<float3>(pixel.x - YSub, pixel.y - CSub, pixel.z - CSub), coefficients });
+                return MxVFloat3<UnaryType>::exec(
+                    {make_<float3>(input.x - YSub, input.y - CSub, input.z - CSub), coefficients});
             } else {
-                return MxVFloat3<UnaryType>::exec({ make_<float3>(pixel.x,        pixel.y - CSub, pixel.z - CSub), coefficients });
-            }
-        }
-
-        public:
-        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
-            const float3 pixelRGBFloat = computeRGB(input);
-            if constexpr (ALPHA) {
-                return float4{pixelRGBFloat.x, pixelRGBFloat.y, pixelRGBFloat.z, input.w};
-            } else {
-                return pixelRGBFloat;
+                return MxVFloat3<UnaryType>::exec(
+                    {make_<float3>(input.x,        input.y - CSub, input.z - CSub), coefficients});
             }
         }
     };
@@ -195,7 +186,7 @@ namespace fk {
         using PixelBaseType = ColorDepthPixelBaseType<PixelFormatTraits<PF>::depth>;
         using Parent = ReadOperation<PixelBaseType,
                                      RawImage<PF>,
-                                     ColorDepthPixelType<(ColorDepth)PixelFormatTraits<PF>::depth, false>,
+                                     ColorDepthPixelType<(ColorDepth)PixelFormatTraits<PF>::depth>,
                                      TF::DISABLED,
                                      ReadYUV<PF>>;
         DECLARE_READ_PARENT
@@ -283,7 +274,7 @@ namespace fk {
     public:
         FK_STATIC_STRUCT(WriteYUV, SelfType)
         using PixelBaseType = ColorDepthPixelBaseType<PixelFormatTraits<PF>::depth>;
-        using Parent = WriteOperation<ColorDepthPixelType<(ColorDepth)PixelFormatTraits<PF>::depth, false>,
+        using Parent = WriteOperation<ColorDepthPixelType<(ColorDepth)PixelFormatTraits<PF>::depth>,
                                       RawImage<PF>,
                                       PixelBaseType, 
                                       TF::DISABLED,

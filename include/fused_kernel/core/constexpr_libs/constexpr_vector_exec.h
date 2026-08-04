@@ -55,6 +55,14 @@ namespace cxp {
         FK_HOST_DEVICE_FUSE auto exec(const ST1& s1, const ST2& s2, const STs&... scals) {
             return exec(Op::exec(s1, s2), scals...);
         }
+        // Single scalar operand: a binary reduction over a single value is that value.
+        // This allows variadic folds (cxp::sum::f, cxp::max::f, cxp::min::f, ...) to be
+        // instantiated with parameter packs of size 1.
+        template <typename ST>
+        FK_HOST_DEVICE_FUSE auto exec(const ST& s)
+            -> std::enable_if_t<!fk::validCUDAVec<ST>, ST> {
+            return s;
+        }
         template <fk::vector_type VT>
         FK_HOST_DEVICE_FUSE auto exec(const VT& v)
             -> decltype(Op::exec(std::declval<fk::VBase<VT>>(), std::declval<fk::VBase<VT>>())) {
