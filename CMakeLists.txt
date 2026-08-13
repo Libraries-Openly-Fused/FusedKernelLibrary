@@ -18,15 +18,32 @@ HOMEPAGE_URL "https://github.com/morousg/FusedKernelLibrary" )
 
 #cuda is optional, but if it is found, it will be used
 option(ENABLE_CPU "Enable CPU support" ON)
+option(ENABLE_CUDA "Enable CUDA support" ON)
+option(ENABLE_HIP "Enable HIP support" OFF)
+
+if (ENABLE_CUDA AND ENABLE_HIP)
+    message(FATAL_ERROR "ENABLE_CUDA and ENABLE_HIP cannot be enabled at the same time.")
+endif()
+
 include(CheckLanguage)
-check_language(CUDA)
-if (CMAKE_CUDA_COMPILER)
-    option (ENABLE_CUDA "Enable CUDA support" ON)
-    if (${ENABLE_CUDA})
+
+if (ENABLE_CUDA)
+    check_language(CUDA)
+    if (CMAKE_CUDA_COMPILER)
         include(cmake/cuda_init.cmake)
+    else()
+        message(STATUS "CUDA compiler not found, CUDA support will be disabled.")
+        set(ENABLE_CUDA OFF CACHE BOOL "Enable CUDA support" FORCE)
     endif()
-else()
-    message(STATUS "CUDA compiler not found, CUDA support will be disabled.")     
+endif()
+
+if (ENABLE_HIP)
+    check_language(HIP)
+    if (CMAKE_HIP_COMPILER)
+        include(cmake/hip_init.cmake)
+    else()
+        message(FATAL_ERROR "HIP requested (ENABLE_HIP=ON) but no HIP compiler was found.")
+    endif()
 endif()
 
 add_subdirectory(include)

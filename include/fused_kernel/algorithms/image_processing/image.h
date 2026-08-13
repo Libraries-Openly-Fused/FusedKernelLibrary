@@ -67,7 +67,7 @@ namespace fk {
             return Image<PF>(data.crop(dataPoint, newDataDims), newWidth, newHeight);
         }
 #if !defined(NVRTC_COMPILER)
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
         inline void uploadTo(Image& other, cudaStream_t stream = 0) {
             data.uploadTo(other.data, stream);
         }
@@ -82,6 +82,14 @@ namespace fk {
         inline void download(Stream_<ParArch::GPU_NVIDIA>& stream) {
             data.download(stream);
         }
+#if defined(__HIPCC__)
+        inline void upload(Stream_<ParArch::GPU_AMD>& stream) {
+            data.upload(stream);
+        }
+        inline void download(Stream_<ParArch::GPU_AMD>& stream) {
+            data.download(stream);
+        }
+#endif
 #else
         inline void upload(Stream& stream) {}
         inline void download(Stream& stream) {}

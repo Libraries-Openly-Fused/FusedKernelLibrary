@@ -23,6 +23,8 @@
 
 #if defined(__NVCC__)
 #include <cuda_runtime.h>
+#elif defined(__HIPCC__)
+#include <hip/hip_runtime.h>
 #endif
 
 #if defined(NVRTC_ENABLED)
@@ -31,7 +33,34 @@
 #endif
 #endif // NVRTC_COMPILER
 
-#if defined(__NVCC__)
+#if defined(__HIPCC__)
+#define cudaError_t hipError_t
+#define cudaSuccess hipSuccess
+#define cudaGetErrorString hipGetErrorString
+#define cudaStream_t hipStream_t
+#define cudaStreamCreate hipStreamCreate
+#define cudaStreamDestroy hipStreamDestroy
+#define cudaStreamSynchronize hipStreamSynchronize
+#define cudaMalloc hipMalloc
+#define cudaMallocPitch hipMallocPitch
+#define cudaMallocHost hipHostMalloc
+#define cudaFree hipFree
+#define cudaFreeHost hipHostFree
+#define cudaMemcpyKind hipMemcpyKind
+#define cudaMemcpyHostToDevice hipMemcpyHostToDevice
+#define cudaMemcpyDeviceToHost hipMemcpyDeviceToHost
+#define cudaMemcpyAsync hipMemcpyAsync
+#define cudaMemcpy2DAsync hipMemcpy2DAsync
+#define cudaMemcpy hipMemcpy
+#define cudaMemcpy2D hipMemcpy2D
+#define cudaGetDevice hipGetDevice
+#define cudaSetDevice hipSetDevice
+#define cudaGetLastError hipGetLastError
+#define cudaMallocAsync hipMallocAsync
+#define cudaFreeAsync hipFreeAsync
+#endif
+
+#if defined(__NVCC__) || defined(__HIPCC__)
 #define FK_DEVICE_FUSE __device__ __forceinline__ static constexpr
 #define FK_DEVICE_STATIC __device__ __forceinline__ static
 #define FK_DEVICE_CNST __device__ __forceinline__ constexpr
@@ -95,7 +124,7 @@ using ulonglong = unsigned long long;
 using ushort = unsigned short;
 using ulong = unsigned long;
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
 namespace fk {
     inline void gpuAssert(cudaError_t code,
                           const char *file,
@@ -150,7 +179,7 @@ namespace fk {
 } // namespace fk
 
 #define gpuErrchk(ans) { fk::gpuAssert((ans), __FILE__, __LINE__, true); }
-#endif // defined(__NVCC__)
+#endif // defined(__NVCC__) || defined(__HIPCC__)
 
 // Null type, used for Operation required aliases that can not still be known,
 // because they are deduced from a backwards operation that is till not defined.
