@@ -16,11 +16,9 @@ jobs:
       fail-fast: false
 
       matrix: #host,cuda,cuda_toolkit
-        include:
-          - host_compiler: "g++-13"
-            cuda_toolkit: "13.3"                
+        include:           
           - host_compiler: "clang++-21"
-            cuda_toolkit: "13.3"
+            rocm_version: "7.2"
 
 
     steps:

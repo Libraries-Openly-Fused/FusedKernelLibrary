@@ -15,12 +15,10 @@ jobs:
       # Consider changing this to true when your workflow is stable.
       fail-fast: false
 
-      matrix: #host,cuda,cuda_toolkit
-        include:
-          - host_compiler: "g++-13"
-            cuda_toolkit: "13.3"                
+      matrix: 
+        include:              
           - host_compiler: "clang++-21"
-            cuda_toolkit: "13.3"
+            rocm_version: "7.2"
 
 
     steps:
@@ -36,7 +34,7 @@ jobs:
           echo "CXX=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
       - name: Configure CMake
         run: |
-          cmake -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
+          cmake -G "Ninja" -DENABLE_CUDA=OFF -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
 
       - name: Build        
         run: |
