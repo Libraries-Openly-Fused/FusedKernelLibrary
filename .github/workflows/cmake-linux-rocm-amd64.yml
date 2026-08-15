@@ -8,20 +8,16 @@ on:
 
 jobs:
   build:
-    runs-on: [self-hosted, linux, x64, cuda]
+    runs-on: [self-hosted, linux, x64, rocm]
 
     strategy:
       # Set fail-fast to false to ensure that feedback is delivered for all matrix combinations.
       # Consider changing this to true when your workflow is stable.
       fail-fast: false
 
-      matrix: #host,cuda,cuda_toolkit
-        include:
-          - host_compiler: "g++-13"
-            cuda_toolkit: "13.3"                
-          - host_compiler: "clang++-21"
-            cuda_toolkit: "13.3"
-
+      matrix: 
+        include:                        
+            - rocm_version: "7.14"
 
     steps:
       - uses: actions/checkout@v6
@@ -30,13 +26,14 @@ jobs:
         id: strings
         run: |
           echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"        
-          echo "PATH=$HOME/cmake-4.3.3-linux-x86_64/bin/:$PATH" >> "$GITHUB_ENV"
-          echo "CUDACXX=/usr/local/cuda-${{matrix.cuda_toolkit}}/bin/nvcc" >> "$GITHUB_ENV"
-          echo "CC=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
-          echo "CXX=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
+          echo "PATH=$HOME/cmake-4.4.2-linux-x86_64/bin/:$PATH" >> "$GITHUB_ENV"          
+          echo "HIP_PATH=/opt/rocm" >> "$GITHUB_ENV"
+          echo "CC=/opt/rocm/bin/amdclang" >> "$GITHUB_ENV"
+          echo "CXX=/opt/rocm/bin/amdclang++" >> "$GITHUB_ENV"
+          echo "HIP=/opt/rocm/bin/amdclang++" >> "$GITHUB_ENV"
       - name: Configure CMake
         run: |
-          cmake -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
+          cmake -G "Ninja" -DENABLE_HIP=ON -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
 
       - name: Build        
         run: |

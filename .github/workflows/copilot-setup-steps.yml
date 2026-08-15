@@ -17,7 +17,7 @@ jobs:
       - name: Set up Copilot Environment
         # The agent will need the same paths you define in your CI
         run: |
-          echo "PATH=$HOME/cmake-4.3.3-linux-x86_64/bin/:$PATH" >> "$GITHUB_ENV"
+          echo "PATH=$HOME/cmake-4.4.2-linux-x86_64/bin/:$PATH" >> "$GITHUB_ENV"
           echo "CUDACXX=/usr/local/cuda-13.3/bin/nvcc" >> "$GITHUB_ENV"
           echo "CC=g++-13" >> "$GITHUB_ENV"
           echo "CXX=g++-13" >> "$GITHUB_ENV"
