@@ -34,6 +34,8 @@ function (add_shared_test_lib TARGET_BASE_NAME DIR EXTENSION FUNDAMENTAL_TYPE)
     add_shared_target("${TARGET_BASE_NAME}" "${EXTENSION}" "${FUNDAMENTAL_TYPE}" "${DIR}")         
     if ("${EXTENSION}" STREQUAL "cu")
        add_cuda_to_test("${TARGET_NAME}_${EXTENSION}")                   
+    elseif ("${EXTENSION}" STREQUAL "hip")
+       add_hip_to_test("${TARGET_NAME}_${EXTENSION}")
     endif()                    
    
 endfunction()

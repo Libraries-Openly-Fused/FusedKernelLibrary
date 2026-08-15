@@ -1,6 +1,7 @@
 
 cmake_minimum_required(VERSION 3.28 FATAL_ERROR)
-
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+set(CMAKE_COLOR_DIAGNOSTICS ON)
 set (PROJECT_VERSION_MAJOR 0)
 set (PROJECT_VERSION_MINOR 2)
 set (PROJECT_VERSION_REV 0)
@@ -18,15 +19,38 @@ HOMEPAGE_URL "https://github.com/morousg/FusedKernelLibrary" )
 
 #cuda is optional, but if it is found, it will be used
 option(ENABLE_CPU "Enable CPU support" ON)
+option(ENABLE_CUDA "Enable CUDA support" ON)
+option(ENABLE_HIP "Enable HIP support" OFF)
+
 include(CheckLanguage)
-check_language(CUDA)
-if (CMAKE_CUDA_COMPILER)
-    option (ENABLE_CUDA "Enable CUDA support" ON)
-    if (${ENABLE_CUDA})
+
+if (ENABLE_CUDA)
+    check_language(CUDA)
+    if (CMAKE_CUDA_COMPILER)
         include(cmake/cuda_init.cmake)
+    else()
+        message(FATAL_ERROR "CUDA compiler not found. Aborting")
+        #set(ENABLE_CUDA OFF CACHE BOOL "Enable CUDA support" FORCE)
     endif()
-else()
-    message(STATUS "CUDA compiler not found, CUDA support will be disabled.")     
+endif()
+
+if (ENABLE_HIP)
+    check_language(HIP)
+    if (CMAKE_HIP_COMPILER)
+        set(CMAKE_MODULE_PATH "${HIP_PATH}/cmake" ${CMAKE_MODULE_PATH})
+        set(CMAKE_CXX_SCAN_FOR_MODULES OFF) #clang with HIP does not come with  clang-scan-deps
+        include(cmake/hip_init.cmake)
+        if(NOT DEFINED HIP_PATH)
+            if(NOT DEFINED ENV{HIP_PATH})
+                set(HIP_PATH "/opt/rocm/hip" CACHE PATH "Path to which HIP has been installed")
+            else()
+                set(HIP_PATH $ENV{HIP_PATH} CACHE PATH "Path to which HIP has been installed")
+            endif()
+        endif()
+        message("Using hIP compiler at " ${CMAKE_HIP_COMPILER})      
+    else()
+        message(FATAL_ERROR "HIP requested (ENABLE_HIP=ON) but no HIP compiler was found.")
+    endif()
 endif()
 
 add_subdirectory(include)
