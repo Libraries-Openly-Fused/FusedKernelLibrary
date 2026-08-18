@@ -173,6 +173,32 @@ namespace fk {
         }
     };
 
+    template <ColorDepth CD, ColorRange CR, ColorPrimitives CP>
+    struct ConvertRGBToYUV {
+    private:
+        using SelfType = ConvertRGBToYUV<CD, CR, CP>;
+        using Parent = UnaryOperation<ColorDepthPixelType<CD>, float3, SelfType>;
+    public:
+        FK_STATIC_STRUCT(ConvertRGBToYUV, SelfType)
+        DECLARE_UNARY_PARENT
+        // R -> input.x
+        // G -> input.y
+        // B -> input.z
+        // The output is { Y, Cb(U), Cr(V) }
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
+            constexpr M3x3Float coefficients = ccMatrix<CR, CP, ColorConversionDir::RGB2YCbCr, CD>;
+            constexpr float CAdd = subCoefficients<CD>.chroma;
+            const float3 YCbCr = MxVFloat3<UnaryType>::exec(
+                {make_<float3>(input.x, input.y, input.z), coefficients});
+            if constexpr (CR == ColorRange::Limited) {
+                constexpr float YAdd = subCoefficients<CD>.luma;
+                return make_<float3>(YCbCr.x + YAdd, YCbCr.y + CAdd, YCbCr.z + CAdd);
+            } else {
+                return make_<float3>(YCbCr.x, YCbCr.y + CAdd, YCbCr.z + CAdd);
+            }
+        }
+    };
+
     template <PixelFormat PF>
     class Image;
 
