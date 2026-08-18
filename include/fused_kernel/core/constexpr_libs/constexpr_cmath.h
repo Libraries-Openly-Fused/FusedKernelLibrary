@@ -22,6 +22,7 @@
 
 #include <type_traits>
 #include <limits>
+#include <cmath>
 
 #ifdef __CUDACC__
 #include <cuda/std/bit>
@@ -41,6 +42,7 @@ using cuda::std::cmp_greater_equal;
 using cuda::std::cmp_less;
 using cuda::std::cmp_less_equal;
 using cuda::std::cmp_not_equal;
+using cuda::std::is_constant_evaluated;
 
 // If the header exists, alias the cuda::std versions
 #if __has_include(<cuda/std/algorithm>)
@@ -75,6 +77,7 @@ using std::cmp_less_equal;
 using std::cmp_not_equal;
 using std::max;
 using std::min;
+using std::is_constant_evaluated;
 } // namespace base
 } // namespace cxp
 #endif
@@ -97,10 +100,31 @@ namespace cxp {
 
     struct isnan {
         struct BaseFunc {
+            // isnan only works for double or float
             using InstanceType = fk::UnaryType;
             template <typename ST>
+                requires (std::is_same_v<ST, float> || std::is_same_v<ST, double>)
             FK_HOST_DEVICE_FUSE bool exec(const ST& s) {
-                return s != s;
+                if (base::is_constant_evaluated()) {
+                    if constexpr (std::is_same_v<ST, float>) {
+                        uint32_t bits = bit_cast<uint32_t>(s);
+                        return (bits & 0x7F800000u) == 0x7F800000u && (bits & 0x007FFFFFu) != 0;
+                    } else {
+                        uint64_t bits = bit_cast<uint64_t>(s);
+                        return (bits & 0x7FF0000000000000ull) == 0x7FF0000000000000ull && 
+                               (bits & 0x000FFFFFFFFFFFFFull) != 0;
+                    }
+                } else {
+#if defined(__CUDA_ARCH__)
+                    if constexpr (std::is_same_v<ST, float>) {
+                        return __isnanf(s);
+                    } else {
+                        return __isnan(s);
+                    }
+#else
+                    return std::isnan(s);
+#endif
+                }
             }
         };
         CXP_F_FUNC
@@ -108,10 +132,31 @@ namespace cxp {
 
     struct isinf {
         struct BaseFunc {
+            // isinf only works for double or float
             using InstanceType = fk::UnaryType;
             template <typename ST>
+                requires (std::is_same_v<ST, float> || std::is_same_v<ST, double>)
             FK_HOST_DEVICE_FUSE bool exec(const ST& s) {
-                return s == s && s != ST(0) && s + s == s;
+                if (base::is_constant_evaluated()) {
+                    if constexpr (std::is_same_v<ST, float>) {
+                        const uint32_t bits = bit_cast<uint32_t>(s);
+                        // Infinity: exponent all ones, mantissa zero (sign bit ignored)
+                        return (bits & 0x7FFFFFFFu) == 0x7F800000u;
+                    } else {
+                        const uint64_t bits = bit_cast<uint64_t>(s);
+                        return (bits & 0x7FFFFFFFFFFFFFFFull) == 0x7FF0000000000000ull;
+                    }
+                } else {
+#if defined(__CUDA_ARCH__)
+                    if constexpr (std::is_same_v<ST, float>) {
+                        return __isinff(s);
+                    } else {
+                        return __isinf(s);
+                    }
+#else
+                    return std::isinf(s);
+#endif
+                }
             }
         };
         CXP_F_FUNC
