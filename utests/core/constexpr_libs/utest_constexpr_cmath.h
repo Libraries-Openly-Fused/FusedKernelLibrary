@@ -1,5 +1,5 @@
-/* Copyright 2025 Oscar Amoros Huguet
-   Copyright 2025 Grup Mediapro S.L.U.
+/* Copyright 2025-2026 Oscar Amoros Huguet
+   Copyright 2025-2026 Grup Mediapro S.L.U.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
 
 #ifndef FK_TEST_CONSTEXPR_CMATH_H
 #define FK_TEST_CONSTEXPR_CMATH_H
+
+#include <tests/main.h>
 
 #include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 #include <fused_kernel/core/utils/type_to_string.h>
@@ -430,7 +432,7 @@ constexpr bool test_cmp_universal_ct() {
     static_assert(cxp::cmp_equal_u::f(2.0, 2), "cmp_equal_u(2.0, 2) should be true");
 
     // Mixed width integers
-    static_assert(cxp::cmp_less_u::f(static_cast<char>(-1), 1u), "cmp_less_u(char(-1), 1u) should be true");
+    static_assert(cxp::cmp_less_u::f(static_cast<schar>(-1), 1u), "cmp_less_u(schar(-1), 1u) should be true");
     static_assert(cxp::cmp_greater_u::f(static_cast<unsigned long long>(1), static_cast<short>(-1)),
                   "cmp_greater_u(1ull, short(-1)) should be true");
 
@@ -1526,7 +1528,7 @@ bool runtime_tests() {
     }
 
     // Test abs with runtime values
-    allCorrect &= test_abs_rt<char>();
+    allCorrect &= test_abs_rt<schar>();
     allCorrect &= test_abs_rt<short>();
     allCorrect &= test_abs_rt<long>();
     allCorrect &= test_abs_rt<long long>();
@@ -1575,7 +1577,7 @@ int launch() {
     static_assert(test_cmp_universal_ct(), "universal (mixed sign) comparison tests failed");
     static_assert(test_cmp_less_equal_only_ct(), "cmp_less_equal direct tests failed");
 
-    static_assert(test_is_even_ct<char>(), "is_even test failed for char");
+    static_assert(test_is_even_ct<schar>(), "is_even test failed for schar");
     static_assert(test_is_even_ct<short>(), "is_even test failed for short");
     static_assert(test_is_even_ct<int>(), "is_even test failed for int");
     static_assert(test_is_even_ct<long long>(), "is_even test failed for long long");
@@ -1589,7 +1591,7 @@ int launch() {
     static_assert(test_cast_ct(), "cast compile-time tests failed");
     static_assert(test_clamp_ct(), "clamp compile-time tests failed");
 
-    static_assert(test_abs_ct<char>(), "abs test failed for char");
+    static_assert(test_abs_ct<schar>(), "abs test failed for schar");
     static_assert(test_abs_ct<short>(), "abs test failed for short");
     static_assert(test_abs_ct<long>(), "abs test failed for long");
     static_assert(test_abs_ct<long long>(), "abs test failed for long long");
