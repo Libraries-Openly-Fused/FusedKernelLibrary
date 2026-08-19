@@ -819,7 +819,7 @@ namespace cxp {
                 if (base::is_constant_evaluated()) {
                     return exp::BaseFunc::exec(x);
                 } else {
-                    return std::expf(x);
+                    return std::exp(x);
                 }
             }
         };
@@ -936,7 +936,7 @@ namespace cxp {
                 if (base::is_constant_evaluated()) {
                     return log::BaseFunc::exec(x);
                 } else {
-                    return std::logf(x);
+                    return std::log(x);
                 }
             }
         };
@@ -1043,7 +1043,7 @@ namespace cxp {
                 if (base::is_constant_evaluated()) {
                     return pow::BaseFunc::exec(base, exponent);
                 } else {
-                    return std::powf(base, exponent);
+                    return std::pow(base, exponent);
                 }
             }
         };
