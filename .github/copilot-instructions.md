@@ -16,7 +16,6 @@ The library has CPU and CUDA backends. HIP support is architecturally possible b
 ---
 
 ## Repository Layout
-
 ```
 FusedKernelLibrary/
 ├── .clang-format                 # LLVM-based style, 4-space indent, 120-char column limit
@@ -44,7 +43,6 @@ FusedKernelLibrary/
 ├── utests/                       # Unit tests (header .h files, auto-discovered)
 └── benchmarks/                   # Benchmarks (disabled by default, ENABLE_BENCHMARK=ON)
 ```
-
 ---
 
 ## Build System
@@ -56,15 +54,13 @@ FusedKernelLibrary/
 - **MSVC**: Visual Studio 2022 or Visual Studio 2026 (MSVC_VERSION >= 1930) required;
 
 ### Configure and Build (typical)
-```bash
 # Linux (Ninja)
 cmake -G "Ninja" -B build -DCMAKE_BUILD_TYPE=Release -S .
-cmake --build build --config Release
+cmake --build build --config Release --parallel 32
 
 # Windows (Ninja, inside VS Developer Shell)
 cmake -G "Ninja" -B build -DCMAKE_BUILD_TYPE=Release -S .
-cmake --build build --config Release
-```
+cmake --build build --config Release --parallel 32
 
 ### Key CMake Options
 | Option | Default | Description |
@@ -91,12 +87,8 @@ cmake --build build --config Release
 ---
 
 ## Running Tests
-
-```bash
 cd build
 ctest --build-config Release --output-junit test_results.xml
-```
-
 Tests are registered with CTest automatically. Individual targets follow the naming pattern `<TestName>_cpp` (CPU) and `<TestName>_cu` (CUDA).
 
 ---
@@ -116,19 +108,14 @@ Tests in `tests/` and `utests/` are **not** written with a traditional test fram
 6. Use `// ONLY_CPU` in a test header to suppress the `_cu` target.
 
 ### Test File Structure
-Every test header must define a `launch()` function returning `int`:
-```cpp
-#include <tests/main.h>
+Every test header must define a `launch()` function returning `int`:#include <tests/main.h>
 #include <fused_kernel/fused_kernel.h>
 // ... other FKL headers
 
 int launch() {
     // test code here
     return 0;  // 0 = pass, non-zero = fail
-}
-```
-
-Files ending in `_common.h` (matching `*_common.*`) are shared helpers, not test entry points — they are excluded from test discovery.
+}Files ending in `_common.h` (matching `*_common.*`) are shared helpers, not test entry points — they are excluded from test discovery.
 
 ---
 
@@ -163,18 +150,13 @@ In CPU-only mode (no NVCC, no CLANG_HOST_DEVICE), these macros degrade to standa
 The `FK_STATIC_STRUCT(StructName, StructAlias)` macro marks a struct as non-constructible and non-copyable (deletes default/copy/move constructors and assignment operators).
 
 ### Type Aliases
-The library defines CUDA-compatible type aliases (also available in CPU mode):
-```cpp
-using uchar    = unsigned char;
+The library defines CUDA-compatible type aliases (also available in CPU mode):using uchar    = unsigned char;
 using schar    = signed char;
 using uint     = unsigned int;
 using ushort   = unsigned short;
 using ulong    = unsigned long;
 using longlong = long long;
-using ulonglong = unsigned long long;
-```
-
-### CUDA Error Checking
+using ulonglong = unsigned long long;### CUDA Error Checking
 Use the `gpuErrchk(expr)` macro for CUDA API calls. It throws `std::runtime_error` on failure with file and line info.
 
 ### Code Formatting
@@ -190,9 +172,7 @@ Run `clang-format` using the `.clang-format` file at the repo root:
 ## Core API Patterns
 
 ### Executing Fused Operations
-The primary entry point is `fk::executeOperations<DPPType>(stream, op1, op2, ...)`:
-```cpp
-#include <fused_kernel/fused_kernel.h>
+The primary entry point is `fk::executeOperations<DPPType>(stream, op1, op2, ...)`:#include <fused_kernel/fused_kernel.h>
 using namespace fk;
 
 Stream stream;
@@ -202,10 +182,7 @@ executeOperations<TransformDPP<>>(stream,
     Resize<InterpolationType::INTER_LINEAR>::build(outputSize),
     SaturateCast<float3, uchar3>::build(),
     TensorWrite<uchar3>::build(output.ptr()));
-stream.sync();
-```
-
-### Operation Building Pattern
+stream.sync();### Operation Building Pattern
 Each operation type exposes a `static build(...)` factory method returning an instance containing the operation parameters. The kernel itself is encoded in the type — parameters are runtime values.
 
 ### Data Types

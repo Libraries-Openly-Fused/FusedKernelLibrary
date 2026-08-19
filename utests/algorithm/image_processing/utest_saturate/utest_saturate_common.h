@@ -11,7 +11,7 @@
 
 template <typename InputType, typename OutputType>
 constexpr OutputType expectedMinValue() {
-    if constexpr (cxp::cmp_less_equal::f(fk::minValue<fk::VBase<InputType>>, fk::minValue<fk::VBase<OutputType>>)) {
+    if constexpr (cxp::cmp_less_equal_u::f(fk::minValue<fk::VBase<InputType>>, fk::minValue<fk::VBase<OutputType>>)) {
         return fk::minValue<OutputType>;
     } else {
         return fk::Cast<InputType, OutputType>::exec(fk::minValue<InputType>);
