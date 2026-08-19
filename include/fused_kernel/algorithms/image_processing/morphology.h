@@ -81,7 +81,7 @@ FK_HOST_DEVICE_STATIC T applyReducer(const int pass, const T a, const T b,
 }
 
 template <int Index = 0, typename Reducers>
-FK_HOST_CNST bool reducersAreUnary() {
+FK_HOST_DEVICE_CNST bool reducersAreUnary() {
     if constexpr (Index == std::decay_t<Reducers>::size) {
         return true;
     } else {

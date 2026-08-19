@@ -214,11 +214,11 @@ constexpr bool test_cmp_greater() {
 
 // Test cmp_less_equal function
 constexpr bool test_cmp_less_equal() {
-    static_assert(cxp::cmp_less_equal::f(4, 5), "4 <= 5 should be true");
-    static_assert(cxp::cmp_less_equal::f(5, 5), "5 <= 5 should be true");
-    static_assert(!cxp::cmp_less_equal::f(5, 4), "5 <= 4 should be false");
-    static_assert(cxp::cmp_less_equal::f(-1, 5u), "-1 <= 5u should be true");
-    static_assert(cxp::cmp_less_equal::f(0, 0u), "0 <= 0u should be true");
+    static_assert(cxp::cmp_less_equal_u::f(4, 5), "4 <= 5 should be true");
+    static_assert(cxp::cmp_less_equal_u::f(5, 5), "5 <= 5 should be true");
+    static_assert(!cxp::cmp_less_equal_u::f(5, 4), "5 <= 4 should be false");
+    static_assert(cxp::cmp_less_equal_u::f(-1, 5u), "-1 <= 5u should be true");
+    static_assert(cxp::cmp_less_equal_u::f(0, 0u), "0 <= 0u should be true");
     
     return true;
 }
@@ -308,6 +308,224 @@ constexpr bool test_round_ct() {
     static_assert(cxp::isnan::f(cxp::round::f(std::numeric_limits<T>::quiet_NaN())), "round(NaN) should be NaN");
     static_assert(cxp::isinf::f(cxp::round::f(std::numeric_limits<T>::infinity())), "round(inf) should be inf");
     static_assert(cxp::isinf::f(cxp::round::f(-std::numeric_limits<T>::infinity())), "round(-inf) should be -inf");
+
+    return true;
+}
+
+// Test is_even function compile-time
+template <typename T>
+constexpr bool test_is_even_ct() {
+    static_assert(std::is_integral_v<T>, "is_even test only for integral types");
+
+    static_assert(cxp::is_even::f(static_cast<T>(0)), "0 should be even");
+    static_assert(!cxp::is_even::f(static_cast<T>(1)), "1 should be odd");
+    static_assert(cxp::is_even::f(static_cast<T>(2)), "2 should be even");
+    static_assert(!cxp::is_even::f(static_cast<T>(3)), "3 should be odd");
+    static_assert(cxp::is_even::f(static_cast<T>(100)), "100 should be even");
+    static_assert(!cxp::is_even::f(static_cast<T>(101)), "101 should be odd");
+
+    if constexpr (std::is_signed_v<T>) {
+        // Negative odd values are the interesting case, since a naive s % 2 == 0
+        // would still work but s % 2 == 1 would not
+        static_assert(cxp::is_even::f(static_cast<T>(-2)), "-2 should be even");
+        static_assert(!cxp::is_even::f(static_cast<T>(-1)), "-1 should be odd");
+        static_assert(!cxp::is_even::f(static_cast<T>(-3)), "-3 should be odd");
+        static_assert(cxp::is_even::f(static_cast<T>(-100)), "-100 should be even");
+        // lowest() is always a power of two for signed types, so it is even
+        static_assert(cxp::is_even::f(cxp::minValue<T>), "lowest should be even");
+    }
+    // maxValue is 2^n - 1 for both signed and unsigned, hence odd
+    static_assert(!cxp::is_even::f(cxp::maxValue<T>), "max should be odd");
+
+    return true;
+}
+
+// Test signbit function compile-time
+template <typename T>
+constexpr bool test_signbit_ct() {
+    static_assert(std::is_floating_point_v<T>, "signbit test only for floating point types");
+
+    static_assert(!cxp::signbit::f(static_cast<T>(1.0)), "signbit(1.0) should be false");
+    static_assert(cxp::signbit::f(static_cast<T>(-1.0)), "signbit(-1.0) should be true");
+
+    // Signed zeros: the whole reason signbit exists, since -0.0 == 0.0
+    static_assert(!cxp::signbit::f(static_cast<T>(0.0)), "signbit(+0.0) should be false");
+    static_assert(cxp::signbit::f(-static_cast<T>(0.0)), "signbit(-0.0) should be true");
+
+    // Infinities
+    static_assert(!cxp::signbit::f(std::numeric_limits<T>::infinity()), "signbit(+inf) should be false");
+    static_assert(cxp::signbit::f(-std::numeric_limits<T>::infinity()), "signbit(-inf) should be true");
+
+    // Extremes
+    static_assert(!cxp::signbit::f(cxp::maxValue<T>), "signbit(max) should be false");
+    static_assert(cxp::signbit::f(cxp::minValue<T>), "signbit(lowest) should be true");
+    static_assert(!cxp::signbit::f(std::numeric_limits<T>::denorm_min()), "signbit(denorm_min) should be false");
+    static_assert(cxp::signbit::f(-std::numeric_limits<T>::denorm_min()), "signbit(-denorm_min) should be true");
+
+    return true;
+}
+
+// Test signbit function at runtime, where the intrinsic path is taken
+template <typename T>
+bool test_signbit_rt() {
+    bool allCorrect = true;
+
+    auto check = [&](T value, const char *name) {
+        if (cxp::signbit::f(value) != static_cast<bool>(std::signbit(value))) {
+            std::cout << "Runtime Fail: cxp::signbit::f(" << name << ") disagrees with std::signbit for T="
+                      << fk::typeToString<T>() << std::endl;
+            allCorrect = false;
+        }
+    };
+
+    check(static_cast<T>(1.0), "1.0");
+    check(static_cast<T>(-1.0), "-1.0");
+    check(static_cast<T>(0.0), "+0.0");
+    check(-static_cast<T>(0.0), "-0.0");
+    check(std::numeric_limits<T>::infinity(), "+inf");
+    check(-std::numeric_limits<T>::infinity(), "-inf");
+    check(cxp::maxValue<T>, "max");
+    check(cxp::minValue<T>, "lowest");
+
+    return allCorrect;
+}
+
+// Test the universal (mixed sign) comparison variants compile-time.
+// These are the ones that must handle a signed and an unsigned operand correctly,
+// where the built-in operators would apply the usual arithmetic conversions and
+// turn a negative value into a large unsigned one.
+constexpr bool test_cmp_universal_ct() {
+    // The trap case: -1 converted to unsigned becomes UINT_MAX
+    static_assert(!cxp::cmp_equal_u::f(-1, 4294967295u), "cmp_equal_u(-1, UINT_MAX) should be false");
+    static_assert(cxp::cmp_not_equal_u::f(-1, 4294967295u), "cmp_not_equal_u(-1, UINT_MAX) should be true");
+    static_assert(cxp::cmp_less_u::f(-1, 4294967295u), "cmp_less_u(-1, UINT_MAX) should be true");
+    static_assert(!cxp::cmp_greater_u::f(-1, 4294967295u), "cmp_greater_u(-1, UINT_MAX) should be false");
+    static_assert(cxp::cmp_less_equal_u::f(-1, 4294967295u), "cmp_less_equal_u(-1, UINT_MAX) should be true");
+    static_assert(!cxp::cmp_greater_equal_u::f(-1, 4294967295u), "cmp_greater_equal_u(-1, UINT_MAX) should be false");
+
+    // Same, with the operands swapped, exercising the other branch
+    static_assert(!cxp::cmp_equal_u::f(4294967295u, -1), "cmp_equal_u(UINT_MAX, -1) should be false");
+    static_assert(cxp::cmp_greater_u::f(4294967295u, -1), "cmp_greater_u(UINT_MAX, -1) should be true");
+    static_assert(!cxp::cmp_less_u::f(4294967295u, -1), "cmp_less_u(UINT_MAX, -1) should be false");
+
+    // Negative vs small unsigned
+    static_assert(cxp::cmp_less_u::f(-1, 0u), "cmp_less_u(-1, 0u) should be true");
+    static_assert(!cxp::cmp_less_u::f(0u, -1), "cmp_less_u(0u, -1) should be false");
+    static_assert(cxp::cmp_greater_u::f(5u, -1), "cmp_greater_u(5u, -1) should be true");
+
+    // Equal values across signedness
+    static_assert(cxp::cmp_equal_u::f(5, 5u), "cmp_equal_u(5, 5u) should be true");
+    static_assert(cxp::cmp_equal_u::f(5u, 5), "cmp_equal_u(5u, 5) should be true");
+    static_assert(cxp::cmp_less_equal_u::f(5, 5u), "cmp_less_equal_u(5, 5u) should be true");
+    static_assert(cxp::cmp_greater_equal_u::f(5u, 5), "cmp_greater_equal_u(5u, 5) should be true");
+    static_assert(!cxp::cmp_not_equal_u::f(5, 5u), "cmp_not_equal_u(5, 5u) should be false");
+
+    // Same signedness still behaves like the built-in operators
+    static_assert(cxp::cmp_less_u::f(-5, -1), "cmp_less_u(-5, -1) should be true");
+    static_assert(cxp::cmp_greater_u::f(10u, 3u), "cmp_greater_u(10u, 3u) should be true");
+
+    // Floating point is allowed by these overloads, unlike the non _u versions
+    static_assert(cxp::cmp_less_u::f(1.5f, 2), "cmp_less_u(1.5f, 2) should be true");
+    static_assert(cxp::cmp_greater_u::f(2.5, 2), "cmp_greater_u(2.5, 2) should be true");
+    static_assert(cxp::cmp_equal_u::f(2.0, 2), "cmp_equal_u(2.0, 2) should be true");
+
+    // Mixed width integers
+    static_assert(cxp::cmp_less_u::f(static_cast<char>(-1), 1u), "cmp_less_u(char(-1), 1u) should be true");
+    static_assert(cxp::cmp_greater_u::f(static_cast<unsigned long long>(1), static_cast<short>(-1)),
+                  "cmp_greater_u(1ull, short(-1)) should be true");
+
+    return true;
+}
+
+// Test cmp_less_equal, which had no direct coverage
+constexpr bool test_cmp_less_equal_only_ct() {
+    static_assert(cxp::cmp_less_equal::f(1, 2), "cmp_less_equal(1, 2) should be true");
+    static_assert(cxp::cmp_less_equal::f(2, 2), "cmp_less_equal(2, 2) should be true");
+    static_assert(!cxp::cmp_less_equal::f(3, 2), "cmp_less_equal(3, 2) should be false");
+    static_assert(cxp::cmp_less_equal::f(-1, 5u), "cmp_less_equal(-1, 5u) should be true");
+    static_assert(!cxp::cmp_less_equal::f(5u, -1), "cmp_less_equal(5u, -1) should be false");
+    return true;
+}
+
+// Test sum function compile-time
+constexpr bool test_sum_ct() {
+    static_assert(cxp::sum::f(2, 3) == 5, "sum(2, 3) should be 5");
+    static_assert(cxp::sum::f(-2, 3) == 1, "sum(-2, 3) should be 1");
+    static_assert(cxp::sum::f(0, 0) == 0, "sum(0, 0) should be 0");
+    static_assert(cxp::sum::f(1.5f, 2.5f) == 4.0f, "sum(1.5f, 2.5f) should be 4.0f");
+    static_assert(cxp::sum::f(1.5, 2.5) == 4.0, "sum(1.5, 2.5) should be 4.0");
+
+    // Mixed types follow the usual arithmetic conversions
+    static_assert(cxp::sum::f(1, 2.5f) == 3.5f, "sum(1, 2.5f) should be 3.5f");
+    static_assert(std::is_same_v<decltype(cxp::sum::f(1, 2.5f)), float>, "sum(int, float) should yield float");
+    static_assert(std::is_same_v<decltype(cxp::sum::f(1, 2)), int>, "sum(int, int) should yield int");
+
+    // Vector types, exercising the Exec vector dispatch
+    constexpr int2 v = cxp::sum::f(int2{1, 2}, int2{10, 20});
+    static_assert(v.x == 11, "sum(int2).x should be 11");
+    static_assert(v.y == 22, "sum(int2).y should be 22");
+
+    constexpr float3 fv = cxp::sum::f(float3{1.0f, 2.0f, 3.0f}, float3{0.5f, 0.5f, 0.5f});
+    static_assert(fv.x == 1.5f, "sum(float3).x should be 1.5f");
+    static_assert(fv.y == 2.5f, "sum(float3).y should be 2.5f");
+    static_assert(fv.z == 3.5f, "sum(float3).z should be 3.5f");
+
+    return true;
+}
+
+// Test cast function compile-time
+constexpr bool test_cast_ct() {
+    // Scalar to scalar
+    static_assert(cxp::cast<int>::f(3.7f) == 3, "cast<int>(3.7f) should truncate to 3");
+    static_assert(cxp::cast<int>::f(-3.7f) == -3, "cast<int>(-3.7f) should truncate to -3");
+    static_assert(cxp::cast<float>::f(3) == 3.0f, "cast<float>(3) should be 3.0f");
+    static_assert(cxp::cast<double>::f(3) == 3.0, "cast<double>(3) should be 3.0");
+    static_assert(cxp::cast<uchar>::f(65) == static_cast<uchar>(65), "cast<uchar>(65) should be 65");
+
+    static_assert(std::is_same_v<decltype(cxp::cast<int>::f(3.7f)), int>, "cast<int> should yield int");
+    static_assert(std::is_same_v<decltype(cxp::cast<float>::f(3)), float>, "cast<float> should yield float");
+
+    // Vector to vector of the same channel count, which casts the base type
+    constexpr int2 vi = cxp::cast<int2>::f(float2{3.7f, -3.7f});
+    static_assert(vi.x == 3, "cast<int2>(float2).x should be 3");
+    static_assert(vi.y == -3, "cast<int2>(float2).y should be -3");
+
+    constexpr float3 vf = cxp::cast<float3>::f(int3{1, 2, 3});
+    static_assert(vf.x == 1.0f, "cast<float3>(int3).x should be 1.0f");
+    static_assert(vf.y == 2.0f, "cast<float3>(int3).y should be 2.0f");
+    static_assert(vf.z == 3.0f, "cast<float3>(int3).z should be 3.0f");
+
+    return true;
+}
+
+// Test clamp function compile-time
+constexpr bool test_clamp_ct() {
+    // Below, inside and above the range
+    static_assert(cxp::clamp::f(5, 0, 10) == 5, "clamp(5, 0, 10) should be 5");
+    static_assert(cxp::clamp::f(-5, 0, 10) == 0, "clamp(-5, 0, 10) should be 0");
+    static_assert(cxp::clamp::f(15, 0, 10) == 10, "clamp(15, 0, 10) should be 10");
+
+    // Exactly on the bounds
+    static_assert(cxp::clamp::f(0, 0, 10) == 0, "clamp(0, 0, 10) should be 0");
+    static_assert(cxp::clamp::f(10, 0, 10) == 10, "clamp(10, 0, 10) should be 10");
+
+    // Degenerate range
+    static_assert(cxp::clamp::f(7, 3, 3) == 3, "clamp(7, 3, 3) should be 3");
+
+    // Negative ranges
+    static_assert(cxp::clamp::f(-7, -5, -1) == -5, "clamp(-7, -5, -1) should be -5");
+    static_assert(cxp::clamp::f(0, -5, -1) == -1, "clamp(0, -5, -1) should be -1");
+
+    // Floating point
+    static_assert(cxp::clamp::f(0.5f, 0.0f, 1.0f) == 0.5f, "clamp(0.5f, 0, 1) should be 0.5f");
+    static_assert(cxp::clamp::f(-0.5f, 0.0f, 1.0f) == 0.0f, "clamp(-0.5f, 0, 1) should be 0.0f");
+    static_assert(cxp::clamp::f(1.5f, 0.0f, 1.0f) == 1.0f, "clamp(1.5f, 0, 1) should be 1.0f");
+    static_assert(cxp::clamp::f(0.5, 0.0, 1.0) == 0.5, "clamp(0.5, 0, 1) should be 0.5");
+
+    // Vector types, clamped per channel
+    constexpr int2 v = cxp::clamp::f(int2{-5, 15}, int2{0, 0}, int2{10, 10});
+    static_assert(v.x == 0, "clamp(int2).x should be 0");
+    static_assert(v.y == 10, "clamp(int2).y should be 10");
 
     return true;
 }
@@ -1329,7 +1547,11 @@ bool runtime_tests() {
     // Test fmaxf and fminf with runtime values
     allCorrect &= test_fmaxf_rt();
     allCorrect &= test_fminf_rt();
-    
+
+    // Test signbit with runtime values, where the intrinsic path is taken
+    allCorrect &= test_signbit_rt<float>();
+    allCorrect &= test_signbit_rt<double>();
+
     return allCorrect;
 }
 
@@ -1349,6 +1571,23 @@ int launch() {
     static_assert(test_cmp_greater(), "cmp_greater test failed");
     static_assert(test_cmp_less_equal(), "cmp_less_equal test failed");
     static_assert(test_cmp_greater_equal(), "cmp_greater_equal test failed");
+
+    static_assert(test_cmp_universal_ct(), "universal (mixed sign) comparison tests failed");
+    static_assert(test_cmp_less_equal_only_ct(), "cmp_less_equal direct tests failed");
+
+    static_assert(test_is_even_ct<char>(), "is_even test failed for char");
+    static_assert(test_is_even_ct<short>(), "is_even test failed for short");
+    static_assert(test_is_even_ct<int>(), "is_even test failed for int");
+    static_assert(test_is_even_ct<long long>(), "is_even test failed for long long");
+    static_assert(test_is_even_ct<uchar>(), "is_even test failed for uchar");
+    static_assert(test_is_even_ct<uint>(), "is_even test failed for uint");
+
+    static_assert(test_signbit_ct<float>(), "signbit test failed for float");
+    static_assert(test_signbit_ct<double>(), "signbit test failed for double");
+
+    static_assert(test_sum_ct(), "sum compile-time tests failed");
+    static_assert(test_cast_ct(), "cast compile-time tests failed");
+    static_assert(test_clamp_ct(), "clamp compile-time tests failed");
 
     static_assert(test_abs_ct<char>(), "abs test failed for char");
     static_assert(test_abs_ct<short>(), "abs test failed for short");
