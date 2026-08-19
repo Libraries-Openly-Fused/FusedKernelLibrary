@@ -108,14 +108,21 @@ Tests in `tests/` and `utests/` are **not** written with a traditional test fram
 6. Use `// ONLY_CPU` in a test header to suppress the `_cu` target.
 
 ### Test File Structure
-Every test header must define a `launch()` function returning `int`:#include <tests/main.h>
+
+Every test header must define a `launch()` function returning `int`:
+
+```cpp
+#include <tests/main.h>
 #include <fused_kernel/fused_kernel.h>
 // ... other FKL headers
 
 int launch() {
     // test code here
     return 0;  // 0 = pass, non-zero = fail
-}Files ending in `_common.h` (matching `*_common.*`) are shared helpers, not test entry points — they are excluded from test discovery.
+}
+```
+
+Files ending in `_common.h` (matching `*_common.*`) are shared helpers, not test entry points — they are excluded from test discovery.
 
 ---
 
@@ -150,13 +157,20 @@ In CPU-only mode (no NVCC, no CLANG_HOST_DEVICE), these macros degrade to standa
 The `FK_STATIC_STRUCT(StructName, StructAlias)` macro marks a struct as non-constructible and non-copyable (deletes default/copy/move constructors and assignment operators).
 
 ### Type Aliases
-The library defines CUDA-compatible type aliases (also available in CPU mode):using uchar    = unsigned char;
-using schar    = signed char;
-using uint     = unsigned int;
-using ushort   = unsigned short;
-using ulong    = unsigned long;
+
+The library defines CUDA-compatible type aliases (also available in CPU mode):
+
+```cpp
+using uchar = unsigned char;
+using schar = signed char;
+using uint = unsigned int;
+using ushort = unsigned short;
+using ulong = unsigned long;
 using longlong = long long;
-using ulonglong = unsigned long long;### CUDA Error Checking
+using ulonglong = unsigned long long;
+```
+
+### CUDA Error Checking
 Use the `gpuErrchk(expr)` macro for CUDA API calls. It throws `std::runtime_error` on failure with file and line info.
 
 ### Code Formatting
@@ -172,7 +186,11 @@ Run `clang-format` using the `.clang-format` file at the repo root:
 ## Core API Patterns
 
 ### Executing Fused Operations
-The primary entry point is `fk::executeOperations<DPPType>(stream, op1, op2, ...)`:#include <fused_kernel/fused_kernel.h>
+
+The primary entry point is `fk::executeOperations<DPPType>(stream, op1, op2, ...)`:
+
+```cpp
+#include <fused_kernel/fused_kernel.h>
 using namespace fk;
 
 Stream stream;
@@ -182,7 +200,10 @@ executeOperations<TransformDPP<>>(stream,
     Resize<InterpolationType::INTER_LINEAR>::build(outputSize),
     SaturateCast<float3, uchar3>::build(),
     TensorWrite<uchar3>::build(output.ptr()));
-stream.sync();### Operation Building Pattern
+stream.sync();
+```
+
+### Operation Building Pattern
 Each operation type exposes a `static build(...)` factory method returning an instance containing the operation parameters. The kernel itself is encoded in the type — parameters are runtime values.
 
 ### Data Types
