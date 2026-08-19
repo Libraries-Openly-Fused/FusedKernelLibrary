@@ -7,16 +7,17 @@
 #include <limits>
 
 // Forces constant evaluation of cxp::expf for the float whose bit pattern is Bits.
-template <uint32_t Bits> struct CtExp {
-	static constexpr float value = cxp::expf::f(cxp::bit_cast<float>(Bits));
-	static constexpr uint32_t bits = cxp::bit_cast<uint32_t>(value);
+template <uint Bits>
+struct CtExp {
+    static constexpr float value = cxp::expf::f(cxp::bit_cast<float>(Bits));
+    static constexpr uint bits = cxp::bit_cast<uint>(value);
 };
 
 // The constexpr path of cxp::expf must be bit identical to std::exp on a float input.
 // The expected bit patterns below were produced by std::exp and are checked against it
 // again at runtime, so a divergence on either side is caught.
 #define CHECK_CT_EXPF(inBits, outBits)                                                                                 \
-	static_assert(CtExp<inBits>::bits == outBits, "constexpr expf must match std::exp bit for bit")
+    static_assert(CtExp<inBits>::bits == outBits, "constexpr expf must match std::exp bit for bit")
 
 // e^0 == 1, and the sign of zero must not leak through
 CHECK_CT_EXPF(0x00000000u, 0x3F800000u); //  0.0f  -> 1.0f
@@ -39,33 +40,33 @@ CHECK_CT_EXPF(0xC2D20000u, 0x00000000u); // -105.0f      -> 0.0f
 #undef CHECK_CT_EXPF
 
 int launch() {
-	bool allCorrect = true;
+    bool allCorrect = true;
 
-	// Re-verify the same points at runtime against std::exp, so the constants above
-	// cannot silently drift from the platform's std::exp.
-	constexpr uint32_t inputs[] = {0x00000000u, 0x80000000u, 0x39C6BE5Bu, 0x3F800000u, 0xBF800000u,
-								   0x40000000u, 0xC0000000u, 0x42AF0000u, 0x42B17214u, 0xC2AF0000u,
-								   0xC2C60000u, 0x42B17218u, 0xC2D20000u};
-	for (const uint32_t bits : inputs) {
-		const float x = cxp::bit_cast<float>(bits);
-		const uint32_t expected = cxp::bit_cast<uint32_t>(std::exp(x));
-		const uint32_t actual = cxp::bit_cast<uint32_t>(cxp::expf::f(x));
-		if (expected != actual) {
-			std::cout << "Runtime Fail: cxp::expf::f(" << x << ") expected bits 0x" << std::hex << expected
-					  << ", got 0x" << actual << std::dec << std::endl;
-			allCorrect = false;
-		}
-	}
+    // Re-verify the same points at runtime against std::exp, so the constants above
+    // cannot silently drift from the platform's std::exp.
+    constexpr uint inputs[] = {0x00000000u, 0x80000000u, 0x39C6BE5Bu, 0x3F800000u, 0xBF800000u,
+                                    0x40000000u, 0xC0000000u, 0x42AF0000u, 0x42B17214u, 0xC2AF0000u,
+                                    0xC2C60000u, 0x42B17218u, 0xC2D20000u};
+    for (const uint bits : inputs) {
+        const float x = cxp::bit_cast<float>(bits);
+        const uint expected = cxp::bit_cast<uint>(std::exp(x));
+        const uint actual = cxp::bit_cast<uint>(cxp::expf::f(x));
+        if (expected != actual) {
+            std::cout << "Runtime Fail: cxp::expf::f(" << x << ") expected bits 0x" << std::hex << expected
+                        << ", got 0x" << actual << std::dec << std::endl;
+            allCorrect = false;
+        }
+    }
 
-	// NaN must propagate rather than compare unequal
-	if (!cxp::isnan::f(cxp::expf::f(std::numeric_limits<float>::quiet_NaN()))) {
-		std::cout << "Runtime Fail: cxp::expf::f(NaN) should be NaN" << std::endl;
-		allCorrect = false;
-	}
+    // NaN must propagate rather than compare unequal
+    if (!cxp::isnan::f(cxp::expf::f(std::numeric_limits<float>::quiet_NaN()))) {
+        std::cout << "Runtime Fail: cxp::expf::f(NaN) should be NaN" << std::endl;
+        allCorrect = false;
+    }
 
-	if (allCorrect) {
-		std::cout << "All tests passed!" << std::endl;
-		return 0;
-	}
-	return -1;
+    if (allCorrect) {
+        std::cout << "All tests passed!" << std::endl;
+        return 0;
+    }
+    return -1;
 }

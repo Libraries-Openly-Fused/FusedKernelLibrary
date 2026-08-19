@@ -106,10 +106,10 @@ namespace cxp {
             FK_HOST_DEVICE_FUSE bool exec(const ST s) {
                 if (base::is_constant_evaluated()) {
                     if constexpr (std::is_same_v<ST, float>) {
-                        uint32_t bits = bit_cast<uint32_t>(s);
+                        uint bits = bit_cast<uint>(s);
                         return (bits & 0x7F800000u) == 0x7F800000u && (bits & 0x007FFFFFu) != 0;
                     } else {
-                        uint64_t bits = bit_cast<uint64_t>(s);
+                        ulonglong bits = bit_cast<ulonglong>(s);
                         return (bits & 0x7FF0000000000000ull) == 0x7FF0000000000000ull && 
                                (bits & 0x000FFFFFFFFFFFFFull) != 0;
                     }
@@ -137,11 +137,11 @@ namespace cxp {
             FK_HOST_DEVICE_FUSE bool exec(const ST s) {
                 if (base::is_constant_evaluated()) {
                     if constexpr (std::is_same_v<ST, float>) {
-                        const uint32_t bits = bit_cast<uint32_t>(s);
+                        const uint bits = bit_cast<uint>(s);
                         // Infinity: exponent all ones, mantissa zero (sign bit ignored)
                         return (bits & 0x7FFFFFFFu) == 0x7F800000u;
                     } else {
-                        const uint64_t bits = bit_cast<uint64_t>(s);
+                        const ulonglong bits = bit_cast<ulonglong>(s);
                         return (bits & 0x7FFFFFFFFFFFFFFFull) == 0x7FF0000000000000ull;
                     }
                 } else {
