@@ -20,6 +20,7 @@
 
 #include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
@@ -81,6 +82,53 @@ int launch() {
     if (!cxp::isnan::f(cxp::expf::f(std::numeric_limits<float>::quiet_NaN()))) {
         std::cout << "Runtime Fail: cxp::expf::f(NaN) should be NaN" << std::endl;
         allCorrect = false;
+    }
+
+    // Runtime dispatch check: outside constant evaluation cxp::expf must behave exactly
+    // like std::expf on a sweep of the useful input range, including boundaries.
+    {
+        constexpr float sweepStart = -105.0f;
+        constexpr float sweepEnd = 89.0f;
+        constexpr int sweepCount = 1001;
+        for (int i = 0; i < sweepCount; ++i) {
+            const float x = sweepStart + (sweepEnd - sweepStart) * static_cast<float>(i) / (sweepCount - 1);
+            const uint expected = cxp::bit_cast<uint>(std::expf(x));
+            const uint actual = cxp::bit_cast<uint>(cxp::expf::f(x));
+            if (expected != actual) {
+                std::cout << "Runtime Fail: cxp::expf::f(" << x << ") expected bits 0x" << std::hex << expected
+                          << ", got 0x" << actual << std::dec << std::endl;
+                allCorrect = false;
+            }
+        }
+    }
+
+    // Compile-time sweep: values produced by the constexpr path are compared at runtime
+    // against std::expf. exp results are always non-negative, so the bit patterns are
+    // directly ordered and their difference is the distance in ulps (this also works
+    // for subnormals and for the 0/inf saturation points).
+    {
+        constexpr float sweepStart = -103.0f;
+        constexpr float sweepEnd = 88.7f;
+        constexpr int sweepCount = 257;
+        constexpr auto ctResults = []() {
+            std::array<float, sweepCount> results{};
+            for (int i = 0; i < sweepCount; ++i) {
+                const float x = sweepStart + (sweepEnd - sweepStart) * static_cast<float>(i) / (sweepCount - 1);
+                results[i] = cxp::expf::f(x);
+            }
+            return results;
+        }();
+        for (int i = 0; i < sweepCount; ++i) {
+            const float x = sweepStart + (sweepEnd - sweepStart) * static_cast<float>(i) / (sweepCount - 1);
+            const uint expected = cxp::bit_cast<uint>(std::expf(x));
+            const uint actual = cxp::bit_cast<uint>(ctResults[i]);
+            const uint ulpDiff = expected > actual ? expected - actual : actual - expected;
+            if (ulpDiff > 2u) {
+                std::cout << "Constexpr Fail: cxp::expf::f(" << x << ") expected bits 0x" << std::hex << expected
+                          << ", got 0x" << actual << std::dec << " (" << ulpDiff << " ulps)" << std::endl;
+                allCorrect = false;
+            }
+        }
     }
 
     if (allCorrect) {
