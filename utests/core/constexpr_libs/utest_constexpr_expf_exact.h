@@ -92,7 +92,7 @@ int launch() {
         constexpr int sweepCount = 1001;
         for (int i = 0; i < sweepCount; ++i) {
             const float x = sweepStart + (sweepEnd - sweepStart) * static_cast<float>(i) / (sweepCount - 1);
-            const uint expected = cxp::bit_cast<uint>(std::expf(x));
+            const uint expected = cxp::bit_cast<uint>(std::exp(x));
             const uint actual = cxp::bit_cast<uint>(cxp::expf::f(x));
             if (expected != actual) {
                 std::cout << "Runtime Fail: cxp::expf::f(" << x << ") expected bits 0x" << std::hex << expected
@@ -120,7 +120,7 @@ int launch() {
         }();
         for (int i = 0; i < sweepCount; ++i) {
             const float x = sweepStart + (sweepEnd - sweepStart) * static_cast<float>(i) / (sweepCount - 1);
-            const uint expected = cxp::bit_cast<uint>(std::expf(x));
+            const uint expected = cxp::bit_cast<uint>(std::exp(x));
             const uint actual = cxp::bit_cast<uint>(ctResults[i]);
             const uint ulpDiff = expected > actual ? expected - actual : actual - expected;
             if (ulpDiff > 2u) {
