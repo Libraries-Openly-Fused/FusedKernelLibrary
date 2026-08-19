@@ -261,3 +261,5 @@ See existing operations like `Mul`, `Add`, `SaturateCast` in `include/fused_kern
 
 1. **Windows Ninja + NVCC path**: After CMake configure on Windows with Ninja, `<build_dir>/CMakeFiles/rules.ninja` may contain an incorrect path to `nvcc.exe`. The CI workflow patches this with PowerShell `Set-Content`. If you hit this locally, check that `CUDACXX` env var is set before invoking CMake and verify the generated `rules.ninja`.
 
+2. **CUDA Compilation Availability**: CUDA compilation is supported and should not be declared blocked based on an unsuccessful ad hoc nvcc invocation; use the repository's documented VS Developer Shell/CMake build configuration and correct architecture/toolchain settings before concluding CUDA is unavailable.
+

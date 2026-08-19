@@ -1468,6 +1468,117 @@ bool test_fminf_rt() {
     return allCorrect;
 }
 
+template <typename T>
+constexpr bool test_log_ct() {
+    static_assert(cxp::log::f(static_cast<T>(1.0)) == static_cast<T>(0.0), "log(1) should be zero");
+    static_assert(cxp::log::f(static_cast<T>(0.0)) == -std::numeric_limits<T>::infinity(),
+                  "log(0) should be negative infinity");
+    static_assert(cxp::isinf::f(cxp::log::f(static_cast<T>(0.0))), "log(0) should be infinite");
+    static_assert(cxp::isnan::f(cxp::log::f(static_cast<T>(-1.0))), "log(negative) should be NaN");
+    static_assert(cxp::isinf::f(cxp::log::f(std::numeric_limits<T>::infinity())), "log(infinity) should be infinity");
+    static_assert(cxp::isnan::f(cxp::log::f(std::numeric_limits<T>::quiet_NaN())), "log(NaN) should be NaN");
+
+    static_assert(cxp::log::f(static_cast<T>(2.718281828459045)) > static_cast<T>(0.9999) &&
+                      cxp::log::f(static_cast<T>(2.718281828459045)) < static_cast<T>(1.0001),
+                  "log(e) should be approximately one");
+    static_assert(cxp::log::f(static_cast<T>(0.5)) > static_cast<T>(-0.6932) &&
+                      cxp::log::f(static_cast<T>(0.5)) < static_cast<T>(-0.6931),
+                  "log(0.5) precision error");
+    return true;
+}
+
+constexpr bool test_pow_ct() {
+    static_assert(cxp::pow::f(2.0f, 3.0f) > 7.0f && cxp::pow::f(2.0f, 3.0f) < 9.0f,
+                  "pow(float) integer exponent failed");
+    static_assert(cxp::pow::f(2.0, 3.0) > 7.0 && cxp::pow::f(2.0, 3.0) < 9.0,
+                  "pow(double) integer exponent failed");
+    static_assert(cxp::pow::f(9.0f, 0.5f) > 2.999f && cxp::pow::f(9.0f, 0.5f) < 3.001f,
+                  "pow(float) fractional exponent failed");
+    static_assert(cxp::pow::f(9.0, 0.5) > 2.999 && cxp::pow::f(9.0, 0.5) < 3.001,
+                  "pow(double) fractional exponent failed");
+    static_assert(cxp::pow::f(-2.0f, 3.0f) > -9.0f && cxp::pow::f(-2.0f, 3.0f) < -7.0f,
+                  "pow(float) negative odd exponent failed");
+    static_assert(cxp::pow::f(-2.0, 4.0) > 14.0 && cxp::pow::f(-2.0, 4.0) < 18.0,
+                  "pow(double) negative even exponent failed");
+    static_assert(cxp::pow::f(0.0f, 2.0f) == 0.0f, "pow(float) zero positive exponent failed");
+    static_assert(cxp::isinf::f(cxp::pow::f(0.0, -1.0)), "pow(double) zero negative exponent should be infinity");
+    static_assert(cxp::isnan::f(cxp::pow::f(-2.0f, 0.5f)), "pow(float) invalid negative base should be NaN");
+    static_assert(cxp::isnan::f(cxp::pow::f(std::numeric_limits<double>::quiet_NaN(), 2.0)),
+                  "pow(double) NaN input should be NaN");
+    return true;
+}
+
+template <typename T>
+bool test_log_rt() {
+    bool allCorrect{true};
+    const T tolerance = std::is_same_v<T, float> ? static_cast<T>(1e-5) : static_cast<T>(1e-12);
+
+    auto check = [&](T value) {
+        const T expected = std::log(value);
+        const T actual = cxp::log::f(value);
+        if (std::isnan(expected) ? !std::isnan(actual)
+                                 : std::isinf(expected) ? (!std::isinf(actual) || std::signbit(expected) != std::signbit(actual))
+                                                        : std::abs(actual - expected) > tolerance * std::max<T>(1, std::abs(expected))) {
+            std::cout << "Failed: cxp::log::f(" << value << ") expected " << expected << " but got " << actual
+                      << std::endl;
+            allCorrect = false;
+        }
+    };
+
+    check(static_cast<T>(0.125));
+    check(static_cast<T>(0.5));
+    check(static_cast<T>(1.0));
+    check(static_cast<T>(2.0));
+    check(static_cast<T>(10.0));
+    check(static_cast<T>(-1.0));
+    check(std::numeric_limits<T>::infinity());
+
+    if constexpr (std::is_same_v<T, float>) {
+        const float actual = cxp::logf::f(2.0f);
+        if (std::abs(actual - std::log(2.0f)) > 1e-5f) {
+            std::cout << "Failed: cxp::logf::f(2.0f) should match std::log(2.0f)" << std::endl;
+            allCorrect = false;
+        }
+    }
+
+    return allCorrect;
+}
+
+template <typename T>
+bool test_pow_rt() {
+    bool allCorrect{true};
+    const T tolerance = std::is_same_v<T, float> ? static_cast<T>(2e-5) : static_cast<T>(1e-12);
+
+    auto check = [&](T base, T exponent) {
+        const T expected = std::pow(base, exponent);
+        const T actual = cxp::pow::f(base, exponent);
+        if (std::isnan(expected) ? !std::isnan(actual)
+                                 : std::isinf(expected) ? (!std::isinf(actual) || std::signbit(expected) != std::signbit(actual))
+                                                        : std::abs(actual - expected) > tolerance * std::max<T>(1, std::abs(expected))) {
+            std::cout << "Failed: cxp::pow::f(" << base << ", " << exponent << ") expected " << expected
+                      << " but got " << actual << std::endl;
+            allCorrect = false;
+        }
+    };
+
+    check(static_cast<T>(2.0), static_cast<T>(3.0));
+    check(static_cast<T>(9.0), static_cast<T>(0.5));
+    check(static_cast<T>(-2.0), static_cast<T>(3.0));
+    check(static_cast<T>(-2.0), static_cast<T>(4.0));
+    check(static_cast<T>(0.0), static_cast<T>(2.0));
+    check(static_cast<T>(10.0), static_cast<T>(-2.0));
+
+    if constexpr (std::is_same_v<T, float>) {
+        const float actual = cxp::powf::f(2.0f, 3.0f);
+        if (actual != std::pow(2.0f, 3.0f)) {
+            std::cout << "Failed: cxp::powf::f(2.0f, 3.0f) should match std::pow(2.0f, 3.0f)" << std::endl;
+            allCorrect = false;
+        }
+    }
+
+    return allCorrect;
+}
+
 // Runtime tests to complement compile-time tests
 bool runtime_tests() {
     bool allCorrect{true};
@@ -1550,6 +1661,12 @@ bool runtime_tests() {
     allCorrect &= test_fmaxf_rt();
     allCorrect &= test_fminf_rt();
 
+    // Test log and pow with runtime values
+    allCorrect &= test_log_rt<float>();
+    allCorrect &= test_log_rt<double>();
+    allCorrect &= test_pow_rt<float>();
+    allCorrect &= test_pow_rt<double>();
+
     // Test signbit with runtime values, where the intrinsic path is taken
     allCorrect &= test_signbit_rt<float>();
     allCorrect &= test_signbit_rt<double>();
@@ -1615,6 +1732,9 @@ int launch() {
     static_assert(test_fminf_ct(), "fminf compile-time tests failed");
 
     static_assert(test_fmax_fmin_double_ct(), "fmax/fmin double compile-time tests failed");
+    static_assert(test_log_ct<float>(), "log compile-time tests failed for float");
+    static_assert(test_log_ct<double>(), "log compile-time tests failed for double");
+    static_assert(test_pow_ct(), "pow compile-time tests failed");
 
     // Runtime tests
     if (!runtime_tests()) {
