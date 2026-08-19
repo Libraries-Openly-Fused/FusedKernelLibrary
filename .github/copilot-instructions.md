@@ -51,13 +51,15 @@ FusedKernelLibrary/
 - **CUDA** (required): requires NVCC. **Only nvcc is supported as the CUDA compiler**; clang-as-CUDA-compiler is not supported despite `CLANG_HOST_DEVICE` macro existing.
 - **MSVC**: Visual Studio 2022 or Visual Studio 2026 (MSVC_VERSION >= 1930) required;
 
-### Configure and Build (typical)# Linux (Ninja)
+### Configure and Build (typical)
+# Linux (Ninja)
 cmake -G "Ninja" -B build -DCMAKE_BUILD_TYPE=Release -S .
-cmake --build build --config Release
+cmake --build build --config Release --parallel 32
 
 # Windows (Ninja, inside VS Developer Shell)
 cmake -G "Ninja" -B build -DCMAKE_BUILD_TYPE=Release -S .
-cmake --build build --config Release
+cmake --build build --config Release --parallel 32
+
 ### Key CMake Options
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -111,8 +113,7 @@ Every test header must define a `launch()` function returning `int`:#include <te
 int launch() {
     // test code here
     return 0;  // 0 = pass, non-zero = fail
-}
-Files ending in `_common.h` (matching `*_common.*`) are shared helpers, not test entry points — they are excluded from test discovery.
+}Files ending in `_common.h` (matching `*_common.*`) are shared helpers, not test entry points — they are excluded from test discovery.
 
 ---
 
@@ -153,8 +154,7 @@ using uint     = unsigned int;
 using ushort   = unsigned short;
 using ulong    = unsigned long;
 using longlong = long long;
-using ulonglong = unsigned long long;
-### CUDA Error Checking
+using ulonglong = unsigned long long;### CUDA Error Checking
 Use the `gpuErrchk(expr)` macro for CUDA API calls. It throws `std::runtime_error` on failure with file and line info.
 
 ### Code Formatting
@@ -180,8 +180,7 @@ executeOperations<TransformDPP<>>(stream,
     Resize<InterpolationType::INTER_LINEAR>::build(outputSize),
     SaturateCast<float3, uchar3>::build(),
     TensorWrite<uchar3>::build(output.ptr()));
-stream.sync();
-### Operation Building Pattern
+stream.sync();### Operation Building Pattern
 Each operation type exposes a `static build(...)` factory method returning an instance containing the operation parameters. The kernel itself is encoded in the type — parameters are runtime values.
 
 ### Data Types
