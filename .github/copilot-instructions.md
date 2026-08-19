@@ -16,6 +16,7 @@ The library has CPU and CUDA backends. HIP support is architecturally possible b
 ---
 
 ## Repository Layout
+```
 FusedKernelLibrary/
 ├── .clang-format                 # LLVM-based style, 4-space indent, 120-char column limit
 ├── .github/workflows/            # CI: cmake-linux-amd64.yml, cmake-linux-arm64.yml, cmake-windows-amd64.yml
@@ -41,6 +42,7 @@ FusedKernelLibrary/
 ├── tests/                        # Integration tests (header .h files, auto-discovered)
 ├── utests/                       # Unit tests (header .h files, auto-discovered)
 └── benchmarks/                   # Benchmarks (disabled by default, ENABLE_BENCHMARK=ON)
+```
 ---
 
 ## Build System
