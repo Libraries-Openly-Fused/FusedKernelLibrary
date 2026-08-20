@@ -259,8 +259,10 @@ namespace fk {
     };
 } // namespace fk
 
-#if defined(__VECTOR_TYPES_H__) || defined(__CUDACC__) || defined(__NVCC__)
+#if defined(__VECTOR_TYPES_H__) || defined(__CUDACC__) || defined(__NVCC__) 
 #include <vector_types.h>
+#elif defined(__HIPCC__)
+#include <hip/hip_vector_types.h>
 #else
 using char1 = fk::Char1;
 using uchar1 = fk::Uchar1;

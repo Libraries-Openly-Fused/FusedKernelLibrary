@@ -27,7 +27,7 @@
 
 namespace fk {
     enum class MemType { Device, Host, HostPinned, DeviceAndPinned };
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
     constexpr MemType defaultMemType = MemType::DeviceAndPinned;
 #else
     constexpr MemType defaultMemType = MemType::Host;
@@ -152,7 +152,7 @@ namespace fk {
         }
 
         inline constexpr void allocDevice() {
-            #if defined(__NVCC__)
+            #if defined(__NVCC__) || defined(__HIPCC__)
             int currentDevice;
             gpuErrchk(cudaGetDevice(&currentDevice));
             gpuErrchk(cudaSetDevice(deviceID));
@@ -171,12 +171,12 @@ namespace fk {
         }
 
         inline constexpr void allocHostPinned() {
-            #if defined(__NVCC__)
+            #if defined(__NVCC__) || defined(__HIPCC__)
             int currentDevice;
             gpuErrchk(cudaGetDevice(&currentDevice));
             gpuErrchk(cudaSetDevice(deviceID));
             PtrImpl<D, T>::h_malloc_init(ptr_a.dims);
-            gpuErrchk(cudaMallocHost(&ptr_a.data, PtrImpl<D, T>::sizeInBytes(ptr_a.dims)));
+            gpuErrchk(cudaHostMalloc(&ptr_a.data, PtrImpl<D, T>::sizeInBytes(ptr_a.dims)));
             if (currentDevice != deviceID) {
                 gpuErrchk(cudaSetDevice(currentDevice));
             }
@@ -186,13 +186,13 @@ namespace fk {
         }
 
         inline constexpr void allocDeviceAndPinned() {
-            #if defined(__NVCC__)
+            #if defined(__NVCC__) || defined(__HIPCC__)
             int currentDevice;
             gpuErrchk(cudaGetDevice(&currentDevice));
             gpuErrchk(cudaSetDevice(deviceID));
             PtrImpl<D, T>::d_malloc(ptr_a);
             PtrImpl<D, T>::h_malloc_init(ptr_pinned.dims);
-            gpuErrchk(cudaMallocHost(&ptr_pinned.data, PtrImpl<D, T>::sizeInBytes(ptr_pinned.dims)));
+            gpuErrchk(cudaHostMalloc(&ptr_pinned.data, PtrImpl<D, T>::sizeInBytes(ptr_pinned.dims)));
             if (currentDevice != deviceID) {
                 gpuErrchk(cudaSetDevice(currentDevice));
             }
@@ -209,7 +209,7 @@ namespace fk {
                 switch (type) {
                 case MemType::Device:
                     {
-                        #if defined(__NVCC__)
+                        #if defined(__NVCC__) || defined(__HIPCC__)
                         gpuErrchk(cudaFree(ref->ptr));
                         #else
                         throw std::runtime_error("Device memory deallocation not supported in non-CUDA compilation.");
@@ -223,7 +223,7 @@ namespace fk {
                     }
                 case MemType::HostPinned:
                     {
-                        #if defined(__NVCC__)
+                        #if defined(__NVCC__) || defined(__HIPCC__)
                         gpuErrchk(cudaFreeHost(ref->ptr));
                         #else
                         throw std::runtime_error("Host pinned memory deallocation not supported in non-CUDA compilation.");
@@ -232,7 +232,7 @@ namespace fk {
                     }
                 case MemType::DeviceAndPinned:
                 {
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
                     gpuErrchk(cudaFree(ref->ptr));
                     gpuErrchk(cudaFreeHost(ref->pinnedPtr));
 #else
@@ -249,7 +249,7 @@ namespace fk {
             }
         }
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
         inline void copy(const RawPtr<D, T>& thisPtr, RawPtr<D, T>& other, const cudaMemcpyKind& kind,
                          cudaStream_t stream = 0) const {
             if ((other.dims.pitch == other.dims.width * sizeof(T)) && (thisPtr.dims.pitch == thisPtr.dims.width * sizeof(T))) {
@@ -480,7 +480,7 @@ namespace fk {
             return *this;
         }
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
         inline void uploadTo(Ptr<D, T>& other, cudaStream_t stream = 0) {
             constexpr cudaMemcpyKind kind = cudaMemcpyHostToDevice;
             constexpr MemType otherExpectedMemType1 = MemType::Device;
@@ -529,6 +529,20 @@ namespace fk {
                 copy(ptr_a, ptr_pinned, kind, stream);
             }
         }
+#if defined(__HIPCC__)
+        inline void upload(Stream_<ParArch::GPU_AMD>& stream) {
+            if (type == MemType::DeviceAndPinned) {
+                constexpr cudaMemcpyKind kind = cudaMemcpyHostToDevice;
+                copy(ptr_pinned, ptr_a, kind, stream);
+            }
+        }
+        inline void download(Stream_<ParArch::GPU_AMD>& stream) {
+            if (type == MemType::DeviceAndPinned) {
+                constexpr cudaMemcpyKind kind = cudaMemcpyDeviceToHost;
+                copy(ptr_a, ptr_pinned, kind, stream);
+            }
+        }
+#endif
 #else
         inline void upload(Stream& stream) {}
         inline void download(Stream& stream) {}
