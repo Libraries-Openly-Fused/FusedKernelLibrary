@@ -17,6 +17,8 @@
 
 #include <fused_kernel/core/utils/vector_utils.h>
 #include <fused_kernel/core/data/point.h>
+#include <fused_kernel/core/data/rawptr.h>
+#include <fused_kernel/core/execution_model/operation_model/operation_data.h>
 
 namespace fk {
 
@@ -135,13 +137,143 @@ namespace fk {
             }
     };
 
+    /* THREAD FUSION AUTHORING HOOKS
+    *
+    *  Operations never implement the multi-element (vectorized) exec() variants themselves.
+    *  A memory Operation only writes its scalar exec(). To opt into thread fusion it declares
+    *  one of the following static hooks, and ThreadFusionAdapter (below) synthesizes the wide
+    *  load/store in a single central place:
+    *
+    *  1. contiguous_data: for Operations whose exec() is a plain per-thread access into a
+    *     pitch-linear RawPtr, where thread.x indexes consecutive elements of ReadDataType
+    *     (Read Operations) or WriteDataType (Write Operations):
+    *         FK_HOST_DEVICE_FUSE const ParamsType& contiguous_data(const ParamsType& params) {
+    *             return params;
+    *         }
+    *     The returned object must be a RawPtr<D, T> where T is the Operation's memory data type.
+    *
+    *  2. forwarded_access: for wrapper Operations (batch/circular) that only remap the thread
+    *     and/or select per-plane parameters, delegating the actual memory access to a wrapped
+    *     Operation:
+    *         FK_HOST_DEVICE_FUSE ForwardedAccess<Operation> forwarded_access(const Point thread,
+    *                                                                         const ParamsType& params) {
+    *             return { remappedThread, params.opData[remappedThread.z] };
+    *         }
+    *
+    *  Operations that declare no hook simply do not support thread fusion (the default).
+    *  An Operation must declare at most ONE of the two hooks: declaring both is a contract
+    *  violation, rejected at compile time by ThreadFusionAdapter.
+    */
+
+    template <typename Operation>
+    struct ForwardedAccess {
+        using Op = Operation;
+        Point thread;
+        OperationData<Operation> opData;
+    };
+
+    template <typename Op, typename = void>
+    struct HasContiguousData : std::false_type {};
+    template <typename Op>
+    struct HasContiguousData<Op,
+        std::void_t<decltype(Op::contiguous_data(std::declval<const typename Op::ParamsType&>()))>>
+        : std::true_type {};
+    template <typename Op>
+    constexpr bool hasContiguousData = HasContiguousData<Op>::value;
+
+    template <typename Op, typename = void>
+    struct HasForwardedAccess : std::false_type {};
+    template <typename Op>
+    struct HasForwardedAccess<Op,
+        std::void_t<decltype(Op::forwarded_access(std::declval<Point>(), std::declval<const typename Op::ParamsType&>()))>>
+        : std::true_type {};
+    template <typename Op>
+    constexpr bool hasForwardedAccess = HasForwardedAccess<Op>::value;
+
+    template <typename Op>
+    using ForwardTargetOp_t =
+        typename decltype(Op::forwarded_access(std::declval<Point>(),
+                                               std::declval<const typename Op::ParamsType&>()))::Op;
+
+    template <typename Op, typename = void>
+    struct IsThreadFusionCapable : std::false_type {};
+    template <typename Op>
+    struct IsThreadFusionCapable<Op, std::enable_if_t<hasContiguousData<Op>>> : std::true_type {};
+    template <typename Op>
+    struct IsThreadFusionCapable<Op, std::enable_if_t<hasForwardedAccess<Op> && !hasContiguousData<Op>>>
+        : IsThreadFusionCapable<ForwardTargetOp_t<Op>> {};
+    template <typename Op>
+    constexpr bool isThreadFusionCapable = IsThreadFusionCapable<Op>::value;
+
+    /* ThreadFusionAdapter: the single place where the vectorized (multi-element) memory accesses
+    *  are synthesized out of the Operations' declarative hooks. The DPPs never call an Operation's
+    *  exec() with an ELEMS_PER_THREAD template parameter; they go through this adapter instead. */
+    template <typename Op>
+    struct ThreadFusionAdapter {
+        static_assert(!(hasContiguousData<Op> && hasForwardedAccess<Op>),
+            "An Operation must declare exactly one thread fusion hook: either contiguous_data or forwarded_access, not both");
+    private:
+        using SelfType = ThreadFusionAdapter<Op>;
+    public:
+        FK_STATIC_STRUCT(ThreadFusionAdapter, SelfType)
+
+        template <uint ELEMS_PER_THREAD>
+        FK_HOST_DEVICE_FUSE auto read(const Point thread, const OperationData<Op>& opData) {
+            if constexpr (ELEMS_PER_THREAD == 1) {
+                return Op::exec(thread, opData);
+            } else if constexpr (hasForwardedAccess<Op>) {
+                const auto access = Op::forwarded_access(thread, opData.params);
+                using TargetOp = typename std::decay_t<decltype(access)>::Op;
+                return ThreadFusionAdapter<TargetOp>::template read<ELEMS_PER_THREAD>(access.thread, access.opData);
+            } else {
+                static_assert(hasContiguousData<Op>,
+                    "Thread fusion requires the Operation to declare a contiguous_data or forwarded_access hook");
+                const auto& ptr = Op::contiguous_data(opData.params);
+                using RawPtrType = std::decay_t<decltype(ptr)>;
+                using DataType = typename RawPtrType::type;
+                static_assert(std::is_same_v<DataType, typename Op::ReadDataType>,
+                    "contiguous_data must return a RawPtr of the Operation's ReadDataType");
+                constexpr ND D = static_cast<ND>(RawPtrType::NDim);
+                using BiggerType = ThreadFusionType<typename Op::ReadDataType, ELEMS_PER_THREAD, typename Op::OutputType>;
+                return *PtrAccessor<D>::template cr_point<DataType, BiggerType>(thread, ptr);
+            }
+        }
+
+        template <uint ELEMS_PER_THREAD, typename BiggerInputType>
+        FK_HOST_DEVICE_FUSE void write(const Point thread, const BiggerInputType& input,
+                                       const OperationData<Op>& opData) {
+            if constexpr (ELEMS_PER_THREAD == 1) {
+                Op::exec(thread, input, opData);
+            } else if constexpr (hasForwardedAccess<Op>) {
+                const auto access = Op::forwarded_access(thread, opData.params);
+                using TargetOp = typename std::decay_t<decltype(access)>::Op;
+                ThreadFusionAdapter<TargetOp>::template write<ELEMS_PER_THREAD>(access.thread, input, access.opData);
+            } else {
+                static_assert(hasContiguousData<Op>,
+                    "Thread fusion requires the Operation to declare a contiguous_data or forwarded_access hook");
+                const auto& ptr = Op::contiguous_data(opData.params);
+                using RawPtrType = std::decay_t<decltype(ptr)>;
+                using DataType = typename RawPtrType::type;
+                static_assert(std::is_same_v<DataType, typename Op::WriteDataType>,
+                    "contiguous_data must return a RawPtr of the Operation's WriteDataType");
+                // The wide store below is computed from InputType, so the hook is only valid
+                // for Write Operations that store their input as-is.
+                static_assert(std::is_same_v<typename Op::InputType, typename Op::WriteDataType>,
+                    "contiguous_data on a Write Operation requires InputType == WriteDataType");
+                constexpr ND D = static_cast<ND>(RawPtrType::NDim);
+                using BiggerType = ThreadFusionType<typename Op::InputType, ELEMS_PER_THREAD, typename Op::InputType>;
+                *PtrAccessor<D>::template point<DataType, BiggerType>(thread, ptr) = input;
+            }
+        }
+    };
+
     // Thread Fusion hepler functions
 
     template <bool THREAD_FUSION_ENABLED, typename... IOpTypes>
     FK_HOST_DEVICE_CNST bool isThreadFusionEnabled() {
         using ReadOperation = typename FirstType_t<IOpTypes...>::Operation;
         using WriteOperation = typename LastType_t<IOpTypes...>::Operation;
-        return ReadOperation::THREAD_FUSION && WriteOperation::THREAD_FUSION && THREAD_FUSION_ENABLED;
+        return isThreadFusionCapable<ReadOperation> && isThreadFusionCapable<WriteOperation> && THREAD_FUSION_ENABLED;
     }
 
     template <bool THREAD_FUSION_ENABLED, typename... IOpTypes>
@@ -151,9 +283,22 @@ namespace fk {
             const auto& writeOp = ppLast(iOps...);
             using ReadOperation = typename FirstType_t<IOpTypes...>::Operation;
             using WriteOperation = typename LastType_t<IOpTypes...>::Operation;
-            const uint readRow = ReadOperation::num_elems_x(Point{0, 0, 0}, { readOp.params });
-            const uint writeRow = WriteOperation::num_elems_x(Point{0, 0, 0}, { writeOp.params });
-            return (readRow % elems_per_thread == 0) && (writeRow % elems_per_thread == 0);
+            // The IOps are OperationData already, so they can be passed directly to num_elems_x
+            // (constructing a new OperationData from .params would not compile for Operations
+            // with array ParamsType, like BatchWrite).
+            // Batch Operations can hold a different row width per z plane, so every plane the
+            // kernel will execute must be divisible; otherwise the wide accesses of the
+            // divisible kernel variant would go past the end of the non-divisible rows.
+            const int numPlanes = static_cast<int>(ReadOperation::num_elems_z(Point{ 0, 0, 0 }, readOp));
+            for (int z = 0; z < numPlanes; ++z) {
+                const Point plane{ 0, 0, z };
+                const uint readRow = ReadOperation::num_elems_x(plane, readOp);
+                const uint writeRow = WriteOperation::num_elems_x(plane, writeOp);
+                if ((readRow % elems_per_thread != 0) || (writeRow % elems_per_thread != 0)) {
+                    return false;
+                }
+            }
+            return true;
         } else {
             return true;
         }

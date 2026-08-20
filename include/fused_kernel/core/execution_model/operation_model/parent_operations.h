@@ -25,8 +25,11 @@
 *   - The alternative is to have them defined in the parent operations and then call them from
 *     the macro exec and build definitions. This option, we observed that increases compilation
 *     times.
-*   - We may decide to move the exec functions that have threa fusion management to the parent
-*     operations, or do it temporarily just for debugging.
+*
+*  Thread fusion is not part of the authoring contract of Read/Write Operations. Operations only
+*  implement their scalar exec(); the vectorized multi-element path is synthesized centrally by
+*  ThreadFusionAdapter (see core/execution_model/thread_fusion.h). Operations opt in by declaring
+*  a contiguous_data or forwarded_access hook; declaring no hook (the default) disables it.
 */
 
 namespace fk {
@@ -119,17 +122,16 @@ namespace fk {
   }
     // END PARENT COMPUTE OPERATIONS
     // PARENT MEMORY OPERATIONS
-    template <typename RT, typename P, typename O, enum TF TFE, typename ChildImplementation, bool IS_FUSED = false>
+    template <typename RT, typename P, typename O, typename ChildImplementation, bool IS_FUSED = false>
     struct ReadOperation {
     private:
-        using SelfType = ReadOperation<RT, P, O, TFE, ChildImplementation, IS_FUSED>;
+        using SelfType = ReadOperation<RT, P, O, ChildImplementation, IS_FUSED>;
     public:
         FK_STATIC_STRUCT(ReadOperation, SelfType)
         using Child = ChildImplementation;
         using ParamsType = P;
         using ReadDataType = RT;
         using InstanceType = ReadType;
-        static constexpr bool THREAD_FUSION{ static_cast<bool>(TFE) };
         using OutputType = O;
         using OperationDataType = OperationData<Child>;
         using InstantiableType = Read<Child>;
@@ -144,14 +146,13 @@ namespace fk {
   using OperationDataType = typename Parent::OperationDataType;                                \
   using InstantiableType = typename Parent::InstantiableType;                                  \
   static constexpr bool IS_FUSED_OP = Parent::IS_FUSED_OP;                                     \
-  static constexpr bool THREAD_FUSION = Parent::THREAD_FUSION;                                 \
-  template <uint ELEMS_PER_THREAD = 1>                                                         \
-  FK_HOST_DEVICE_FUSE auto exec(const Point thread, const OperationDataType& opData) {        \
-    if constexpr (std::bool_constant<THREAD_FUSION>::value) {                                  \
-      return exec<ELEMS_PER_THREAD>(thread, opData.params);                                    \
-    } else {                                                                                   \
-      return exec(thread, opData.params);                                                      \
-    }                                                                                          \
+  /* Template (defaulted) so the body is only checked on use: child Operations are allowed */  \
+  /* to implement a non-constexpr scalar exec(). Constrained via enable_if (instead of a   */  \
+  /* static_assert in the body) so the overload stays SFINAE-friendly for detection traits */  \
+  template <typename OpDataT = OperationDataType,                                              \
+            std::enable_if_t<std::is_base_of_v<OperationDataType, OpDataT>, int> = 0>          \
+  FK_HOST_DEVICE_FUSE auto exec(const Point thread, const OpDataT& opData) {                  \
+    return exec(thread, opData.params);                                                        \
   }
 
 #define DECLARE_READ_PARENT_BASIC                                                              \
@@ -159,10 +160,10 @@ namespace fk {
   FK_HOST_FUSE InstantiableType build(const OperationDataType& opData) { return {opData}; }    \
   FK_HOST_FUSE InstantiableType build(const ParamsType& params) { return {{params}}; }
 
-    template <typename I, typename P, typename WT, enum TF TFE, typename ChildImplementation, bool IS_FUSED = false>
+    template <typename I, typename P, typename WT, typename ChildImplementation, bool IS_FUSED = false>
     struct WriteOperation {
     private:
-        using SelfType = WriteOperation<I, P, WT, TFE, ChildImplementation, IS_FUSED>;
+        using SelfType = WriteOperation<I, P, WT, ChildImplementation, IS_FUSED>;
     public:
         FK_STATIC_STRUCT(WriteOperation, SelfType)
         using Child = ChildImplementation;
@@ -170,7 +171,6 @@ namespace fk {
         using InputType = I;
         using WriteDataType = WT;
         using InstanceType = WriteType;
-        static constexpr bool THREAD_FUSION{ static_cast<bool>(TFE) };
         using OperationDataType = OperationData<Child>;
         using InstantiableType = Write<Child>;
         static constexpr bool IS_FUSED_OP = IS_FUSED;
@@ -184,16 +184,14 @@ namespace fk {
   using OperationDataType = typename Parent::OperationDataType;                                         \
   using InstantiableType = typename Parent::InstantiableType;                                           \
   static constexpr bool IS_FUSED_OP = Parent::IS_FUSED_OP;                                              \
-  static constexpr bool THREAD_FUSION = Parent::THREAD_FUSION;                                          \
-  template <uint ELEMS_PER_THREAD = 1>                                                                  \
-  FK_HOST_DEVICE_FUSE void exec(const Point thread,                                                    \
-                                const ThreadFusionType<InputType, ELEMS_PER_THREAD, InputType> &input,  \
-                                const OperationDataType &opData) {                                      \
-    if constexpr (THREAD_FUSION) {                                                                      \
-        exec<ELEMS_PER_THREAD>(thread, input, opData.params);                                           \
-    } else {                                                                                            \
-        exec(thread, input, opData.params);                                                             \
-    }                                                                                                   \
+  /* Template (defaulted) so the body is only checked on use: child Operations are allowed */           \
+  /* to implement a non-constexpr scalar exec(). Constrained via enable_if (instead of a   */           \
+  /* static_assert in the body) so the overload stays SFINAE-friendly for detection traits */           \
+  template <typename OpDataT = OperationDataType,                                                       \
+            std::enable_if_t<std::is_base_of_v<OperationDataType, OpDataT>, int> = 0>                   \
+  FK_HOST_DEVICE_FUSE void exec(const Point thread, const InputType &input,                            \
+                                const OpDataT &opData) {                                                \
+    exec(thread, input, opData.params);                                                                 \
   }                                                                                                     \
   FK_HOST_FUSE InstantiableType build(const OperationDataType &opData) { return {opData}; }             \
   FK_HOST_FUSE InstantiableType build(const ParamsType &params) { return {{params}}; }
@@ -272,7 +270,6 @@ struct ClosedOperation {
         using OperationDataType = OperationData<Child>;
         using InstantiableType = ReadBack<Child>;
         static constexpr bool IS_FUSED_OP = false;
-        static constexpr bool THREAD_FUSION = false;
     };
 
 #define DECLARE_READBACK_PARENT_BASIC                                                          \
@@ -284,7 +281,6 @@ struct ClosedOperation {
   using OperationDataType = typename Parent::OperationDataType;                                \
   using InstantiableType = typename Parent::InstantiableType;                                  \
   static constexpr bool IS_FUSED_OP = Parent::IS_FUSED_OP;                                     \
-  static constexpr bool THREAD_FUSION = Parent::THREAD_FUSION;                                 \
   FK_HOST_DEVICE_FUSE OutputType exec(const Point thread, const OperationDataType &opData) {  \
     return exec(thread, opData.params, opData.backIOp);                                        \
   }                                                                                            \
@@ -308,7 +304,6 @@ struct ClosedOperation {
         using OperationDataType = OperationData<Child>;
         using InstantiableType = IncompleteReadBack<Child>;
         static constexpr bool IS_FUSED_OP = false;
-        static constexpr bool THREAD_FUSION = false;
     };
 #define DECLARE_INCOMPLETEREADBACK_PARENT_BASIC                                             \
   using ReadDataType = typename Parent::ReadDataType;                                       \
@@ -319,7 +314,6 @@ struct ClosedOperation {
   using OperationDataType = typename Parent::OperationDataType;                             \
   using InstantiableType = typename Parent::InstantiableType;                               \
   static constexpr bool IS_FUSED_OP = Parent::IS_FUSED_OP;                                  \
-  static constexpr bool THREAD_FUSION = Parent::THREAD_FUSION;                              \
   FK_HOST_FUSE InstantiableType build(const OperationDataType &opData) { return {opData}; } \
   FK_HOST_FUSE InstantiableType build(const ParamsType &params, const BackIOp &backFunc) {  \
     return {{params, backFunc}};                                                            \

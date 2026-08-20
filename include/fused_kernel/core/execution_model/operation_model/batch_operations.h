@@ -16,6 +16,7 @@
 #define FK_BATCH_OPERATIONS_CUH
 
 #include <fused_kernel/core/execution_model/operation_model/parent_operations.h>
+#include <fused_kernel/core/execution_model/thread_fusion.h>
 #include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 
 /*
@@ -180,7 +181,6 @@ namespace fk {
         using OperationDataType = OperationData<SelfType>;
         using InstantiableType = Read<SelfType>;
         static constexpr bool IS_FUSED_OP = Operation::IS_FUSED_OP;
-        static constexpr bool THREAD_FUSION = Operation::THREAD_FUSION;
 
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData[thread.z]);
@@ -198,18 +198,20 @@ namespace fk {
             return opData.params.activeThreads;
         }
 
-        template <uint ELEMS_PER_THREAD = 1>
         FK_HOST_DEVICE_FUSE auto exec(const Point thread, const OperationDataType& opData) {
-            return exec<ELEMS_PER_THREAD>(thread, opData.params);
+            return exec(thread, opData.params);
         }
-        template <uint ELEMS_PER_THREAD = 1>
         FK_HOST_DEVICE_FUSE auto exec(const Point thread, const ParamsType& params) {
-            if constexpr (THREAD_FUSION) {
-                return Operation::template exec<ELEMS_PER_THREAD>(thread, params.opData[thread.z]);
-            } else {
-                return Operation::exec(thread, params.opData[thread.z]);
-            }
+            return Operation::exec(thread, params.opData[thread.z]);
         }
+
+        // Thread fusion hook: this Operation only selects the per-plane OperationData; the
+        // memory access is delegated to the wrapped Operation, so thread fusion is available
+        // whenever the wrapped Operation supports it.
+        FK_HOST_DEVICE_FUSE ForwardedAccess<Operation> forwarded_access(const Point thread, const ParamsType& params) {
+            return { thread, params.opData[thread.z] };
+        }
+
         FK_HOST_FUSE InstantiableType build(const OperationDataType& opData) {
             return InstantiableType{ opData };
         }
@@ -237,7 +239,6 @@ namespace fk {
         using OperationDataType = OperationData<SelfType>;
         using InstantiableType = Read<SelfType>;
         static constexpr bool IS_FUSED_OP = Operation::IS_FUSED_OP;
-        static constexpr bool THREAD_FUSION = false;
 
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData[thread.z]);
@@ -255,20 +256,16 @@ namespace fk {
             return opData.params.activeThreads;
         }
 
-        template <uint ELEMS_PER_THREAD = 1>
+        // No thread fusion hook: the per-plane default_value branch makes this Operation more
+        // than a plain forwarded memory access, so it does not support thread fusion.
         FK_HOST_DEVICE_FUSE auto exec(const Point thread, const OperationDataType& opData) {
-            return exec<ELEMS_PER_THREAD>(thread, opData.params);
+            return exec(thread, opData.params);
         }
-        template <uint ELEMS_PER_THREAD = 1>
         FK_HOST_DEVICE_FUSE auto exec(const Point thread, const ParamsType& params) {
             if (params.usedPlanes <= thread.z) {
                 return params.default_value;
             } else {
-                if constexpr (THREAD_FUSION) {
-                    return Operation::template exec<ELEMS_PER_THREAD>(thread, params.opData[thread.z]);
-                } else {
-                    return Operation::exec(thread, params.opData[thread.z]);
-                }
+                return Operation::exec(thread, params.opData[thread.z]);
             }
         }
 
@@ -302,7 +299,6 @@ namespace fk {
         using OperationDataType = OperationData<SelfType>;
         using InstantiableType = Read<SelfType>;
         static constexpr bool IS_FUSED_OP = Operation::IS_FUSED_OP;
-        static constexpr bool THREAD_FUSION = Operation::THREAD_FUSION;
 
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData[thread.z]);
@@ -350,7 +346,6 @@ namespace fk {
         using OperationDataType = OperationData<SelfType>;
         using InstantiableType = Read<SelfType>;
         static constexpr bool IS_FUSED_OP = Operation::IS_FUSED_OP;
-        static constexpr bool THREAD_FUSION = false;
 
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData[thread.z]);
@@ -467,19 +462,18 @@ namespace fk {
     public:
         FK_STATIC_STRUCT(BatchWrite, SelfType)
         using Parent = WriteOperation<typename Operation::InputType, typename Operation::ParamsType[BATCH],
-                                      typename Operation::WriteDataType,
-                                      Operation::THREAD_FUSION ? TF::ENABLED : TF::DISABLED, BatchWrite<BATCH, Operation>>;
+                                      typename Operation::WriteDataType, BatchWrite<BATCH, Operation>>;
         DECLARE_WRITE_PARENT_BASIC
 
-        template <uint ELEMS_PER_THREAD = 1>
-        FK_HOST_DEVICE_FUSE void exec(const Point thread,
-            const ThreadFusionType<InputType, ELEMS_PER_THREAD, InputType> input,
-            const ParamsType& params) {
-            if constexpr (THREAD_FUSION) {
-                Operation::template exec<ELEMS_PER_THREAD>(thread, input, params[thread.z]);
-            } else {
-                Operation::exec(thread, input, params[thread.z]);
-            }
+        FK_HOST_DEVICE_FUSE void exec(const Point thread, const InputType input, const ParamsType& params) {
+            Operation::exec(thread, input, params[thread.z]);
+        }
+
+        // Thread fusion hook: this Operation only selects the per-plane parameters; the memory
+        // access is delegated to the wrapped Operation, so thread fusion is available whenever
+        // the wrapped Operation supports it.
+        FK_HOST_DEVICE_FUSE ForwardedAccess<Operation> forwarded_access(const Point thread, const ParamsType& params) {
+            return { thread, params[thread.z] };
         }
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params[thread.z]);
