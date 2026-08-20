@@ -50,7 +50,7 @@ unset(_cmake_expected_targets)
 set(_IMPORT_PREFIX "D:/FKLbin/install")
 
 # Create imported target FKL::FKL
-add_library(FKL::FKL INTERFACE IMPORTED)
+add_library(FKL::FKL  SYSTEM INTERFACE IMPORTED)
 
 # Load information for each installed configuration.
 file(GLOB _cmake_config_files "${CMAKE_CURRENT_LIST_DIR}/FKLTargets-*.cmake")
