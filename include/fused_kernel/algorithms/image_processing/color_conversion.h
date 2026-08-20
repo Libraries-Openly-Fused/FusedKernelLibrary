@@ -128,7 +128,7 @@ namespace fk {
         using Parent = UnaryOperation<I, float_<cn<I>>, NormalizePixel<I, CD>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
-            return input / static_cast<float>(maxDepthValue<CD>);
+            return  cxp::cast<OutputType>::f( input /static_cast<float>(maxDepthValue<CD>) );
         }
     };
 
