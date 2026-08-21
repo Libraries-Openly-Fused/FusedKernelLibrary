@@ -31,12 +31,9 @@ jobs:
           echo "PATH=$HOME/cmake-4.4.2-linux-x86_64/bin/:$HIP_PATH/bin:$PATH" >> "$GITHUB_ENV"          
           echo "CC=/opt/rocm/bin/amdclang" >> "$GITHUB_ENV"
           echo "CXX=/opt/rocm/bin/amdclang++" >> "$GITHUB_ENV"
-          echo "HIPCXX=/opt/rocm/bin/amdclang++" >> "$GITHUB_ENV"
-      - name: Load Environment
-        run: |
-          source ~/.bashrc
-          source ~/.profile
-
+          echo "HIPCXX=/opt/rocm/bin/amdclang++" >> "$GITHUB_ENV"          
+          echo "LD_LIBRARY_PATH=/opt/rocm/core-7.14/lib:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+                
       - name: Configure CMake
         run: |
           cmake -G "Ninja" -DENABLE_HIP=ON  -DENABLE_CUDA=OFF -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
