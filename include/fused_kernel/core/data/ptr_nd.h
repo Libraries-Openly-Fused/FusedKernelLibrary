@@ -175,8 +175,8 @@ namespace fk {
             int currentDevice;
             gpuErrchk(cudaGetDevice(&currentDevice));
             gpuErrchk(cudaSetDevice(deviceID));
-            PtrImpl<D, T>::h_malloc_init(ptr_a.dims);
-            gpuErrchk(cudaHostMalloc(&ptr_a.data, PtrImpl<D, T>::sizeInBytes(ptr_a.dims)));
+            PtrImpl<D, T>::h_malloc_init(ptr_a.dims);            
+            gpuErrchk(cudaMallocHost(&ptr_a.data, PtrImpl<D, T>::sizeInBytes(ptr_a.dims)));             
             if (currentDevice != deviceID) {
                 gpuErrchk(cudaSetDevice(currentDevice));
             }
@@ -192,7 +192,7 @@ namespace fk {
             gpuErrchk(cudaSetDevice(deviceID));
             PtrImpl<D, T>::d_malloc(ptr_a);
             PtrImpl<D, T>::h_malloc_init(ptr_pinned.dims);
-            gpuErrchk(cudaHostMalloc(&ptr_pinned.data, PtrImpl<D, T>::sizeInBytes(ptr_pinned.dims)));
+            gpuErrchk(cudaMallocHost(&ptr_pinned.data, PtrImpl<D, T>::sizeInBytes(ptr_pinned.dims)));
             if (currentDevice != deviceID) {
                 gpuErrchk(cudaSetDevice(currentDevice));
             }
