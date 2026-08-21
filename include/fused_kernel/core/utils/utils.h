@@ -43,7 +43,7 @@
 #define cudaStreamSynchronize hipStreamSynchronize
 #define cudaMalloc hipMalloc
 #define cudaMallocPitch hipMallocPitch
-#define cudaMallocHost hipMallocHost
+#define cudaMallocHost hipHostMalloc
 #define cudaHostAlloc hipHostAlloc
 #define cudaHostMalloc hipHostMalloc
 #define cudaFree hipFree
