@@ -1,4 +1,4 @@
-name: CMake on Linux (ARM64)
+name: CMake on Linux (CUDA ARM64)
 
 on:
   #push:

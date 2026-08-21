@@ -1,4 +1,4 @@
-name: CMake on Windows (x64)
+name: CMake on Windows (CUDA x64)
 
 on:
   #push:
