@@ -33,35 +33,6 @@
 #endif
 #endif // NVRTC_COMPILER
 
-#if defined(__HIPCC__)
-#define cudaError_t hipError_t
-#define cudaSuccess hipSuccess
-#define cudaGetErrorString hipGetErrorString
-#define cudaStream_t hipStream_t
-#define cudaStreamCreate hipStreamCreate
-#define cudaStreamDestroy hipStreamDestroy
-#define cudaStreamSynchronize hipStreamSynchronize
-#define cudaMalloc hipMalloc
-#define cudaMallocPitch hipMallocPitch
-#define cudaMallocHost hipHostMalloc
-#define cudaHostAlloc hipHostAlloc
-#define cudaHostMalloc hipHostMalloc
-#define cudaFree hipFree
-#define cudaFreeHost hipFreeHost
-#define cudaMemcpyKind hipMemcpyKind
-#define cudaMemcpyHostToDevice hipMemcpyHostToDevice
-#define cudaMemcpyDeviceToHost hipMemcpyDeviceToHost
-#define cudaMemcpyAsync hipMemcpyAsync
-#define cudaMemcpy2DAsync hipMemcpy2DAsync
-#define cudaMemcpy hipMemcpy
-#define cudaMemcpy2D hipMemcpy2D
-#define cudaGetDevice hipGetDevice
-#define cudaSetDevice hipSetDevice
-#define cudaGetLastError hipGetLastError
-#define cudaMallocAsync hipMallocAsync
-#define cudaFreeAsync hipFreeAsync
-#endif
-
 #if defined(__NVCC__) || defined(__HIPCC__)
 #define FK_DEVICE_FUSE __device__ __forceinline__ static constexpr
 #define FK_DEVICE_STATIC __device__ __forceinline__ static
