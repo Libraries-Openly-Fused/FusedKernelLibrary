@@ -15,48 +15,6 @@ function(add_cuda_to_test TARGET_NAME)
     endif()
 endfunction()
 
-function (add_generated_test TARGET_NAME TEST_SOURCE EXTENSION DIR)
-                       
-        set(TEST_GENERATED_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}_${EXTENSION}/launcher.${EXTENSION}") #use the same name as the target	)			
-       
-        configure_file(${CMAKE_SOURCE_DIR}/tests/launcher.in ${TEST_GENERATED_SOURCE} @ONLY) #replace variables in the test source file                 
-        set (TARGET_NAME_EXT "${TARGET_NAME}_${EXTENSION}")
-        #message(STATUS "Adding test: ${TARGET_NAME_EXT} from ${TEST_GENERATED_SOURCE} and ${TEST_SOURCE}")
-        add_executable(${TARGET_NAME_EXT} "${TEST_GENERATED_SOURCE};${TEST_SOURCE}" )
-        target_sources(${TARGET_NAME_EXT} PRIVATE ${LAUNCH_SOURCES})            
-        
-        if(${ENABLE_BENCHMARK})
-            target_compile_definitions(${TARGET_NAME_EXT} PRIVATE ENABLE_BENCHMARK)
-        endif()
-        
-        set_target_properties(${TARGET_NAME_EXT} PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)            
-        target_include_directories(${TARGET_NAME_EXT} PRIVATE "${CMAKE_SOURCE_DIR}")        
-        target_include_directories(${TARGET_NAME_EXT} PRIVATE "${DIR}")      
-        #target_link_libraries(${TARGET_NAME_EXT} SYSTEM PUBLIC FKL::FKL)
-        if (ENABLE_CUDA)            
-            target_link_libraries(${TARGET_NAME_EXT} PRIVATE CUDA::cuda_driver)
-            if (NVRTC_ENABLE)
-                target_link_libraries(${TARGET_NAME_EXT} PRIVATE ${NVRTC_LIBRARIES})
-                target_compile_definitions(${TARGET_NAME_EXT} PRIVATE NVRTC_ENABLE)
-                if (MSVC)
-                    if (NVRTC_STATIC_LINK)
-                        set_target_properties(${TARGET_NAME_EXT} PROPERTIES	MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-                    endif()
-                endif()
-            endif()
-            endif()
-        if (MSVC)
-            target_compile_options(${TARGET_NAME_EXT} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/diagnostics:caret>)
-        endif()
-        
-        add_optimization_flags(${TARGET_NAME_EXT})
-        
-        add_test(NAME  ${TARGET_NAME_EXT} COMMAND ${TARGET_NAME_EXT})    
-        cmake_path(SET path2 "${DIR}")
-		cmake_path(GET path2 FILENAME DIR_NAME)       		
-        set_property(TARGET "${TARGET_NAME_EXT}" PROPERTY FOLDER "tests/${EXTENSION}/${DIR_NAME}")    
-        
-endfunction()
 
 function (discover_tests DIR)    
     file(

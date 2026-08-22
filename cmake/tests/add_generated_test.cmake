@@ -3,6 +3,7 @@ if (WIN32)
     list(APPEND LAUNCH_SOURCES "${CMAKE_SOURCE_DIR}/utf8cp.manifest") #for utf8 codepage
 endif() 
 include (cmake/generators/export_header.cmake)
+
 function(add_cuda_to_test TARGET_NAME)
     add_cuda_to_target(${TARGET_NAME} "")
     set_target_cuda_arch_flags(${TARGET_NAME})
@@ -29,9 +30,8 @@ function(configure_test_target_flags TARGET_NAME TEST_SOURCE DIR)
         if(${ENABLE_BENCHMARK})
             target_compile_definitions(${TARGET_NAME} PRIVATE ENABLE_BENCHMARK)
         endif()
-        if (ENABLE_CPU)
-            set_target_properties(${TARGET_NAME} PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)            
-        endif()
+        set_target_properties(${TARGET_NAME} PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)            
+        
    
        target_include_directories(${TARGET_NAME} PUBLIC "${CMAKE_SOURCE_DIR}")        
        target_include_directories(${TARGET_NAME} PUBLIC "${DIR}")      
