@@ -33,6 +33,7 @@ jobs:
           echo "CXX=/opt/rocm/bin/amdclang++" >> "$GITHUB_ENV"
           echo "HIPCXX=/opt/rocm/bin/amdclang++" >> "$GITHUB_ENV"          
           echo "LD_LIBRARY_PATH=/opt/rocm/core-7.14/lib:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          echo "HSA_XNACK=1" >> "$GITHUB_ENV"
                 
       - name: Configure CMake
         run: |
