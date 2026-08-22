@@ -224,7 +224,7 @@ All three workflow files trigger on **pull requests to `main`** (push triggers a
 ### Linux (cmake-linux-amd64.yml, cmake-linux-arm64.yml)
 - **Compilers**: `g++-13`, `clang++-21`
 - **CUDA**: 13.3 (via `/usr/local/cuda-<version>/bin/nvcc`)
-- **CMake**: Custom installation at `/home/cudeiro/cmake-4.3.3-linux-x86_64/bin/` (added to PATH)
+- **CMake**: Custom installation at `/home/cudeiro/cmake-4.4.2-linux-x86_64/bin/` (added to PATH)
 - **Generator**: Ninja
 - **Build type**: Release
 

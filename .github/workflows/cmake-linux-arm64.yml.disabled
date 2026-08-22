@@ -1,4 +1,4 @@
-name: CMake on Linux (ARM64)
+name: CMake on Linux (CUDA ARM64)
 
 on:
   #push:
@@ -30,14 +30,14 @@ jobs:
         id: strings
         run: |
           echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"      
-          echo "PATH=$HOME/cmake-4.3.3-linux-aarch64/bin/:$PATH" >> "$GITHUB_ENV"
+          echo "PATH=$HOME/cmake-4.4.2-linux-aarch64/bin/:$PATH" >> "$GITHUB_ENV"
           echo "CUDACXX=/usr/local/cuda-${{matrix.cuda_toolkit}}/bin/nvcc" >> "$GITHUB_ENV"
           echo "CC=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
           echo "CXX=${{matrix.host_compiler}}" >> "$GITHUB_ENV"                    
           
       - name: Configure CMake
         run: |
-          cmake -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
+          cmake -G "Ninja" -DENABLE_HIP=OFF  -DENABLE_CUDA=ON    -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
 
       - name: Build
         run: |
