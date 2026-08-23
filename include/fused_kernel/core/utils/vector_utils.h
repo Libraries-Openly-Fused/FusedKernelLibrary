@@ -268,7 +268,8 @@ namespace fk {
 
     template <typename T, typename... Numbers>
     FK_HOST_DEVICE_CNST T make_(const Numbers&... pack) {
-        if constexpr (std::is_aggregate_v<T>) {
+        // Not is_aggregate_v: HIP vector types are non-aggregate class templates.
+        if constexpr (vector_type<T>) {
             return make::type<T>(pack...);
         } else {
             static_assert(sizeof...(pack) == 1, "passing more than one argument for a non cuda vector type");
@@ -278,14 +279,15 @@ namespace fk {
 
     template <vector_type T>
     FK_HOST_DEVICE_CNST T make_set(const VBase<T> val) {
+        // Direct-list-init via make::type: HIP's 1-arg vector ctor is explicit.
         if constexpr (cn<T> == 1) {
-            return {val};
+            return make::type<T>(val);
         } else if constexpr (cn<T> == 2) {
-            return {val, val};
+            return make::type<T>(val, val);
         } else if constexpr (cn<T> == 3) {
-            return {val, val, val};
+            return make::type<T>(val, val, val);
         } else {
-            return {val, val, val, val};
+            return make::type<T>(val, val, val, val);
         }
     }
 
