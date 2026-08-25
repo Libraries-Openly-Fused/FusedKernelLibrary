@@ -38,7 +38,7 @@ function (add_generated_benchmark TARGET_NAME TEST_SOURCE EXTENSION DIR)
         
         target_include_directories(${TARGET_NAME_EXT} PRIVATE "${CMAKE_SOURCE_DIR}")        
         target_include_directories(${TARGET_NAME_EXT} PRIVATE "${DIR}")      
-        target_link_libraries(${TARGET_NAME_EXT} SYSTEM PRIVATE FKL::FKL)
+        target_link_libraries(${TARGET_NAME_EXT}  PRIVATE FKL::FKL)
         if (MSVC)
             target_compile_options(${TARGET_NAME_EXT} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/diagnostics:caret>)
             target_compile_options(${TARGET_NAME_EXT} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>) 

@@ -119,9 +119,11 @@ namespace fk {
             // If useEvenLines is true, we interpolate on odd lines, otherwise we interpolate the even lines
             // useEvenLines = true, we interpolate if thread.y is odd and not the last line
             // useEvenLines = false, we interpolate if thread.y is even and not the first line
-            const bool interpolate = params.useEvenLines ?
-                                        !cxp::is_even::f(thread.y) && thread.y != ReadOperation::num_elems_y(Point{0,0,0}, backIOp) - 1
-                                        : cxp::is_even::f(thread.y) && thread.y != 0;
+            const bool interpolate = params.useEvenLines
+                                         ? !cxp::is_even::f(thread.y)
+                                               && thread.y != ReadOperation::num_elems_y(Point{0,0,0}, backIOp) - 1
+                                         : cxp::is_even::f(thread.y) && thread.y != 0
+                                               && thread.y != ReadOperation::num_elems_y(Point{0,0,0}, backIOp) - 1;
 
             return execInterLinearGetPixel(thread, backIOp, interpolate);
         }
