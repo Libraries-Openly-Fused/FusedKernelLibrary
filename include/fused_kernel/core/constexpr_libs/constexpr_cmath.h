@@ -53,11 +53,18 @@ using cuda::std::max;
 using cuda::std::min;
 #else
 // Polyfill for CUDA < 13.3 where <cuda/std/algorithm> is missing
-template <typename T> constexpr __host__ __device__ const T &max(const T &a, const T &b) { return (a < b) ? b : a; }
+template <typename T>
+FK_HOST_DEVICE_CNST T max(const T a, const T b) { 
+    return (a < b) ? b : a;
+}
 
-template <typename T> constexpr __host__ __device__ const T &min(const T &a, const T &b) { return (b < a) ? b : a; }
+template <typename T>
+FK_HOST_DEVICE_CNST T min(const T a, const T b) {
+    return (b < a) ? b : a;
+}
 
-template <typename T> constexpr __host__ __device__ const T &clamp(const T &v, const T &lo, const T &hi) {
+template <typename T>
+FK_HOST_DEVICE_CNST T clamp(const T v, const T lo, const T hi) {
     return (v < lo) ? lo : ((hi < v) ? hi : v);
 }
 #endif
