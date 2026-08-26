@@ -170,6 +170,9 @@ namespace fk {
     template <typename T>
     constexpr bool isCompleteOperation = IsCompleteOperation<T>::value;
 
+    template <typename T>
+    constexpr bool isIncompleteReadBackOperation = opIs<IncompleteReadBackType, T>;
+
     template <typename Enabler, typename T>
     struct is_fused_operation_ : std::false_type {};
 
