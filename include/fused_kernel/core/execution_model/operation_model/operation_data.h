@@ -75,24 +75,53 @@ namespace fk {
     constexpr bool hasParamsArray =
         hasParams_v<Operation> && std::is_array_v<typename Operation::ParamsType>;
 
+    template <typename Operation>
+    constexpr bool hasParamsAndBackIOpNoArray =
+        hasParamsAndBackIOp_v<Operation> && !std::is_array_v<typename Operation::ParamsType> &&
+        !std::is_array_v<typename Operation::BackIOp>;
+
+    template <typename Operation>
+    constexpr bool hasParamsAndBackIOpArray =
+        hasParamsAndBackIOp_v<Operation> && std::is_array_v<typename Operation::ParamsType> &&
+        std::is_array_v<typename Operation::BackIOp>;
+
     // OperationData implementations
-    template <typename Operation, typename Enabler = void>
+    template <typename Operation>
     struct OperationData;
 
     using ParamsTypes = TypeList<BinaryType, ReadType, WriteType, MidWriteType, OpenType, ClosedType>;
     using ParamsAndBackIOpTypes = TypeList<ReadBackType, IncompleteReadBackType, TernaryType>;
 
     template <typename Operation>
-    struct OperationData<Operation, std::enable_if_t<one_of_v<typename Operation::InstanceType, ParamsTypes>>> {
+    requires (one_of_v<typename Operation::InstanceType, ParamsTypes>)
+    struct OperationData<Operation> {
         FK_HOST_DEVICE_CNST OperationData() {};
-        FK_HOST_DEVICE_CNST OperationData(const typename Operation::ParamsType &params_) : params(params_) {}
+        FK_HOST_DEVICE_CNST OperationData(const typename Operation::ParamsType &params_)
+            requires(hasParamsNoArray<Operation>) : params(params_) {}
+        FK_HOST_DEVICE_CNST OperationData(const typename Operation::ParamsType& params_)
+            requires(hasParamsArray<Operation>) : params{} {
+            for (size_t i = 0; i < std::extent_v<typename Operation::ParamsType>; ++i) {
+                params[i] = params_[i];
+            }
+        }
         typename Operation::ParamsType params{};
     };
 
     template <typename Operation>
-    struct OperationData<Operation, std::enable_if_t<one_of_v<typename Operation::InstanceType, ParamsAndBackIOpTypes>>> {
+    requires (one_of_v<typename Operation::InstanceType, ParamsAndBackIOpTypes>)
+    struct OperationData<Operation> {
         FK_HOST_DEVICE_CNST OperationData() {};
-        FK_HOST_DEVICE_CNST OperationData(const typename Operation::ParamsType& params_, const typename Operation::BackIOp& backIOp_) : params(params_), backIOp(backIOp_) {}
+        FK_HOST_DEVICE_CNST OperationData(const typename Operation::ParamsType& params_, const typename Operation::BackIOp& backIOp_)
+            requires (hasParamsAndBackIOpNoArray<Operation>) : params(params_), backIOp(backIOp_) {}
+        FK_HOST_DEVICE_CNST OperationData(const typename Operation::ParamsType& params_, const typename Operation::BackIOp& backIOp_)
+            requires (hasParamsAndBackIOpArray<Operation>) : params{}, backIOp{} {
+            for (size_t i = 0; i < std::extent_v<typename Operation::ParamsType>; ++i) {
+                params[i] = params_[i];
+            }
+            for (size_t i = 0; i < std::extent_v<typename Operation::BackIOp>; ++i) {
+                backIOp[i] = backIOp_[i];
+            }
+        }
         typename Operation::ParamsType params{};
         typename Operation::BackIOp backIOp{};
     };
