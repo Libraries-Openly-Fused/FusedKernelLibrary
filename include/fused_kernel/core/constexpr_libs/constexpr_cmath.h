@@ -550,9 +550,8 @@ namespace cxp {
     struct min {
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
-            template <typename ST>
-            FK_HOST_DEVICE_FUSE auto exec(const ST s1, const ST s2) 
-                -> std::enable_if_t<std::is_fundamental_v<ST>, ST> {
+            template <typename ST> requires(std::is_fundamental_v<ST>)
+            FK_HOST_DEVICE_FUSE auto exec(const ST s1, const ST s2) {
                 return base::min(s1, s2);
             }
         };
@@ -841,10 +840,7 @@ namespace cxp {
                 return base::clamp(val, minV, maxV);
             }
         };
-        template <typename... Types>
-        static constexpr inline auto f(const Types &...vals) {
-            return Exec<BaseFunc>::exec(vals...);
-        }
+        CXP_F_FUNC
     };
 
     // ---------------------------------------------------------

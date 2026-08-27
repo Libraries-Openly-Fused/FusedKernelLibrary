@@ -21,7 +21,7 @@
 namespace cxp {
     struct vector_and {
         template <typename T>
-        FK_HOST_DEVICE_FUSE bool f(const T& value) {
+        FK_HOST_DEVICE_FUSE bool f(const T value) {
             if constexpr (fk::validCUDAVec<T>) {
                 using VecBoolType = fk::bool_<fk::cn<T>>;
                 const auto valBool = cast<VecBoolType>::f(value);
@@ -44,13 +44,13 @@ namespace cxp {
     struct discard {
         template <size_t... Idx, typename I>
         FK_HOST_DEVICE_FUSE auto f_helper(const std::index_sequence<Idx...>&,
-                                          const I& input) {
+                                          const I input) {
             using BaseType = fk::VBase<I>;
             using OutputType = typename fk::VectorType<BaseType, NewNumChannels>::type_v;
             return OutputType{fk::static_get<Idx>(input)...};
         }
         template <typename I>
-        FK_HOST_DEVICE_FUSE auto f(const I& input)
+        FK_HOST_DEVICE_FUSE auto f(const I input)
             -> std::enable_if_t<(fk::cn<I> >= 2) && (NewNumChannels < fk::cn<I>),
                                 typename fk::VectorType<fk::VBase<I>, NewNumChannels>::type_v> {
             // Remove the explicit template argument <NewNumChannels> here:
@@ -61,7 +61,7 @@ namespace cxp {
     template <size_t... Idx>
     struct vector_reorder {
         template <typename VT>
-        FK_HOST_DEVICE_FUSE VT f(const VT& v) {
+        FK_HOST_DEVICE_FUSE VT f(const VT v) {
             static_assert(fk::validCUDAVec<VT>, "Non valid CUDA vetor type: vector_reorder");
             static_assert(fk::cn<VT> >= 2, "Minimum number of channels is 2: vector_reorder");
             static_assert(sizeof...(Idx) == fk::cn<VT>, "Number of indices must match number of channels");
@@ -72,7 +72,7 @@ namespace cxp {
     template <typename Op>
     struct vector_reduce {
         template <typename VT>
-        FK_HOST_DEVICE_FUSE auto f(const VT& v) {
+        FK_HOST_DEVICE_FUSE auto f(const VT v) {
             if constexpr (std::is_same_v<typename Op::InstanceType, fk::UnaryType>) {
                 using IT = typename Op::InputType;
                 if constexpr (fk::cn<VT> == 1) {
