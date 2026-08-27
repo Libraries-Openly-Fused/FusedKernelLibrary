@@ -16,6 +16,7 @@
 #define FK_BATCH_OPERATIONS_CUH
 
 #include <fused_kernel/core/execution_model/operation_model/parent_operations.h>
+#include <fused_kernel/core/execution_model/thread_fusion.h>
 #include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
 
 /*
@@ -116,7 +117,7 @@ namespace fk {
             using OutputArrayType = std::array<Instantiable<Operation>, IOpType::Operation::BATCH>;
             OutputArrayType resultingArray{};
             for (int i = 0; i < IOpType::Operation::BATCH; i++) {
-                if constexpr (IOpType::template is<ReadType> || IOpType::template is<IncompleteReadBackType>) {
+                if constexpr (IOpType::template is<ReadType>) {
                     resultingArray[i] = Operation::build(std::forward<InstantiableType>(batchIOp).params.opData[i]);
                 } else {
                     static_assert(IOpType::template is<WriteType>, "IOpType must be ReadType or WriteType");
@@ -162,20 +163,24 @@ namespace fk {
         Implements build(const ParamsType& params)
     */
     template <size_t BATCH_, typename Op>
-        requires(isCompleteOperation<Op>)
     struct BatchRead<PlanePolicy::PROCESS_ALL, BATCH_, Op> {
+        static_assert(isCompleteOperation<Op>,
+            "The IOp passed as template parameter is not a complete operation");
+    private:
+        using SelfType = BatchRead<PlanePolicy::PROCESS_ALL, BATCH_, Op>;
+    public:
+        FK_STATIC_STRUCT(BatchRead, SelfType)
         using Operation = Op;
         static constexpr size_t BATCH = BATCH_;
         static constexpr PlanePolicy PP = PlanePolicy::PROCESS_ALL;
-    private:
-        using SelfType = BatchRead<PlanePolicy::PROCESS_ALL, BATCH_, Op>;
-        using Parent = ReadOperation<typename Op::ReadDataType,
-                                     BatchReadParams<BATCH, PP, Operation>, typename Op::OutputType,
-                                     static_cast<TF>(Operation::THREAD_FUSION), SelfType,
-                                     Operation::IS_FUSED_OP>;
-    public:
-        FK_STATIC_STRUCT(BatchRead, SelfType)
-        DECLARE_READ_PARENT_BASIC
+
+        using ParamsType = BatchReadParams<BATCH, PP, Operation>;
+        using ReadDataType = typename Operation::ReadDataType;
+        using InstanceType = ReadType;
+        using OutputType = typename Operation::OutputType;
+        using OperationDataType = OperationData<SelfType>;
+        using InstantiableType = Read<SelfType>;
+        static constexpr bool IS_FUSED_OP = Operation::IS_FUSED_OP;
 
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData[thread.z]);
@@ -193,31 +198,47 @@ namespace fk {
             return opData.params.activeThreads;
         }
 
-        template <uint ELEMS_PER_THREAD = 1>
+        FK_HOST_DEVICE_FUSE auto exec(const Point thread, const OperationDataType& opData) {
+            return exec(thread, opData.params);
+        }
         FK_HOST_DEVICE_FUSE auto exec(const Point thread, const ParamsType& params) {
-            if constexpr (THREAD_FUSION) {
-                return Operation::template exec<ELEMS_PER_THREAD>(thread, params.opData[thread.z]);
-            } else {
-                return Operation::exec(thread, params.opData[thread.z]);
-            }
+            return Operation::exec(thread, params.opData[thread.z]);
+        }
+
+        // Thread fusion hook: this Operation only selects the per-plane OperationData; the
+        // memory access is delegated to the wrapped Operation, so thread fusion is available
+        // whenever the wrapped Operation supports it.
+        FK_HOST_DEVICE_FUSE ForwardedAccess<Operation> forwarded_access(const Point thread, const ParamsType& params) {
+            return { thread, params.opData[thread.z] };
+        }
+
+        FK_HOST_FUSE InstantiableType build(const OperationDataType& opData) {
+            return InstantiableType{ opData };
+        }
+        FK_HOST_FUSE InstantiableType build(const ParamsType& params) {
+            return InstantiableType{ {params} };
         }
     };
 
     template <size_t BATCH_, typename Op>
-        requires(isCompleteOperation<Op>)
     struct BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH_, Op> {
+        static_assert(isCompleteOperation<Op>,
+            "The IOp passed as template parameter is not a complete operation");
+    private:
+        using SelfType = BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH_, Op>;
+    public:
+        FK_STATIC_STRUCT(BatchRead, SelfType)
         using Operation = Op;
         static constexpr size_t BATCH = BATCH_;
         static constexpr PlanePolicy PP = PlanePolicy::CONDITIONAL_WITH_DEFAULT;
-    private:
-        using SelfType = BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH, Op>;
-        using Parent = ReadOperation<typename Op::ReadDataType,
-                                     BatchReadParams<BATCH, PP, Operation, typename Op::OutputType>,
-                                     typename Op::OutputType,
-                                     static_cast<TF>(Operation::THREAD_FUSION), SelfType, false>;
-    public:
-        FK_STATIC_STRUCT(BatchRead, SelfType)
-        DECLARE_READ_PARENT_BASIC
+
+        using ParamsType = BatchReadParams<BATCH, PP, Operation, typename Operation::OutputType>;
+        using ReadDataType = typename Operation::ReadDataType;
+        using InstanceType = ReadType;
+        using OutputType = typename Operation::OutputType;
+        using OperationDataType = OperationData<SelfType>;
+        using InstantiableType = Read<SelfType>;
+        static constexpr bool IS_FUSED_OP = Operation::IS_FUSED_OP;
 
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData[thread.z]);
@@ -234,17 +255,25 @@ namespace fk {
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
             return opData.params.activeThreads;
         }
-        template <uint ELEMS_PER_THREAD = 1>
+
+        // No thread fusion hook: the per-plane default_value branch makes this Operation more
+        // than a plain forwarded memory access, so it does not support thread fusion.
+        FK_HOST_DEVICE_FUSE auto exec(const Point thread, const OperationDataType& opData) {
+            return exec(thread, opData.params);
+        }
         FK_HOST_DEVICE_FUSE auto exec(const Point thread, const ParamsType& params) {
             if (params.usedPlanes <= thread.z) {
                 return params.default_value;
             } else {
-                if constexpr (THREAD_FUSION) {
-                    return Operation::template exec<ELEMS_PER_THREAD>(thread, params.opData[thread.z]);
-                } else {
-                    return Operation::exec(thread, params.opData[thread.z]);
-                }
+                return Operation::exec(thread, params.opData[thread.z]);
             }
+        }
+
+        FK_HOST_FUSE InstantiableType build(const OperationDataType& opData) {
+            return InstantiableType{ opData };
+        }
+        FK_HOST_FUSE InstantiableType build(const ParamsType& params) {
+            return InstantiableType{ {params} };
         }
     };
 
@@ -254,19 +283,22 @@ namespace fk {
         ParamsType = BatchReadParams<PlanePolicy::PROCESS_ALL, BATCH, Op>
     */
     template <size_t BATCH_, typename Op>
-        requires(isIncompleteReadBackOperation<Op>)
     struct BatchRead<PlanePolicy::PROCESS_ALL, BATCH_, TypeList<Op>> {
+    private:
+        using SelfType = BatchRead<PlanePolicy::PROCESS_ALL, BATCH_, TypeList<Op>>;
+    public:
+        FK_STATIC_STRUCT(BatchRead, SelfType)
         using Operation = Op;
         static constexpr size_t BATCH = BATCH_;
         static constexpr PlanePolicy PP = PlanePolicy::PROCESS_ALL;
-    private:
-        using SelfType = BatchRead<PP, BATCH, TypeList<Op>>;
-        using Parent = IncompleteReadBackOperation<typename Operation::ReadDataType,
-                                                   BatchReadParams<BATCH, PP, Operation>, NullType,
-                                                   typename Operation::OutputType, SelfType>;
-    public:
-        FK_STATIC_STRUCT(BatchRead, SelfType)
-        DECLARE_INCOMPLETEREADBACK_PARENT_BASIC
+
+        using ParamsType = BatchReadParams<BATCH, PlanePolicy::PROCESS_ALL, Operation>;
+        using ReadDataType = typename Operation::ReadDataType;
+        using InstanceType = ReadType;
+        using OutputType = typename Operation::OutputType;
+        using OperationDataType = OperationData<SelfType>;
+        using InstantiableType = Read<SelfType>;
+        static constexpr bool IS_FUSED_OP = Operation::IS_FUSED_OP;
 
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData[thread.z]);
@@ -282,6 +314,13 @@ namespace fk {
         }
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
             return opData.params.activeThreads;
+        }
+
+        FK_HOST_FUSE InstantiableType build(const OperationDataType& opData) {
+            return InstantiableType{ opData };
+        }
+        FK_HOST_FUSE InstantiableType build(const ParamsType& params) {
+            return InstantiableType{ {params} };
         }
     };
 
@@ -291,19 +330,22 @@ namespace fk {
         ParamsType = BatchReadParams<BATCH, PlanePolicy::CONDITIONAL_WITH_DEFAULT, Op, DefType>
     */
     template <size_t BATCH_, typename Op, typename DefType>
-        requires(isIncompleteReadBackOperation<Op>)
     struct BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH_, TypeList<Op, DefType>> {
+    private:
+        using SelfType = BatchRead<PlanePolicy::CONDITIONAL_WITH_DEFAULT, BATCH_, TypeList<Op, DefType>>;
+    public:
+        FK_STATIC_STRUCT(BatchRead, SelfType)
         using Operation = Op;
         static constexpr size_t BATCH = BATCH_;
         static constexpr PlanePolicy PP = PlanePolicy::CONDITIONAL_WITH_DEFAULT;
-    private:
-        using SelfType = BatchRead<PP, BATCH, TypeList<Op, DefType>>;
-        using Parent = IncompleteReadBackOperation<typename Operation::ReadDataType,
-                                                   BatchReadParams<BATCH, PP, Operation, DefType>, NullType,
-                                                   typename Operation::OutputType, SelfType>;
-    public:
-        FK_STATIC_STRUCT(BatchRead, SelfType)
-        DECLARE_INCOMPLETEREADBACK_PARENT_BASIC
+
+        using ParamsType = BatchReadParams<BATCH, PlanePolicy::CONDITIONAL_WITH_DEFAULT, Operation, DefType>;
+        using ReadDataType = typename Operation::ReadDataType;
+        using InstanceType = ReadType;
+        using OutputType = typename Operation::OutputType;
+        using OperationDataType = OperationData<SelfType>;
+        using InstantiableType = Read<SelfType>;
+        static constexpr bool IS_FUSED_OP = Operation::IS_FUSED_OP;
 
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData[thread.z]);
@@ -319,6 +361,13 @@ namespace fk {
         }
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
             return opData.params.activeThreads;
+        }
+
+        FK_HOST_FUSE InstantiableType build(const OperationDataType& opData) {
+            return InstantiableType{ opData };
+        }
+        FK_HOST_FUSE InstantiableType build(const ParamsType& params) {
+            return InstantiableType{ {params} };
         }
     };
 
@@ -366,11 +415,7 @@ namespace fk {
                 paramsStore.opData[i] = iOps[i];
             }
 
-            if constexpr (isCompleteOperation<NewOperation>) {
-                return BatchReadType::build(paramsStore);
-            } else {
-                return BatchReadType::build(paramsStore, typename BatchReadType::BackIOp{});
-            }
+            return BatchReadType::build(paramsStore);
         }
     };
 
@@ -403,11 +448,7 @@ namespace fk {
                 paramsStore.opData[i] = iOps[i];
             }
 
-            if constexpr (isCompleteOperation<NewOperation>) {
-                return BatchReadType::build(paramsStore);
-            } else {
-                return BatchReadType::build(paramsStore, typename BatchReadType::BackIOp{});
-            }
+            return BatchReadType::build(paramsStore);
         }
     };
     // ##################### END BATCH_READ #####################
@@ -421,19 +462,18 @@ namespace fk {
     public:
         FK_STATIC_STRUCT(BatchWrite, SelfType)
         using Parent = WriteOperation<typename Operation::InputType, typename Operation::ParamsType[BATCH],
-                                      typename Operation::WriteDataType,
-                                      Operation::THREAD_FUSION ? TF::ENABLED : TF::DISABLED, BatchWrite<BATCH, Operation>>;
+                                      typename Operation::WriteDataType, BatchWrite<BATCH, Operation>>;
         DECLARE_WRITE_PARENT_BASIC
 
-        template <uint ELEMS_PER_THREAD = 1>
-        FK_HOST_DEVICE_FUSE void exec(const Point thread,
-            const ThreadFusionType<InputType, ELEMS_PER_THREAD, InputType> input,
-            const ParamsType& params) {
-            if constexpr (THREAD_FUSION) {
-                Operation::template exec<ELEMS_PER_THREAD>(thread, input, params[thread.z]);
-            } else {
-                Operation::exec(thread, input, params[thread.z]);
-            }
+        FK_HOST_DEVICE_FUSE void exec(const Point thread, const InputType input, const ParamsType& params) {
+            Operation::exec(thread, input, params[thread.z]);
+        }
+
+        // Thread fusion hook: this Operation only selects the per-plane parameters; the memory
+        // access is delegated to the wrapped Operation, so thread fusion is available whenever
+        // the wrapped Operation supports it.
+        FK_HOST_DEVICE_FUSE ForwardedAccess<Operation> forwarded_access(const Point thread, const ParamsType& params) {
+            return { thread, params[thread.z] };
         }
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params[thread.z]);
