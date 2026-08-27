@@ -16,7 +16,6 @@ The library has CPU and CUDA backends. HIP support is architecturally possible b
 ---
 
 ## Repository Layout
-
 ```
 FusedKernelLibrary/
 ├── .clang-format                 # LLVM-based style, 4-space indent, 120-char column limit
@@ -44,7 +43,6 @@ FusedKernelLibrary/
 ├── utests/                       # Unit tests (header .h files, auto-discovered)
 └── benchmarks/                   # Benchmarks (disabled by default, ENABLE_BENCHMARK=ON)
 ```
-
 ---
 
 ## Build System
@@ -56,15 +54,13 @@ FusedKernelLibrary/
 - **MSVC**: Visual Studio 2022 or Visual Studio 2026 (MSVC_VERSION >= 1930) required;
 
 ### Configure and Build (typical)
-```bash
 # Linux (Ninja)
 cmake -G "Ninja" -B build -DCMAKE_BUILD_TYPE=Release -S .
-cmake --build build --config Release
+cmake --build build --config Release --parallel 32
 
 # Windows (Ninja, inside VS Developer Shell)
 cmake -G "Ninja" -B build -DCMAKE_BUILD_TYPE=Release -S .
-cmake --build build --config Release
-```
+cmake --build build --config Release --parallel 32
 
 ### Key CMake Options
 | Option | Default | Description |
@@ -91,12 +87,8 @@ cmake --build build --config Release
 ---
 
 ## Running Tests
-
-```bash
 cd build
 ctest --build-config Release --output-junit test_results.xml
-```
-
 Tests are registered with CTest automatically. Individual targets follow the naming pattern `<TestName>_cpp` (CPU) and `<TestName>_cu` (CUDA).
 
 ---
@@ -116,7 +108,9 @@ Tests in `tests/` and `utests/` are **not** written with a traditional test fram
 6. Use `// ONLY_CPU` in a test header to suppress the `_cu` target.
 
 ### Test File Structure
+
 Every test header must define a `launch()` function returning `int`:
+
 ```cpp
 #include <tests/main.h>
 #include <fused_kernel/fused_kernel.h>
@@ -163,13 +157,15 @@ In CPU-only mode (no NVCC, no CLANG_HOST_DEVICE), these macros degrade to standa
 The `FK_STATIC_STRUCT(StructName, StructAlias)` macro marks a struct as non-constructible and non-copyable (deletes default/copy/move constructors and assignment operators).
 
 ### Type Aliases
+
 The library defines CUDA-compatible type aliases (also available in CPU mode):
+
 ```cpp
-using uchar    = unsigned char;
-using schar    = signed char;
-using uint     = unsigned int;
-using ushort   = unsigned short;
-using ulong    = unsigned long;
+using uchar = unsigned char;
+using schar = signed char;
+using uint = unsigned int;
+using ushort = unsigned short;
+using ulong = unsigned long;
 using longlong = long long;
 using ulonglong = unsigned long long;
 ```
@@ -190,7 +186,9 @@ Run `clang-format` using the `.clang-format` file at the repo root:
 ## Core API Patterns
 
 ### Executing Fused Operations
+
 The primary entry point is `fk::executeOperations<DPPType>(stream, op1, op2, ...)`:
+
 ```cpp
 #include <fused_kernel/fused_kernel.h>
 using namespace fk;
@@ -262,4 +260,6 @@ See existing operations like `Mul`, `Add`, `SaturateCast` in `include/fused_kern
 ## Known Issues and Workarounds
 
 1. **Windows Ninja + NVCC path**: After CMake configure on Windows with Ninja, `<build_dir>/CMakeFiles/rules.ninja` may contain an incorrect path to `nvcc.exe`. The CI workflow patches this with PowerShell `Set-Content`. If you hit this locally, check that `CUDACXX` env var is set before invoking CMake and verify the generated `rules.ninja`.
+
+2. **CUDA Compilation Availability**: CUDA compilation is supported and should not be declared blocked based on an unsuccessful ad hoc nvcc invocation; use the repository's documented VS Developer Shell/CMake build configuration and correct architecture/toolchain settings before concluding CUDA is unavailable.
 
