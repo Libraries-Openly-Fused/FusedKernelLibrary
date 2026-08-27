@@ -69,7 +69,7 @@ namespace fk {
 
     template <typename T>
     union ArrayVector<T, 1> {
-        static_assert(std::is_fundamental_v<T>, "ArrayVector<T, 1> can only be used with fundamental types");
+        static_assert(fk::validScalar<T>, "ArrayVector<T, 1> can only be used with fundamental or reduced float types");
         enum { size = 1 };
         T at[1];
         struct {
@@ -94,7 +94,7 @@ namespace fk {
 
     template <typename T>
     union ArrayVector<T, 2> {
-        static_assert(std::is_fundamental_v<T>, "ArrayVector<T, 2> can only be used with fundamental types");
+        static_assert(fk::validScalar<T>, "ArrayVector<T, 2> can only be used with fundamental or reduced float types");
         enum { size = 2 };
         T at[2];
         struct {
@@ -128,7 +128,7 @@ namespace fk {
 
     template <typename T>
     union ArrayVector<T, 3> {
-        static_assert(std::is_fundamental_v<T>, "ArrayVector<T, 3> can only be used with fundamental types");
+        static_assert(fk::validScalar<T>, "ArrayVector<T, 3> can only be used with fundamental or reduced float types");
         enum { size = 3 };
         T at[3];
         struct {
@@ -163,7 +163,7 @@ namespace fk {
 
     template <typename T>
     union ArrayVector<T, 4> {
-        static_assert(std::is_fundamental_v<T>, "ArrayVector<T, 4> can only be used with fundamental types");
+        static_assert(fk::validScalar<T>, "ArrayVector<T, 4> can only be used with fundamental or reduced float types");
         enum { size = 4 };
         T at[4];
         struct {

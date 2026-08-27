@@ -25,8 +25,13 @@ namespace cxp {
     template <typename Op>
     struct Exec<Op, std::enable_if_t<std::is_same_v<typename Op::InstanceType, fk::UnaryType>>> {
         template <typename T>
+<<<<<<< HEAD
+        FK_HOST_DEVICE_FUSE auto exec(const T& val) {
+            if constexpr (fk::validScalar<T>) {
+=======
         FK_HOST_DEVICE_FUSE auto exec(const T val) {
             if constexpr (std::is_fundamental_v<T>) {
+>>>>>>> main
                 return Op::exec(val);
             } else {
                 static_assert(fk::validCUDAVec<T>, "Type not supported in Unary operation execution.");

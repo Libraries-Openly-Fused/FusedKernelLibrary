@@ -28,7 +28,8 @@ namespace fk {
         struct AbsFunc {
             using InstanceType = UnaryType;
             template <typename ST> FK_HOST_DEVICE_FUSE auto exec(const ST& s) {
-                if constexpr (std::is_signed_v<ST>) return s < ST(0) ? static_cast<ST>(-s) : s;
+                if constexpr (isReducedFloat<ST>) return ReducedFloatTraits<ST>::abs(s);
+                else if constexpr (std::is_signed_v<ST>) return s < ST(0) ? static_cast<ST>(-s) : s;
                 else return s;
             }
         };
