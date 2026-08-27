@@ -66,8 +66,8 @@ struct LinearFilterDPPDetails {
 template <typename T>
 struct ConstantFilterRead {
 private:
-    using Parent = ReadOperation<T, T, T, TF::ENABLED,
-                                 ConstantFilterRead<T>>;
+    using Parent = ReadOperation<T, T, T,
+                                 ConstantFilterRead<T>, true>;
     using SelfType = ConstantFilterRead<T>;
 
 public:
