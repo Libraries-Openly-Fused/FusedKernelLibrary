@@ -17,6 +17,7 @@
 #define FK_IMAGE_H
 
 #include <fused_kernel/algorithms/image_processing/raw_image.h>
+#include <fused_kernel/algorithms/image_processing/color_conversion.h>
 #include <fused_kernel/core/data/ptr_nd.h>
 
 namespace fk {
@@ -39,7 +40,7 @@ namespace fk {
             : data(data), width(width), height(height) {}
 
         FK_HOST_CNST Image(const uint width, const uint height,
-                           const MemType& memType = defaultMemType, const uint deviceID = 0)
+                           const MemType memType = defaultMemType, const uint deviceID = 0)
             : width(width), height(height) {
             const uint dataWidth = width * PixelFormatTraits<PF>::rf.width_f;
             const uint dataHeight = height * PixelFormatTraits<PF>::rf.height_f;

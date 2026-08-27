@@ -101,14 +101,6 @@ namespace fk {
         static constexpr ResolutionFactors rf{2.f, 1.f};
     };
 
-    template <PixelFormat PF>
-    using PackedPixelType = VectorType_t<ColorDepthPixelBaseType<static_cast<ColorDepth>(PixelFormatTraits<PF>::depth)>,
-                                         PixelFormatTraits<PF>::cn>;
-
-    template <PixelFormat PF, bool ALPHA>
-    using YUVOutputPixelType =
-        VectorType_t<ColorDepthPixelBaseType<PixelFormatTraits<PF>::depth>, ALPHA ? 4 : PixelFormatTraits<PF>::cn>;
-
     template <ColorDepth CD> constexpr ColorDepthPixelBaseType<CD> maxDepthValue{};
     template <> constexpr ColorDepthPixelBaseType<ColorDepth::p8bit> maxDepthValue<ColorDepth::p8bit>{255u};
     template <> constexpr ColorDepthPixelBaseType<ColorDepth::p10bit> maxDepthValue<ColorDepth::p10bit>{1023u};

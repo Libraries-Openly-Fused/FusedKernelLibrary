@@ -632,6 +632,145 @@ constexpr bool testTransformationMatrixValues() {
                  res_fn12_601, res_fn12_709, res_fn12_2020>;
 }
 
+namespace fk {
+// Independent implementation of the ITU RGB -> YCbCr equations, used as ground truth for
+// the ConvertRGBToYUV Operation. All the values are expressed in the value range of CD.
+template <ColorRange CR, ColorPrimitives CP, ColorDepth CD>
+constexpr float3 referenceRGBToYUV(const float3& rgb) {
+    constexpr float Kr = iTUWeights<CP>.Kr;
+    constexpr float Kb = iTUWeights<CP>.Kb;
+    constexpr float Kg = 1.f - Kr - Kb;
+
+    const float Y = (Kr * rgb.x) + (Kg * rgb.y) + (Kb * rgb.z);
+    const float Cb = (rgb.z - Y) / (2.f * (1.f - Kb));
+    const float Cr = (rgb.x - Y) / (2.f * (1.f - Kr));
+
+    constexpr float chromaOffset = subCoefficients<CD>.chroma;
+    if constexpr (CR == ColorRange::Limited) {
+        constexpr float maxVal = static_cast<float>(maxDepthValue<CD>);
+        constexpr float lumaOffset = subCoefficients<CD>.luma;
+        constexpr float scaleY = rangeLimits<CD>.limitY / maxVal;
+        constexpr float scaleC = rangeLimits<CD>.limitC / maxVal;
+        return make_<float3>((Y * scaleY) + lumaOffset, (Cb * scaleC) + chromaOffset, (Cr * scaleC) + chromaOffset);
+    } else {
+        return make_<float3>(Y, Cb + chromaOffset, Cr + chromaOffset);
+    }
+}
+
+// Value, in the range of CD, that can be exactly represented by ColorDepthPixelBaseType<CD>
+template <ColorDepth CD>
+inline float representableValue(const float factor) {
+    constexpr float maxVal = static_cast<float>(maxDepthValue<CD>);
+    if constexpr (std::is_floating_point_v<ColorDepthPixelBaseType<CD>>) {
+        return factor * maxVal;
+    } else {
+        return std::round(factor * maxVal);
+    }
+}
+
+// Stores a component of a computed YUV pixel, the same way an image of color depth CD would do
+template <ColorDepth CD>
+inline ColorDepthPixelBaseType<CD> storeComponent(const float value) {
+    constexpr float maxVal = static_cast<float>(maxDepthValue<CD>);
+    const float saturated = std::fmax(0.f, std::fmin(value, maxVal));
+    if constexpr (std::is_floating_point_v<ColorDepthPixelBaseType<CD>>) {
+        return saturated;
+    } else {
+        return static_cast<ColorDepthPixelBaseType<CD>>(std::round(saturated));
+    }
+}
+
+template <ColorRange CR, ColorPrimitives CP, ColorDepth CD>
+inline bool testConvertRGBToYUV_helper() {
+    using PixelType = ColorDepthPixelType<CD>;
+    using PixelBaseType = ColorDepthPixelBaseType<CD>;
+    constexpr float maxVal = static_cast<float>(maxDepthValue<CD>);
+    // Tolerance for the direct conversion, plus a bigger one for the round trip, where the
+    // intermediate YUV values are stored with the precision of the pixel type of CD
+    constexpr float tolerance = maxVal * 0.001f;
+    constexpr float roundTripTolerance = maxVal * 0.01f;
+
+    const std::array<float3, 7> factors{make_<float3>(0.f, 0.f, 0.f), make_<float3>(1.f, 1.f, 1.f),
+                                        make_<float3>(1.f, 0.f, 0.f), make_<float3>(0.f, 1.f, 0.f),
+                                        make_<float3>(0.f, 0.f, 1.f), make_<float3>(0.5f, 0.5f, 0.5f),
+                                        make_<float3>(0.2f, 0.6f, 0.9f)};
+
+    bool correct{true};
+    for (const float3& factor : factors) {
+        const float3 rgb = make_<float3>(representableValue<CD>(factor.x), representableValue<CD>(factor.y),
+                                         representableValue<CD>(factor.z));
+        const PixelType rgbPixel = make_<PixelType>(static_cast<PixelBaseType>(rgb.x),
+                                                    static_cast<PixelBaseType>(rgb.y),
+                                                    static_cast<PixelBaseType>(rgb.z));
+
+        const float3 yuv = ConvertRGBToYUV<CD, CR, CP>::exec(rgbPixel);
+        const float3 expected = referenceRGBToYUV<CR, CP, CD>(rgb);
+        const bool sameAsReference = std::fabs(yuv.x - expected.x) <= tolerance &&
+                                     std::fabs(yuv.y - expected.y) <= tolerance &&
+                                     std::fabs(yuv.z - expected.z) <= tolerance;
+        if (!sameAsReference) {
+            std::cout << "\033[31m" << "Wrong YUV values for " << typeToString<ConvertRGBToYUV<CD, CR, CP>>()
+                      << ": expected {" << expected.x << ", " << expected.y << ", " << expected.z << "}, got {"
+                      << yuv.x << ", " << yuv.y << ", " << yuv.z << "}" << "\033[0m" << std::endl;
+        }
+        correct &= sameAsReference;
+
+        // The conversion must be the inverse of ConvertYUVToRGB
+        const PixelType yuvPixel = make_<PixelType>(storeComponent<CD>(yuv.x), storeComponent<CD>(yuv.y),
+                                                    storeComponent<CD>(yuv.z));
+        const float3 rgbBack = ConvertYUVToRGB<CD, CR, CP>::exec(yuvPixel);
+        const bool sameAsOriginal = std::fabs(rgbBack.x - rgb.x) <= roundTripTolerance &&
+                                    std::fabs(rgbBack.y - rgb.y) <= roundTripTolerance &&
+                                    std::fabs(rgbBack.z - rgb.z) <= roundTripTolerance;
+        if (!sameAsOriginal) {
+            std::cout << "\033[31m" << "Wrong RGB values after round trip for "
+                      << typeToString<ConvertRGBToYUV<CD, CR, CP>>() << ": expected {" << rgb.x << ", " << rgb.y
+                      << ", " << rgb.z << "}, got {" << rgbBack.x << ", " << rgbBack.y << ", " << rgbBack.z << "}"
+                      << "\033[0m" << std::endl;
+        }
+        correct &= sameAsOriginal;
+    }
+
+    return correct;
+}
+
+template <ColorPrimitives CP, ColorDepth CD>
+inline bool testConvertRGBToYUVRanges() {
+    const bool full = testConvertRGBToYUV_helper<ColorRange::Full, CP, CD>();
+    const bool limited = testConvertRGBToYUV_helper<ColorRange::Limited, CP, CD>();
+    return full && limited;
+}
+
+template <ColorDepth CD>
+inline bool testConvertRGBToYUVPrimitives() {
+    const bool bt601 = testConvertRGBToYUVRanges<ColorPrimitives::bt601, CD>();
+    const bool bt709 = testConvertRGBToYUVRanges<ColorPrimitives::bt709, CD>();
+    const bool bt2020 = testConvertRGBToYUVRanges<ColorPrimitives::bt2020, CD>();
+    return bt601 && bt709 && bt2020;
+}
+} // namespace fk
+
+// Test ConvertRGBToYUV for all the combinations of ColorDepth, ColorRange and ColorPrimitives
+void testConvertRGBToYUV() {
+    const std::string testName = "ConvertRGBToYUV";
+    testCases[testName] = [testName]() {
+        using namespace fk;
+        std::cout << "Running test for " << "\033[1;33m" << testName << "\033[1;33m" << ": ";
+        const bool correct = testConvertRGBToYUVPrimitives<ColorDepth::p8bit>() &&
+                             testConvertRGBToYUVPrimitives<ColorDepth::p10bit>() &&
+                             testConvertRGBToYUVPrimitives<ColorDepth::p12bit>() &&
+                             testConvertRGBToYUVPrimitives<ColorDepth::fn8bit>() &&
+                             testConvertRGBToYUVPrimitives<ColorDepth::fn10bit>() &&
+                             testConvertRGBToYUVPrimitives<ColorDepth::fn12bit>();
+        if (correct) {
+            std::cout << "\033[32m" << "Success!!" << "\033[0m" << std::endl;
+        } else {
+            std::cout << "\033[31m" << "FAIL!!" << "\033[0m" << std::endl;
+        }
+        return correct;
+    };
+}
+
 START_ADDING_TESTS
 // Test UYVY pixel format traits
 testUYVYPixelFormatTraits();
@@ -663,6 +802,7 @@ testSaturateDenormalizePixel();
 // Test ReadYUV operation
 testReadYUV();
 testTransformationMatrixValues();
+testConvertRGBToYUV();
 STOP_ADDING_TESTS
 
 int launch() {

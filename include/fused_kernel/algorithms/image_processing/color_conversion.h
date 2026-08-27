@@ -88,7 +88,7 @@ namespace fk {
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             constexpr auto alpha = maxDepthValue<CD>;
-            return AddLast<InputType, OutputType>::exec(input, { alpha });
+            return AddLast<InputType, OutputType>::exec(input, { static_cast<VBase<I>>(alpha) });
         }
     };
 
@@ -147,47 +147,54 @@ namespace fk {
         }
     };
 
-    template <PixelFormat PF, ColorRange CR, ColorPrimitives CP, bool ALPHA, typename ReturnType = YUVOutputPixelType<PF, ALPHA>>
+    template <ColorDepth CD, ColorRange CR, ColorPrimitives CP>
     struct ConvertYUVToRGB {
     private:
-        using SelfType = ConvertYUVToRGB<PF, CR, CP, ALPHA, ReturnType>;
+        using SelfType = ConvertYUVToRGB<CD, CR, CP>;
+        using Parent = UnaryOperation<ColorDepthPixelType<CD>, float3, SelfType >;
     public:
         FK_STATIC_STRUCT(ConvertYUVToRGB, SelfType)
-        static constexpr ColorDepth CD = (ColorDepth)PixelFormatTraits<PF>::depth;
-        using Parent = UnaryOperation<PackedPixelType<PF>, ReturnType, ConvertYUVToRGB<PF, CR, CP, ALPHA, ReturnType>>;
         DECLARE_UNARY_PARENT
-
-        private:
         // Y     -> input.x
         // Cb(U) -> input.y
         // Cr(V) -> input.z
-        FK_HOST_DEVICE_FUSE float3 computeRGB(const InputType pixel) {
+        public:
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             constexpr M3x3Float coefficients = ccMatrix<CR, CP, ColorConversionDir::YCbCr2RGB, CD>;
             constexpr float CSub = subCoefficients<CD>.chroma;
             if constexpr (CR == ColorRange::Limited) {
                 constexpr float YSub = subCoefficients<CD>.luma;
-                return MxVFloat3<UnaryType>::exec({ make_<float3>(pixel.x - YSub, pixel.y - CSub, pixel.z - CSub), coefficients });
+                return MxVFloat3<UnaryType>::exec(
+                    {make_<float3>(input.x - YSub, input.y - CSub, input.z - CSub), coefficients});
             } else {
-                return MxVFloat3<UnaryType>::exec({ make_<float3>(pixel.x, pixel.y - CSub, pixel.z - CSub), coefficients });
+                return MxVFloat3<UnaryType>::exec(
+                    {make_<float3>(input.x,        input.y - CSub, input.z - CSub), coefficients});
             }
         }
+    };
 
-        public:
+    template <ColorDepth CD, ColorRange CR, ColorPrimitives CP>
+    struct ConvertRGBToYUV {
+    private:
+        using SelfType = ConvertRGBToYUV<CD, CR, CP>;
+        using Parent = UnaryOperation<ColorDepthPixelType<CD>, float3, SelfType>;
+    public:
+        FK_STATIC_STRUCT(ConvertRGBToYUV, SelfType)
+        DECLARE_UNARY_PARENT
+        // R -> input.x
+        // G -> input.y
+        // B -> input.z
+        // The output is { Y, Cb(U), Cr(V) }
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
-            const float3 pixelRGBFloat = computeRGB(input);
-            if constexpr (std::is_same_v<VBase<OutputType>, float>) {
-                if constexpr (ALPHA) {
-                    return { pixelRGBFloat.x, pixelRGBFloat.y, pixelRGBFloat.z, (float)maxDepthValue<CD> };
-                } else {
-                    return pixelRGBFloat;
-                }
+            constexpr M3x3Float coefficients = ccMatrix<CR, CP, ColorConversionDir::RGB2YCbCr, CD>;
+            constexpr float CAdd = subCoefficients<CD>.chroma;
+            const float3 YCbCr = MxVFloat3<UnaryType>::exec(
+                {make_<float3>(input.x, input.y, input.z), coefficients});
+            if constexpr (CR == ColorRange::Limited) {
+                constexpr float YAdd = subCoefficients<CD>.luma;
+                return make_<float3>(YCbCr.x + YAdd, YCbCr.y + CAdd, YCbCr.z + CAdd);
             } else {
-                const InputType pixelRGB = SaturateCast<float3, InputType>::exec(pixelRGBFloat);
-                if constexpr (ALPHA) {
-                    return { pixelRGB.x, pixelRGB.y, pixelRGB.z, maxDepthValue<CD> };
-                } else {
-                    return pixelRGB;
-                }
+                return make_<float3>(YCbCr.x, YCbCr.y + CAdd, YCbCr.z + CAdd);
             }
         }
     };

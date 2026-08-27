@@ -188,6 +188,56 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         DECLARE_EXECUTOR_PARENT_IMPL
     };
 
+    template <typename SequenceSelector>
+    struct Executor<DivergentBatchTransformDPP<ParArch::CPU, SequenceSelector>> {
+      private:
+        using DPPType = DivergentBatchTransformDPP<ParArch::CPU, SequenceSelector>;
+        using DPPDetails = typename DPPType::DPPDetails;
+        using SelfType = Executor<DPPType>;
+
+        template <typename... IOpSequenceTypes>
+        FK_HOST_FUSE ActiveThreads getActiveThreads(const IOpSequenceTypes &...iOpSequences) {
+            const uint x = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().x...);
+            const uint y = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().y...);
+            const uint z = cxp::sum::f(get<0>(iOpSequences.iOps).getActiveThreads().z...);
+            return ActiveThreads{x, y, z};
+        }
+
+        template <typename... IOps>
+        FK_HOST_FUSE auto fuseBackSequence(const IOpSequence<IOps...> &iOpSeq) {
+            return buildOperationSequence_tup(apply(
+                [](auto &&...args) {
+                    // Now fuse_back deduces the types naturally and preserves value categories via perfect forwarding
+                    return BackFuser::fuse_back(std::forward<decltype(args)>(args)...);
+                },
+                iOpSeq.iOps));
+        }
+
+        template <typename... IOpSequenceTypes>
+        FK_HOST_FUSE void executeOperationsFused(Stream_<ParArch::CPU> &stream,
+                                                 const IOpSequenceTypes &...iOpSequences) {
+            const ActiveThreads activeThreads = getActiveThreads(iOpSequences...);
+            const DPPDetails details{ .numPlanes = activeThreads.z };
+
+            DivergentBatchTransformDPP<ParArch::CPU, SequenceSelector>::exec(details, iOpSequences...);
+        }
+
+        template <typename... IOpSequenceTypes>
+        FK_HOST_FUSE void executeOperations_helper(Stream_<ParArch::CPU> &stream,
+                                                   const IOpSequenceTypes &...iOpSequences) {
+            executeOperationsFused(stream, fuseBackSequence(iOpSequences)...);
+        }
+
+      public:
+        FK_STATIC_STRUCT(Executor, SelfType)
+        FK_HOST_FUSE ParArch parArch() { return ParArch::CPU; }
+        template <typename... IOpSequenceTypes>
+        FK_HOST_FUSE void executeOperations(Stream_<ParArch::CPU> &stream,
+                                            const IOpSequenceTypes &...iOpSequences) {
+            executeOperations_helper(stream, iOpSequences...);
+        }
+    };
+
 #if defined(__NVCC__)
     struct ComputeBestSolutionBase {
         FK_HOST_FUSE uint computeDiscardedThreads(const uint width, const uint height, const uint blockDimx, const uint blockDimy) {
