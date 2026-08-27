@@ -70,7 +70,7 @@ struct saturate_cast {
     struct BaseFunc {
         using InstanceType = fk::UnaryType;
         template <typename ST>
-        FK_HOST_DEVICE_FUSE auto exec(const ST &s) {
+        FK_HOST_DEVICE_FUSE auto exec(const ST s) {
             using Target_T = fk::VBase<OT>;
             using Target = std::remove_cv_t<Target_T>;
             using Source_T = ST;
@@ -141,7 +141,7 @@ struct saturate_cast {
     };
 
     template <typename T>
-    FK_HOST_DEVICE_FUSE auto f(const T &val) {
+    FK_HOST_DEVICE_FUSE auto f(const T val) {
         static_assert(fk::AreSS<OT, T>::value || fk::AreVVEqCN<OT, T>::value,
                       "saturate_cast can not cast vector to non vector or the other way arround, or from vector to "
                       "vector of different channel number.");
