@@ -25,8 +25,13 @@ namespace cxp {
     template <typename Op>
     struct Exec<Op, std::enable_if_t<std::is_same_v<typename Op::InstanceType, fk::UnaryType>>> {
         template <typename T>
+<<<<<<< HEAD
         FK_HOST_DEVICE_FUSE auto exec(const T& val) {
             if constexpr (fk::validScalar<T>) {
+=======
+        FK_HOST_DEVICE_FUSE auto exec(const T val) {
+            if constexpr (std::is_fundamental_v<T>) {
+>>>>>>> main
                 return Op::exec(val);
             } else {
                 static_assert(fk::validCUDAVec<T>, "Type not supported in Unary operation execution.");
@@ -47,7 +52,7 @@ namespace cxp {
     template <typename Op>
     struct Exec<Op, std::enable_if_t<std::is_same_v<typename Op::InstanceType, fk::BinaryType>>> {
         template <typename ST1, typename ST2>
-        FK_HOST_DEVICE_FUSE auto exec(const ST1& s1, const ST2& s2)
+        FK_HOST_DEVICE_FUSE auto exec(const ST1 s1, const ST2 s2)
             -> std::enable_if_t<fk::AreSS<ST1, ST2>::value, decltype(Op::exec(std::declval<ST1>(), std::declval<ST2>()))> {
             return Op::exec(s1, s2);
         }
@@ -55,10 +60,17 @@ namespace cxp {
         FK_HOST_DEVICE_FUSE auto exec(const ST1& s1, const ST2& s2, const STs&... scals) {
             return exec(Op::exec(s1, s2), scals...);
         }
-        template <typename VT>
-        FK_HOST_DEVICE_FUSE auto exec(const VT& v)
-            -> std::enable_if_t<fk::IsCudaVector<VT>::value,
-            decltype(Op::exec(std::declval<fk::VBase<VT>>(), std::declval<fk::VBase<VT>>()))> {
+        // Single scalar operand: a binary reduction over a single value is that value.
+        // This allows variadic folds (cxp::sum::f, cxp::max::f, cxp::min::f, ...) to be
+        // instantiated with parameter packs of size 1.
+        template <typename ST>
+        FK_HOST_DEVICE_FUSE auto exec(const ST s)
+            -> std::enable_if_t<!fk::validCUDAVec<ST>, ST> {
+            return s;
+        }
+        template <fk::vector_type VT>
+        FK_HOST_DEVICE_FUSE auto exec(const VT v)
+            -> decltype(Op::exec(std::declval<fk::VBase<VT>>(), std::declval<fk::VBase<VT>>())) {
             if constexpr (fk::cn<VT> == 1) {
                 return v.x;
             } else if constexpr (fk::cn<VT> == 2) {
@@ -70,7 +82,7 @@ namespace cxp {
             }
         }
         template <typename VT, typename ST>
-        FK_HOST_DEVICE_FUSE auto exec(const VT& v, const ST& s)
+        FK_HOST_DEVICE_FUSE auto exec(const VT v, const ST s)
             -> std::enable_if_t<fk::AreVS<VT, ST>::value,
             fk::VectorType_t<decltype(Op::exec(std::declval<fk::VBase<VT>>(), std::declval<ST>())), fk::cn<VT>>> {
             using BaseO = decltype(Op::exec(std::declval<fk::VBase<VT>>(), std::declval<ST>()));
@@ -85,7 +97,7 @@ namespace cxp {
             }
         }
         template <typename ST, typename VT>
-        FK_HOST_DEVICE_FUSE auto exec(const ST& s, const VT& v)
+        FK_HOST_DEVICE_FUSE auto exec(const ST s, const VT v)
             -> std::enable_if_t<fk::AreSV<ST, VT>::value,
             fk::VectorType_t<decltype(Op::exec(std::declval<ST>(), std::declval<fk::VBase<VT>>())), fk::cn<VT>>> {
             using BaseO = decltype(Op::exec(std::declval<ST>(), std::declval<fk::VBase<VT>>()));
@@ -100,7 +112,7 @@ namespace cxp {
             }
         }
         template <typename VT1, typename VT2>
-        FK_HOST_DEVICE_FUSE auto exec(const VT1& v1, const VT2& v2)
+        FK_HOST_DEVICE_FUSE auto exec(const VT1 v1, const VT2 v2)
             -> std::enable_if_t<fk::AreVVEqCN<VT1, VT2>::value,
             fk::VectorType_t<decltype(Op::exec(std::declval<fk::VBase<VT1>>(), std::declval<fk::VBase<VT2>>())), fk::cn<VT1>>> {
             using BaseO = decltype(Op::exec(std::declval<fk::VBase<VT1>>(), std::declval<fk::VBase<VT2>>()));
@@ -115,6 +127,30 @@ namespace cxp {
             }
         }
     };
-} // namespace cxp
+
+    template <typename Op>
+    struct Exec<Op, std::enable_if_t<std::is_same_v<typename Op::InstanceType, fk::TernaryType>>> {
+        template <fk::vector_type VT1, fk::vector_type VT2, fk::vector_type VT3>
+            requires(fk::AreVVEqCN<VT1, VT2>::value && fk::AreVVEqCN<VT1, VT3>::value)
+        FK_HOST_DEVICE_FUSE auto exec(const VT1 v1, const VT2 v2, const VT3 v3) {
+            using BaseO = decltype(Op::exec(std::declval<fk::VBase<VT1>>(), std::declval<fk::VBase<VT2>>(), std::declval<fk::VBase<VT3>>()));
+            if constexpr (fk::cn<VT1> == 1) {
+                return fk::VectorType_t<BaseO, 1>{Op::exec(v1.x, v2.x, v3.x)};
+            } else if constexpr (fk::cn<VT1> == 2) {
+                return fk::VectorType_t<BaseO, 2>{Op::exec(v1.x, v2.x, v3.x), Op::exec(v1.y, v2.y, v3.y)};
+            } else if constexpr (fk::cn<VT1> == 3) {
+                return fk::VectorType_t<BaseO, 3>{Op::exec(v1.x, v2.x, v3.x), Op::exec(v1.y, v2.y, v3.y), Op::exec(v1.z, v2.z, v3.z)};
+            } else {
+                return fk::VectorType_t<BaseO, 4>{Op::exec(v1.x, v2.x, v3.x), Op::exec(v1.y, v2.y, v3.y), Op::exec(v1.z, v2.z, v3.z),
+                                                  Op::exec(v1.w, v2.w, v3.w)};
+            }
+        }
+        
+        template <fk::scalar_type ST1, fk::scalar_type ST2, fk::scalar_type ST3>
+        FK_HOST_DEVICE_FUSE auto exec(const ST1 s1, const ST2 s2, const ST3 s3) {
+            return Op::exec(s1, s2, s3);
+        }
+    };
+    } // namespace cxp
 
 #endif // CXP_CONSTEXPR_VECTOR_EXEC_H

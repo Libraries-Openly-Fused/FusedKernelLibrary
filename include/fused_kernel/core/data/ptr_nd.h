@@ -26,7 +26,7 @@
 #include <atomic>
 
 namespace fk {
-	enum class MemType { Device, Host, HostPinned, DeviceAndPinned };
+    enum class MemType { Device, Host, HostPinned, DeviceAndPinned };
 #if defined(__NVCC__)
     constexpr MemType defaultMemType = MemType::DeviceAndPinned;
 #else

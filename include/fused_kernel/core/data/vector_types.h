@@ -373,7 +373,7 @@ namespace fk {
     static_assert(sizeof(fp8_e4m3_4) == 4 && alignof(fp8_e4m3_4) == 4, "fp8x4 layout must match __nv_fp8x4_e4m3");
 } // namespace fk
 
-#if defined(__NVCC__)
+#if defined(__VECTOR_TYPES_H__) || defined(__CUDACC__) || defined(__NVCC__)
 #include <vector_types.h>
 #else
 using char1 = fk::Char1;

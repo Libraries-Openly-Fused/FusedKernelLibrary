@@ -17,6 +17,7 @@
 
 #include <cassert>
 #include <utility>
+#include <concepts>
 
 #include <fused_kernel/core/utils/type_lists.h>
 #include <fused_kernel/core/utils/template_operations.h>
@@ -69,53 +70,6 @@ namespace fk {
     template <>
     struct VectorType<schar, 4> { using type = char4; using type_v = type; };
 
-    // Reduced precision types: hand-written like char/schar because their vector aliases do not
-    // follow the BaseType##N token-pasting pattern for fp8/fp4.
-    template <>
-    struct VectorType<fp16, 1> { using type = fp16; using type_v = fp16_1; };
-    template <>
-    struct VectorType<fp16, 2> { using type = fp16_2; using type_v = type; };
-    template <>
-    struct VectorType<fp16, 3> { using type = fp16_3; using type_v = type; };
-    template <>
-    struct VectorType<fp16, 4> { using type = fp16_4; using type_v = type; };
-
-    template <>
-    struct VectorType<bf16, 1> { using type = bf16; using type_v = bf16_1; };
-    template <>
-    struct VectorType<bf16, 2> { using type = bf16_2; using type_v = type; };
-    template <>
-    struct VectorType<bf16, 3> { using type = bf16_3; using type_v = type; };
-    template <>
-    struct VectorType<bf16, 4> { using type = bf16_4; using type_v = type; };
-
-    template <>
-    struct VectorType<fp8_e4m3, 1> { using type = fp8_e4m3; using type_v = fp8_e4m3_1; };
-    template <>
-    struct VectorType<fp8_e4m3, 2> { using type = fp8_e4m3_2; using type_v = type; };
-    template <>
-    struct VectorType<fp8_e4m3, 3> { using type = fp8_e4m3_3; using type_v = type; };
-    template <>
-    struct VectorType<fp8_e4m3, 4> { using type = fp8_e4m3_4; using type_v = type; };
-
-    template <>
-    struct VectorType<fp8_e5m2, 1> { using type = fp8_e5m2; using type_v = fp8_e5m2_1; };
-    template <>
-    struct VectorType<fp8_e5m2, 2> { using type = fp8_e5m2_2; using type_v = type; };
-    template <>
-    struct VectorType<fp8_e5m2, 3> { using type = fp8_e5m2_3; using type_v = type; };
-    template <>
-    struct VectorType<fp8_e5m2, 4> { using type = fp8_e5m2_4; using type_v = type; };
-
-    template <>
-    struct VectorType<fp4_e2m1, 1> { using type = fp4_e2m1; using type_v = fp4_e2m1_1; };
-    template <>
-    struct VectorType<fp4_e2m1, 2> { using type = fp4_e2m1_2; using type_v = type; };
-    template <>
-    struct VectorType<fp4_e2m1, 3> { using type = fp4_e2m1_3; using type_v = type; };
-    template <>
-    struct VectorType<fp4_e2m1, 4> { using type = fp4_e2m1_4; using type_v = type; };
-
     template <typename BaseType, int Channels>
     using VectorType_t = typename VectorType<BaseType, Channels>::type;
 
@@ -132,11 +86,6 @@ namespace fk {
     template <size_t CN> using longlong_ = VectorType_t<longlong, CN>;
     template <size_t CN> using float_ = VectorType_t<float, CN>;
     template <size_t CN> using double_ = VectorType_t<double, CN>;
-    template <size_t CN> using fp16_ = VectorType_t<fp16, CN>;
-    template <size_t CN> using bf16_ = VectorType_t<bf16, CN>;
-    template <size_t CN> using fp8_e4m3_ = VectorType_t<fp8_e4m3, CN>;
-    template <size_t CN> using fp8_e5m2_ = VectorType_t<fp8_e5m2, CN>;
-    template <size_t CN> using fp4_e2m1_ = VectorType_t<fp4_e2m1, CN>;
 
     template <uint CN>
     using VectorTypeList = TypeList<bool_<CN>, uchar_<CN>, char_<CN>, ushort_<CN>, short_<CN>, uint_<CN>, int_<CN>,
@@ -151,31 +100,39 @@ namespace fk {
     using VTwo = VectorTypeList<2>;
     using VThree = VectorTypeList<3>;
     using VFour = VectorTypeList<4>;
-    // Reduced precision vector lists are kept separate so the standard lists (and everything
-    // positionally derived from them) stay untouched.
-    using RFVOne = TypeList<fp16_1, bf16_1, fp8_e4m3_1, fp8_e5m2_1, fp4_e2m1_1>;
-    using RFVTwo = TypeList<fp16_2, bf16_2, fp8_e4m3_2, fp8_e5m2_2, fp4_e2m1_2>;
-    using RFVThree = TypeList<fp16_3, bf16_3, fp8_e4m3_3, fp8_e5m2_3, fp4_e2m1_3>;
-    using RFVFour = TypeList<fp16_4, bf16_4, fp8_e4m3_4, fp8_e5m2_4, fp4_e2m1_4>;
-    using VAll = TypeListCat_t<VOne, VTwo, VThree, VFour, RFVOne, RFVTwo, RFVThree, RFVFour>;
+    using VAll = TypeListCat_t<VOne, VTwo, VThree, VFour>;
 
     template <typename T>
     constexpr bool validCUDAVec = one_of<T, VAll>::value;
 
     template <typename T>
-    struct IsCudaVector : std::conditional_t<validCUDAVec<T>, std::true_type, std::false_type> {};
+    concept vector_type = validCUDAVec<T>;
+
+    template <typename T>
+    concept vector_type1 = one_of_v<T, VOne>;
+
+    template <typename T>
+    concept vector_type2 = one_of_v<T, VTwo>;
+
+    template <typename T>
+    concept vector_type3 = one_of_v<T, VThree>; 
+
+    template <typename T>
+    concept vector_type4 = one_of_v<T, VFour>;
+
+    template <typename T>
+    concept scalar_type = one_of_v<T, StandardTypes>;
 
     template <typename T>
     FK_HOST_DEVICE_CNST int Channels() {
-        if constexpr (one_of_v<T, VOne> || one_of_v<T, RFVOne> || !validCUDAVec<T>) {
+        if constexpr (vector_type1<T> || !vector_type<T>) {
             return 1;
-        } else if constexpr (one_of_v<T, VTwo> || one_of_v<T, RFVTwo>) {
+        } else if constexpr (vector_type2<T>) {
             return 2;
-        } else if constexpr (one_of_v<T, VThree> || one_of_v<T, RFVThree>) {
+        } else if constexpr (vector_type3<T>) {
             return 3;
         } else {
-            static_assert(one_of_v<T, VFour> || one_of_v<T, RFVFour>,
-                          "Type T must be a valid CUDA vector type (1, 2, 3, or 4 channels)");
+            static_assert(vector_type4<T>, "Type T must be a valid CUDA vector type (1, 2, 3, or 4 channels)");
             return 4;
         }
     }
@@ -226,33 +183,16 @@ namespace fk {
 
 #undef VECTOR_TRAITS
 
-#define VECTOR_TRAITS_RF(BaseType, V1, V2, V3, V4) \
-    template <> \
-    struct VectorTraits<BaseType> { using base = BaseType; enum { bytes = sizeof(base) }; }; \
-    template <> \
-    struct VectorTraits<V1> { using base = BaseType; enum { bytes = sizeof(base) }; }; \
-    template <> \
-    struct VectorTraits<V2> { using base = BaseType; enum { bytes = sizeof(base) * 2 }; }; \
-    template <> \
-    struct VectorTraits<V3> { using base = BaseType; enum { bytes = sizeof(base) * 3 }; }; \
-    template <> \
-    struct VectorTraits<V4> { using base = BaseType; enum { bytes = sizeof(base) * 4 }; };
-
-    VECTOR_TRAITS_RF(fp16, fp16_1, fp16_2, fp16_3, fp16_4)
-    VECTOR_TRAITS_RF(bf16, bf16_1, bf16_2, bf16_3, bf16_4)
-    VECTOR_TRAITS_RF(fp8_e4m3, fp8_e4m3_1, fp8_e4m3_2, fp8_e4m3_3, fp8_e4m3_4)
-    VECTOR_TRAITS_RF(fp8_e5m2, fp8_e5m2_1, fp8_e5m2_2, fp8_e5m2_3, fp8_e5m2_4)
-    VECTOR_TRAITS_RF(fp4_e2m1, fp4_e2m1_1, fp4_e2m1_2, fp4_e2m1_3, fp4_e2m1_4)
-
-#undef VECTOR_TRAITS_RF
-
     template <typename T>
     using VBase = typename VectorTraits<T>::base;
 
-    template <size_t Idx, typename VT>
-    FK_HOST_DEVICE_CNST auto static_get(const VT& v) {
-        static_assert(IsCudaVector<VT>::value, "Invalid type for static_get");
-        static_assert((Idx < cn<VT>), "Index out of bounds.");
+    template <typename T>
+    concept integral_vector = vector_type<T> && std::integral<VBase<T>>;
+
+    template <size_t Idx, vector_type VT>
+    FK_HOST_DEVICE_CNST decltype(auto) static_get(const VT& v) {
+        static_assert(vector_type<VT>, "Invalid type for static_get");
+        static_assert((Idx < (cn<VT>)), "Index out of bounds.");
         if constexpr (Idx == 0) {
             return v.x;
         } else if constexpr (Idx == 1) {
@@ -265,28 +205,24 @@ namespace fk {
     }
 
     struct vector_at {
-        template <typename VT>
-        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
-            -> std::enable_if_t<validScalar<VT>, VT> {
+        template <scalar_type VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v) {
             return v;
         }
-        template <typename VT>
-        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
-            -> std::enable_if_t<IsCudaVector<VT>::value && (cn<VT> == 1), VBase<VT>> {
+        template <vector_type1 VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v) {
             return v.x;
         }
-        template <typename VT>
-        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
-            -> std::enable_if_t<IsCudaVector<VT>::value && (cn<VT> == 2), VBase<VT>> {
+        template <vector_type2 VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v) {
             if (idx == 0) {
                 return v.x;
             } else {
                 return v.y;
             }
         }
-        template <typename VT>
-        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
-            -> std::enable_if_t<IsCudaVector<VT>::value && (cn<VT> == 3), VBase<VT>> {
+        template <vector_type3 VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v) {
             if (idx == 0) {
                 return v.x;
             } else if (idx == 1) {
@@ -295,9 +231,8 @@ namespace fk {
                 return v.z;
             }
         }
-        template <typename VT>
-        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v)
-            -> std::enable_if_t<IsCudaVector<VT>::value && (cn<VT> == 4), VBase<VT>> {
+        template <vector_type4 VT>
+        FK_HOST_DEVICE_FUSE auto f(const int& idx, const VT& v) {
             if (idx == 0) {
                 return v.x;
             } else if (idx == 1) {
@@ -316,10 +251,7 @@ namespace fk {
     struct make {
         template <typename T, typename... Numbers>
         FK_HOST_DEVICE_FUSE T type(const Numbers&... pack) {
-            static_assert(validCUDAVec<T>, "Non valid CUDA vetor type: make::type<invalid_type>()");
-#if defined(_MSC_VER) && _MSC_VER >= 1910 && _MSC_VER <= 1916
-            return T{ static_cast<std::decay_t<decltype(T::x)>>(pack)... };
-#else
+            static_assert(vector_type<T>, "Non valid vector type: make::type<invalid_type>()");
             if constexpr (std::is_union_v<T>) {
                 return T{ static_cast<std::decay_t<decltype(T::at[0])>>(pack)... };
             }
@@ -331,7 +263,6 @@ namespace fk {
                     "make::type can only be used with CUDA vector_types or fk vector_types");
                 return T{};
             }
-#endif
         }
     };
 
@@ -345,84 +276,66 @@ namespace fk {
         }
     }
 
-    template <typename T, typename Enabler = void>
-    struct UnaryVectorSet;
+    template <vector_type T>
+    FK_HOST_DEVICE_CNST T make_set(const VBase<T> val) {
+        if constexpr (cn<T> == 1) {
+            return {val};
+        } else if constexpr (cn<T> == 2) {
+            return {val, val};
+        } else if constexpr (cn<T> == 3) {
+            return {val, val, val};
+        } else {
+            return {val, val, val, val};
+        }
+    }
 
     // This case exists to make things easier when we don't know if the type
     // is going to be a vector type or a normal type
     template <typename T>
-    struct UnaryVectorSet<T, typename std::enable_if_t<!validCUDAVec<T>, void>> {
-        FK_HOST_DEVICE_FUSE T exec(const T& val) {
-            return val;
-        }
-    };
-
-    template <typename T>
-    struct UnaryVectorSet<T, typename std::enable_if_t<validCUDAVec<T>, void>> {
-        FK_HOST_DEVICE_FUSE T exec(const VBase<T>& val) {
-            if constexpr (cn<T> == 1) {
-                return { val };
-            }
-            else if constexpr (cn<T> == 2) {
-                return { val, val };
-            }
-            else if constexpr (cn<T> == 3) {
-                return { val, val, val };
-            }
-            else {
-                return { val, val, val, val };
-            }
-        }
-    };
-
-    template <typename T>
-    FK_HOST_DEVICE_CNST T make_set(const typename VectorTraits<T>::base& val) {
-        return UnaryVectorSet<T>::exec(val);
-    }
-
-    template <typename T>
-    FK_HOST_DEVICE_CNST T make_set(const T& val) {
-        return UnaryVectorSet<T>::exec(val);
+    FK_HOST_DEVICE_CNST T make_set(const T val) {
+        static_assert(!vector_type<T>, "Type T must not be a vector type.");
+        return val;
     }
 
     // Utils to check detais about types and pairs of types
-    template <typename I1, typename I2, typename = void>
+    template <typename I1, typename I2>
     struct BothIntegrals : public std::false_type {};
 
     template <typename I1, typename I2>
-    struct BothIntegrals<I1, I2, std::enable_if_t<std::is_integral_v<fk::VBase<I1>> && std::is_integral_v<fk::VBase<I2>>, void>> : public std::true_type {};
-
-    template <typename I1, typename I2, typename = void>
-    struct AreVVEqCN : public std::false_type {};
+        requires(std::integral<VBase<I1>> && std::integral<VBase<I2>>)
+    struct BothIntegrals<I1, I2> : public std::true_type {};
 
     template <typename I1, typename I2>
-        struct AreVVEqCN<I1, I2, std::enable_if_t<fk::validCUDAVec<I1> && fk::validCUDAVec<I2>>>
-        : public std::bool_constant<(fk::cn<I1> == fk::cn<I2>)> {};
+    struct AreVVEqCN : public std::false_type {};
+
+    template <vector_type I1, vector_type I2>
+        requires(cn<I1> == cn<I2>)
+    struct AreVVEqCN<I1, I2> : public std::true_type {};
 
     template <typename I1, typename I2, typename = void>
     struct AreSV : public std::false_type {};
 
     template <typename I1, typename I2>
-    struct AreSV<I1, I2, std::enable_if_t<fk::validScalar<I1> && fk::validCUDAVec<I2>, void>> : public std::true_type {};
+    struct AreSV<I1, I2, std::enable_if_t<std::is_fundamental_v<I1> && validCUDAVec<I2>, void>> : public std::true_type {};
 
     template <typename I1, typename I2, typename = void>
     struct AreVS : public std::false_type {};
 
     template <typename I1, typename I2>
-    struct AreVS<I1, I2, std::enable_if_t<fk::validCUDAVec<I1> && fk::validScalar<I2>, void>> : public std::true_type {};
+    struct AreVS<I1, I2, std::enable_if_t<validCUDAVec<I1> && std::is_fundamental_v<I2>, void>> : public std::true_type {};
 
     template <typename I1, typename I2, typename = void>
     struct AreSS : public std::false_type {};
 
     template <typename I1, typename I2>
-    struct AreSS<I1, I2, std::enable_if_t<fk::validScalar<I1> && fk::validScalar<I2>, void>> : public std::true_type {};
+    struct AreSS<I1, I2, std::enable_if_t<std::is_fundamental_v<I1> && std::is_fundamental_v<I2>, void>> : public std::true_type {};
 
     // Utils to check if the type or combination of types can be used with a particular operator
     template <typename T, typename = void>
     struct CanUnary : public std::false_type {};
 
     template <typename T>
-    struct CanUnary<T, std::enable_if_t<fk::validCUDAVec<T>, void>> : public std::true_type {};
+    struct CanUnary<T, std::enable_if_t<validCUDAVec<T>, void>> : public std::true_type {};
 
     template <typename I1, typename I2, typename = void>
     struct CanBinary : public std::false_type {};
@@ -448,34 +361,12 @@ namespace fk {
         std::enable_if_t<(AreVVEqCN<I1, I2>::value || AreVS<I1, I2>::value)
                          && BothIntegrals<I1, I2>::value, void>> : public std::true_type {};
 
-    // Closed form availability of the ELEMENT level compound operator (x op= y). Expressed as
-    // a trait instead of probing the expression: an expression probe would re-enter the vector
-    // operator templates and create a self dependent constraint. Fundamentals compound among
-    // themselves and with the arithmetic reduced floats (through their implicit float
-    // conversion); fp16/bf16 compound only with themselves; fp8/fp4 have no operators at all.
-    template <typename B1, typename B2>
-    constexpr bool hasCompoundBaseOp =
-        (std::is_fundamental_v<B1> && std::is_fundamental_v<B2>) ||
-        (std::is_fundamental_v<B1> && isArithmeticReducedFloat<B2>) ||
-        (isArithmeticReducedFloat<B1> && std::is_same_v<B1, B2>);
-
     template <typename I1, typename I2, typename = void>
     struct CanCompound : public std::false_type {};
 
-    // Vector op= vector: both bases are registered, so VBase is safe to evaluate on both sides.
     template <typename I1, typename I2>
     struct CanCompound<I1, I2,
-        std::enable_if_t<AreVVEqCN<I1, I2>::value &&
-                         hasCompoundBaseOp<VBase<I1>, VBase<I2>>, void>> : public std::true_type {};
-
-    // Vector op= scalar: VBase<I2> must NOT be evaluated for plain fundamentals - types like
-    // long double or wchar_t are fundamental (and compound with any fundamental base through
-    // the built in operators) but have no VectorTraits specialization.
-    template <typename I1, typename I2>
-    struct CanCompound<I1, I2,
-        std::enable_if_t<AreVS<I1, I2>::value &&
-                         ((std::is_fundamental_v<I2> && std::is_fundamental_v<VBase<I1>>) ||
-                          (isReducedFloat<I2> && hasCompoundBaseOp<VBase<I1>, I2>)), void>> : public std::true_type {};
+        std::enable_if_t<AreVVEqCN<I1, I2>::value || AreVS<I1, I2>::value, void>> : public std::true_type {};
 
     template <typename I1, typename I2, typename = void>
     struct CanCompoundLogical : public std::false_type {};
@@ -542,14 +433,11 @@ inline constexpr typename std::enable_if_t<fk::validCUDAVec<T>, std::ostream&> o
 // ####################### VECTOR OPERATORS ##########################
 // Implemented in a way that the return types follow the c++ standard, for each vector component
 // The user is responsible for knowing the type conversion hazards, inherent to the C++ language.
-// The Can* gates live in a default template argument (not in the return type): they must be
-// checked BEFORE the decltype over the base types is substituted, otherwise resolving the
-// element level operator for class type scalars (fp16/bf16) re-enters this same template and
-// recurses infinitely.
 #define VEC_UNARY_UNIVERSAL(op) \
-template <typename T, typename = std::enable_if_t<fk::CanUnary<T>::value>> \
+template <typename T> \
 FK_HOST_DEVICE_CNST auto operator op(const T& a) -> \
-    fk::VectorType_t<decltype(op std::declval<fk::VBase<T>>()), fk::cn<T>> { \
+    std::enable_if_t<fk::CanUnary<T>::value, \
+                     fk::VectorType_t<decltype(op std::declval<fk::VBase<T>>()), fk::cn<T>>> { \
     using O = fk::VectorType_t<decltype(op std::declval<fk::VBase<T>>()), fk::cn<T>>; \
     if constexpr (fk::cn<T> == 1) { \
         return fk::make_<O>(op a.x); \
@@ -572,7 +460,7 @@ VEC_UNARY_UNIVERSAL(~)
 template <typename I1, typename I2> \
 FK_HOST_DEVICE_CNST auto operator op(I1& a, const I2& b) \
     -> std::enable_if_t<fk::CanCompound<I1, I2>::value, I1> { \
-    if constexpr (fk::IsCudaVector<I2>::value) { \
+    if constexpr (fk::vector_type<I2>) { \
         a.x op b.x; \
         if constexpr (fk::cn<I1> >= 2) { a.y op b.y; } \
         if constexpr (fk::cn<I1> >= 3) { a.z op b.z; } \
@@ -597,7 +485,7 @@ VEC_COMPOUND_ARITHMETICAL(/=)
 template <typename I1, typename I2> \
 FK_HOST_DEVICE_CNST auto operator op(I1& a, const I2& b) \
     -> std::enable_if_t<fk::CanCompoundLogical<I1, I2>::value, I1> { \
-    if constexpr (fk::IsCudaVector<I2>::value) { \
+    if constexpr (fk::vector_type<I2>) { \
         a.x op b.x; \
         if constexpr (fk::cn<I1> >= 2) { a.y op b.y; } \
         if constexpr (fk::cn<I1> >= 3) { a.z op b.z; } \
@@ -618,10 +506,11 @@ VEC_COMPOUND_LOGICAL(|=)
 
 // We don't need to check for I2 being a vector type, because the enable_if condition ensures it is a cuda vector if the two previous conditions are false
 #define VEC_BINARY(op) \
-template <typename I1, typename I2, typename = std::enable_if_t<fk::CanBinary<I1, I2>::value>> \
+template <typename I1, typename I2> \
 FK_HOST_DEVICE_CNST auto operator op(const I1& a, const I2& b) \
-    -> typename fk::VectorType<decltype(std::declval<fk::VBase<I1>>() op std::declval<fk::VBase<I2>>()), \
-                               (fk::cn<I1> > fk::cn<I2> ? fk::cn<I1> : fk::cn<I2>)>::type_v { \
+    -> std::enable_if_t<fk::CanBinary<I1, I2>::value, \
+                        typename fk::VectorType<decltype(std::declval<fk::VBase<I1>>() op std::declval<fk::VBase<I2>>()), \
+                                                (fk::cn<I1> > fk::cn<I2> ? fk::cn<I1> : fk::cn<I2>)>::type_v> { \
     using O = typename fk::VectorType<decltype(std::declval<fk::VBase<I1>>() op std::declval<fk::VBase<I2>>()), \
                                       (fk::cn<I1> > fk::cn<I2> ? fk::cn<I1> : fk::cn<I2>)>::type_v; \
     if constexpr (fk::validCUDAVec<I1> && fk::validCUDAVec<I2>) { \
@@ -674,10 +563,11 @@ VEC_BINARY(||)
 #undef VEC_BINARY
 
 #define VEC_BINARY_BITWISE(op) \
-template <typename I1, typename I2, typename = std::enable_if_t<fk::CanBinaryBitwise<I1, I2>::value>> \
+template <typename I1, typename I2> \
+requires(fk::CanBinaryBitwise<I1, I2>::value) \
 FK_HOST_DEVICE_CNST auto operator op(const I1& a, const I2& b) \
     -> typename fk::VectorType<decltype(std::declval<fk::VBase<I1>>() op std::declval<fk::VBase<I2>>()), \
-                               (fk::cn<I1> > fk::cn<I2> ? fk::cn<I1> : fk::cn<I2>)>::type_v { \
+                                                (fk::cn<I1> > fk::cn<I2> ? fk::cn<I1> : fk::cn<I2>)>::type_v { \
     using O = typename fk::VectorType<decltype(std::declval<fk::VBase<I1>>() op std::declval<fk::VBase<I2>>()), \
                                       (fk::cn<I1> > fk::cn<I2> ? fk::cn<I1> : fk::cn<I2>)>::type_v; \
     if constexpr (fk::validCUDAVec<I1> && fk::validCUDAVec<I2>) { \
