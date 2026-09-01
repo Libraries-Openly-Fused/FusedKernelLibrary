@@ -1,4 +1,4 @@
-name: CMake on Windows (x64)
+name: CMake on Windows (ROCM x64)
 
 on:
   #push:
@@ -8,24 +8,16 @@ on:
 
 jobs:
   build:
-    runs-on: [self-hosted, windows, x64, cuda]
+    runs-on: [self-hosted, windows, x64, rocm]
 
     strategy:
       # Set fail-fast to false to ensure that feedback is delivered for all matrix combinations. Consider changing this to true when your workflow is stable.
       fail-fast: false
       matrix:        
         include:
-          - host_compiler: "cl"
-            msvc_env_version: "14.44"
-            cuda_version: "13.0"
-
-          - host_compiler: "cl"
-            msvc_env_version: "14.51"
-            cuda_version: "13.3"            
-          
-          - host_compiler: "clang-cl"
-            msvc_env_version: "14.51"
-            cuda_version: "13.3"            
+          - msvc_env_version: "14.44"  #HIP on windows is vs2022 only
+            rocm_version: "7.2"
+ 
 
     steps:
       - uses: actions/checkout@v6
@@ -34,16 +26,16 @@ jobs:
         # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
         id: strings
         run: |
-          echo "build-output-dir=${{github.workspace}}/build" >> "$env:GITHUB_OUTPUT"          
-          echo "D:/clang+llvm-21.1.0-x86_64-pc-windows-msvc/bin/" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append   
-          echo "CUDACXX=${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v${{matrix.cuda_version}}\bin\nvcc.exe" >> "$env:GITHUB_ENV"
-          echo "CC=${{matrix.host_compiler}}" >> "$env:GITHUB_ENV"
-          echo "CXX=${{matrix.host_compiler}}" >> "$env:GITHUB_ENV"
+          echo "build-output-dir=${{github.workspace}}/build" >> "$env:GITHUB_OUTPUT"                     
+          echo "CC=$env:HIP_PATH\bin\clang.exe" >> "$env:GITHUB_ENV"
+          echo "CXX=$env:HIP_PATH\bin\clang++.exe" >> "$env:GITHUB_ENV"
+          echo "HIPCXX=$env:HIP_PATH\bin\clang++.exe"  >> "$env:GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$env:HIP_PATH" >> "$env:GITHUB_ENV"
 
-      - name: Detect visual studio installation
+      - name: Detect visual studio installation (2022)
         run: |
           $vsWhere = "${Env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"   
-          $vsInstallationPath = & $vsWhere -products * -latest -property installationPath        
+          $vsInstallationPath = & $vsWhere -products *  -property installationPath        
           echo "VS_INSTALLATION_PATH=$vsInstallationPath" >> "$env:GITHUB_ENV"
           echo "DEV_ARGS=-arch=x64 -vcvars_ver=${{matrix.msvc_env_version}}" >> "$env:GITHUB_ENV"
 
@@ -51,10 +43,10 @@ jobs:
         run: |
           Import-Module (Get-ChildItem $env:VS_INSTALLATION_PATH -Recurse -File -Filter Microsoft.VisualStudio.DevShell.dll).FullName           
           Enter-VsDevShell -VsInstallPath  $env:VS_INSTALLATION_PATH  -SkipAutomaticLocation -DevCmdArguments $env:DEV_ARGS             
-          cmake -G "Ninja"  -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE=Release -S ${{github.workspace}};        
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          #workaround for rules.ninja generating empty path          
-          (Get-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja) -replace "\\nvcc\\bin\\nvcc.exe", "$env:CUDACXX" | Set-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja
+          cmake -G "Ninja" -DENABLE_HIP=ON -DENABLE_CUDA=OFF `
+          -DCMAKE_HIP_ARCHITECTURES="gfx1200" -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE=Release -S ${{github.workspace}};        
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }          
+          
 
       - name: Build        
         run: |
