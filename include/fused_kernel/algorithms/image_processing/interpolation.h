@@ -71,7 +71,7 @@ namespace fk {
             const float src_x = input.x;
             const float src_y = input.y;
 
-#ifdef __CUDA_ARCH__
+#if defined(__CUDA_ARCH__) || defined(__HIP_ARCH__)
             const int x1 = __float2int_rd(src_x);
             const int y1 = __float2int_rd(src_y);
 #else
@@ -91,10 +91,12 @@ namespace fk {
                                               {x2_read, y2_read, 0} };
 
             // Read the 4 pixels from backIOp Read or ReadBack Operation
-            const auto src_reg0x0 = BackIOp::Operation::exec(readPoints._0x0, backIOp);
-            const auto src_reg1x0 = BackIOp::Operation::exec(readPoints._1x0, backIOp);
-            const auto src_reg0x1 = BackIOp::Operation::exec(readPoints._0x1, backIOp);
-            const auto src_reg1x1 = BackIOp::Operation::exec(readPoints._1x1, backIOp);
+ 
+            const auto src_reg0x0 = cxp::cast<OutputType>::f(BackIOp::Operation::exec(readPoints._0x0, backIOp));
+            const auto src_reg1x0 = cxp::cast<OutputType>::f(BackIOp::Operation::exec(readPoints._1x0, backIOp));
+            const auto src_reg0x1 = cxp::cast<OutputType>::f(BackIOp::Operation::exec(readPoints._0x1, backIOp));
+            const auto src_reg1x1 = cxp::cast<OutputType>::f(BackIOp::Operation::exec(readPoints._1x1, backIOp));
+            
 
             // Compute the interpolated pixel and return it
             return (src_reg0x0 * ((x2 - src_x) * (y2 - src_y))) +

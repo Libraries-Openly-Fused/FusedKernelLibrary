@@ -114,7 +114,10 @@ namespace fk {
         using Parent = UnaryOperation<float_<cn<O>>, O, DenormalizePixel<O, CD>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
-            constexpr auto maxDepth = maxDepthValue<CD>;
+            // Keep maxDepth as float: multiplying a float vector by an integer scalar (e.g. uint
+            // for p8bit) can resolve to HIP's native vector-type operator, which narrows the
+            // vector to the scalar's type and performs the multiplication in integer arithmetic.
+            constexpr float maxDepth = static_cast<float>(maxDepthValue<CD>);
             return cxp::cast<OutputType>::f(input * maxDepth);
         }
     };
@@ -128,7 +131,12 @@ namespace fk {
         using Parent = UnaryOperation<I, float_<cn<I>>, NormalizePixel<I, CD>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
-            return input / static_cast<float>(maxDepthValue<CD>);
+            // Cast to float vector first: dividing an integer vector (e.g. uchar3) directly by a
+            // float scalar can be resolved to the backend's native vector-type operator (HIP in
+            // particular), which narrows the scalar to the vector's base type and performs the
+            // division in integer arithmetic, truncating the result to 0 for most inputs.
+            const OutputType floatInput = cxp::cast<OutputType>::f(input);
+            return floatInput / static_cast<float>(maxDepthValue<CD>);
         }
     };
 
