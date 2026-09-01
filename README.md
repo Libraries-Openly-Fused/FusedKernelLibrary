@@ -1,12 +1,12 @@
 # Fused Kernel Library (FKL) Main branch
   
-The Fused Kernel Library is a C++20 implementation of a methodology that allows to define a set of operations that need to be executed inside a kernel, in the same order that they are expressed. The library currently has CPU and CUDA backends, but other GPU language implemenations (such as HIP) are possible.
+The Fused Kernel Library is a C++20 implementation of a methodology that allows to define a set of operations that need to be executed inside a kernel, in the same order that they are expressed. The library currently has CPU, CUDA and ROCM backends, but other GPU language implementations are possible.
 
 It automatically implements Vertical and Horizontal fusion, and also implements two new Fusion techniques, Backwards Vertical Fusion (akin to OpenCV Filters, but with an standard generic API), and Divergent Horizontal Fusion.
 
 This is the Main branch of the repository, where the FKL API can be modified, the minimum C++ version can be increased (currently it is C++20), and in general, we can break retro-compatibility with the goal of improving future code maintainability, code performance, and being able to fuse more types of algorithms.
 
-If you are looking for a more stable branch, where new features can be added, but the FKL API is frozen to ensure your user code will continue to work with newer versions, check the LTS-C++17 branch.
+If you are looking for a more stable branch, where new features can be added, but the FKL API is frozen to ensure your user code will continue to work with newer versions, check the LTS-C++17 branch (ROCM is not supported there).
 
 ## Reference paper and other publications
 This repository provides the official implementation of a kernel fusion methodology for GPU libraries, providing the mechanisms to perform automatic Vertical Fusion, Horizontal Fusion, Backwards Vertical Fusion and Divergent Horizontal Fusion.
@@ -159,7 +159,7 @@ This has been tested before, by creating special compilers that generate the ass
 
 ## Closed source friendly
 
-A company that has it's own CUDA kernels, and wants to start fusing them along with operations present in this library, can do so by shaping their kernels into a conformant FusedKernel Operation, that can be passed as a template parameter of one of the FKL InstantiableOperation structs.
+A company that has it's own CUDA or HIP kernels, and wants to start fusing them along with operations present in this library, can do so by shaping their kernels into a conformant FusedKernel Operation, that can be passed as a template parameter of one of the FKL InstantiableOperation structs.
 
 With this strategy, they don't need to share any of their code. They just need to make their kernels fusionable.
 
@@ -168,5 +168,9 @@ With this strategy, they don't need to share any of their code. They just need t
 This is an Apache 2.0 OpenSource project, currently with no funding. The 3 main contributors work on the project on their spare time. In the case of the main author, he can work on solving bugs or adding features during his work hours on Grup Mediapro S.L.U. The code added during that time will include Copyright Grup Mediapro S.L.U.
 
 As per Apache 2.0 we provide no guaratees, or free support. Nevertheless, the software has some testing on the following OS and compiler versions:
+for CUDA builds (x86_64 and arm64)
 - Ubuntu 24.04 g++ 13 + CUDA 13.3 or clang21 + CUDA 13.3 for both amd64 and arm64 systems.
 - Windows 11 Visual Studio 2022 + CUDA 13.0 or Visual Studio 2026 + CUDA 13.3 or clang-cl (VS2026) + CUDA 13.3 on amd64 systems.
+
+For ROCM builds (x86_64 only):
+- Ubuntu 24.04 + ROCM 7.14.

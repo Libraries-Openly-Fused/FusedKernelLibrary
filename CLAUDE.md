@@ -29,7 +29,7 @@ ctest -R '_cpp$'                                 # CPU-backend tests only (no GP
 
 Key CMake options: `ENABLE_CPU` (ON), `ENABLE_CUDA` (ON if nvcc found), `BUILD_TEST` (ON), `BUILD_UTEST` (ON), `ENABLE_BENCHMARK` (OFF), `CUDA_ARCH` ("native", passed verbatim to `CUDA_ARCHITECTURES` — no arch filtering exists), `ARCH_FLAGS` (CPU SIMD), `ENABLE_NVTX`, `ENABLE_DEBUG`, `TEMPLATE_DEPTH` (1000).
 
-There is no lint/format gate. Format manually with `clang-format -i` using the repo-root `.clang-format` (LLVM base, 4-space indent, 120-char lines, `PointerAlignment: Right`). The merge gate is the full ctest suite building and passing across CI's compiler matrix (no `-Werror` anywhere, though the skills' PR checklists ask for warning-clean nvcc and clang builds). CI runs only on PRs to `main` (self-hosted runners): Linux amd64/arm64 with g++-13 and clang++-21 + CUDA 13.3; Windows with cl 14.44 + CUDA 13.0, cl 14.51 + CUDA 13.3, and clang-cl 14.51 + CUDA 13.3.
+There is no lint/format gate. Format manually with `clang-format -i` using the repo-root `.clang-format` (LLVM base, 4-space indent, 120-char lines, `PointerAlignment: Right`). The merge gate is the full ctest suite building and passing across CI's compiler matrix (no `-Werror` anywhere, though the skills' PR checklists ask for warning-clean nvcc and clang builds). CI runs only on PRs to `main` (self-hosted runners): Linux amd64/arm64 with g++-13 and clang++-23 + CUDA 13.3; Windows with cl 14.44 + CUDA 13.0, cl 14.51 + CUDA 13.3, and clang-cl 14.51 + CUDA 13.3.
 
 ## Test infrastructure (no framework — no GTest/Catch2)
 
