@@ -19,7 +19,7 @@ DESCRIPTION "Implementation of a methodology that allows all sorts of user defin
 HOMEPAGE_URL "https://github.com/morousg/FusedKernelLibrary" )
 
 #cuda is optional, but if it is found, it will be used
-option(ENABLE_CPU "Enable CPU support" OFF)
+option(ENABLE_CPU "Enable CPU support" ON)
 option(ENABLE_CUDA "Enable CUDA support" ON)
 option(ENABLE_HIP "Enable HIP support" OFF)
 
@@ -73,11 +73,11 @@ if (ENABLE_HIP)
         set ( ROCM_PATH $ENV{ROCM_PATH}  CACHE STRING "Default ROCM installation directory." )
     endif ()
 
-find_package(hip-lang CONFIG REQUIRED)
-message(STATUS "Found hip-lang")
     # Search for rocm in common locations
     list(APPEND CMAKE_PREFIX_PATH ${HIP_PATH}/cmake ${HIP_PATH}/cmake/hip-lang ${ROCM_PATH})
     message(STATUS "CMAKE_PREFIX_PATH: " ${CMAKE_PREFIX_PATH})
+    find_package(hip-lang CONFIG REQUIRED)
+    message(STATUS "Found hip-lang")
     if (CMAKE_HIP_COMPILER)       
         message("Using HIP compiler at " ${CMAKE_HIP_COMPILER})    
         set(CMAKE_CXX_SCAN_FOR_MODULES OFF) #clang with HIP does not come with  clang-scan-deps

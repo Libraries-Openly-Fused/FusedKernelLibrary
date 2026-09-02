@@ -106,10 +106,9 @@ namespace fk {
                 const auto below = cxp::cast<OutputType>::f(
                     ReadOperation::exec(Point{thread.x, thread.y + 1, thread.z}, backIOp));
 
-                return (above*1.f + below*1.f + 1) * 0.5f;
+                return (above * 1.f + below * 1.f + 1.f) * 0.5f;
             } else {
-                   return  cxp::cast<OutputType>::f(
-                   ReadOperation::exec(thread, backIOp) * 1.f);                
+                return cxp::cast<OutputType>::f(ReadOperation::exec(thread, backIOp));
             }
         }
 

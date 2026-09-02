@@ -132,7 +132,7 @@ public:
 };
 #endif // defined(__CUDACC__)
 
-#if defined(__HIP__)
+#if defined(__HIPCC__)
 template <>
 class TimeMarkerOne<fk::ParArch::GPU_AMD> final : public TimeMarkerInterfaceOne {
     hipEvent_t m_start, m_stop;
@@ -163,7 +163,7 @@ public:
         return m_elapsedTime;
     }
 };
-#endif // defined(__HIP__)
+#endif // defined(__HIPCC__)
 
 #if defined(NVRTC_ENABLED)
 template <>
@@ -308,7 +308,7 @@ public:
 };
 #endif // defined(__CUDACC__)
 
-#if defined(__HIP__)
+#if defined(__HIPCC__)
 template <>
 class TimeMarkerTwo<fk::ParArch::GPU_AMD> final : public TimeMarkerInterfaceTwo {
     hipEvent_t m_start, m_stop;
@@ -355,7 +355,7 @@ public:
         return m_secondElapsedTime;
     };
 };
-#endif // defined(__HIP__)
+#endif // defined(__HIPCC__)
 
 #if defined(NVRTC_ENABLED)
 template <>

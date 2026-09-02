@@ -169,8 +169,9 @@ This is an Apache 2.0 OpenSource project, currently with no funding. The 3 main 
 
 As per Apache 2.0 we provide no guaratees, or free support. Nevertheless, the software has some testing on the following OS and compiler versions:
 for CUDA builds (x86_64 and arm64)
-- Ubuntu 24.04 g++ 13 + CUDA 13.3 or clang21 + CUDA 13.3 for both amd64 and arm64 systems.
+- Ubuntu 24.04 g++ 13 + CUDA 13.3 or clang++-23 + CUDA 13.3 for both amd64 and arm64 systems.
 - Windows 11 Visual Studio 2022 + CUDA 13.0 or Visual Studio 2026 + CUDA 13.3 or clang-cl (VS2026) + CUDA 13.3 on amd64 systems.
 
 For ROCM builds (x86_64 only):
-- Ubuntu 24.04 + ROCM 7.14.
+- Ubuntu 24.04 + ROCM 10.0.
+- Windows 11 + ROCM 7.2.
