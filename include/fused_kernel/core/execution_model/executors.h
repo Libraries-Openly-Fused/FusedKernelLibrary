@@ -309,36 +309,6 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         return CtxDim3(blockDimX[bxS], blockDimY[byS][bxS]);
     }
 
-    // The only backend specific pieces: native stream retrieval and last error checking.
-    template <enum ParArch PA>
-    struct GPUBackend;
-
-#if defined(__NVCC__)
-    template <>
-    struct GPUBackend<ParArch::GPU_NVIDIA> {
-        FK_STATIC_STRUCT(GPUBackend, GPUBackend)
-        FK_HOST_STATIC cudaStream_t nativeStream(const Stream_<ParArch::GPU_NVIDIA>& stream) {
-            return stream.getCUDAStream();
-        }
-        FK_HOST_STATIC void checkLastError() {
-            gpuErrchk(cudaGetLastError());
-        }
-    };
-#endif // __NVCC__
-
-#if defined(__HIPCC__)
-    template <>
-    struct GPUBackend<ParArch::GPU_AMD> {
-        FK_STATIC_STRUCT(GPUBackend, GPUBackend)
-        FK_HOST_STATIC hipStream_t nativeStream(const Stream_<ParArch::GPU_AMD>& stream) {
-            return stream.getHIPStream();
-        }
-        FK_HOST_STATIC void checkLastError() {
-            gpuErrchk(hipGetLastError());
-        }
-    };
-#endif // __HIPCC__
-
     FK_HOST_CNST dim3 getDefaultGrid(const ActiveThreads& activeThreads, const dim3& block) {
         return dim3{ static_cast<uint>(ceil(activeThreads.x / static_cast<float>(block.x))),
                      static_cast<uint>(ceil(activeThreads.y / static_cast<float>(block.y))),
@@ -349,8 +319,8 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
     struct GPUTransformExecutor {
         FK_STATIC_STRUCT(GPUTransformExecutor, GPUTransformExecutor)
         template <typename... IOps>
-        FK_HOST_FUSE void exec(Stream_<PA>& stream_, const IOps&... iOps) {
-            const auto stream = GPUBackend<PA>::nativeStream(stream_);
+        FK_HOST_STATIC void exec(Stream_<PA>& stream_, const IOps&... iOps) {
+            const auto stream = stream_();
             const auto tDetails = TransformDPP<PA, TFEN>::build_details(iOps...);
             if constexpr (decltype(tDetails)::TFI::ENABLED) {
                 const ActiveThreads activeThreads = tDetails.activeThreads;
@@ -364,7 +334,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                 } else {
                     launchTransformDPP_Kernel<PA, TFEN, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
                 }
-                GPUBackend<PA>::checkLastError();
+                stream_.checkLastError();
             } else {
                 const auto readOp = get_arg<0>(iOps...);
 
@@ -375,7 +345,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                 const dim3 block{ ctx_block.x, ctx_block.y, 1 };
                 const dim3 grid = getDefaultGrid(activeThreads, block);
                 launchTransformDPP_Kernel<PA, TFEN, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
-                GPUBackend<PA>::checkLastError();
+                stream_.checkLastError();
             }
         }
     };
@@ -387,7 +357,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         using DPPDetails = typename DPPType::DPPDetails;
 
         template <typename... IOpSequenceTypes>
-        FK_HOST_FUSE ActiveThreads getActiveThreads(const IOpSequenceTypes&... iOpSequences) {
+        FK_HOST_STATIC ActiveThreads getActiveThreads(const IOpSequenceTypes&... iOpSequences) {
             const uint x = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().x...);
             const uint y = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().y...);
             const uint z = cxp::sum::f(get<0>(iOpSequences.iOps).getActiveThreads().z...);
@@ -395,7 +365,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         }
 
         template <typename... IOps>
-        FK_HOST_FUSE auto fuseBackSequence(const IOpSequence<IOps...>& iOpSeq) {
+        FK_HOST_STATIC auto fuseBackSequence(const IOpSequence<IOps...>& iOpSeq) {
             return buildOperationSequence_tup(
                 apply([](auto&&... args) {
                     // Now fuse_back deduces the types naturally and preserves value categories via perfect forwarding
@@ -405,7 +375,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         }
 
         template <typename... IOpSequenceTypes>
-        FK_HOST_FUSE void executeOperationsFused(Stream_<PA>& stream, const IOpSequenceTypes&... iOpSequences) {
+        FK_HOST_STATIC void executeOperationsFused(Stream_<PA>& stream, const IOpSequenceTypes&... iOpSequences) {
             const ActiveThreads activeThreads = getActiveThreads(iOpSequences...);
             const DPPDetails details{};
 
@@ -413,14 +383,14 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             const dim3 grid(ceil(activeThreads.x / static_cast<float>(block.x)),
                             ceil(activeThreads.y / static_cast<float>(block.y)), activeThreads.z);
             launchDivergentBatchTransformDPP_Kernel<PA, SequenceSelector>
-                <<<grid, block, 0, GPUBackend<PA>::nativeStream(stream)>>>(details, iOpSequences...);
-            GPUBackend<PA>::checkLastError();
+                <<<grid, block, 0, stream()>>>(details, iOpSequences...);
+            stream.checkLastError();
         }
 
     public:
         FK_STATIC_STRUCT(GPUDivergentBatchExecutor, GPUDivergentBatchExecutor)
         template <typename... IOpSequenceTypes>
-        FK_HOST_FUSE void exec(Stream_<PA>& stream, const IOpSequenceTypes&... iOpSequences) {
+        FK_HOST_STATIC void exec(Stream_<PA>& stream, const IOpSequenceTypes&... iOpSequences) {
             executeOperationsFused(stream, fuseBackSequence(iOpSequences)...);
         }
     };

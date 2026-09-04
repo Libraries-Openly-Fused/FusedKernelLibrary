@@ -80,17 +80,11 @@ namespace fk {
             using ReadOperation = typename BackIOp::Operation;
             
             // Read current pixel
-            const auto current = cxp::cast<OutputType>::f(ReadOperation::exec(thread, backIOp));
+            const auto current = ReadOperation::exec(thread, backIOp);
             
-            const auto height = ReadOperation::num_elems_y(Point{0,0,0}, backIOp);
-            if (thread.y > 0 && thread.y + 1 < height) {
-                const auto above = cxp::cast<OutputType>::f(
-                    ReadOperation::exec(Point{thread.x, thread.y - 1, thread.z}, backIOp));
-
-                const auto below = cxp::cast<OutputType>::f(
-                    ReadOperation::exec(Point{thread.x, thread.y + 1, thread.z}, backIOp));
-
-                return (current + above + below + 1.f) * 0.25f;
+            if (thread.y > 0) {
+                const auto above = ReadOperation::exec(Point{thread.x, thread.y - 1, thread.z}, backIOp);
+                return (current + above + 1) * 0.5f;
             } else {
                 return current * 1.f;
             }
@@ -100,15 +94,11 @@ namespace fk {
             using ReadOperation = typename BackIOp::Operation;
             if (interpolate) {
                 // We average the above pixel with the below pixel
-                const auto above = cxp::cast<OutputType>::f(
-                    ReadOperation::exec(Point{thread.x, thread.y - 1, thread.z}, backIOp));
-
-                const auto below = cxp::cast<OutputType>::f(
-                    ReadOperation::exec(Point{thread.x, thread.y + 1, thread.z}, backIOp));
-
-                return (above * 1.f + below * 1.f + 1.f) * 0.5f;
+                const auto above = ReadOperation::exec(Point{thread.x, thread.y - 1, thread.z}, backIOp);
+                const auto below = ReadOperation::exec(Point{thread.x, thread.y + 1, thread.z}, backIOp);
+                return (above + below + 1) * 0.5f;
             } else {
-                return cxp::cast<OutputType>::f(ReadOperation::exec(thread, backIOp));
+                return ReadOperation::exec(thread, backIOp) * 1.f;
             }
         }
 
@@ -119,11 +109,9 @@ namespace fk {
             // If useEvenLines is true, we interpolate on odd lines, otherwise we interpolate the even lines
             // useEvenLines = true, we interpolate if thread.y is odd and not the last line
             // useEvenLines = false, we interpolate if thread.y is even and not the first line
-            const bool interpolate = params.useEvenLines
-                                         ? !cxp::is_even::f(thread.y)
-                                               && thread.y != ReadOperation::num_elems_y(Point{0,0,0}, backIOp) - 1
-                                         : cxp::is_even::f(thread.y) && thread.y != 0
-                                               && thread.y != ReadOperation::num_elems_y(Point{0,0,0}, backIOp) - 1;
+            const bool interpolate = params.useEvenLines ?
+                                        !cxp::is_even::f(thread.y) && thread.y != ReadOperation::num_elems_y(Point{0,0,0}, backIOp) - 1
+                                        : cxp::is_even::f(thread.y) && thread.y != 0;
 
             return execInterLinearGetPixel(thread, backIOp, interpolate);
         }

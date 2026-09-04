@@ -98,6 +98,9 @@ namespace fk {
         inline void sync() final {
             gpuErrchk(cudaStreamSynchronize(m_stream));
         }
+        inline void checkLastError() const {
+            gpuErrchk(cudaGetLastError());
+        }
         constexpr inline enum ParArch getParArch() const {
             return ParArch::GPU_NVIDIA;
         };
@@ -158,6 +161,9 @@ namespace fk {
         }
         inline void sync() final {
             gpuErrchk(hipStreamSynchronize(m_stream));
+        }
+        inline void checkLastError() const {
+            gpuErrchk(hipGetLastError());
         }
         constexpr inline enum ParArch getParArch() const {
             return ParArch::GPU_AMD;

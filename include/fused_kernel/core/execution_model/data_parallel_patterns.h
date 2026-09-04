@@ -15,7 +15,7 @@
 #ifndef FK_INSTANTIABLE_DATA_PARALLEL_PATTERNS
 #define FK_INSTANTIABLE_DATA_PARALLEL_PATTERNS
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
 #include <cooperative_groups.h>
 namespace cooperative_groups {};
 namespace cg = cooperative_groups;
@@ -235,15 +235,16 @@ namespace fk { // namespace FusedKernel
 
         template <typename... IOps>
         FK_DEVICE_FUSE void exec(const Details& details, const IOps&... iOps) {
-            const int x = (blockDim.x * blockIdx.x) + threadIdx.x;
-            const int y = (blockDim.y * blockIdx.y) + threadIdx.y;
-            const int z = blockIdx.z;
+            const cg::thread_block g = cg::this_thread_block();
+            const int x = (g.dim_threads().x * g.group_index().x) + g.thread_index().x;
+            const int y = (g.dim_threads().y * g.group_index().y) + g.thread_index().y;
+            const int z = g.group_index().z;
             const Point thread{ x, y, z };
 
             exec_thread(thread, details, iOps...);
         }
     };
-#endif // defined(__NVCC__)
+#endif // defined(__NVCC__) || defined(__HIPCC__)
 
     template <enum TF TFEN, typename DPPDetails, bool THREAD_DIVISIBLE>
     struct TransformDPP<ParArch::CPU, TFEN, DPPDetails, THREAD_DIVISIBLE, std::enable_if_t<!std::is_same_v<DPPDetails, void>, void>> {
@@ -358,9 +359,10 @@ namespace fk { // namespace FusedKernel
         static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
         template <typename... IOpSequenceTypes>
         FK_DEVICE_FUSE void exec(const DPPDetails&, const IOpSequenceTypes&... iOpSequences) {
-            const int x = (blockDim.x * blockIdx.x) + threadIdx.x;
-            const int y = (blockDim.y * blockIdx.y) + threadIdx.y;
-            const int z = blockIdx.z;
+            const cg::thread_block g = cg::this_thread_block();
+            const int x = (g.dim_threads().x * g.group_index().x) + g.thread_index().x;
+            const int y = (g.dim_threads().y * g.group_index().y) + g.thread_index().y;
+            const int z = g.group_index().z;
             const Point thread{ x, y, z };
 
             Parent::template divergent_operate<0>(thread, iOpSequences...);
@@ -376,9 +378,10 @@ namespace fk { // namespace FusedKernel
         static constexpr ParArch PAR_ARCH = ParArch::GPU_AMD;
         template <typename... IOpSequenceTypes>
         FK_DEVICE_FUSE void exec(const DPPDetails&, const IOpSequenceTypes&... iOpSequences) {
-            const int x = (blockDim.x * blockIdx.x) + threadIdx.x;
-            const int y = (blockDim.y * blockIdx.y) + threadIdx.y;
-            const int z = blockIdx.z;
+            const cg::thread_block g = cg::this_thread_block();
+            const int x = (g.dim_threads().x * g.group_index().x) + g.thread_index().x;
+            const int y = (g.dim_threads().y * g.group_index().y) + g.thread_index().y;
+            const int z = g.group_index().z;
             const Point thread{ x, y, z };
 
             Parent::template divergent_operate<0>(thread, iOpSequences...);

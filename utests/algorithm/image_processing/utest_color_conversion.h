@@ -289,7 +289,7 @@ void testSaturateDenormalizePixel() {
     };
     
     std::array<uchar3, 2> expectedVals = {
-        uchar3{0, 127, 255},            // Saturated to [0,1] then denormalized to [0,255]; 0.5*255=127.5 truncates to 127
+        uchar3{0, 128, 255},            // Saturated to [0,1] then denormalized to [0,255]
         uchar3{63, 191, 229}            // 0.25*255=63.75≈63, 0.75*255=191.25≈191, 0.9*255=229.5≈229
     };
     
@@ -553,19 +553,11 @@ constexpr M3x3Float
 // =========================================================================
 // 10-BIT and 12-BIT LIMITED RANGE matrices
 // =========================================================================
-template <ColorConversionDir CCD, ColorDepth CD>
-constexpr M3x3Float scaleLimitedMatrix(const M3x3Float& matrix) {
-    const M3x3Float& factors = limitedFactors<CCD, CD>;
-    return {{matrix.x.x * factors.x.x, matrix.x.y * factors.x.y, matrix.x.z * factors.x.z},
-            {matrix.y.x * factors.y.x, matrix.y.y * factors.y.y, matrix.y.z * factors.y.z},
-            {matrix.z.x * factors.z.x, matrix.z.y * factors.z.y, matrix.z.z * factors.z.z}};
-}
-
 template <ColorPrimitives CP, ColorConversionDir CCD, ColorDepth CD>
     requires one_of_v<CD_t<CD>, TypeList<CD_t<ColorDepth::p10bit>, CD_t<ColorDepth::p12bit>>>
 constexpr M3x3Float
     ccMatrixTest<ColorRange::Limited, CP, CCD, CD> =
-        scaleLimitedMatrix<CCD, CD>(ccMatrixTest<ColorRange::Full, CP, CCD, CD>);
+        ccMatrixTest<ColorRange::Full, CP, CCD, CD> * limitedFactors<CCD, CD>;
 
 // Normalized float (fn) matrices share the exact same scaling ratio as their integer equivalents.
 template <ColorRange CR, ColorPrimitives CP, ColorConversionDir CCD>
@@ -578,11 +570,7 @@ template <ColorRange CR, ColorPrimitives CP, ColorConversionDir CCD>
 constexpr M3x3Float ccMatrixTest<CR, CP, CCD, ColorDepth::fn12bit> = ccMatrixTest<CR, CP, CCD, ColorDepth::p12bit>;
 
 constexpr bool equalM3x3(const M3x3Float& first, const M3x3Float& second) {
-    // Avoid the vector equality operator here: it is not constexpr on all
-    // supported compilers, while the scalar comparisons are.
-    return first.x.x == second.x.x && first.x.y == second.x.y && first.x.z == second.x.z &&
-           first.y.x == second.y.x && first.y.y == second.y.y && first.y.z == second.y.z &&
-           first.z.x == second.z.x && first.z.y == second.z.y && first.z.z == second.z.z;
+    return (first.x == second.x) && (first.y == second.y) && (first.z == second.z);
 }
 
 template <ColorPrimitives CP, ColorDepth CD>
