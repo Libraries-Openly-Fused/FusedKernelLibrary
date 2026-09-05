@@ -15,8 +15,13 @@
 #ifndef FK_INSTANTIABLE_DATA_PARALLEL_PATTERNS
 #define FK_INSTANTIABLE_DATA_PARALLEL_PATTERNS
 
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) 
 #include <cooperative_groups.h>
+#elif defined(__HIPCC__)
+#include <hip/hip_cooperative_groups.h>
+#endif
+
+#if defined(__NVCC__)  || defined(__HIPCC__)
 namespace cooperative_groups {};
 namespace cg = cooperative_groups;
 #endif
