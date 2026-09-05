@@ -32,8 +32,8 @@ function (discover_tests DIR)
                 add_cuda_to_test("${TARGET_NAME}_cu")                           
             endif()
         endif()
-
-        if (CMAKE_HIP_COMPILER AND ENABLE_HIP)
+        
+        if (ENABLE_HIP) #win32 uses hip package instead of hip lang
             if (${POS_ONLY_CPU} EQUAL -1 AND ${POS_ONLY_CU} EQUAL -1)
                 add_generated_test("${TARGET_NAME}"  "${TEST_SOURCE}" "hip"  "${DIR_RELATIVE_PATH}")
                 add_hip_to_test("${TARGET_NAME}_hip")

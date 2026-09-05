@@ -21,11 +21,8 @@ HOMEPAGE_URL "https://github.com/morousg/FusedKernelLibrary" )
 #cuda is optional, but if it is found, it will be used
 option(ENABLE_CPU "Enable CPU support" ON)
 option(ENABLE_CUDA "Enable CUDA support" ON)
-option(ENABLE_HIP "Enable HIP support" OFF)
+option(ENABLE_HIP "Enable HIP support" ON)
 
-if (ENABLE_CUDA AND ENABLE_HIP)
-    message(FATAL_ERROR "ENABLE_CUDA and ENABLE_HIP cannot be enabled at the same time.")
-endif()
 
 include(CheckLanguage)
 
@@ -54,43 +51,15 @@ if (ENABLE_CUDA)
     endif()
 endif()
 
-if (ENABLE_HIP)
-    check_language(HIP)
-    if(NOT DEFINED HIP_PATH)
-        if(NOT DEFINED ENV{HIP_PATH})
-            set(HIP_PATH "/opt/rocm/hip" CACHE PATH "Path to which HIP has been installed")
-                   message(STATUS "HIP_PATH: " ${HIP_PATH})
-        else()
-            set(HIP_PATH $ENV{HIP_PATH} CACHE PATH "Path to which HIP has been installed")
-            message(STATUS "HIP_PATH: " ${HIP_PATH})
-        endif()
-    endif()
-    #set(CMAKE_MODULE_PATH "${HIP_PATH}/cmake" ${CMAKE_MODULE_PATH})
-
-    if (NOT DEFINED ROCM_PATH )
-        set ( ROCM_PATH "/opt/rocm"  CACHE STRING "Default ROCM installation directory." )
-    else()
-        set ( ROCM_PATH $ENV{ROCM_PATH}  CACHE STRING "Default ROCM installation directory." )
-    endif ()
-
-    # Search for rocm in common locations
-    list(APPEND CMAKE_PREFIX_PATH ${HIP_PATH}/cmake ${HIP_PATH}/cmake/hip-lang ${ROCM_PATH})
-    message(STATUS "CMAKE_PREFIX_PATH: " ${CMAKE_PREFIX_PATH})
-    find_package(hip-lang CONFIG REQUIRED)
-    message(STATUS "Found hip-lang")
-    if (CMAKE_HIP_COMPILER)       
-        message("Using HIP compiler at " ${CMAKE_HIP_COMPILER})    
-        set(CMAKE_CXX_SCAN_FOR_MODULES OFF) #clang with HIP does not come with  clang-scan-deps
-        include(cmake/hip_init.cmake)    
-    else()
-        if (NOT (ENABLE_CPU))
-            message(FATAL_ERROR "HIP compiler not found. the build cannot proceed. ")        
-        else ()
-            message(WARNING "HIP compiler not found. Disabling HIP support.")
-            set(ENABLE_HIP OFF CACHE BOOL "Enable HIP support" FORCE)
-        endif()        
-    endif()
+if (ENABLE_HIP)    
+    include(cmake/hip_init.cmake)
+    
 endif()
+
+if (ENABLE_CUDA AND ENABLE_HIP)
+    message(FATAL_ERROR "ENABLE_CUDA and ENABLE_HIP cannot be enabled at the same time.")
+endif()
+
 
 add_subdirectory(include)
 add_subdirectory(lib)
