@@ -1,0 +1,26 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "HIP 7.2 Windows",
+      "displayName": "Default Configure",
+      "generator": "Ninja",
+      "toolset": {
+      "value": "v143,version=14.44",
+      "strategy": "external"
+      },
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "C:\\Program Files\\AMD\\ROCm\\7.2\\bin\\clang.exe",
+        "CMAKE_CXX_COMPILER": "C:\\Program Files\\AMD\\ROCm\\7.2\\bin\\clang++.exe",
+        "CMAKE_HIP_COMPILER": "C:\\Program Files\\AMD\\ROCm\\7.2\\bin\\clang++.exe"
+      },
+        "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    }
+  ]
+}    

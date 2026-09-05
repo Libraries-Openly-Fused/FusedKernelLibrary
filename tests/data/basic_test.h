@@ -123,10 +123,10 @@ int launch() {
         std::is_same_v<fk::TypeAt_t<2, typename decltype(myTup)::Operations>, fk::Write<fk::PerThreadWrite<fk::ND::_2D, uint>>>;
 
     if (test2Dpassed && fk::and_v<test1, test2, test3>) {
-        std::cout << "cuda_transform executed!!" << std::endl;
+        std::cout << "gpu_transform executed!!" << std::endl;
         return 0;
     } else {
-        std::cout << "cuda_transform failed!!" << std::endl;
+        std::cout << "gpu_transform failed!!" << std::endl;
         if (!test2Dpassed) {
             std::cout << "Specifically testPtr_2D failed!!" << std::endl;
         }

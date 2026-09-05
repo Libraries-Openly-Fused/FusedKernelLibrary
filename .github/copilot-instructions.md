@@ -79,7 +79,7 @@ cmake --build build --config Release --parallel 32
 - **CUDA >= 13**: All architectures allowed.
 
 ### Windows-Specific Notes
-- CI uses self-hosted runners with LLVM 21.1.0 at `D:/clang+llvm-21.1.0-x86_64-pc-windows-msvc/bin/`.
+- CI uses self-hosted runners with LLVM 23.1.0 at `D:/clang+llvm-23.1.0-x86_64-pc-windows-msvc/bin/`.
 - The Ninja generator requires a workaround: after `cmake`, `rules.ninja` may contain a wrong NVCC path that must be patched (see `cmake-windows-amd64.yml`).
 - The VS Developer Shell (`Enter-VsDevShell`) must be activated for both configure and build steps on Windows.
 - `utf8cp.manifest` is embedded into test executables on Windows for UTF-8 codepage support.
@@ -222,9 +222,9 @@ Each operation type exposes a `static build(...)` factory method returning an in
 All three workflow files trigger on **pull requests to `main`** (push triggers are commented out). All runners are **self-hosted**.
 
 ### Linux (cmake-linux-amd64.yml, cmake-linux-arm64.yml)
-- **Compilers**: `g++-13`, `clang++-21`
+- **Compilers**: `g++-13`, `clang++-23`
 - **CUDA**: 13.3 (via `/usr/local/cuda-<version>/bin/nvcc`)
-- **CMake**: Custom installation at `/home/cudeiro/cmake-4.3.3-linux-x86_64/bin/` (added to PATH)
+- **CMake**: Custom installation at `/home/cudeiro/cmake-4.4.2-linux-x86_64/bin/` (added to PATH)
 - **Generator**: Ninja
 - **Build type**: Release
 
@@ -232,7 +232,7 @@ All three workflow files trigger on **pull requests to `main`** (push triggers a
 - **Host compilers**: `cl` (MSVC), `clang-cl`
 - **MSVC versions**: 14.44, 14.51 (via `-vcvars_ver`)
 - **CUDA**: 13.0, 13.3 (NVCC at `%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v<version>\bin\nvcc.exe`)
-- **LLVM**: `D:/clang+llvm-21.1.0-x86_64-pc-windows-msvc/bin/` (added to PATH)
+- **LLVM**: `D:/clang+llvm-23.1.0-x86_64-pc-windows-msvc/bin/` (added to PATH)
 - **Generator**: Ninja
 - **Workaround**: After CMake configure, `rules.ninja` may contain an empty NVCC path that is patched with PowerShell string replacement.
 

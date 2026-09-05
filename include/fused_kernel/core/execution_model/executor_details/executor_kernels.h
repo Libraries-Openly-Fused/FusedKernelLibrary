@@ -14,8 +14,10 @@
 
 #ifndef FK_EXECUTOR_KERNELS_H
 #define FK_EXECUTOR_KERNELS_H
-
-#if defined(__NVCC__)
+#if defined(__HIPCC__)
+#define __grid_constant__ 
+#endif
+#if defined(__NVCC__) || defined(__HIPCC__)
 namespace fk {
 template <ParArch PA, typename SequenceSelector, typename DPPDetails, typename... IOpSequences>
 __global__ void launchDivergentBatchTransformDPP_Kernel(const __grid_constant__ DPPDetails details,

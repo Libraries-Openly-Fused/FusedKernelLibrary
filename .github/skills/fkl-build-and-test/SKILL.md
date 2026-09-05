@@ -102,7 +102,7 @@ int launch() { RUN_ALL_TESTS }
 ## CI Matrix
 
 GitHub workflows build on `linux-amd64`, `linux-arm64` and `windows-amd64` using self-hosted runners.
-- Linux builds against `g++-13` and `clang++-21`.
+- Linux builds against `g++-13` and `clang++-23`.
 - Windows builds against MSVC (`cl` versions 14.44 and 14.51) and `clang-cl`.
 - Keep changes warning-clean on BOTH compilers: clang is a first-class compiler for FKL (single-step host+device compiles matter for downstream packaging).
 

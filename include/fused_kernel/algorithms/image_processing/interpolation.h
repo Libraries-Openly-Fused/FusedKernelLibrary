@@ -71,7 +71,7 @@ namespace fk {
             const float src_x = input.x;
             const float src_y = input.y;
 
-#ifdef __CUDA_ARCH__
+#if defined(__CUDA_ARCH__) || defined(__HIP_ARCH__)
             const int x1 = __float2int_rd(src_x);
             const int y1 = __float2int_rd(src_y);
 #else
