@@ -88,6 +88,10 @@ Executor<DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, MySelector>>::
     executeOperations(stream, seq1, seq2);
 ```
 
+- A CPU DPP/Executor specialization also exists:
+  `DivergentBatchTransformDPP<ParArch::CPU, MySelector>`, with a CPU stream and
+  Host buffers. It traverses sequence planes synchronously rather than launching
+  a GPU grid.
 - Each sequence must be a complete read->...->write chain. This example assumes
   two single-plane reads and `writeT` addressing a two-plane output tensor.
   Sequences need not share an output, but their writes must honor the global z

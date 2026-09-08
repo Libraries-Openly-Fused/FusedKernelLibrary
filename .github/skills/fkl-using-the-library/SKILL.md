@@ -140,8 +140,9 @@ Policies: CONSTANT, REPLICATE, REFLECT, WRAP, REFLECT_101.
 The Transform pipelines run on CPU:
 `executeOperations<TransformDPP<ParArch::CPU>>` with `Stream_<ParArch::CPU>` and
 `MemType::Host` buffers. Non-nvcc builds select these defaults automatically.
-This does not imply CPU support for every specialized DPP (attention and DHF
-are GPU-only paths).
+DHF also has a CPU DPP/Executor specialization:
+`DivergentBatchTransformDPP<ParArch::CPU, Selector>`. This does not imply CPU
+support for every specialized DPP; attention currently has no CPU DPP backend.
 
 ## Pitfalls (each cost real debugging time)
 
