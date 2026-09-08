@@ -1,13 +1,31 @@
 ---
 name: fkl-implementing-operations
-description: Implement a new Operation for the Fused Kernel Library — Unary, Binary, Ternary, Read, Write, ReadBack or IncompleteReadBack structs, with Parent aliases, DECLARE_*_PARENT macros, build() overloads and unit tests. Use when adding an algorithm to FKL (new arithmetic, color conversion, geometric transform, memory pattern) or when a FusedOperation/alias fails to compile.
+description: Implement single-thread FKL Operations for arithmetic, color conversion, coordinate sampling, or memory access, using Parent aliases, DECLARE_*_PARENT macros, build() and tests. Use for new per-thread behavior or failing FusedOperation aliases; thread scheduling, barriers, shared tiles, and collective algorithms belong in the DPP skill.
 ---
 
 # Implementing FKL operations
 
+## Scope and workflow
+
+First apply [architecture classification](../fkl-architecture-overview/SKILL.md).
+An Operation is strictly single-thread work, even if a DPP invokes it on many
+threads. It may sample several pixels; it must not launch kernels, assign work
+to threads, or use barriers/shuffles. For those, use
+[implementing DPPs](../fkl-implementing-data-parallel-patterns/SKILL.md).
+For host-only composition, use [using operations](../fkl-using-operations/SKILL.md).
+
+1. Search existing algorithms for reusable Ops and the closest parent/build pattern.
+2. Specify input, output, runtime params and (if needed) backing IOp types.
+3. Implement in namespace `fk`, in the appropriate algorithm header, with its
+   existing include guard and function qualifiers.
+4. Instantiate every public build/alias path and test it in a fused pipeline.
+
 ## Anatomy of an Operation
 
 Every operation is a STATELESS struct: static `exec()`, type aliases from a Parent, and `build()` factories producing InstantiableOperations (IOps).
+The following is a Binary Op sketch, to place in namespace `fk` with the
+operation-model headers included (compare `Mul` in
+[arithmetic.h](../../../include/fused_kernel/algorithms/basic_ops/arithmetic.h)):
 
 ```cpp
 template <typename I, typename P = I, typename O = I>
@@ -26,6 +44,13 @@ public:
 ```
 
 ## Choosing the Operation type
+
+This table describes **implementation overloads**, not generic DPP call sites.
+Parent macros adapt an IOp/OperationData argument to these params-form overloads.
+For invocation through `IOp::Operation::exec`, use the
+[DPP call-site table](../fkl-implementing-data-parallel-patterns/SKILL.md#the-iop-invocation-contract-the-iop-form-table).
+The source contract is
+[operation_types.h](../../../include/fused_kernel/core/execution_model/operation_model/operation_types.h).
 
 Operation types are linked to the exec() function definition in the Operation. 
 The elements that can change across Operation types are:
@@ -51,22 +76,37 @@ An example of the exec function with all the types would be: `OutputType exec(Po
 | OpenType \*\* | X | X | X | X | | OutputType exec(Point, InputType, ParamsType) |
 | ClosedType \*\* | | X | | X | | void exec(Point, ParamsType) |
 
-\* Applicable only to Instantiable Operations. In and Out must be the same type and value. Operation must be of WriteType.
+\* MidWrite is an IOp wrapper around a Write Operation, not a new standalone Op.
+The table describes its write-and-forward effect in the fold. The underlying
+`Operation::exec` still returns `void`; the wrapper forwards the unchanged input.
 
 \*\* OpenType and ClosedType are only applicable to FusedOperations. FusedOperations can also be ReadType or WriteType.
+
+`IncompleteTernaryType` is declared but unused; do not use it as an implementation
+template. Unary/Binary describe function inputs, not the number of mathematical
+operands: a Unary Op may consume `Tuple<A,B>`, while a Binary Op consumes an input
+and stored params.
 
 ## Choosing the parent
 
 Each OperationType has its associated parent type. You can find them in the file include/fused_kernel/core/execution_model/operation_model/parent_operations.h
 
 Notes:
-- Unary ops carry NO runtime params: everything is in the types. They are the cheapest to fuse and the easiest to test.
-- Read/Write ops must also provide `num_elems_x/y/z(thread, opData)` (and `pitch` for memory ops); the executor derives grid dimensions from the read side's `getActiveThreads()`.
+- Unary ops carry no stored runtime params; their input value is still runtime data.
+- Implement geometry methods required by the consuming DPP and parent, following
+  the closest existing memory Op. Transform derives its grid from the read side's
+  `getActiveThreads()`; not every specialized coefficient Read or Write needs all
+  geometry/pitch methods.
 - ReadBack ops define output geometry: a Resize returns its target Size from num_elems_x/y regardless of the source size.
+- Use the complete `DECLARE_READBACK_PARENT` / `DECLARE_INCOMPLETEREADBACK_PARENT`
+  macros from [batch_operations.h](../../../include/fused_kernel/core/execution_model/operation_model/batch_operations.h);
+  the `_BASIC` variants omit batch builders needed for Horizontal Fusion.
 
 ## The IncompleteReadBack pattern (BVF ops)
 
 User-facing geometric ops (Crop, Resize, Warping) are declared with `BackIOp = NullType`: the user builds them WITHOUT knowing the read (`Crop<>::build(rect)`). The BackFuser later calls `build(backIOp, selfIOp)` to complete them with the actual read. Implement BOTH build() overloads:
+
+Sketch only; adapt the template arguments and aggregate layout to your parent:
 
 ```cpp
 FK_HOST_FUSE auto build(const ParamsType& params) {     // user-facing
@@ -112,23 +152,26 @@ apply([](const auto&... iOps) { return BackFuser::fuse_back(iOps...); }, tup);
 ## Testing a new op
 
 1. Add a utest header under `utests/<area>/` using TestCaseBuilder:
-```cpp
-void testMyOp() {
-    std::array<float, 2> in{2.f, 3.f};
-    std::array<float, 2> expected{4.f, 6.f};
-    TestCaseBuilder<MyOp<float>>::addTest(testCases, in, expected);
-}
-```
-2. Register it in the test list before `STOP_ADDING_TESTS`.
-3. Build and run: see the fkl-build-and-test skill.
+   first check for a matching specialization in
+   [operation_test_utils.h](../../../tests/operation_test_utils.h). Its scalar
+   `addTest(testCases, inputs, expected)` overload is for **Unary** Ops, not the
+   Binary `MyOp` above. For that Op, test `MyOp<float>::build(2.f)` in an explicit
+   read → MyOp → write pipeline and compare `{2.f, 3.f}` against `{4.f, 6.f}`.
+2. Register builder cases before `STOP_ADDING_TESTS` and define `int launch()`;
+   for unsupported builder categories use direct pipeline checks as in
+   [utest_executors.h](../../../utests/core/execution_model/utest_executors.h).
+3. Build and run: see [build and test](../fkl-build-and-test/SKILL.md).
 4. If the op is an alias or has multiple build() overloads, instantiate EVERY public path in the test — template bugs hide until instantiation.
+5. Cover changed runtime params, scalar/vector types where supported, and
+   non-identity predecessor/successor Ops. For ReadBack, test output dimensions,
+   border behavior, stacked sampling, and scalar **and batch** build paths.
 
 ## Checklist before opening a PR
 
 - [ ] `FK_STATIC_STRUCT` + Parent alias + `DECLARE_*_PARENT`
 - [ ] exec() is `FK_HOST_DEVICE_FUSE` (runs on CPU backend too)
-- [ ] num_elems_* / pitch for Read/Write/ReadBack ops
+- [ ] Geometry/pitch methods required by the parent and consuming DPP
 - [ ] both build() overloads for IncompleteReadBack ops
 - [ ] values in params, types in templates
 - [ ] utest instantiating every public alias/build path
-- [ ] compiles warning-clean on nvcc AND clang (CUDA 12.x and 13.x)
+- [ ] Validated with supported host compilers and nvcc; no new warnings
