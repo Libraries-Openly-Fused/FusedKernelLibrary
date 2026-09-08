@@ -7,17 +7,32 @@ description: Write user code with the Fused Kernel Library (FKL) — compose fus
 
 ## Mental model (60 seconds)
 
-FKL fuses a SEQUENCE of operations into ONE kernel at C++ compile time.
-You write the operations in execution order; intermediates live in
-registers, never in DRAM:
+Start here for application code using existing pieces. For host composition
+details see [using operations](../fkl-using-operations/SKILL.md); if a primitive
+is missing, classify it with [architecture overview](../fkl-architecture-overview/SKILL.md)
+before adding an Operation or DPP.
+
+TransformDPP fuses a compatible sequence into one kernel at C++ compile time.
+Intermediate values flow between Operations without explicit temporary images;
+register spills and explicit MidWrites can still cause DRAM traffic.
+This complete function initializes input and checks one result:
 
 ```cpp
 #include <fused_kernel/fused_kernel.h>
+#include <fused_kernel/algorithms/basic_ops/arithmetic.h>
+#include <fused_kernel/algorithms/basic_ops/cast.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 using namespace fk;
 
-Stream stream;
-Ptr2D<uchar3> input(width, height);          // allocates device memory
+int fusedExample() {
+constexpr int width = 8, height = 4;
+Stream stream;                             // default backend
+Ptr2D<uchar3> input(width, height);          // mirrored on CUDA, Host on CPU
 Ptr2D<float3> output(width, height);
+for (int y = 0; y < height; ++y)
+    for (int x = 0; x < width; ++x)
+        input.at(Point{x, y, 0}) = make_<uchar3>(1, 2, 3);
+input.upload(stream);
 
 executeOperations<TransformDPP<>>(stream,
     PerThreadRead<ND::_2D, uchar3>::build(input),
@@ -25,7 +40,11 @@ executeOperations<TransformDPP<>>(stream,
     Mul<float3>::build({2.f, 2.f, 2.f}),
     Add<float3>::build({10.f, 20.f, 30.f}),
     PerThreadWrite<ND::_2D, float3>::build(output));
-stream.sync();
+output.download(stream);
+stream.sync();                             // finish before reading host mirror
+const auto value = output.at(Point{0, 0, 0});
+return value.x == 12.f && value.y == 24.f && value.z == 36.f ? 0 : 1;
+}
 ```
 
 Rules:
@@ -33,12 +52,19 @@ Rules:
 2. Each op's OutputType must match the next op's InputType. Type errors are compile errors with the offending pair in the message.
 3. TYPES define the kernel. VALUES (`build()` arguments) are runtime parameters: changing a factor or a crop rect does NOT create a new kernel.
 
-## The two layers
+## The layers
 
-- `Operation` structs (e.g. `Mul<float3>`): static `exec()` + type aliases. Pure compute, no state.
+- `Operation` structs (e.g. `Mul<float3>`): static single-thread compute or memory access + type aliases, no instance state.
 - `InstantiableOperation` (IOp) = Operation + its runtime params, created with `Op::build(args...)`. What you pass to `executeOperations`.
+- DPP: schedules thread work and invokes IOps. Reuse `TransformDPP` for these
+  recipes; a new sequence does not require a new DPP.
 
-## Common pipeline patterns (all verified)
+## Common pipeline fragments
+
+These fragments assume initialized inputs, a matching stream, and sufficiently
+large outputs. Use [data structures](../fkl-data-structures/SKILL.md) to choose
+layout and memory type. Linear Resize produces floating-point pixels here;
+nearest-neighbor may preserve the source type, requiring an explicit Cast.
 
 ### DNN preprocessing in one kernel (crop -> resize -> normalize -> planar)
 
@@ -87,9 +113,11 @@ SaturateCast<float3, uchar3>::build()        // clamp + convert
 
 ## Streams
 
-- `Stream stream;` creates an owning CUDA stream; `stream.sync()` waits.
+- Under nvcc, `Stream stream;` creates an owning CUDA stream; `stream.sync()` waits.
 - Wrap an external stream zero-cost: `Stream s(existingCudaStream);` (FKL will NOT destroy it). Use this to interop with torch/cupy streams.
-- All `executeOperations` overloads are async on the given stream.
+- GPU launches are asynchronous on the given stream; CPU traversal is synchronous.
+  Do not free or reuse buffers before their GPU work completes. Download mirrored
+  outputs and synchronize before CPU inspection.
 
 ## Out-of-bounds reads
 
@@ -109,9 +137,20 @@ Policies: CONSTANT, REPLICATE, REFLECT, WRAP, REFLECT_101.
 
 ## CPU backend
 
-The same pipelines run on CPU: `executeOperations<TransformDPP<ParArch::CPU>>` with `Stream_<ParArch::CPU>`. Useful for tests without a GPU.
+The Transform pipelines run on CPU:
+`executeOperations<TransformDPP<ParArch::CPU>>` with `Stream_<ParArch::CPU>` and
+`MemType::Host` buffers. Non-nvcc builds select these defaults automatically.
+This does not imply CPU support for every specialized DPP (attention and DHF
+are GPU-only paths).
 
 ## Pitfalls (each cost real debugging time)
 
 1. Mismatched adjacent types: read the static_assert chain bottom-up; the first frame names the two ops that disagree.
-4. An array-built op (e.g. `Crop<>::build(std::array<Rect,N>)`) enables Horizontal Fusion (batch planes). Just pass the IOps to `executeOperations` as usual; the executor/BackFuser handles the fusion automatically. Ensure your output is a batched write (e.g. `TensorWrite`/`TensorSplit`) that matches the batch size N.
+2. An array-built op (e.g. `Crop<>::build(std::array<Rect,N>)`) enables Horizontal Fusion (batch planes). Just pass the IOps to `executeOperations` as usual; the executor/BackFuser handles the fusion automatically. Ensure your output is a batched write (e.g. `TensorWrite`/`TensorSplit`) that matches the batch size N.
+3. The umbrella header does not export everything. Memory operations live at
+   `<fused_kernel/algorithms/basic_ops/memory_operations.h>`; specialized
+   attention headers must be included explicitly.
+
+Validate with [build and test](../fkl-build-and-test/SKILL.md). Start from
+`tests/image_processing/test_linear_filter_dpp.h` for a specialized DPP or
+`tests/examples/test_divergent_hf_executor.h` for DHF (repository-root-relative).
