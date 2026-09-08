@@ -5,12 +5,6 @@ description: FKL data structures — Ptr2D, Tensor, TensorT, RawPtr, PtrDims, Me
 
 # FKL data structures
 
-Use this for ownership, layout, and addressing; use
-[using operations](../fkl-using-operations/SKILL.md) to build IOps around buffers
-and [using the library](../fkl-using-the-library/SKILL.md) to launch a pipeline.
-Source of truth (repository-root-relative): `include/fused_kernel/core/data/ptr_nd.h`,
-`rawptr.h` beside it, and `include/fused_kernel/algorithms/basic_ops/memory_operations.h`.
-
 ## The hierarchy
 
 - `RawPtr<ND, T>` — POD: data pointer + `PtrDims<ND>`. What kernels see.
@@ -25,13 +19,13 @@ Source of truth (repository-root-relative): `include/fused_kernel/core/data/ptr_
 | `_1D` | w | flat arrays |
 | `_2D` | w x h (pitched) | images |
 | `_3D` | w x h x planes x color_planes | batched images / planar CHW |
-| `T3D` | transposed: color_planes outermost | (C, batch, H, W), not NCHW |
+| `T3D` | transposed: color_planes outermost | NCHW-like DNN ingest |
 
 ## Constructors that matter (and their traps)
 
 ```cpp
 // allocating
-Ptr2D<uchar3> img(width, height);                       // DeviceAndPinned under nvcc; Host otherwise
+Ptr2D<uchar3> img(width, height);                       // device by default
 Tensor<float> t(width, height, planes, color_planes);   // 3D batch
 
 // wrapping EXTERNAL memory (zero-copy interop):
@@ -48,12 +42,6 @@ TRAPS (verified the hard way):
 ## MemType
 
 `Device`, `Host`, `HostPinned`, `DeviceAndPinned` (mirrored pair with `.upload(stream)` / `.download(stream)`). GPU pipelines require Device or DeviceAndPinned memory — CircularTensor enforces this at runtime.
-
-Default `Ptr`/`Tensor` memory is `DeviceAndPinned` under nvcc and `Host` otherwise.
-For mirrored storage, initialize via `.at(...)`, upload before GPU reads,
-download after GPU writes, then synchronize before host inspection. CPU execution
-under nvcc needs explicitly Host buffers; selecting a CPU DPP does not change
-the allocation defaults.
 
 ## Layout cheat-sheet for DNN interop
 
@@ -79,6 +67,3 @@ Ptr2D<float> in((float*)cuda_ptr, w, h, w * sizeof(float), MemType::Device);
 Stream s(reinterpret_cast<cudaStream_t>(framework_stream));  // non-owning
 ```
 Contiguity is the caller's responsibility (require C-contiguous or read strides into the pitch argument).
-Wrapping external memory is non-owning: retain its owner until the stream has
-finished all accesses. Validate dtype, dimensions, byte pitches, device, and
-stream ordering; a pointer cast neither converts the layout nor synchronizes it.

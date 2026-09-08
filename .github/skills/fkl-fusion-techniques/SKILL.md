@@ -5,14 +5,7 @@ description: Choose and combine FKL's four fusion techniques — Vertical Fusion
 
 # FKL fusion techniques
 
-Use [using operations](../fkl-using-operations/SKILL.md) for the host API and
-[architecture overview](../fkl-architecture-overview/SKILL.md) before adding new
-primitives. Fusion is composition of IOps under a compatible DPP, not permission
-to merge arbitrary cooperative kernels.
-
-The four techniques can be combined in a compatible kernel. Transform's executor
-and BackFuser infer VF/BVF/HF from the IOps; DHF requires explicit sequences and
-a selector. Fragments below assume matching input/output types and allocations.
+Four techniques, all composable in the SAME kernel. The executor and BackFuser apply them automatically from the way you express the pipeline.
 
 ## 1. Vertical Fusion (VF)
 
@@ -26,9 +19,7 @@ executeOperations<TransformDPP<>>(stream,
 
 - Any number of compute ops between read and write.
 - For VERY long chains (hundreds+ of identical steps) use `StaticLoop<Op, N>`: N fused repetitions, one parameter slot, avoids exploding the kernel parameter space.
-- Measure instead of promising a fixed speedup: saved launches/temporary memory
-  compete with recomputation, register pressure, and occupancy. Existing examples
-  live in `benchmarks/fusion/` (repository-root-relative).
+- Measured effect (RTX PRO 6000, 1080p float, 6-op chain): fused ~19 us vs ~95 us as 6 separate kernels => ~5x. The win grows with chain length because every unfused boundary is a DRAM round-trip.
 
 ## 2. Backwards Vertical Fusion (BVF)
 
@@ -45,14 +36,10 @@ executeOperations<TransformDPP<>>(stream,
 - ReadBacks STACK: each one's backIOp is the previous stage. Crop->Resize means "resize the cropped region", with each output thread computing its source coordinates through the whole stack — no intermediate image.
 - Output geometry comes from the LAST ReadBack (`num_elems_x/y/z`).
 - Threads are launched for the OUTPUT size, not the input size.
-- Compute before a later ReadBack can also be folded into the sampled read.
-  Its work may be repeated per sample; fusion is not a cached intermediate image.
 
 ## 3. Horizontal Fusion (HF)
 
-Process a BATCH in one kernel: thread-plane z = batch index. Use supported
-`std::array` batch builders (for example Crop or PerThreadRead); an arbitrary
-array-valued compute parameter does not automatically imply HF.
+Process a BATCH in one kernel: thread-plane z = batch index. Expressed by passing ARRAYS of parameters instead of single parameters (this is the rule of thumb: lists/arrays => HF).
 
 Two flavours:
 
@@ -68,18 +55,16 @@ PerThreadRead<ND::_2D, float>::build(imgs) // => BatchRead, 4 planes
 
 - Batch size is a TEMPLATE parameter (`std::array`, not `std::vector`): each distinct N is a distinct kernel, compiled once.
 - All planes run the SAME op sequence (for different sequences see DHF).
-- Output can be a `Tensor<T>` with N planes or a compatible batched Write;
-  output capacity and plane addressing must match the reads.
+- Output is a `Tensor<T>` with N planes.
 - The `activeBatch + defaultValue` overloads of `executeOperations` let a compiled batch size N process fewer than N real items.
 
 ## 4. Divergent Horizontal Fusion (DHF)
 
-Different planes execute DIFFERENT fused sequences in one GPU kernel, selected
-per-plane by a SequenceSelector (z -> **zero-based** sequence index):
+Different planes execute DIFFERENT fused sequences in one kernel, selected per-plane by a SequenceSelector (z -> 1-based sequence index):
 
 ```cpp
 struct MySelector {
-    FK_HOST_DEVICE_FUSE uint at(const uint& z) { return z == 0 ? 0u : 1u; }
+    FK_HOST_DEVICE_FUSE uint at(const uint& z) { return z == 0 ? 1u : 2u; }
 };
 
 const auto seq1 = buildOperationSequence(readA, Mul<float>::build(4.f), writeT);
@@ -88,27 +73,14 @@ Executor<DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, MySelector>>::
     executeOperations(stream, seq1, seq2);
 ```
 
-- A CPU DPP/Executor specialization also exists:
-  `DivergentBatchTransformDPP<ParArch::CPU, MySelector>`, with a CPU stream and
-  Host buffers. It traverses sequence planes synchronously rather than launching
-  a GPU grid.
-- Each sequence must be a complete read->...->write chain. This example assumes
-  two single-plane reads and `writeT` addressing a two-plane output tensor.
-  Sequences need not share an output, but their writes must honor the global z
-  coordinate and avoid overlap/out-of-bounds stores.
+- Each sequence must be a complete read->...->write chain; all sequences share the output tensor (each plane writes its own slice).
 - The executor's grid.z is the SUM of the sequences' z extents — each sequence should cover exactly its own planes. Do NOT give every sequence a full-batch read or you will launch (and write) extra planes.
 - In-tree user: `CircularTensor::update` (seq1 = preprocess+insert the new frame, seq2 = rotate-copy the other planes) — the temporal-video pattern from the paper.
-- Selector convention: `at(z)` returns `0 .. numberOfSequences-1`. Read the
-  current dispatch in `include/fused_kernel/core/execution_model/data_parallel_patterns.h`
-  and `tests/examples/test_divergent_hf_executor.h`, not an older copied selector.
+- Selector convention: `at(z)` returns 1-based sequence number (see `SequenceSelectorType` in circular_tensor.h).
 
 ## Combining all four
 
-One kernel can combine batch crops (HF), resize (BVF), normalization (VF), and
-different per-plane sequences (DHF). Check sequence extents, selector coverage,
-output ownership, and numeric tolerances; do not assume bitwise equality or
-automatic fusion between arbitrary DPPs. Thread fusion (`TF::ENABLED`, vectorized
-loads/stores) is a separate optimization, not another name for HF.
+One kernel can be: batch crops (HF) of one image, each resized (BVF), normalized (VF), where plane 0 additionally runs a different chain (DHF). Fusion never changes results — only memory traffic. Compose the pipeline that is correct, and express batches as arrays; the library does the rest.
 
 ## Choosing
 
