@@ -5,12 +5,19 @@ description: FKL data structures — Ptr2D, Tensor, TensorT, RawPtr, PtrDims, Me
 
 # FKL data structures
 
+Use this skill for allocation, layout, and lifetime questions. For constructing
+pipelines, continue with [using operations](../fkl-using-operations/SKILL.md).
+The implementations are `include/fused_kernel/core/data/ptr_nd.h`, `rawptr.h`,
+and `include/fused_kernel/algorithms/basic_ops/memory_operations.h`.
+
 ## The hierarchy
 
 - `RawPtr<ND, T>` — POD: data pointer + `PtrDims<ND>`. What kernels see.
 - `Ptr<ND, T>` — ref-counted owner/wrapper around a RawPtr.
 - Convenience classes: `Ptr1D`, `Ptr2D`, `Ptr3D`, `Tensor`, `TensorT`.
-- `.ptr()` returns the RawPtr; `Op::build(container)` extracts what it needs. Copies of Ptr objects are SHALLOW (shared refcount).
+- `.ptr()` returns the RawPtr used by read/write builders. Some builders also
+  accept the container directly; check the overload. Copies of Ptr objects are
+  shallow and share the underlying allocation.
 
 ## Dimensionalities (ND)
 
@@ -19,13 +26,13 @@ description: FKL data structures — Ptr2D, Tensor, TensorT, RawPtr, PtrDims, Me
 | `_1D` | w | flat arrays |
 | `_2D` | w x h (pitched) | images |
 | `_3D` | w x h x planes x color_planes | batched images / planar CHW |
-| `T3D` | transposed: color_planes outermost | NCHW-like DNN ingest |
+| `T3D` | color_planes outermost, then batch planes | channel-major batched data |
 
 ## Constructors that matter (and their traps)
 
 ```cpp
 // allocating
-Ptr2D<uchar3> img(width, height);                       // device by default
+Ptr2D<uchar3> img(width, height);                       // backend-dependent default
 Tensor<float> t(width, height, planes, color_planes);   // 3D batch
 
 // wrapping EXTERNAL memory (zero-copy interop):
@@ -33,15 +40,30 @@ Ptr2D<float> wrap(devPtr, width, height, pitchBytes, MemType::Device);
 Tensor<float> wrapT(devPtr, width, height, planes, color_planes, MemType::Device);
 ```
 
-TRAPS (verified the hard way):
+Check these details before wrapping an external buffer:
 1. `Tensor` has NO PtrDims-taking constructor — pass the dimension list.
 2. `Tensor`'s semantics for batch+channels: `planes` = batch (thread.z), `color_planes` = channels. `TensorSplit` writes channel c of plane z at offset `z * plane_pitch * color_planes + c * plane_pitch`.
-3. `TensorT(data, ...)` and the 4-arg `PtrDims<T3D>` constructor leave pitches at ZERO (they are filled on allocation). When wrapping an external pointer for T3D, build the PtrDims and set pitch, plane_pitch, color_planes_pitch manually, then construct the `RawPtr<T3D>` and pass it to `TensorTSplit<T>::build(rawPtr)`.
+3. `TensorT(data, ...)` and the four-dimension `PtrDims<ND::T3D>` constructor
+   leave pitches at zero. For external T3D data, set `pitch`, `plane_pitch`, and
+   `color_planes_pitch` in its dimensions explicitly, construct a
+   `RawPtr<ND::T3D, T>`, and pass it to the appropriate builder.
 4. Pitch is in BYTES. For tightly-packed external buffers, pitch = width * sizeof(T).
 
 ## MemType
 
-`Device`, `Host`, `HostPinned`, `DeviceAndPinned` (mirrored pair with `.upload(stream)` / `.download(stream)`). GPU pipelines require Device or DeviceAndPinned memory — CircularTensor enforces this at runtime.
+`Device`, `Host`, `HostPinned`, and `DeviceAndPinned` are the memory kinds.
+The default under nvcc is `DeviceAndPinned` (device buffer plus pinned host
+mirror); in a CPU compilation it is `Host`.
+
+For mirrored storage, initialize the host side and call `.upload(stream)`
+before GPU reads. Call `.download(stream)` and then synchronize before consuming
+GPU results on the host. Allocation alone does not initialize input values.
+For an explicitly selected CPU backend under nvcc, allocate host memory
+explicitly rather than relying on the CUDA compilation default.
+
+Wrapping external pointers is non-owning. Keep the original owner alive through
+all asynchronous work, and explicitly pass `MemType::Device` for device-only
+wrappers; the default mirrored type requires a separate pinned pointer.
 
 ## Layout cheat-sheet for DNN interop
 
@@ -66,4 +88,8 @@ A torch/cupy CUDA tensor is wrapped without copying:
 Ptr2D<float> in((float*)cuda_ptr, w, h, w * sizeof(float), MemType::Device);
 Stream s(reinterpret_cast<cudaStream_t>(framework_stream));  // non-owning
 ```
-Contiguity is the caller's responsibility (require C-contiguous or read strides into the pitch argument).
+These are CUDA-only wrapping expressions. Validate dtype, dimensions, byte pitch,
+device identity, and allocation capacity. A single row pitch cannot represent
+every framework view: reject unsupported strides rather than silently treating
+them as contiguous. Keep the allocation and external stream valid until work
+completes; FKL does not transfer their ownership.

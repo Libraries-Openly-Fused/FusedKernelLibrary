@@ -1,61 +1,68 @@
 ---
 name: fkl-build-and-test
-description: Build the FusedKernelLibrary tests and run them. Covers CMake configuration for Linux
-and Windows using out-of-source builds, the utests/tests structure, TestCaseBuilder, adding tests for
-new operations, running the full binary suite with ctest, and what CI expects. Use when building FKL tests,
-running or adding tests, or debugging a compile failure in the test tree on any OS.
+description: >-
+  Build and test FKL using CMake and CTest on CPU and CUDA. Use when adding
+  Operation or DPP tests, validating fused pipelines, or debugging template
+  compilation. Covers discovery, targeted tests, and the CI toolchain.
 ---
 
 # Building and testing FKL
 
-## Build Options & Requirements
-- Requires CMake >= 3.28, a C++20 host compiler, and CUDA.
-- **Only nvcc is supported as the CUDA compiler**; clang-as-CUDA-compiler is not supported despite the
-  `CLANG_HOST_DEVICE` macro.
-- Options: `ENABLE_CUDA` (default ON if found), `ENABLE_CPU` (ON), `ENABLE_BENCHMARK` (OFF).
-- Binaries land in the out-of-source build folder at `../build` — one executable per test unit,
-  suffixed `_cu` (CUDA) / `_cpp` (CPU).
+## Build options and requirements
+
+- CMake >= 3.28 and a C++20 host compiler are required.
+- Use **nvcc** for CUDA. Clang is a supported host compiler, not a supported
+  substitute for nvcc's CUDA compilation path.
+- CUDA is part of project validation. CMake nevertheless supports a CPU-only
+  fallback when nvcc is absent; passing CPU tests alone does not validate CUDA.
+- `ENABLE_CPU` defaults to ON; `ENABLE_CUDA` defaults to ON when CUDA is found.
+  `BUILD_TEST` and `BUILD_UTEST` default to ON; `ENABLE_BENCHMARK` defaults to OFF.
+- `CUDA_ARCH` defaults to `native` and is passed to `CUDA_ARCHITECTURES`.
+  For cross-compilation, choose explicit architectures supported by the toolkit.
 
 ## Build (Linux & WSL2)
 
 ```bash
-mkdir build
-git clone https://github.com/Libraries-Openly-Fused/FusedKernelLibrary.git
-cd FusedKernelLibrary
-# By default using native CUDA architecture
-cmake -G "Ninja" -B ../build -DCMAKE_BUILD_TYPE=Release -S .
-cmake --build ../build --config Release
+# From the existing repository root:
+cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -S .
+cmake --build build --config Release
 ```
 
-- Requires CMake >= 3.28, a C++ host compiler, and CUDA.
-- Options: `ENABLE_CUDA` (default ON if found), `ENABLE_CPU` (ON),
-  `ENABLE_BENCHMARK` (OFF) for the benchmark targets.
-- Binaries land in `../build` — one executable per test unit,
-  suffixed `_cu` (CUDA) / `_cpp` (CPU).
+Set `CXX` and `CUDACXX` before configuring a fresh build directory to select
+the host compiler and nvcc. Do not diagnose CUDA availability from an ad hoc
+compiler invocation before checking the repository's CMake configuration.
+
+With Ninja, binaries are in `build/bin/`; multi-configuration generators use
+`build/bin/<config>/`. Test targets end in `_cpp` or `_cu`.
 
 ## Build (Windows)
 ```powershell
-mkdir build
-git clone https://github.com/Libraries-Openly-Fused/FusedKernelLibrary.git
-cd FusedKernelLibrary
-
-# IMPORTANT: You MUST activate the VS Developer Shell before running CMake (Enter-VsDevShell)
-# By default using native CUDA architecture
-cmake -G "Ninja" -B ..\build -DCMAKE_BUILD_TYPE=Release -S .
-
-# WORKAROUND: The Ninja generator may generate an empty nvcc path in rules.ninja. Patch it before building:
-(Get-Content ..\build\CMakeFiles\rules.ninja) -replace "\\nvcc\\bin\\nvcc.exe", "$env:CUDACXX" | Set-Content ..\build\CMakeFiles\rules.ninja
-
-cmake --build ..\build --config Release
+# From the repository root, with the VS Developer Shell already activated:
+cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -S .
+cmake --build build --config Release
 ```
 
-## Running the suite (Cross-Platform)
+Activate `Enter-VsDevShell` for both configure and build, and set `CUDACXX` to
+nvcc. If Ninja generates an incorrect nvcc path, use the current workaround in
+`.github/workflows/cmake-windows-amd64.yml`; inspect `build/CMakeFiles/rules.ninja`
+before applying it.
+
+## Targeted validation, then the suite
 
 ```bash
-cd ../build
-ctest --build-config Release --output-junit test_results.xml
+cmake --build build --target test_crop_cpp
+ctest --test-dir build -C Release -R '^test_crop_cpp$' --output-on-failure
+cmake --build build --target test_crop_cu
+ctest --test-dir build -C Release -R '^test_crop_cu$' --output-on-failure
+
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure --output-junit test_results.xml
 ```
-All tests must pass. The full suite is the merge gate: a header change that compiles can still break a distant instantiation, so ALWAYS run everything using `ctest` (66+ binaries, a few minutes). Tests are automatically registered with CTest.
+Choose the test matching the changed area; `test_crop` is an existing example.
+The CUDA target exists only when that backend is enabled. Use `ctest --test-dir
+build -N` to inspect discovery. Targeted checks catch iteration errors; the full
+suite is the merge gate for implementation changes because distant template
+instantiations can fail. Documentation-only edits do not need a C++ build.
 
 ## Test tree layout
 
@@ -66,28 +73,34 @@ utests/ # unit tests (TestCaseBuilder pattern)
 tests/ # larger example-style tests
 benchmarks/ # fusion benchmarks (ENABLE_BENCHMARK=ON)
 ```
-Tests are not written with a traditional framework. CMake auto-discovers test headers (`*.h`) via `discover_tests()` (excluding files matching `*_common.*`) and generates a `launcher.cpp`/`launcher.cu` stub. A new `utest_*.h` in an existing directory is picked up without CMake edits.
+`tests/CMakeLists.txt` and `utests/CMakeLists.txt` call `discover_tests()` on
+their immediate subdirectories. It recursively finds `.h` files, excludes
+paths containing `_common`, and generates launcher translation units from
+`tests/launcher.in`. Add tests inside a subdirectory, not at the top level.
+
+Any occurrence of `ONLY_CU` suppresses the CPU target; `ONLY_CPU` suppresses the
+CUDA target. These are substring checks, including comments. Follow the nearby
+test's convention and do not accidentally disable a backend in explanatory text.
 
 ## Writing a utest (Agent Instructions)
-- ALWAYS use the TestCaseBuilder pattern when I ask you to write a test.
-- DO NOT write standard Google Test/Catch2 macros; instantiate the op and pass it through TestCaseBuilder::addTest.
+- Use the existing `TestCaseBuilder` harness for Operation types it supports.
+  For other Operations or DPPs, follow an existing direct pipeline/buffer test;
+  do not add Google Test or Catch2.
 - Every test header must define a `launch()` function returning `int` (0 = pass, non-zero = fail).
 
 ```cpp
-// utests/algorithm/basic_ops/utest_myop.h
 #include <tests/main.h>
-
-#include <fused_kernel/algorithms/basic_ops/arithmetic.h>
+#include <fused_kernel/algorithms/basic_ops/cast.h>
 #include <tests/operation_test_utils.h>
 
-void testMyOp() {
+void testCast() {
     std::array<float, 2> inputVals{2.f, 3.f};
-    std::array<float, 2> expectedVals{4.f, 6.f};
-    TestCaseBuilder<fk::MyOp<float>>::addTest(testCases, inputVals, expectedVals);
+    std::array<int, 2> expectedVals{2, 3};
+    TestCaseBuilder<fk::Cast<float, int>>::addTest(testCases, inputVals, expectedVals);
 }
 
 START_ADDING_TESTS
-testMyOp();
+testCast();
 STOP_ADDING_TESTS
 
 int launch() { RUN_ALL_TESTS }
@@ -95,7 +108,8 @@ int launch() { RUN_ALL_TESTS }
 
 - `TestCaseBuilder` instantiates the op, runs exec on every input and compares against expected,
   printing `Running test for fk::...: Success!!`.
-- For ops with params, pass them through the builder's params overloads.
+- Check available builder specializations in `tests/operation_test_utils.h`
+  rather than assuming an arbitrary params overload exists.
 - Test EVERY public alias and `build()` overload: template code only breaks on instantiation
   (the ColorConversion alias bug shipped because no test instantiated `COLOR_BGR2GRAY` — see issue #244).
 
@@ -104,7 +118,8 @@ int launch() { RUN_ALL_TESTS }
 GitHub workflows build on `linux-amd64`, `linux-arm64` and `windows-amd64` using self-hosted runners.
 - Linux builds against `g++-13` and `clang++-21`.
 - Windows builds against MSVC (`cl` versions 14.44 and 14.51) and `clang-cl`.
-- Keep changes warning-clean on BOTH compilers: clang is a first-class compiler for FKL (single-step host+device compiles matter for downstream packaging).
+- Check current workflow files for toolkit/compiler versions rather than
+  hard-coding a matrix into new tests. CUDA compilation remains nvcc-based.
 
 ## How to debug compile failures
 Follow these steps when you get compilation errors when iterating your work:
@@ -116,7 +131,6 @@ Follow these steps when you get compilation errors when iterating your work:
 3. `name followed by "::" must be a class or namespace name` inside
    fused_operation.h => a raw Operation was passed where an IOp was
    expected; wrap with `Unary<...>` / `Binary<...>`.
-4. Reduce: extract the failing instantiation into a 20-line main() with
-   only `#include <fused_kernel/fused_kernel.h>` + execution_model +
-   algorithms headers — it compiles in seconds instead of minutes and
-   makes upstream bug reports trivial.
+4. Isolate the failing instantiation in the nearest test and include its
+   operation headers explicitly. The main API header is not an umbrella for
+   every algorithm. For DPP calls, verify the whole-IOp invocation form.

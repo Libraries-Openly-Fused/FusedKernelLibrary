@@ -5,31 +5,55 @@ description: Invoke and compose FKL Operations and Instantiable Operations (IOps
 
 # Using FKL Operations and IOps (consumer side)
 
-`fkl-implementing-operations` covers how to AUTHOR an Operation struct. This
-skill covers the other half: how to **create** Instantiable Operations (IOps) on the host, **compose** them into a pipeline, and pass them to an Executor. 
-
-*(Note: For the device-side implementation of how a DPP actually invokes these operations internally, see the `fkl-implementing-data-parallel-patterns` skill).*
+Use this skill for host composition, not Operation or DPP implementation.
+An Operation is a static type; `Op::build(...)` returns the IOp instance passed
+to the executor. Changing runtime values does not change the pipeline's type.
 
 ## Creating the operations and executing them in order (Host Side)
 
-Before launching the DPP, the host code must build the IOps. The executor handles fusing the sequence automatically:
+This helper expects initialized input, matching output dimensions, and memory
+accessible to the default backend. Include the operation headers explicitly.
 
 ```cpp
-// 1. Build the input Read IOp
-auto input = fk::PerThreadRead<fk::ND::_2D, float>::build(in_ptr);
+#include <fused_kernel/fused_kernel.h>
+#include <fused_kernel/algorithms/basic_ops/arithmetic.h>
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 
-// 2. Build the compute IOp (the epilogue)
-auto compute_iop = fk::Add<float>::build(5.0f);
-
-// 3. Build the destination write IOp
-auto write_iop = fk::PerThreadWrite<fk::ND::_2D, float>::build(out_ptr);
-
-// 4. Pass them sequentially to the Executor, providing the DPP as a template parameter
-fk::executeOperations<MyDPP>(stream, input, compute_iop, write_iop);
+void addFive(fk::Stream& stream, fk::RawPtr<fk::ND::_2D, float> in,
+              fk::RawPtr<fk::ND::_2D, float> out) {
+    const auto read = fk::PerThreadRead<fk::ND::_2D, float>::build(in);
+    const auto add = fk::Add<float>::build(5.f);
+    const auto write = fk::PerThreadWrite<fk::ND::_2D, float>::build(out);
+    fk::executeOperations<fk::TransformDPP<>>(stream, read, add, write);
+}
 ```
+
+## Composition rules
+
+- A Transform pipeline starts with a complete read and ends with a write.
+  Adjacent value types must match; insert `Cast` or `SaturateCast` deliberately.
+- `read.then(Crop<>::build(rect))` completes the ReadBack operation with its
+  source. Passing read and crop separately to the executor also performs
+  backwards fusion. Include the crop header for this expression.
+- `.then()` composes IOps without launching. For example,
+  `Add<float>::build(5.f).then(write)` is a fused output accepting a float.
+  Do not confuse this host composition with the DPP's per-thread `operator|`
+  execution fold.
+- A supported `std::array` builder creates a batch IOp. Match output planes to
+  that batch; an arbitrary container does not automatically enable HF.
+- Container overloads can infer reads/writes; inspect
+  `include/fused_kernel/fused_kernel.h` and `core/execution_model/executors.h`
+  under `include/fused_kernel/` before choosing an overload.
+- An arbitrary DPP needs its own `Executor` contract. Do not substitute an
+  undefined `MyDPP` into an otherwise valid Transform example.
+
+Reference: `utests/core/execution_model/utest_executors.h` exercises automatic
+back-fusion and explicit composition; `tests/algorithm/test_crop.h` checks
+completed and batched ReadBack types and output geometry.
 
 ## See also
 
-- `fkl-implementing-operations` — authoring the op structs.
-- `fkl-implementing-data-parallel-patterns` — the device-side DPP `exec(...)` contract where these IOps are actually invoked.
-- `fkl-fusion-techniques` — understanding fusion techniques for discussion.
+- [Using the library](../fkl-using-the-library/SKILL.md) — application recipes and lifetimes.
+- [Implementing operations](../fkl-implementing-operations/SKILL.md) — static Operation definitions.
+- [Implementing DPPs](../fkl-implementing-data-parallel-patterns/SKILL.md) — execution-side IOp calls.
+- [Fusion techniques](../fkl-fusion-techniques/SKILL.md) — selecting VF, BVF, HF, or DHF.
