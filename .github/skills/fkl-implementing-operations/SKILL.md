@@ -12,6 +12,15 @@ confirm the missing behavior belongs in an Operation. Each invocation must work
 independently in one thread; barriers, shared staging, and thread scheduling
 belong in a DPP.
 
+Before implementing, choose a nearby Operation with the same signature, not
+just the same algorithm name. Write down its input/output types, runtime params,
+coordinate/back-IOp needs, and expected output geometry. Then:
+
+1. Check whether existing IOps composed with `.then()` already express it.
+2. Select the parent and declaration macro using the signature table below.
+3. Implement only the missing per-invocation behavior and required builders.
+4. Instantiate the public API and execute it both alone and in a fused pipeline.
+
 Every Operation is a stateless struct in `fk::`: static `exec()`, type aliases
 from a CRTP parent, and `build()` factories producing IOps. Follow `Mul` in
 `include/fused_kernel/algorithms/basic_ops/arithmetic.h`. This illustrative
@@ -36,8 +45,11 @@ public:
 ## Choosing the Operation type
 
 Operation types describe the implementation's `exec()` signature, not the
-number of mathematical operands. `BinaryType` means input plus runtime params;
-a `UnaryType` may consume a tuple of two values (as `Add` does).
+number of mathematical operands. `BinaryType` means input plus runtime params:
+`Add<float>::build(5.f)` adds a host-supplied value. In contrast,
+`Add<float, float, float, UnaryType>::build()` consumes a `Tuple<float, float>`
+of two computed values. Combining those values is an Operation; distributing
+their computation across threads is a DPP concern.
 The elements that can change across Operation types are:
 - OutputType: whether the exec function returns a value or not, and which type it is. The value resides on registers.
 - ElementIdx: whether the exec function gets the thread idx as input or not. It is used to compute DRAM or Shared Memory addresses to read from or write into.
@@ -61,11 +73,13 @@ The source of truth is
 | IncompleteReadBackType | | | | | | no exec function present |
 | TernaryType | X | | X | X | X | OutputType exec(InputType, ParamsType, BackIOp) |
 | IncompleteTernaryType | | | | | | no exec function present |
-| MidWriteType \* | X | X | X | X | | InputType exec(Point, InputType, ParamsType) |
+| MidWriteType \* | X | X | X | X | | Wrapper forwards input after invoking a Write |
 | OpenType \*\* | X | X | X | X | | OutputType exec(Point, InputType, ParamsType) |
 | ClosedType \*\* | | X | | X | | void exec(Point, ParamsType) |
 
-\* Applicable only to Instantiable Operations. In and Out must be the same type and value. Operation must be of WriteType.
+\* `MidWrite` wraps a Write Operation. Its execution fold writes and forwards
+the unchanged input; the underlying Write's `exec()` still returns `void`.
+Do not implement a new input-returning Write just to obtain MidWrite behavior.
 
 \*\* OpenType and ClosedType are only applicable to FusedOperations. FusedOperations can also be ReadType or WriteType.
 
@@ -74,7 +88,10 @@ to copy. Do not design a new public API around the enum alone.
 
 ## Choosing the parent
 
-Each OperationType has its associated parent type. You can find them in the file include/fused_kernel/core/execution_model/operation_model/parent_operations.h
+Ordinary Operations select a parent from
+`include/fused_kernel/core/execution_model/operation_model/parent_operations.h`.
+MidWrite is an IOp wrapper; Open/Closed forms come from fusion, not standalone
+parents to implement.
 
 Notes:
 - Unary ops carry no runtime params.
@@ -84,6 +101,17 @@ Notes:
 - ReadBack ops define output geometry: a Resize returns its target Size from num_elems_x/y regardless of the source size.
 - Use `DECLARE_READBACK_PARENT` from `batch_operations.h` for public ReadBack
   operations needing batch builders; the `_BASIC` form alone omits those builders.
+
+### Thread-fusion opt-in is a memory-access contract
+
+Do not set `THREAD_FUSION` merely because an Operation handles a vector pixel.
+For a new read/write, start with `TF::DISABLED`. Enabling it requires the
+appropriate `ReadDataType`/`WriteDataType`, `exec<ELEMS_PER_THREAD>` access,
+matching return types on every branch, and correct coordinates for both wide
+access and scalar tails. Inspect `PerThreadRead`/`PerThreadWrite` in
+`algorithms/basic_ops/memory_operations.h` under `include/fused_kernel/`.
+Test enabled and disabled Transform paths with divisible and non-divisible
+widths. Shared staging or inter-thread coordination still belongs in a DPP.
 
 ## The IncompleteReadBack pattern (BVF ops)
 

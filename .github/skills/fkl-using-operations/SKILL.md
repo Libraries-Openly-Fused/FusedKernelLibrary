@@ -35,6 +35,9 @@ void addFive(fk::Stream& stream, fk::RawPtr<fk::ND::_2D, float> in,
 - `read.then(Crop<>::build(rect))` completes the ReadBack operation with its
   source. Passing read and crop separately to the executor also performs
   backwards fusion. Include the crop header for this expression.
+- When compute precedes a later ReadBack, that computation becomes part of the
+  sampled source. Keep semantic order rather than moving all compute after
+  geometric operations; see [fusion techniques](../fkl-fusion-techniques/SKILL.md).
 - `.then()` composes IOps without launching. For example,
   `Add<float>::build(5.f).then(write)` is a fused output accepting a float.
   Do not confuse this host composition with the DPP's per-thread `operator|`

@@ -64,6 +64,28 @@ build -N` to inspect discovery. Targeted checks catch iteration errors; the full
 suite is the merge gate for implementation changes because distant template
 instantiations can fail. Documentation-only edits do not need a C++ build.
 
+## Validate the contract, not just compilation
+
+Choose checks for the layer being changed:
+
+| Work | Required evidence |
+|---|---|
+| Consumer pipeline | Expected values, completed output geometry/layout, initialized input, correct transfer/synchronization order |
+| Operation | Public aliases/builders instantiate; standalone and fused execution match expected values |
+| DPP | Public executor dispatch works; different supported read/compute/write IOps actually affect results; partial tiles and output ownership are correct |
+
+A comparison between two FKL composition paths establishes equivalence, not an
+independent numerical oracle. A CUDA-only launch example does not establish CPU
+support or result correctness. Report precisely which targets were built/run
+and which backend or cases remain unverified.
+
+For skill-only changes, check YAML `name`/`description`, relative links, Markdown
+lists/tables/fences, and referenced symbols against current headers. Follow
+[GitHub's skill structure](https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/add-skills):
+keep task triggers in the description and actionable instructions in the body.
+Keep API details in the relevant skill and link to them rather than copying
+divergent versions into every skill.
+
 ## Test tree layout
 
 ```text

@@ -27,7 +27,11 @@ executeOperations<TransformDPP<>>(stream,
 ```
 
 - Compatible compute ops can be chained between read and write.
-- For VERY long chains (hundreds+ of identical steps) use `StaticLoop<Op, N>`: N fused repetitions, one parameter slot, avoids exploding the kernel parameter space.
+- For repeated identical parameterized compute, consider `StaticLoop<Op, N>`
+  from `algorithms/basic_ops/static_loop.h` under `include/fused_kernel/`.
+  It requires `ParamsType`, a compatible `exec(input, params)`, and values that
+  can feed the next iteration. Use positive N; zero is not an identity case in
+  the current implementation. The same params are reused for every iteration.
 - Benchmark the actual workload: fewer launches and intermediate writes do not
   guarantee a fixed speedup.
 
@@ -51,6 +55,11 @@ executeOperations<TransformDPP<>>(stream,
 - Threads are launched for the OUTPUT size, not the input size.
 - Here `resizedOutput` is a 32 × 32 float3 image: linear interpolation produces
   floating channels. Add an explicit cast if a different output type is wanted.
+- Compute may also occur before a later ReadBack: `read → crop → compute →
+  resize → write` makes resize sample the computed crop. Preserve the intended
+  order, including conversions and rounding; moving compute after resampling
+  is not generally equivalent. The back-fusion type checks in
+  `utests/core/execution_model/utest_executors.h` cover this arrangement.
 
 ## 3. Horizontal Fusion (HF)
 
@@ -73,7 +82,11 @@ const auto reads = PerThreadRead<ND::_2D, float>::build(imgs);
 - Batch size is a TEMPLATE parameter (`std::array`, not `std::vector`): each distinct N is a distinct kernel, compiled once.
 - All planes run the SAME op sequence (for different sequences see DHF).
 - Use a compatible batched output, such as a `Tensor<T>` with N planes.
-- The `activeBatch + defaultValue` overloads of `executeOperations` let a compiled batch size N process fewer than N real items.
+- The `activeBatch + defaultValue` overloads let a compiled batch size N read
+  fewer than N real inputs, but still process N output planes. Inactive reads
+  return the default value, then the remaining compute/write IOps run on it.
+  Allocate output for all N planes, supply valid dimension metadata for every
+  entry, and validate `0 <= activeBatch <= N` before calling.
 
 ## 4. Divergent Horizontal Fusion (DHF)
 
@@ -103,8 +116,9 @@ Executor<DivergentBatchTransformDPP<defaultParArch, MySelector>>::
   backends. The CPU path traverses selected planes without a GPU launch.
 - Inspect `include/fused_kernel/core/execution_model/data_parallel_patterns.h`
   and `executors.h` in the same directory. Examples:
-  `tests/data_parallel_patterns/test_divergent_batch.h` and
-  `tests/examples/test_divergent_hf_executor.h` (CUDA-only).
+  `tests/data_parallel_patterns/test_divergent_batch.h` checks numerical output;
+  `tests/examples/test_divergent_hf_executor.h` is a CUDA-only launch/compilation
+  regression, not a numerical oracle.
 
 ## Combining all four
 
@@ -119,7 +133,7 @@ evaluation and does not fix an invalid pipeline.
 | situation | technique | how to express |
 |---|---|---|
 | chain of point ops | VF | just list them in order |
-| crop/resize/warp before compute | BVF | put ReadBacks right after the read |
+| resample an earlier stage | BVF | put ReadBacks after the source/compute they must sample |
 | N ROIs / N images, same processing | HF | pass std::array of rects/ptrs |
 | N planes, different processing | DHF | sequences + SequenceSelector |
 | rolling window of last N frames | CircularTensor | `update()` per frame |

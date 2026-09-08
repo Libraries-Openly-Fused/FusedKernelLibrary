@@ -59,7 +59,15 @@ For mirrored storage, initialize the host side and call `.upload(stream)`
 before GPU reads. Call `.download(stream)` and then synchronize before consuming
 GPU results on the host. Allocation alone does not initialize input values.
 For an explicitly selected CPU backend under nvcc, allocate host memory
-explicitly rather than relying on the CUDA compilation default.
+explicitly rather than relying on the CUDA compilation default:
+`Ptr2D<float> host(width, height, 0, MemType::Host)` (the third argument is pitch).
+
+For mirrored storage, `.ptr()` describes device memory, `.ptrPinned()` describes
+the host mirror, and `.at(x, y)` accesses that mirror, not the device. A
+device-only allocation cannot be accessed with `.at()`. Follow the complete
+initialize → upload → execute → download → sync → inspect sequence in
+`utests/core/execution_model/utest_executors.h`; its result comparison checks two
+FKL composition paths, so add an independent expected-value check for new behavior.
 
 Wrapping external pointers is non-owning. Keep the original owner alive through
 all asynchronous work, and explicitly pass `MemType::Device` for device-only

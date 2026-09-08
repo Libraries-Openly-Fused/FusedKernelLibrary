@@ -47,6 +47,21 @@ The primary `Executor<DPP>` does not implement arbitrary DPP dispatch. To use
 the launch wrapper calls the device `exec`; on CPU, the executor calls the CPU
 implementation without launching a GPU kernel.
 
+Trace and implement the entire launch path:
+
+1. Expose the host entry point and validate the supported IOp roles.
+2. Complete ReadBack IOps before deriving geometry. If using `BaseExecutor`,
+   provide `executeOperations_helper` and its access/friend contract;
+   `DECLARE_EXECUTOR_PARENT_IMPL` exposes the existing overload family.
+3. Build runtime details from the completed IOps. Define input, output, and
+   scratch extents separately when the pattern changes the number of outputs.
+4. Dispatch the CPU implementation or launch the CUDA implementation with
+   matching block/grid/shared-memory requirements and the caller's stream.
+   `executor_details/executor_kernels.h` contains pattern-specific wrappers,
+   not a universal launcher for arbitrary DPPs.
+5. Follow the existing executor's CUDA error-checking convention, and test via
+   the public entry point so back-fusion and launch setup are instantiated too.
+
 ## The IOp invocation contract (The IOp-form table)
 
 These are execution-side call forms, not the implementation signatures in
@@ -61,7 +76,7 @@ Generated parent overloads unpack the whole IOp's operation data as needed.
 | BinaryType   | `O    IOp::Operation::exec(input, iop)` |
 | ReadBackType | `O    IOp::Operation::exec(thread, iop)` |
 | TernaryType  | `O    IOp::Operation::exec(input, iop)` |
-| MidWriteType | `In   IOp::Operation::exec(thread, input, iop)` (writes AND forwards) |
+| MidWriteType | `void IOp::Operation::exec(thread, input, iop)` (underlying Write; preserve input separately) |
 | OpenType     | `O    IOp::Operation::exec(thread, input, iop)` |
 | ClosedType   | `void IOp::Operation::exec(thread, iop)` |
 
@@ -73,6 +88,31 @@ Key rules for DPP authors invoking these:
 
 Incomplete operations have no executable form; complete them through
 back-fusion before invocation.
+
+For MidWrite, forwarding is performed by the `InputFoldType` execution fold in
+`operation_model/instantiable_operations.h`, not by the underlying Write's
+return value. A manual caller must retain the input after the write.
+For a compute role, `fk::compute(input, iop)` in
+`operation_model/operation_types.h` selects the Unary/Binary/Ternary call form;
+it does not schedule threads or invoke writes.
+
+## Worked decomposition: cooperative reduction
+
+This is a design exercise from the paper's §IV-C/Figure 14, not a shipped
+reduction API to call:
+
+- **Read IOp:** obtains each input value and any fused input transformation.
+- **Combine IOp:** combines register values. For addition,
+  `Add<float, float, float, UnaryType>` takes a tuple of two floats; the DPP
+  supplies that tuple rather than hard-coding addition in its reduction tree.
+- **DPP:** distributes inputs, stages partial results, synchronizes participants,
+  connects combine invocations, and chooses which thread owns each result.
+- **Output IOp:** performs any final transform and writes at the output coordinate.
+
+Specify identity values, accumulation types, ordering/associativity assumptions,
+partial-tile behavior, and scratch lifetime. A sum-to-max substitution also
+changes the identity; not every type-compatible IOp is semantically valid.
+The CPU reference must implement the same contract without GPU synchronization.
 
 ## Preserve fusion at the DPP boundary
 
@@ -98,22 +138,18 @@ back-fusion before invocation.
 - **Hard-coded transforms:** Replacing an input/output IOp with direct memory
   access silently discards any fused work attached to it.
 
-## Runtime values vs compile-time types (the golden rule)
+## Place parameters in the owning layer
 
-Anything users may change per call (factors, rects, matrices, sizes) goes
-in ParamsType. Anything that changes the generated code (dtype, channel
-count, batch size, interpolation mode) is a template parameter. Getting
-this wrong either recompiles on every value change or silently bakes
-stale values into kernels.
+| Kind of value | Where it belongs |
+|---|---|
+| Per-call data semantics: factors, rects, memory descriptors | Operation `ParamsType`, carried by the supplied IOp |
+| Per-call scheduling: active domain, plane count, tail handling | DPP details/launch arguments, as in `TransformDPPDetails` |
+| Code-shaping choice: dtype, backend, compile-time tile or batch size | Template parameters |
 
-## Vector types
-
-Use the helpers instead of hand-rolled per-channel code:
-- `VBase<T>` scalar base; `cn<T>` channel count; `VectorType_t<T, N>`.
-- `make_<float3>(x, y, z)` construction; binary operators are already
-  overloaded channel-wise for CUDA vector types (vector_utils.h).
-- Write exec() once with `if constexpr (cn<I> == ...)` branches only when
-  semantics differ per arity (see Equal, TensorSplit).
+Do not put reusable transforms in DPP details or hide scheduling state inside
+an unrelated Operation. Reuse the vector helpers described in
+[implementing operations](../fkl-implementing-operations/SKILL.md) for per-thread
+values instead of duplicating channel-wise computation in the DPP.
 
 ## Forwarding references in helpers
 
@@ -134,9 +170,16 @@ apply([](const auto&... iOps) { return BackFuser::fuse_back(iOps...); }, tup);
    a tile, partial tiles, boundary coordinates, and multiple planes.
 3. Exercise plain IOps and nontrivial fused input/output chains, with runtime
    parameter changes. Construction alone does not instantiate execution.
-4. Follow [build and test](../fkl-build-and-test/SKILL.md). Existing references:
-   `utests/core/execution_model/utest_executors.h` and
-   `tests/data_parallel_patterns/test_divergent_batch.h`.
+4. Substitute supported IOps to prove that their semantics are not hard-coded;
+   check results, not just successful compilation. For thread fusion, test
+   enabled/disabled execution and scalar tails separately.
+5. Follow [build and test](../fkl-build-and-test/SKILL.md). Existing references:
+   - `utests/core/execution_model/utest_executors.h`: back-fusion types and
+     equivalence of automatic versus explicit composition, not an independent oracle.
+   - `tests/data_parallel_patterns/test_divergent_batch.h`: executed numerical
+     checks for selected sequences.
+   - `tests/operation/test_fused_write_epilogue_repro.h`: CUDA fused-output
+     execution regression; add corresponding CPU coverage for a new general DPP.
 
 ## Checklist before opening a PR
 

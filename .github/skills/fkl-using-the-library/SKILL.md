@@ -48,6 +48,35 @@ Rules:
   [architecture overview](../fkl-architecture-overview/SKILL.md) before adding
   an Operation or DPP.
 
+## Plan a pipeline before writing code
+
+1. Record input/output dtype, dimensions, batch count, packed/planar layout,
+   byte pitch, backend, and owner. Confirm allocation and stream lifetimes with
+   [data structures](../fkl-data-structures/SKILL.md).
+2. List the required transformations in semantic order. For each stage, record
+   its input/output value type and any change to the logical output dimensions.
+   Do not reorder a cast, normalization, or sampling stage just to fit a recipe.
+3. Find existing builders and their tests; use
+   [using operations](../fkl-using-operations/SKILL.md) for host composition.
+   Default to `TransformDPP`, then choose batching or DHF only if needed.
+4. Allocate the final output for the completed read's domain. Keep intermediates
+   as IOp composition rather than allocating a buffer after each stage.
+5. Initialize input, upload when needed, execute, download when needed,
+   synchronize, and compare against independently expected values.
+
+For the DNN recipe below, the value/geometry trace is:
+
+| Stage | Output value | Logical output |
+|---|---|---|
+| Read | `uchar3` | Frame width × height |
+| Crop | `uchar3` | 240 × 180 |
+| Linear resize | `float3` | 32 × 32 |
+| Sub / Div | `float3` | 32 × 32 |
+| TensorSplit write | No returned value | One image, three 32 × 32 scalar planes |
+
+If a stage has no existing implementation, stop and classify only that missing
+responsibility with [architecture overview](../fkl-architecture-overview/SKILL.md).
+
 ## Common pipeline patterns
 
 These are fragments using initialized input containers and an existing stream.

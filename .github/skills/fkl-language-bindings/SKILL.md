@@ -51,6 +51,15 @@ Key decisions:
    compilation step. Follow [build and test](../fkl-build-and-test/SKILL.md);
    do not introduce clang-as-CUDA shims as the binding's default path.
 
+For a generated CMake module, configure the consumer target explicitly:
+`FKL::FKL` supplies include directories, not the complete compiler setup.
+Require C++20 for host sources and CUDA20 for `.cu` sources, enable CUDA with
+nvcc, choose supported `CUDA_ARCHITECTURES`, and arrange CUDA runtime linkage.
+Inspect `lib/CMakeLists.txt`, `cmake/tests/add_generated_test.cmake`, and
+`cmake/libs/cuda/target_generation.cmake` for the separation between the interface
+target and repository test configuration. Keep the loaded module alive until
+its outstanding launches finish; retaining only its data buffers is insufficient.
+
 ## The ABI (Pointer Array Architecture)
 
 A pointer array is one possible binding ABI, not an alignment or aliasing
@@ -84,7 +93,7 @@ guarantee. Casting `void*` does not create an object or fix its layout.
 | technique | binding surface |
 |---|---|
 | VF | ordered list of op descriptors between read and write |
-| BVF | geometry descriptors right after the read; emit ReadBack builds |
+| BVF | ReadBack descriptors after the stage they sample, preserving any upstream compute |
 | HF | LISTS of parameters: list of rects -> `std::array<Rect,N>`; N is part of the type |
 | DHF | list of chains + plane->sequence map; generate a SequenceSelector struct |
 | CircularTensor | stateful handle (create/update/snapshot/destroy in the same library) |
