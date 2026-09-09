@@ -1,4 +1,4 @@
-name: CMake on Linux (CUDA x86_64)
+name: CMake on Linux (CPU x86_64)
 
 on:
   #push:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: [self-hosted, linux, x64, cuda]
+    runs-on: [self-hosted, linux, x64]
 
     strategy:
       # Set fail-fast to false to ensure that feedback is delivered for all matrix combinations.
@@ -17,9 +17,9 @@ jobs:
 
       matrix: #host,cuda,cuda_toolkit
         include:
-          - host_compiler: "g++-13"
-            cuda_toolkit: "13.4"                
- 
+          - host_compiler: "g++-13"            
+          - host_compiler: "clang++-23"            
+
 
     steps:
       - uses: actions/checkout@v6
@@ -28,13 +28,12 @@ jobs:
         id: strings
         run: |
           echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"        
-          echo "PATH=$HOME/cmake-4.4.2-linux-x86_64/bin/:$PATH" >> "$GITHUB_ENV"        
+          echo "PATH=$HOME/cmake-4.4.2-linux-x86_64/bin/:$PATH" >> "$GITHUB_ENV"              
       - name: Configure CMake
         run: |  
-          cmake -G "Ninja"  -DENABLE_HIP=OFF  -DENABLE_CUDA=ON -DENABLE_CPU=OFF  \
-          -DCMAKE_CXX_COMPILER="${{matrix.host_compiler}}" -DCMAKE_CUDA_COMPILER="/usr/local/cuda-${{matrix.cuda_toolkit}}/bin/nvcc" \
-          -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
-
+          cmake -G "Ninja" -DCMAKE_CXX_COMPILER="${{matrix.host_compiler}}" \
+          -B ${{steps.strings.outputs.build-output-dir}}  -DENABLE_HIP=OFF  -DENABLE_CUDA=OFF -DENABLE_CPU=ON \
+          -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
       - name: Build        
         run: |
           cmake --build ${{ steps.strings.outputs.build-output-dir }} --config Release
