@@ -43,7 +43,7 @@ jobs:
         run: |
           Import-Module (Get-ChildItem $env:VS_INSTALLATION_PATH -Recurse -File -Filter Microsoft.VisualStudio.DevShell.dll).FullName           
           Enter-VsDevShell -VsInstallPath  $env:VS_INSTALLATION_PATH  -SkipAutomaticLocation -DevCmdArguments $env:DEV_ARGS             
-          cmake -G "Ninja"  -DCMAKE_C_COMPILER="${{matrix.host_compiler}}.exe" `  -DCMAKE_CXX_COMPILER="${{matrix.host_compiler}}.exe" `
+          cmake -G "Ninja"   -DCMAKE_CXX_COMPILER="${{matrix.host_compiler}}.exe" `
           -DENABLE_CPU=ON -DENABLE_HIP=OFF -DENABLE_CUDA=OFF -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE=Release -S ${{github.workspace}};
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                     

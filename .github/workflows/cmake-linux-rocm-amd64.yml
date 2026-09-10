@@ -35,8 +35,8 @@ jobs:
       - name: Configure CMake
         run: |
           cmake -G "Ninja" -DENABLE_HIP=ON  -DENABLE_CUDA=OFF -DENABLE_CPU=OFF \
-          -DCMAKE_C_COMPILER=amdclang -DCMAKE_CXX_COMPILER=amdclang++ -DCMAKE_HIP_COMPILER=amdclang++\
-           -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
+         -DCMAKE_CXX_COMPILER=amdclang++ -DCMAKE_HIP_COMPILER=amdclang++ \
+         -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
 
       - name: Build        
         run: |
