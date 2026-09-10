@@ -25,18 +25,14 @@ jobs:
         # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
         id: strings
         run: |
-          echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"                   
-          ROCM_PATH=/opt/rocm/core-${{matrix.rocm_version}}
-          echo "ROCM_PATH=$ROCM_PATH" >> "$GITHUB_ENV"
-          echo "HIP_PATH=$ROCM_PATH" >> "$GITHUB_ENV"
-          echo "PATH=$HOME/cmake-4.4.2-linux-x86_64/bin/:$ROCM_PATH/bin:$PATH" >> "$GITHUB_ENV"       
+          echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"                             
+          echo "PATH=$HOME/cmake-4.4.2-linux-x86_64/bin/:$PATH" >> "$GITHUB_ENV"       
           echo "LD_LIBRARY_PATH=/opt/rocm/core-${{matrix.rocm_version}}/lib:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"          
                 
       - name: Configure CMake
         run: |
           cmake -G "Ninja" -DENABLE_HIP=ON  -DENABLE_CUDA=OFF -DENABLE_CPU=OFF \
-         -DCMAKE_CXX_COMPILER=amdclang++ -DCMAKE_HIP_COMPILER=amdclang++ \
-         -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
+          -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
 
       - name: Build        
         run: |

@@ -1,10 +1,7 @@
 
 check_language(HIP)
 list(APPEND CMAKE_PREFIX_PATH "$ENV{HIP_PATH}/hip" "$ENV{HIP_PATH}")
-if(WIN32)
-    #list(APPEND CMAKE_PREFIX_PATH "${HIP_PATH};${HIP_PATH}\\lib\\llvm\\lib\\cmake;${HIP_PATH}\\lib\\cmake\\hip-lang")    
-endif()
-
+ 
 if (NOT CMAKE_HIP_COMPILER)        
     message(WARNING "HIP compiler not found. Disabling HIP support.")
     set(ENABLE_HIP OFF CACHE BOOL "Enable HIP support" FORCE)
