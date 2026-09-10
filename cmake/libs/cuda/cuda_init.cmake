@@ -1,5 +1,11 @@
 cmake_policy(SET CMP0104 NEW) # Initialize CMAKE_CUDA_ARCHITECTURES when CMAKE_CUDA_COMPILER_ID is NVIDIA
 
+check_language(CUDA)
+ 
+if (NOT CMAKE_CUDA_COMPILER)    
+    message(FATAL_ERROR "CUDA compiler not found. the build cannot proceed.")    
+endif()
+
 enable_language(CUDA)   
 
 include (cmake/libs/cuda/cuda.cmake) 

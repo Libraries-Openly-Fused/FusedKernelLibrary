@@ -223,7 +223,7 @@ All three workflow files trigger on **pull requests to `main`** (push triggers a
 
 ### Linux (cmake-linux-amd64.yml, cmake-linux-arm64.yml)
 - **Compilers**: `g++-13`, `clang++-23`
-- **CUDA**: 13.3 (via `/usr/local/cuda-<version>/bin/nvcc`)
+- **CUDA**: 13.4 (via `/usr/local/cuda-<version>/bin/nvcc`)
 - **CMake**: Custom installation at `/home/cudeiro/cmake-4.4.2-linux-x86_64/bin/` (added to PATH)
 - **Generator**: Ninja
 - **Build type**: Release
@@ -231,7 +231,7 @@ All three workflow files trigger on **pull requests to `main`** (push triggers a
 ### Windows (cmake-windows-amd64.yml)
 - **Host compilers**: `cl` (MSVC), `clang-cl`
 - **MSVC versions**: 14.44, 14.51 (via `-vcvars_ver`)
-- **CUDA**: 13.0, 13.3 (NVCC at `%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v<version>\bin\nvcc.exe`)
+- **CUDA**: 13.0, 13.4 (NVCC at `%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\v<version>\bin\nvcc.exe`)
 - **LLVM**: `D:/clang+llvm-23.1.0-x86_64-pc-windows-msvc/bin/` (added to PATH)
 - **Generator**: Ninja
 - **Workaround**: After CMake configure, `rules.ninja` may contain an empty NVCC path that is patched with PowerShell string replacement.

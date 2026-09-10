@@ -19,7 +19,7 @@
    Affects versions 12.4.0 until 13.2.0
  
    This code does not compile starting on CUDA version 12.4.
-   It does compile starting on CUDA version 13.3.0
+   It does compile starting on CUDA version 13.4.0
 
    We add comments in the code, indicating the different
    modifications that make the code compile, to help with the

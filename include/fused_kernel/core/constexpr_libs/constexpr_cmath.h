@@ -29,7 +29,7 @@
 #include <cuda/std/utility>
 #include <cuda/std/limits>
 
-// Conditionally include the algorithm header if compiling on CUDA 13.3+
+// Conditionally include the algorithm header if compiling on CUDA 13.4+
 #if __has_include(<cuda/std/algorithm>)
 #include <cuda/std/algorithm>
 #endif
@@ -52,7 +52,7 @@ using cuda::std::clamp;
 using cuda::std::max;
 using cuda::std::min;
 #else
-// Polyfill for CUDA < 13.3 where <cuda/std/algorithm> is missing
+// Polyfill for CUDA < 13.4 where <cuda/std/algorithm> is missing
 template <typename T>
 FK_HOST_DEVICE_CNST T max(const T a, const T b) { 
     return (a < b) ? b : a;

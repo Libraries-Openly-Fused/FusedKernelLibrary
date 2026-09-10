@@ -190,7 +190,7 @@ namespace fk {
 #endif
             }
             #else
-            throw std::runtime_error("Device allocation not supported in non-CUDA compilation.");
+            throw std::runtime_error("Device allocation not supported in non-GPU compilation.");
             #endif
         }
 
@@ -223,7 +223,7 @@ namespace fk {
 #endif
             }
             #else
-            throw std::runtime_error("Host pinned allocation not supported in non-CUDA compilation.");
+            throw std::runtime_error("Host pinned allocation not supported in non-GPU compilation.");
             #endif
         }
 
@@ -252,7 +252,7 @@ namespace fk {
 #endif
             }
             #else
-            throw std::runtime_error("Host pinned and Device allocations not supported in non-CUDA compilation.");
+            throw std::runtime_error("Host pinned and Device allocations not supported in non-GPU compilation.");
             #endif
         }
 
@@ -271,7 +271,7 @@ namespace fk {
                         gpuErrchk(cudaFree(ref->ptr));
 #endif
                         #else
-                        throw std::runtime_error("Device memory deallocation not supported in non-CUDA compilation.");
+                        throw std::runtime_error("Device memory deallocation not supported in non-GPU compilation.");
                         #endif
                         break;
                     }
@@ -289,7 +289,7 @@ namespace fk {
                         gpuErrchk(cudaFreeHost(ref->ptr));
 #endif
                         #else
-                        throw std::runtime_error("Host pinned memory deallocation not supported in non-CUDA compilation.");
+                        throw std::runtime_error("Host pinned memory deallocation not supported in non-GPU compilation.");
                         #endif
                         break;
                     }
@@ -304,7 +304,7 @@ namespace fk {
                     gpuErrchk(cudaFreeHost(ref->pinnedPtr));
 #endif
 #else
-                    throw std::runtime_error("Device and Host pinned memory deallocation not supported in non-CUDA compilation.");
+                    throw std::runtime_error("Device and Host pinned memory deallocation not supported in non-GPU compilation.");
 #endif
                     break;
                 }
