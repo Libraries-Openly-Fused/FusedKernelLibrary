@@ -1,6 +1,5 @@
 function (add_generated_lib TARGET_NAME TEST_SOURCES DIR)                        
-    add_library(${TARGET_NAME} SHARED "${TEST_SOURCES}" )
-    set_target_properties(${TARGET_NAME}  PROPERTIES LINKER_LANGUAGE CXX)      
+    add_library(${TARGET_NAME} SHARED "${TEST_SOURCES}" )    
     add_generated_export_header_to_target(${TARGET_NAME})
     configure_test_target_flags("${TARGET_NAME}" "${TEST_SOURCES}" "${DIR}")  
     set_property(TARGET "${TARGET_NAME}" PROPERTY FOLDER "${DIR}")  
@@ -24,8 +23,6 @@ function (add_shared_target TARGET_BASE_NAME EXTENSION FUNDAMENTAL_TYPE DIR)
     target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/")   #testcommon       
     target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_BINARY_DIR}/generated/${GEN_DIR}/")   #testcommon       
 
-    
-    
     if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
         target_compile_options(${TARGET_NAME}_${EXTENSION} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>)
     endif()
