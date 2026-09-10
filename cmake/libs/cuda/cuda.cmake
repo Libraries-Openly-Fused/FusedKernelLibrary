@@ -36,14 +36,14 @@ function(add_cuda_to_target TARGET_NAME COMPONENTS)
     # we need to deploy runtime because we se CUDA_RUNTIME_LIBRARY property to Shared
     list(APPEND COMPONENTS "cudart")
     #gpu debug code only for debug host code
-    if (${ENABLE_DEBUG})    
+    if (ENABLE_DEBUG)    
         add_cuda_debug_support_to_target(${TARGET_NAME})
     endif()
-    if (${ENABLE_NVTX})    
+    if (ENABLE_NVTX)    
         add_nvtx_support_to_target(${TARGET_NAME})
     endif()
     #debug cuda code with -G already enables lineinfo, so no need to pass it
-    if(${ENABLE_LINE_INFO})            
+    if (ENABLE_LINE_INFO)
         add_cuda_lineinfo_to_target(${TARGET_NAME})
     endif()
     set(EXPORTED_CUDA_TARGETS ${COMPONENTS})
