@@ -25,6 +25,9 @@
 #include <cuda_runtime.h>
 #elif defined(__HIPCC__)
 #include <hip/hip_runtime.h>
+#if !defined(__grid_constant__) && __has_attribute(grid_constant)
+#define __grid_constant__ __attribute__((grid_constant))
+#endif
 #endif
 
 #if defined(NVRTC_ENABLED)
