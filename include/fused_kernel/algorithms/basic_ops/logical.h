@@ -100,18 +100,18 @@ namespace fk {
         }
         template <int N = cn<I1>>
         FK_HOST_DEVICE_FUSE std::enable_if_t<N == 2, OutputType> exec(const InputType input) {
-              const auto result = get<0>(input) == get<1>(input);
-              return result.x && result.y;
+            const auto result = get<0>(input) == get<1>(input);
+            return result.x && result.y;
         }
         template <int N = cn<I1>>
         FK_HOST_DEVICE_FUSE std::enable_if_t<N == 3, OutputType> exec(const InputType input) {
-              const auto result = get<0>(input) == get<1>(input);
-              return result.x && result.y && result.z;
+            const auto result = get<0>(input) == get<1>(input);
+            return result.x && result.y && result.z;
         }
         template <int N = cn<I1>>
         FK_HOST_DEVICE_FUSE std::enable_if_t<N == 4, OutputType> exec(const InputType input) {
-              const auto result = get<0>(input) == get<1>(input);
-              return result.x && result.y && result.z && result.w;
+            const auto result = get<0>(input) == get<1>(input);
+            return result.x && result.y && result.z && result.w;
         }
     };
 } //namespace fk

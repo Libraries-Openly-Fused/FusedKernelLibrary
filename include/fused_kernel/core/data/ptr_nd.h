@@ -209,7 +209,7 @@ namespace fk {
             gpuErrchk(cudaGetDevice(&currentDevice));
             gpuErrchk(cudaSetDevice(deviceID));
 #endif
-            PtrImpl<D, T>::h_malloc_init(ptr_a.dims);            
+            PtrImpl<D, T>::h_malloc_init(ptr_a.dims);
 #if defined(__HIPCC__)
             gpuErrchk(hipHostMalloc(&ptr_a.data, PtrImpl<D, T>::sizeInBytes(ptr_a.dims)));
 #else
@@ -604,6 +604,7 @@ namespace fk {
                 throw std::runtime_error("Download can only copy from Device pointers.");
             }
         }
+
         inline void upload(Stream_<ParArch::GPU_NVIDIA>& stream) {
             if (type == MemType::DeviceAndPinned) {
                 constexpr cudaMemcpyKind kind = cudaMemcpyHostToDevice;

@@ -1,8 +1,8 @@
 function (add_generated_lib TARGET_NAME TEST_SOURCES DIR)                        
-    add_library(${TARGET_NAME} SHARED "${TEST_SOURCES}" )    
-    add_generated_export_header_to_target(${TARGET_NAME})
-    configure_test_target_flags("${TARGET_NAME}" "${TEST_SOURCES}" "${DIR}")  
-    set_property(TARGET "${TARGET_NAME}" PROPERTY FOLDER "${DIR}")  
+        add_library(${TARGET_NAME} SHARED "${TEST_SOURCES}" )
+        add_generated_export_header_to_target(${TARGET_NAME})
+        configure_test_target_flags("${TARGET_NAME}" "${TEST_SOURCES}" "${DIR}")  
+        set_property(TARGET "${TARGET_NAME}" PROPERTY FOLDER "${DIR}")  
 endfunction()
 
 function (add_shared_target TARGET_BASE_NAME EXTENSION FUNDAMENTAL_TYPE DIR)     
@@ -26,14 +26,11 @@ function (add_shared_target TARGET_BASE_NAME EXTENSION FUNDAMENTAL_TYPE DIR)
     if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
         target_compile_options(${TARGET_NAME}_${EXTENSION} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>)
     endif()
-    
-    
     #ignore warnings about declspec
     if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")                               
         target_compile_options(${TARGET_NAME}_${EXTENSION} BEFORE PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-ignored-attributes>)        
         target_compile_options(${TARGET_NAME}_${EXTENSION} BEFORE PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-Xarch_device -Wno-ignored-attributes>)        
     endif()
-     
 endfunction()
 
 function (add_shared_test_lib TARGET_BASE_NAME DIR EXTENSION FUNDAMENTAL_TYPE)
