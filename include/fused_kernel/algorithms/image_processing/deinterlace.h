@@ -80,17 +80,14 @@ namespace fk {
             using ReadOperation = typename BackIOp::Operation;
             
             // Read current pixel
-            const auto current = cxp::cast<OutputType>::f(ReadOperation::exec(thread, backIOp));
+            const auto current = ReadOperation::exec(thread, backIOp);
             
             const auto height = ReadOperation::num_elems_y(Point{0,0,0}, backIOp);
             if (thread.y > 0 && thread.y + 1 < height) {
-                const auto above = cxp::cast<OutputType>::f(
-                    ReadOperation::exec(Point{thread.x, thread.y - 1, thread.z}, backIOp));
+                const auto above = ReadOperation::exec(Point{thread.x, thread.y - 1, thread.z}, backIOp);
+                const auto below = ReadOperation::exec(Point{thread.x, thread.y + 1, thread.z}, backIOp);
 
-                const auto below = cxp::cast<OutputType>::f(
-                    ReadOperation::exec(Point{thread.x, thread.y + 1, thread.z}, backIOp));
-
-                return (current + above + below + 1.f) * 0.25f;
+                return (current + above + below + 1) * 0.25f;
             } else {
                 return current * 1.f;
             }
@@ -100,15 +97,11 @@ namespace fk {
             using ReadOperation = typename BackIOp::Operation;
             if (interpolate) {
                 // We average the above pixel with the below pixel
-                const auto above = cxp::cast<OutputType>::f(
-                    ReadOperation::exec(Point{thread.x, thread.y - 1, thread.z}, backIOp));
-
-                const auto below = cxp::cast<OutputType>::f(
-                    ReadOperation::exec(Point{thread.x, thread.y + 1, thread.z}, backIOp));
-
-                return (above * 1.f + below * 1.f + 1.f) * 0.5f;
+                const auto above = ReadOperation::exec(Point{thread.x, thread.y - 1, thread.z}, backIOp);
+                const auto below = ReadOperation::exec(Point{thread.x, thread.y + 1, thread.z}, backIOp);
+                return (above + below + 1) * 0.5f;
             } else {
-                return cxp::cast<OutputType>::f(ReadOperation::exec(thread, backIOp));
+                return ReadOperation::exec(thread, backIOp) * 1.f;
             }
         }
 

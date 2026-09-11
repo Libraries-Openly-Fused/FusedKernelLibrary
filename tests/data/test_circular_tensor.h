@@ -73,19 +73,19 @@ bool launchTest() {
 
 int launch() {
     bool correct = true;
-    correct &= launchTest<2, 128, 128, 100, uchar3, float3>();
-    correct &= launchTest<3, 128, 128, 100, uchar3, float3>();
-    correct &= launchTest<4, 128, 128, 100, uchar3, float3>();
-    correct &= launchTest<5, 128, 128, 100, uchar3, float3>();
-    correct &= launchTest<6, 128, 128, 100, uchar3, float3>();
-    correct &= launchTest<7, 128, 128, 100, uchar3, float3>();
-    correct &= launchTest<8, 128, 128, 100, uchar3, float3>();
-    correct &= launchTest<9, 128, 128, 100, uchar3, float3>();
-    correct &= launchTest<10, 128, 128, 100, uchar3, float3>();
-    correct &= launchTest<11, 128, 128, 100, uchar3, float3>();
-    correct &= launchTest<12, 128, 128, 100, uchar3, float3>();
-    correct &= launchTest<13, 128, 128, 100, uchar3, float3>();
-    correct &= launchTest<14, 128, 128, 100, uchar3, float3>();
-    correct &= launchTest<15, 128, 128, 100, uchar3, float3>();
+    correct &= launchTest<2, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= launchTest<3, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= launchTest<4, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= launchTest<5, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= launchTest<6, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= launchTest<7, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= launchTest<8, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= launchTest<9, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= launchTest<10, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= launchTest<11, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= launchTest<12, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= launchTest<13, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= launchTest<14, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= launchTest<15, 128, 128, 100, fk::uchar3, fk::float3>();
     return correct ? 0 : -1;
 }

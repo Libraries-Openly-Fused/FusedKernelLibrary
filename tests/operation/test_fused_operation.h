@@ -37,8 +37,8 @@ constexpr bool test_fuseDFResultingTypes() {
     constexpr auto read = Read<PerThreadRead<ND::_2D, float>>{ { fk::RawPtr<ND::_2D, float>{nullptr, {128, 4}} } };
     static_assert(std::is_same_v<std::decay_t<decltype(read)>, Read<PerThreadRead<ND::_2D, float>>>, "Unexpected type after fuseIOps");
 
-    constexpr auto readOp2 = PerThreadRead<ND::_2D, uchar3>::build(RawPtr<ND::_2D, uchar3>{nullptr, PtrDims<ND::_2D>(128, 128)});
-    static_assert(std::is_same_v<std::decay_t<decltype(readOp2)>, Read<PerThreadRead<ND::_2D, uchar3>>>, "Unexpected type after fuseIOps");
+    constexpr auto readOp2 = PerThreadRead<ND::_2D, fk::uchar3>::build(RawPtr<ND::_2D, fk::uchar3>{nullptr, PtrDims<ND::_2D>(128, 128)});
+    static_assert(std::is_same_v<std::decay_t<decltype(readOp2)>, Read<PerThreadRead<ND::_2D, fk::uchar3>>>, "Unexpected type after fuseIOps");
 
     constexpr auto readYUV = ReadYUV<PixelFormat::NV12>::build({ {RawPtr<ND::_2D, uchar>{nullptr, PtrDims<ND::_2D>(128, 128 + 64)}, 128, 128} });
     constexpr auto readRGB = readYUV.then(ConvertYUVToRGB<ColorDepth::p8bit, ColorRange::Full, ColorPrimitives::bt2020>::build());
@@ -121,11 +121,11 @@ int launch() {
         fk::ReadBack<fk::ResizeComplete<fk::AspectRatio::PRESERVE_AR,
                   fk::Ternary<fk::InterpolateComplete<
                       fk::InterpolationType::INTER_LINEAR,
-                   fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>>>>,
-        fk::Binary<fk::Mul<float3, float3, float3>>,
-        fk::Binary<fk::Sub<float3, float3, float3>>,
-        fk::Binary<fk::Div<float3, float3, float3>>,
-        fk::Unary<fk::VectorReorder<float3, 2, 1, 0>>>;
+                   fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, fk::uchar3>>>>>>>>,
+        fk::Binary<fk::Mul<fk::float3, fk::float3, fk::float3>>,
+        fk::Binary<fk::Sub<fk::float3, fk::float3, fk::float3>>,
+        fk::Binary<fk::Div<fk::float3, fk::float3, fk::float3>>,
+        fk::Unary<fk::VectorReorder<fk::float3, 2, 1, 0>>>;
 
     static_assert(isCompleteOperation<SomeFusedOp>, "Something wrong with the compiler?");
 

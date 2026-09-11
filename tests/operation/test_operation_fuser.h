@@ -24,8 +24,8 @@ using ComplexType =
 Read<FusedOperation<
     ReadBack<ResizeComplete<AspectRatio::PRESERVE_AR,
                     Ternary<InterpolateComplete<
-                        InterpolationType::INTER_LINEAR, ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>>>>,
-             Binary<Mul<float3, float3, float3>>>>;
+                        InterpolationType::INTER_LINEAR, ReadBack<Crop<Read<PerThreadRead<ND::_2D, fk::uchar3>>>>>>>>,
+             Binary<Mul<fk::float3, fk::float3, fk::float3>>>>;
 
 // Operation types
 // Read
@@ -49,7 +49,7 @@ using MWPerThrFloat = FusedOperation<WPerThrFloat, BAddFloat>;
 
 constexpr bool test_InstantiableFusedOperationToOperationTuple() {
 
-    constexpr auto fusedOp = FusedOperation<>::build(ComplexType{}, Add<float3>::build(make_set<float3>(2.f)));
+    constexpr auto fusedOp = FusedOperation<>::build(ComplexType{}, Add<fk::float3>::build(make_set<fk::float3>(2.f)));
 
     constexpr auto opTuple = fusedOp.params;
 

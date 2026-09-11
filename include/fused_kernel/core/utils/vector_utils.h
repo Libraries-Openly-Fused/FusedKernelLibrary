@@ -268,8 +268,7 @@ namespace fk {
 
     template <typename T, typename... Numbers>
     FK_HOST_DEVICE_CNST T make_(const Numbers&... pack) {
-        // Not is_aggregate_v: HIP vector types are non-aggregate class templates.
-        if constexpr (vector_type<T>) {
+        if constexpr (std::is_aggregate_v<T>) {
             return make::type<T>(pack...);
         } else {
             static_assert(sizeof...(pack) == 1, "passing more than one argument for a non cuda vector type");
@@ -279,15 +278,14 @@ namespace fk {
 
     template <vector_type T>
     FK_HOST_DEVICE_CNST T make_set(const VBase<T> val) {
-        // Direct-list-init via make::type: HIP's 1-arg vector ctor is explicit.
         if constexpr (cn<T> == 1) {
-            return make::type<T>(val);
+            return {val};
         } else if constexpr (cn<T> == 2) {
-            return make::type<T>(val, val);
+            return {val, val};
         } else if constexpr (cn<T> == 3) {
-            return make::type<T>(val, val, val);
+            return {val, val, val};
         } else {
-            return make::type<T>(val, val, val, val);
+            return {val, val, val, val};
         }
     }
 
@@ -382,6 +380,7 @@ namespace fk {
 #ifdef DEBUG_MATRIX
 #include <iostream>
 
+namespace fk {
 template <typename T>
 struct to_printable {
     FK_HOST_FUSE int exec(T val) {
@@ -430,8 +429,10 @@ template <typename T>
 inline constexpr typename std::enable_if_t<fk::validCUDAVec<T>, std::ostream&> operator<<(std::ostream& outs, const T& val) {
     return print_vector<T>::exec(outs, val);
 }
+} // namespace fk
 #endif
 
+namespace fk {
 // ####################### VECTOR OPERATORS ##########################
 // Implemented in a way that the return types follow the c++ standard, for each vector component
 // The user is responsible for knowing the type conversion hazards, inherent to the C++ language.
@@ -682,5 +683,7 @@ FK_HOST_DEVICE_CNST auto operator>>(const I1& a, const I2& b)
         }
     }
 }
+
+} // namespace fk
 
 #endif

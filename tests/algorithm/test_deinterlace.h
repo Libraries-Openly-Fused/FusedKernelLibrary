@@ -19,21 +19,21 @@
 
 int launch() {
 
-    constexpr auto readIOp = fk::PerThreadRead<fk::ND::_2D, uchar3>::build(
-        fk::RawPtr<fk::ND::_2D, uchar3>{ nullptr, { 128, 128, 128 * sizeof(uchar3) }});
+    constexpr auto readIOp = fk::PerThreadRead<fk::ND::_2D, fk::uchar3>::build(
+        fk::RawPtr<fk::ND::_2D, fk::uchar3>{ nullptr, { 128, 128, 128 * sizeof(fk::uchar3) }});
 
     // Test BLEND deinterlacing
     constexpr auto deinterlaceBlendIOp = fk::Deinterlace<fk::DeinterlaceType::BLEND>::build(readIOp);
 
     static_assert(std::is_same_v<std::decay_t<decltype(deinterlaceBlendIOp)>,
-        fk::ReadBack<fk::Deinterlace<fk::DeinterlaceType::BLEND, fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>,
+        fk::ReadBack<fk::Deinterlace<fk::DeinterlaceType::BLEND, fk::Read<fk::PerThreadRead<fk::ND::_2D, fk::uchar3>>>>>,
         "Unexpected type for deinterlaceBlendIOp");
 
     // Test INTER_LINEAR deinterlacing
     constexpr auto deinterlaceInterLinearIOp = fk::Deinterlace<fk::DeinterlaceType::INTER_LINEAR>::build(fk::DeinterlaceLinear::USE_EVEN, readIOp);
 
     static_assert(std::is_same_v<std::decay_t<decltype(deinterlaceInterLinearIOp)>,
-        fk::ReadBack<fk::Deinterlace<fk::DeinterlaceType::INTER_LINEAR, fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>,
+        fk::ReadBack<fk::Deinterlace<fk::DeinterlaceType::INTER_LINEAR, fk::Read<fk::PerThreadRead<fk::ND::_2D, fk::uchar3>>>>>,
         "Unexpected type for deinterlaceInterLinearIOp");
 
     // Test that both deinterlace types are different template instantiations

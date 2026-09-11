@@ -21,8 +21,8 @@
 using namespace fk;
 
 int launch() {
-    constexpr RawPtr<ND::_2D, uchar3> input{ nullptr, {128, 128, 128*sizeof(uchar3)}};
-    constexpr auto readIOp = PerThreadRead<ND::_2D, uchar3>::build(input);
+    constexpr RawPtr<ND::_2D, fk::uchar3> input{ nullptr, {128, 128, 128*sizeof(fk::uchar3)}};
+    constexpr auto readIOp = PerThreadRead<ND::_2D, fk::uchar3>::build(input);
     using ReadIOp = decltype(readIOp);
 
     constexpr Rect aCrop(10, 12, 20, 30);

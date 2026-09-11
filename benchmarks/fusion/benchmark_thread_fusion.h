@@ -242,20 +242,20 @@ bool testThreadFusionDifferentTypeIO_launcher_impl(fk::Stream& stream, const std
 
     passed &= (testThreadFusionDifferentTypeIO<uchar, float, variableDimensionValues[IDX]>(stream) && ...);
     passed &= (testThreadFusionDifferentTypeIO<uchar, float, variableDimensionValues[IDX] + 1>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeIO<uchar2, float2, variableDimensionValues[IDX]>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeIO<uchar2, float2, variableDimensionValues[IDX] + 1>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeIO<uchar3, float3, variableDimensionValues[IDX]>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeIO<uchar3, float3, variableDimensionValues[IDX] + 1>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeIO<uchar4, float4, variableDimensionValues[IDX]>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeIO<uchar4, float4, variableDimensionValues[IDX] + 1>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeIO<fk::uchar2, fk::float2, variableDimensionValues[IDX]>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeIO<fk::uchar2, fk::float2, variableDimensionValues[IDX] + 1>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeIO<fk::uchar3, fk::float3, variableDimensionValues[IDX]>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeIO<fk::uchar3, fk::float3, variableDimensionValues[IDX] + 1>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeIO<fk::uchar4, fk::float4, variableDimensionValues[IDX]>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeIO<fk::uchar4, fk::float4, variableDimensionValues[IDX] + 1>(stream) && ...);
     passed &= (testThreadFusionDifferentTypeIO<ushort, float, variableDimensionValues[IDX]>(stream) && ...);
     passed &= (testThreadFusionDifferentTypeIO<ushort, float, variableDimensionValues[IDX] + 1>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeIO<ushort2, float2, variableDimensionValues[IDX]>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeIO<ushort2, float2, variableDimensionValues[IDX] + 1>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeIO<ushort3, float3, variableDimensionValues[IDX]>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeIO<ushort3, float3, variableDimensionValues[IDX] + 1>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeIO<ushort4, float4, variableDimensionValues[IDX]>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeIO<ushort4, float4, variableDimensionValues[IDX] + 1>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeIO<fk::ushort2, fk::float2, variableDimensionValues[IDX]>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeIO<fk::ushort2, fk::float2, variableDimensionValues[IDX] + 1>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeIO<fk::ushort3, fk::float3, variableDimensionValues[IDX]>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeIO<fk::ushort3, fk::float3, variableDimensionValues[IDX] + 1>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeIO<fk::ushort4, fk::float4, variableDimensionValues[IDX]>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeIO<fk::ushort4, fk::float4, variableDimensionValues[IDX] + 1>(stream) && ...);
 
     return passed;
 }
@@ -264,16 +264,16 @@ template <size_t... IDX>
 bool testThreadFusionDifferentTypeAndChannelIO_launcher_impl(fk::Stream& stream, const std::index_sequence<IDX...>&) {
     bool passed = true;
 
-    passed &= (testThreadFusionDifferentTypeAndChannelIO<uchar3, float3, float4, fk::ColorConversionCodes::COLOR_RGB2RGBA, variableDimensionValues[IDX]>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeAndChannelIO<uchar3, float3, float4, fk::ColorConversionCodes::COLOR_RGB2RGBA, variableDimensionValues[IDX] + 1>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeAndChannelIO<uchar4, float4, float3, fk::ColorConversionCodes::COLOR_RGBA2RGB, variableDimensionValues[IDX]>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeAndChannelIO<uchar4, float4, float3, fk::ColorConversionCodes::COLOR_RGBA2RGB, variableDimensionValues[IDX] + 1>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeAndChannelIO<float3, uchar3, uchar4, fk::ColorConversionCodes::COLOR_RGB2RGBA, variableDimensionValues[IDX]>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeAndChannelIO<float3, uchar3, uchar4, fk::ColorConversionCodes::COLOR_RGB2RGBA, variableDimensionValues[IDX] + 1>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeAndChannelIO<float4, uchar4, uchar3, fk::ColorConversionCodes::COLOR_RGBA2RGB, variableDimensionValues[IDX]>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeAndChannelIO<float4, uchar4, uchar3, fk::ColorConversionCodes::COLOR_RGBA2RGB, variableDimensionValues[IDX] + 1>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeAndChannelIO<float4, uchar4, uchar, fk::ColorConversionCodes::COLOR_RGBA2GRAY, variableDimensionValues[IDX]>(stream) && ...);
-    passed &= (testThreadFusionDifferentTypeAndChannelIO<float4, uchar4, uchar, fk::ColorConversionCodes::COLOR_RGBA2GRAY, variableDimensionValues[IDX] + 1>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeAndChannelIO<fk::uchar3, fk::float3, fk::float4, fk::ColorConversionCodes::COLOR_RGB2RGBA, variableDimensionValues[IDX]>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeAndChannelIO<fk::uchar3, fk::float3, fk::float4, fk::ColorConversionCodes::COLOR_RGB2RGBA, variableDimensionValues[IDX] + 1>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeAndChannelIO<fk::uchar4, fk::float4, fk::float3, fk::ColorConversionCodes::COLOR_RGBA2RGB, variableDimensionValues[IDX]>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeAndChannelIO<fk::uchar4, fk::float4, fk::float3, fk::ColorConversionCodes::COLOR_RGBA2RGB, variableDimensionValues[IDX] + 1>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeAndChannelIO<fk::float3, fk::uchar3, fk::uchar4, fk::ColorConversionCodes::COLOR_RGB2RGBA, variableDimensionValues[IDX]>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeAndChannelIO<fk::float3, fk::uchar3, fk::uchar4, fk::ColorConversionCodes::COLOR_RGB2RGBA, variableDimensionValues[IDX] + 1>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeAndChannelIO<fk::float4, fk::uchar4, fk::uchar3, fk::ColorConversionCodes::COLOR_RGBA2RGB, variableDimensionValues[IDX]>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeAndChannelIO<fk::float4, fk::uchar4, fk::uchar3, fk::ColorConversionCodes::COLOR_RGBA2RGB, variableDimensionValues[IDX] + 1>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeAndChannelIO<fk::float4, fk::uchar4, uchar, fk::ColorConversionCodes::COLOR_RGBA2GRAY, variableDimensionValues[IDX]>(stream) && ...);
+    passed &= (testThreadFusionDifferentTypeAndChannelIO<fk::float4, fk::uchar4, uchar, fk::ColorConversionCodes::COLOR_RGBA2GRAY, variableDimensionValues[IDX] + 1>(stream) && ...);
 
     return passed;
 }

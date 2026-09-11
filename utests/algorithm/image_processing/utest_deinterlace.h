@@ -22,7 +22,7 @@ int launch() {
 
     // Input and expected values
     constexpr fk::Size res(8, 8);
-    constexpr uchar3 ptr[] =
+    constexpr fk::uchar3 ptr[] =
     {{ 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8},
      { 1,  1,  1}, { 1,  1,  1}, { 1,  1,  1}, { 1,  1,  1}, { 1,  1,  1}, { 1,  1,  1}, { 1,  1,  1}, { 1,  1,  1},
      { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8},
@@ -32,7 +32,7 @@ int launch() {
      { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8},
      { 1,  1,  1}, { 1,  1,  1}, { 1,  1,  1}, { 1,  1,  1}, { 1,  1,  1}, { 1,  1,  1}, { 1,  1,  1}, { 1,  1,  1} };
 
-    constexpr float3 ptrExpectedBlend[] =
+    constexpr fk::float3 ptrExpectedBlend[] =
     {{2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f},
      {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f},
      {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f},
@@ -42,7 +42,7 @@ int launch() {
      {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f},
      {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f}, {2.f, 3.f, 5.f} };
 
-    constexpr float3 ptrExpectedLinearEvenLines[] =
+    constexpr fk::float3 ptrExpectedLinearEvenLines[] =
     {{2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f},
      {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f},
      {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f},
@@ -52,7 +52,7 @@ int launch() {
      {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f},
      {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f} };
 
-    constexpr float3 ptrExpectedLinearOddLines[] =
+    constexpr fk::float3 ptrExpectedLinearOddLines[] =
     {{2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f}, {2.f, 4.f, 8.f},
      {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f},
      {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f},
@@ -62,10 +62,10 @@ int launch() {
      {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f},
      {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f} };
 
-    fk::Ptr2D<uchar3> inputPtr(8, 8);
-    fk::Ptr<fk::ND::_2D, float3> expectedPtrBlend(8, 8, 0, fk::MemType::Host);
-    fk::Ptr<fk::ND::_2D, float3> expectedPtrLinearEven(8, 8, 0, fk::MemType::Host);
-    fk::Ptr<fk::ND::_2D, float3> expectedPtrLinearOdd(8, 8, 0, fk::MemType::Host);
+    fk::Ptr2D<fk::uchar3> inputPtr(8, 8);
+    fk::Ptr<fk::ND::_2D, fk::float3> expectedPtrBlend(8, 8, 0, fk::MemType::Host);
+    fk::Ptr<fk::ND::_2D, fk::float3> expectedPtrLinearEven(8, 8, 0, fk::MemType::Host);
+    fk::Ptr<fk::ND::_2D, fk::float3> expectedPtrLinearOdd(8, 8, 0, fk::MemType::Host);
 
     // Fill inputPtr with the test data
     for (int y = 0; y < res.height; ++y) {
@@ -80,7 +80,7 @@ int launch() {
     // Upload inputPtr to device
     inputPtr.upload(stream);
     
-    const auto readIOp = fk::PerThreadRead<fk::ND::_2D, uchar3>::build(inputPtr.ptr());
+    const auto readIOp = fk::PerThreadRead<fk::ND::_2D, fk::uchar3>::build(inputPtr.ptr());
 
     const fk::DeinterlaceParameters<fk::DeinterlaceType::INTER_LINEAR> paramsLinearEven{ true };
     const fk::DeinterlaceParameters<fk::DeinterlaceType::INTER_LINEAR> paramsLinearOdd{ false };

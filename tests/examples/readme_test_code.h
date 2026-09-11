@@ -33,10 +33,10 @@ int launch() {
     constexpr int BATCH = 5;
 
     // We have a 4K source image
-    Ptr2D<uchar3> inputImage(3840, 2160);
+    Ptr2D<fk::uchar3> inputImage(3840, 2160);
 
     // We want a Tensor of contiguous memory for all images
-    Tensor<float3> output(outputSize.width, outputSize.height, BATCH);
+    Tensor<fk::float3> output(outputSize.width, outputSize.height, BATCH);
 
     // Crops can be of different sizes
     constexpr std::array<Rect, BATCH> crops{
@@ -48,24 +48,24 @@ int launch() {
     };
 
     //initImageValues(inputImage);
-    constexpr float3 backgroundColor{ 0.f, 0.f, 0.f };
+    constexpr fk::float3 backgroundColor{ 0.f, 0.f, 0.f };
 
-    constexpr float3 mulValue = make_set<float3>(1.4f);
-    constexpr float3 subValue = make_set<float3>(0.5f);
-    constexpr float3 divValue = make_set<float3>(255.f);
+    constexpr fk::float3 mulValue = make_set<fk::float3>(1.4f);
+    constexpr fk::float3 subValue = make_set<fk::float3>(0.5f);
+    constexpr fk::float3 divValue = make_set<fk::float3>(255.f);
 
     // Create a fused operation that reads the input image,
     // crops it, resizes it, and applies arithmetic operations
-    const auto mySender = PerThreadRead<ND::_2D, uchar3>::build(inputImage)
+    const auto mySender = PerThreadRead<ND::_2D, fk::uchar3>::build(inputImage)
         .then(Crop<>::build(crops))
         .then(Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>::build(outputSize, backgroundColor))
-        .then(Mul<float3>::build(mulValue))
-        .then(Sub<float3>::build(subValue))
-        .then(Div<float3>::build(divValue))
-        .then(ColorConversion<ColorConversionCodes::COLOR_RGB2BGR, float3, float3>::build());
+        .then(Mul<fk::float3>::build(mulValue))
+        .then(Sub<fk::float3>::build(subValue))
+        .then(Div<fk::float3>::build(divValue))
+        .then(ColorConversion<ColorConversionCodes::COLOR_RGB2BGR, fk::float3, fk::float3>::build());
 
     // Define the last operation that will write the results to the output pointer
-    const auto myReceiver = TensorWrite<float3>::build(output);
+    const auto myReceiver = TensorWrite<fk::float3>::build(output);
 
     // Execute the operations in a single kernel
     // At compile time, the types are used to define the kernel code
@@ -78,24 +78,24 @@ int launch() {
     // Now in CPU
     Stream_<ParArch::CPU> stream_cpu;
     // We have a 4K source image
-    Ptr2D<uchar3> cpu_inputImage(3840, 2160, 0, MemType::Host);
+    Ptr2D<fk::uchar3> cpu_inputImage(3840, 2160, 0, MemType::Host);
 
     // We want a Tensor of contiguous memory for all images
-    Tensor<float3> cpu_output(outputSize.width, outputSize.height, BATCH, 1, MemType::Host);
+    Tensor<fk::float3> cpu_output(outputSize.width, outputSize.height, BATCH, 1, MemType::Host);
 
 
     // Create a fused operation that reads the input image,
     // crops it, resizes it, and applies arithmetic operations
-    const auto mySender_cpu = PerThreadRead<ND::_2D, uchar3>::build(cpu_inputImage)
+    const auto mySender_cpu = PerThreadRead<ND::_2D, fk::uchar3>::build(cpu_inputImage)
         .then(Crop<>::build(crops))
         .then(Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>::build(outputSize, backgroundColor))
-        .then(Mul<float3>::build(mulValue))
-        .then(Sub<float3>::build(subValue))
-        .then(Div<float3>::build(divValue))
-        .then(ColorConversion<ColorConversionCodes::COLOR_RGB2BGR, float3, float3>::build());
+        .then(Mul<fk::float3>::build(mulValue))
+        .then(Sub<fk::float3>::build(subValue))
+        .then(Div<fk::float3>::build(divValue))
+        .then(ColorConversion<ColorConversionCodes::COLOR_RGB2BGR, fk::float3, fk::float3>::build());
 
     // Define the last operation that will write the results to the output pointer
-    const auto myReceiver_cpu = TensorWrite<float3>::build(cpu_output);
+    const auto myReceiver_cpu = TensorWrite<fk::float3>::build(cpu_output);
     // Execute the operations in a single kernel
     // At compile time, the types are used to define the kernel code
     // At runtime, the kernel is executed with the provided parameters

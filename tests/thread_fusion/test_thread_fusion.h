@@ -117,9 +117,9 @@ int launch() {
     }
 
 #define LAUNCH_AGGREGATE(type) \
-    passed &= fk::testThreadFusionAggregate<type ## 2>(); \
-    passed &= fk::testThreadFusionAggregate<type ## 3>(); \
-    passed &= fk::testThreadFusionAggregate<type ## 4>();
+    passed &= fk::testThreadFusionAggregate<fk::type ## 2>(); \
+    passed &= fk::testThreadFusionAggregate<fk::type ## 3>(); \
+    passed &= fk::testThreadFusionAggregate<fk::type ## 4>();
 
     {
         PUSH_RANGE_RAII p("testThreadFusionAggregate");

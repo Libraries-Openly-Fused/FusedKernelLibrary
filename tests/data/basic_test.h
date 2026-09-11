@@ -85,9 +85,9 @@ int launch() {
     bool test2Dpassed = true;
 
     test2Dpassed &= testPtr_2D<uchar>();
-    test2Dpassed &= testPtr_2D<uchar3>();
+    test2Dpassed &= testPtr_2D<fk::uchar3>();
     test2Dpassed &= testPtr_2D<float>();
-    test2Dpassed &= testPtr_2D<float3>();
+    test2Dpassed &= testPtr_2D<fk::float3>();
 
     fk::Stream stream;
 

@@ -17,6 +17,22 @@
 
 #include <fused_kernel/core/utils/vector_utils.h>
 
+static_assert(std::is_same_v<decltype(fk::uchar3{} + fk::uchar3{}), fk::int3>);
+static_assert(std::is_same_v<decltype(fk::uchar3{} / 255.0f), fk::float3>);
+static_assert(std::is_same_v<decltype(fk::int3{} + fk::float3{}), fk::float3>);
+static_assert(std::is_same_v<decltype(fk::int3{} == fk::int3{}), fk::bool3>);
+static_assert(std::is_same_v<decltype(-fk::short1{}), int>);
+static_assert(std::is_same_v<decltype(std::declval<fk::int3&>() += 1), fk::int3>);
+static_assert((fk::uchar3{250, 1, 2} + fk::uchar3{10, 2, 3}).x == 260);
+static_assert((fk::int3{3, 5, 7} == fk::int3{3, 0, 7}).x);
+static_assert(!(fk::int3{3, 5, 7} == fk::int3{3, 0, 7}).y);
+static_assert(fk::make_set<fk::float3>(2.f).z == 2.f);
+static_assert(std::is_aggregate_v<fk::float3>);
+#if defined(__HIPCC__) || defined(__NVCC__)
+static_assert(!std::is_same_v<fk::float3, ::float3>);
+static_assert(!fk::vector_type<::float3>);
+#endif
+
 template <typename InputTypeList, typename ExpectedTypeList, size_t... Idx>
 constexpr bool validateVBaseFor(const std::index_sequence<Idx...>&) {
     return (std::is_same_v<fk::EquivalentType_t<fk::TypeAt_t<Idx, InputTypeList>, InputTypeList, ExpectedTypeList>, fk::VBase<fk::TypeAt_t<Idx, InputTypeList>>> && ...);

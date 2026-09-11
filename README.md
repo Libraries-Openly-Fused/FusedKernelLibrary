@@ -40,7 +40,7 @@ using namespace fk;
 Stream stream;
 
 // Get the input image
-const Ptr2D<uchar3> inputImage = getGPUSourceImage(stream);
+const Ptr2D<fk::uchar3> inputImage = getGPUSourceImage(stream);
 
 // Define the crops on the source image
 constexpr std::array<Rect, BATCH> crops{
@@ -52,7 +52,7 @@ constexpr std::array<Rect, BATCH> crops{
 };
 
 // We want a Tensor of contiguous memory for all crops as output
-Tensor<uchar3> output(outputSize.width, outputSize.height, BATCH);
+Tensor<fk::uchar3> output(outputSize.width, outputSize.height, BATCH);
 
 // CREATING AND EXECUTING YOUR FUSED CUDA KERNEL
 // Create a fused operation that reads the input image,
@@ -60,13 +60,13 @@ Tensor<uchar3> output(outputSize.width, outputSize.height, BATCH);
 // At compile time, the types are used to define the kernel code.
 // At runtime, the kernel is executed with the provided parameters.
 executeOperations<TransformDPP<>>(stream,
-                                  PerThreadRead<ND::_2D, uchar3>::build(inputImage.ptr()),
+                                  PerThreadRead<ND::_2D, fk::uchar3>::build(inputImage.ptr()),
                                   Crop<>::build(crops),
                                   Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>::build(outputSize, backgroundColor),
-                                  Mul<float3>::build(make_<float3>(2.f, 2.f, 2.f)),
-                                  Sub<float3>::build(make_set<float3>(128.f)),
-                                  SaturateCast<float3, uchar3>::build(),
-                                  TensorWrite<uchar3>::build(output.ptr()));
+                                  Mul<fk::float3>::build(make_<fk::float3>(2.f, 2.f, 2.f)),
+                                  Sub<fk::float3>::build(make_set<fk::float3>(128.f)),
+                                  SaturateCast<fk::float3, fk::uchar3>::build(),
+                                  TensorWrite<fk::uchar3>::build(output.ptr()));
 
 stream.sync();
 
@@ -76,7 +76,7 @@ Let's see a bit more in detail what is going on in the code.
 First of all, take into account that there is no CUDA kernel launch until we call the function executeOperations. Until then, we accumulate and combine information to build the final kernel.
 
 ```C++
-PerThreadRead<ND::_2D, uchar3>::build(inputImage.ptr()),
+PerThreadRead<ND::_2D, fk::uchar3>::build(inputImage.ptr()),
 ```
 In this line we are specifying that we want to read a 4K (2D) image, where we will have one CUDA thread per each pixel.
 
@@ -100,16 +100,16 @@ Each thread will work as if the source image had the size informed by the corres
 Each thread will ask the Crop operation for the pixels it needs to interpolate the output pixel.
 
 ```C++
-Mul<float3>::build(mulValue),
-Sub<float3>::build(subValue),
-Div<float3>::build(divValue),
-ColorConversion<COLOR_RGB2BGR, float3, float3>::build(),
+Mul<fk::float3>::build(mulValue),
+Sub<fk::float3>::build(subValue),
+Div<fk::float3>::build(divValue),
+ColorConversion<COLOR_RGB2BGR, fk::float3, fk::float3>::build(),
 ```
 
 The following 4 lines will add element wise continuation operations to be applied to the output of the fused operation "PerThreadRead + Crop + Resize" (`Read<BatchRead<BATCH, Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR, ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>>>`).
 
 ```C++
-TensorWrite<float3>::build(output));
+TensorWrite<fk::float3>::build(output));
 ```
 
 The Operation TensorWrite will write the 60x60x5 pixels into a contiguous memory region, without padding on the x axis. The CUDA kernel will receive as parameters the fused operation and the continuation operations, including TensorWrite, as a parameter pack. The kernel is a variadic template kernel function.
@@ -117,6 +117,25 @@ The Operation TensorWrite will write the 60x60x5 pixels into a contiguous memory
 DNNs generated with Pytorch usually expect the 3 pixel channels to be split into separated planes, but despite we include the split Operation, this is not the most efficient memory layout for the GPUs, and we wanted to show the creation of most efficient Tensor shape. 
 
 You can view and run a similar code in this [FKL Playground](https://colab.research.google.com/drive/1WZd8FcWEKWAuxnJEOTfr0mrWVBtz8bzl?usp=sharing) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WZd8FcWEKWAuxnJEOTfr0mrWVBtz8bzl?usp=sharing)
+
+## Vector types and HIP/CUDA interoperability
+
+FKL owns its vector types and operators in `namespace fk` on every backend. Use
+`fk::float3`, `fk::uchar4`, etc. outside that namespace, even with `using namespace fk;`:
+HIP and CUDA declare different types with the same names in the global namespace.
+CPU-only builds retain global aliases when vendor vector headers have not been included;
+include vendor headers first when using them from an ordinary C++ translation unit.
+
+Arithmetic follows scalar C++ promotions per component (for example, `fk::uchar3 / float`
+returns `fk::float3`), and comparisons return component-wise `fk::boolN` masks.
+The `.x/.y/.z/.w` fields, aggregate initialization, `fk::make_`, and `fk::make_set` remain
+available. Internal FKL expressions do not need backend-specific casts or operators.
+
+Native HIP/CUDA vector types are not FKL vector types. At APIs that require a native
+vector, convert values explicitly by component, for example
+`::float3 native{value.x, value.y, value.z}` and `fk::float3 value{native.x, native.y, native.z}`.
+Do not reinterpret vector pointers: layouts are not universally interchangeable.
+For example, `fk::double3` has size/alignment 32/16, while AMD's Clang `::double3` has 24/8.
 
 ## Fusion and inclusion
 
