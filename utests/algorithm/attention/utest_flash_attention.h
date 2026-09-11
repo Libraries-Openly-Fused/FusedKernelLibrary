@@ -24,8 +24,6 @@
 #include <random>
 #include <vector>
 
-using namespace fk;
-
 // double-precision CPU oracle: O = softmax(scale * Q K^T [causal]) V
 static void cpuAttention(const std::vector<double>& q, const std::vector<double>& k,
                          const std::vector<double>& v, std::vector<double>& o,
@@ -71,6 +69,7 @@ static void report(const char* name, const double maxErr, const double tol) {
 template <int HEAD_DIM>
 static void testDense(const char* name, const int bh, const int seqQ, const int seqK,
                       const bool causal, const double tol, const unsigned seed) {
+    using namespace fk;
     std::mt19937 rng(seed);
     std::uniform_real_distribution<float> dist(-1.f, 1.f);
     const size_t nQ = (size_t)bh * seqQ * HEAD_DIM, nK = (size_t)bh * seqK * HEAD_DIM;
@@ -107,6 +106,7 @@ static void testDense(const char* name, const int bh, const int seqQ, const int 
 template <int HEAD_DIM>
 static void testInt8KV(const char* name, const int bh, const int seqQ, const int seqK,
                        const bool causal, const double tol, const unsigned seed) {
+    using namespace fk;
     std::mt19937 rng(seed);
     std::uniform_real_distribution<float> dist(-1.f, 1.f);
     const size_t nQ = (size_t)bh * seqQ * HEAD_DIM, nK = (size_t)bh * seqK * HEAD_DIM;
@@ -160,6 +160,7 @@ static void testInt8KV(const char* name, const int bh, const int seqQ, const int
 }
 
 static void testFusedEpilogue() {
+    using namespace fk;
     // attention output | Mul(2) | Add(0.5) fused in-register: compare against
     // dense run + host-applied epilogue (proves the chain ran inside).
     constexpr int HEAD_DIM = 32, BH = 2, SQ = 16, SK = 16;
@@ -199,6 +200,7 @@ static void testFusedEpilogue() {
 }
 
 static void testFusedPrologue() {
+    using namespace fk;
     /* PROLOGUE = a Read IOp (possibly fused with .then chains); the DPP
        reads every element through it. Verifiable algebra:
        Q prologue read.then(Mul(2)): compare against oracle on 2*Q.

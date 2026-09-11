@@ -19,9 +19,8 @@
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/image_processing/image_processing.h>
 
-using namespace fk;
-
 constexpr bool test_fuseDFResultingTypes() {
+    using namespace fk;
 
     constexpr Read<PerThreadRead<ND::_2D, float>> readOp{};
     constexpr Binary<Add<float>> addOp{ 3.f };
@@ -67,6 +66,7 @@ constexpr bool test_fuseDFResultingTypes() {
 }
 
 constexpr bool test_fuseFusedOperations() {
+    using namespace fk;
     const fk::Read<fk::PerThreadRead<fk::ND::_2D, float>> readOp{};
     const fk::Binary<fk::Add<float>> addOp{ 3.f };
     const fk::Unary<fk::Cast<float, int>> castOp{};
@@ -78,6 +78,7 @@ constexpr bool test_fuseFusedOperations() {
 }
 
 int launch() {
+    using namespace fk;
     constexpr auto opTuple1 = fk::make_new_operation_tuple(fk::Add<int, int, int, fk::UnaryType>::build());
 
     using OpTuple1Type = std::decay_t<decltype(opTuple1)>;

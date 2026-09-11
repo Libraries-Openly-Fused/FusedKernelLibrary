@@ -24,9 +24,8 @@
 #include <fused_kernel/algorithms/image_processing/border_reader.h>
 #include <fused_kernel/fused_kernel.h>
 
-using namespace fk;
-
 void testCompareReferenceVSValueVSInstantiableDPP() {
+    using namespace fk;
     Stream stream;
 
     // We set all outputs to the same size

@@ -23,7 +23,7 @@
 #include <fused_kernel/algorithms/image_processing/resize.h>
 #include <fused_kernel/fused_kernel.h>
 
-using namespace fk;
+namespace fk {
 
 template <ParArch PA = defaultParArch> struct SimpleTransformDPPValue;
 template <ParArch PA = defaultParArch> struct SimpleTransformDPPValueLessCallDepth;
@@ -537,8 +537,10 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     stream.sync();
 }
 
+} // namespace fk
+
 int launch() {
-    testCompareReferenceVSValueVSInstantiableDPP();
+    fk::testCompareReferenceVSValueVSInstantiableDPP();
 
     return 0; 
 }

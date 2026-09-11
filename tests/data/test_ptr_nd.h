@@ -23,9 +23,7 @@
 
 #include <iostream>
 
-using namespace fk;
-
-using PtrToTest = Ptr2D<fk::uchar3>;
+using PtrToTest = fk::Ptr2D<fk::uchar3>;
 constexpr int WIDTH = 64;
 constexpr int HEIGHT = 64;
 
@@ -41,7 +39,8 @@ PtrToTest& test_return_by_reference(PtrToTest& somePtr) {
     return somePtr;
 }
 
-void test_uploadTo(Stream& stream) {
+void test_uploadTo(fk::Stream& stream) {
+    using namespace fk;
 #if defined(__NVCC__)
     // Device pointers
     Ptr1D<fk::uchar3> test1D(1333, 0, MemType::Device);
@@ -76,7 +75,8 @@ void test_uploadTo(Stream& stream) {
 #endif
 }
 
-void test_downloadTo(Stream& stream) {
+void test_downloadTo(fk::Stream& stream) {
+    using namespace fk;
 #if defined(__NVCC__)
     // Device pointers
     Ptr1D<fk::uchar3> test1D(1333, 0, MemType::Device);
@@ -107,7 +107,8 @@ void test_downloadTo(Stream& stream) {
 #endif
 }
 
-void test_upload(Stream& stream) {
+void test_upload(fk::Stream& stream) {
+    using namespace fk;
     // Device pointers
     Ptr1D<fk::uchar3> test1D(1333);
     Ptr2D<fk::uchar3> test2D(1333, 444);
@@ -123,7 +124,8 @@ void test_upload(Stream& stream) {
     stream.sync();
 }
 
-void test_download(Stream& stream) {
+void test_download(fk::Stream& stream) {
+    using namespace fk;
     // Device pointers
     Ptr1D<fk::uchar3> test1D(1333);
     Ptr2D<fk::uchar3> test2D(1333, 444);
@@ -140,7 +142,7 @@ void test_download(Stream& stream) {
 }
 
 int launch() {
-
+    using namespace fk;
     Stream stream;
 
     PtrToTest test0(WIDTH, HEIGHT);

@@ -25,8 +25,6 @@
 #include <cstdio>
 #include <vector>
 
-using namespace fk;
-
 namespace {
 constexpr float READ_BIAS = 0.25f;
 constexpr float WRITE_BIAS = -0.5f;
@@ -72,10 +70,11 @@ struct Result {
     std::vector<float> output;
 };
 
-template <ParArch PA, int EX, int EY, int KW, int KH>
+template <fk::ParArch PA, int EX, int EY, int KW, int KH>
 Result runCase(const int width, const int height,
                const int runtimeKW, const int runtimeKH,
                const int anchorX, const int anchorY) {
+    using namespace fk;
     constexpr bool GPU = PA == ParArch::GPU_NVIDIA;
     const auto memoryType = GPU ? MemType::DeviceAndPinned : MemType::Host;
     Ptr2D<float> input(width, height, 0, memoryType);
@@ -134,11 +133,11 @@ bool verifyCase(const int width, const int height,
                 const int runtimeKW, const int runtimeKH,
                 const int anchorX, const int anchorY,
                 const char* name) {
-    const auto cpu = runCase<ParArch::CPU, EX, EY, KW, KH>(
+    const auto cpu = runCase<fk::ParArch::CPU, EX, EY, KW, KH>(
         width, height, runtimeKW, runtimeKH, anchorX, anchorY);
     bool ok = cpu.passed;
 #if defined(__NVCC__)
-    const auto gpu = runCase<ParArch::GPU_NVIDIA, EX, EY, KW, KH>(
+    const auto gpu = runCase<fk::ParArch::GPU_NVIDIA, EX, EY, KW, KH>(
         width, height, runtimeKW, runtimeKH, anchorX, anchorY);
     bool parity = gpu.output.size() == cpu.output.size();
     for (std::size_t i = 0; i < gpu.output.size() && parity; ++i) {

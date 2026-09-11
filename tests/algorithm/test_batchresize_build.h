@@ -19,9 +19,8 @@
 #include <fused_kernel/core/data/array.h>
 #include <array>
 
-using namespace fk;
-
 int launch() {
+    using namespace fk;
     constexpr size_t BATCH = 20;
     constexpr RawPtr<ND::_2D, float> data{ nullptr,{16,16,16} };
     constexpr std::array<RawPtr<ND::_2D, float>, BATCH> inputs = make_set_std_array<BATCH>(data);

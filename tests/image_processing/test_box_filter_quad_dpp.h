@@ -23,8 +23,6 @@
 #include <cstdio>
 #include <vector>
 
-using namespace fk;
-
 namespace {
 
 constexpr unsigned char READ_BIAS = 1;
@@ -58,10 +56,11 @@ struct CaseResult {
     std::vector<unsigned char> output;
 };
 
-template <ParArch PA, int EX, int EY, int KW, int KH>
+template <fk::ParArch PA, int EX, int EY, int KW, int KH>
 CaseResult runCase(const int width, const int height,
                    const int runtimeKW, const int runtimeKH,
                    const int anchorX, const int anchorY) {
+    using namespace fk;
     using DPP = BoxFilterQuadDPP<PA, unsigned char, EX, EY, KW, KH>;
     constexpr bool GPU = PA == ParArch::GPU_NVIDIA;
     const MemType memoryType = GPU ? MemType::DeviceAndPinned : MemType::Host;
@@ -123,11 +122,11 @@ bool verifyCase(const int width, const int height,
                 const int runtimeKW, const int runtimeKH,
                 const int anchorX, const int anchorY,
                 const char* name) {
-    const auto cpu = runCase<ParArch::CPU, EX, EY, KW, KH>(
+    const auto cpu = runCase<fk::ParArch::CPU, EX, EY, KW, KH>(
         width, height, runtimeKW, runtimeKH, anchorX, anchorY);
     bool ok = cpu.passed;
 #if defined(__NVCC__)
-    const auto gpu = runCase<ParArch::GPU_NVIDIA, EX, EY, KW, KH>(
+    const auto gpu = runCase<fk::ParArch::GPU_NVIDIA, EX, EY, KW, KH>(
         width, height, runtimeKW, runtimeKH, anchorX, anchorY);
     ok = gpu.passed && gpu.output == cpu.output && ok;
     std::printf("BoxFilterQuad %-14s %dx%d k%dx%d CPU/GPU %s\n",

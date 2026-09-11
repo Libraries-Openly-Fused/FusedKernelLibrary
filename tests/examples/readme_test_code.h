@@ -22,9 +22,8 @@
 #include <fused_kernel/algorithms/image_processing/resize.h>
 #include <fused_kernel/fused_kernel.h>
 
-using namespace fk;
-
 int launch() {
+    using namespace fk;
     Stream stream;
 
     // We set all outputs to the same size

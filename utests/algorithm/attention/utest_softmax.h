@@ -23,13 +23,12 @@
 #include <random>
 #include <vector>
 
-using namespace fk;
-
 static int failures = 0;
 
 static void runCase(const char* name, const int width, const int height,
                     const float lo, const float hi, const double tol,
                     const unsigned seed) {
+    using namespace fk;
     std::mt19937 rng(seed);
     std::uniform_real_distribution<float> dist(lo, hi);
 
@@ -82,6 +81,7 @@ static void runCase(const char* name, const int width, const int height,
 // softmax over 2*x differs from softmax over x -> both effects verified.
 static void runPrologueCase(const char* name, const int width, const int height,
                             const double tol, const unsigned seed) {
+    using namespace fk;
     std::mt19937 rng(seed);
     std::uniform_real_distribution<float> dist(-4.f, 4.f);
 

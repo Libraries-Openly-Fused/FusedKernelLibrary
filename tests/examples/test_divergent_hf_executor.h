@@ -25,13 +25,12 @@
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/fused_kernel.h>
 
-using namespace fk;
-
 struct MySelector {
     FK_HOST_DEVICE_FUSE uint at(const uint& index) { return index == 0 ? 0u : 1u; }
 };
 
 int launch() {
+    using namespace fk;
     Stream stream;
 
     constexpr int WIDTH = 8;

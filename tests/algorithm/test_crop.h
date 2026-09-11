@@ -18,9 +18,9 @@
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/image_processing/resize.h>
 
-using namespace fk;
-
 int launch() {
+    using namespace fk;
+
     constexpr RawPtr<ND::_2D, fk::uchar3> input{ nullptr, {128, 128, 128*sizeof(fk::uchar3)}};
     constexpr auto readIOp = PerThreadRead<ND::_2D, fk::uchar3>::build(input);
     using ReadIOp = decltype(readIOp);

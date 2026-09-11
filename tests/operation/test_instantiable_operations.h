@@ -23,27 +23,26 @@
 #include <fused_kernel/algorithms/basic_ops/set.h>
 #include <fused_kernel/fused_kernel.h>
 
-using namespace fk;
-
 // Operation types
 // Read
-using RPerThrFloat = PerThreadRead<ND::_2D, float>;
+using RPerThrFloat = fk::PerThreadRead<fk::ND::_2D, float>;
 // ReadBack
-using RBResize = Resize<InterpolationType::INTER_LINEAR, AspectRatio::IGNORE_AR, Instantiable<RPerThrFloat>>;
+using RBResize = fk::Resize<fk::InterpolationType::INTER_LINEAR, fk::AspectRatio::IGNORE_AR, fk::Instantiable<RPerThrFloat>>;
 // Unary
-using UIntFloat = Cast<int, float>;
-using UFloatInt = Cast<float, int>;
+using UIntFloat = fk::Cast<int, float>;
+using UFloatInt = fk::Cast<float, int>;
 // Binary
-using BAddInt = Add<int>;
-using BAddFloat = Add<float>;
+using BAddInt = fk::Add<int>;
+using BAddFloat = fk::Add<float>;
 // Ternary
-using TInterpFloat = InterpolateComplete<InterpolationType::INTER_LINEAR, Instantiable<RPerThrFloat>>;
+using TInterpFloat = fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::Instantiable<RPerThrFloat>>;
 // Write
-using WPerThrFloat = PerThreadWrite<ND::_2D, float>;
+using WPerThrFloat = fk::PerThreadWrite<fk::ND::_2D, float>;
 // MidWrite
-using MWPerThrFloat = FusedOperation<WPerThrFloat, BAddFloat>;
+using MWPerThrFloat = fk::FusedOperation<WPerThrFloat, BAddFloat>;
 
 constexpr inline bool test_read_then_batch() {
+    using namespace fk;
     constexpr RawPtr<ND::_2D, float> input{ nullptr, { 64,64, 64 * sizeof(float) } };
     constexpr auto readIOp = RPerThrFloat::build(input);
 
@@ -77,6 +76,7 @@ constexpr inline bool test_read_then_batch() {
 }
 
 constexpr inline bool test_readback_then_batch() {
+    using namespace fk;
 
     constexpr RawPtr<ND::_2D, float> input{ nullptr, { 64, 64, 64 * sizeof(float) } };
     constexpr auto readIOp = RPerThrFloat::build(input);
@@ -93,6 +93,7 @@ constexpr inline bool test_readback_then_batch() {
 }
 
 constexpr inline bool test_batch_then_readback() {
+    using namespace fk;
     constexpr std::array<RawPtr<ND::_2D, float>, 2> inputs{ RawPtr<ND::_2D, float>{nullptr, {64,64, 64 * sizeof(float)}},
                                                         RawPtr<ND::_2D, float>{nullptr, {128,64, 64 * (sizeof(float))}} };
 
@@ -109,6 +110,7 @@ constexpr inline bool test_batch_then_readback() {
 }
 
 constexpr inline bool test_batch_then_compute() {
+    using namespace fk;
     constexpr std::array<RawPtr<ND::_2D, float>, 2> inputs{ RawPtr<ND::_2D, float>{nullptr, {64,64, 64 * sizeof(float)}},
                                                         RawPtr<ND::_2D, float>{nullptr, {64,64, 64 * (sizeof(float))}} };
 
@@ -122,6 +124,7 @@ constexpr inline bool test_batch_then_compute() {
 }
 
 constexpr inline bool test_read_then_readback() {
+    using namespace fk;
     constexpr RawPtr<ND::_2D, float> input{ nullptr, { 64, 64, 64 * sizeof(float) } };
     constexpr auto readIOp = RPerThrFloat::build(input);
 
@@ -132,6 +135,7 @@ constexpr inline bool test_read_then_readback() {
 }
 
 constexpr inline bool test_batched() {
+    using namespace fk;
 
     constexpr std::array<RawPtr<ND::_2D, float>, 2> inputs{ RawPtr<ND::_2D, float>{nullptr, {64,64, 64*sizeof(float)}},
                                                         RawPtr<ND::_2D, float>{nullptr, {64,64, 64*(sizeof(float))}}};
@@ -171,6 +175,7 @@ constexpr inline bool test_batched() {
 }
 
 int launch() {
+    using namespace fk;
     constexpr Instantiable<RPerThrFloat> func1{};
     func1.then(UFloatInt::build());
     fuse(func1, UFloatInt::build());

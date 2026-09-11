@@ -18,9 +18,8 @@
 #include <fused_kernel/core/execution_model/execution_model.h>
 #include <fused_kernel/algorithms/algorithms.h>
 
-using namespace fk;
-
 void testLTS0013() {
+    using namespace fk;
     // Define input and output data
     Ptr2D<fk::uchar4> input(1920, 1080);
     std::array<Rect, 5> crops{ Rect(0, 0, 120, 40),

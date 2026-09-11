@@ -26,23 +26,21 @@
 #include <type_traits>
 #include <vector>
 
-using namespace fk;
-
 namespace {
 
-using Details = MorphologyDPPDetails<float, 16, 8, 7, 7>;
-using MinReducer = Min<float, float, float, UnaryType>;
-using MaxReducer = Max<float, float, float, UnaryType>;
+using Details = fk::MorphologyDPPDetails<float, 16, 8, 7, 7>;
+using MinReducer = fk::Min<float, float, float, fk::UnaryType>;
+using MaxReducer = fk::Max<float, float, float, fk::UnaryType>;
 using MinIOp = decltype(MinReducer::build());
 using MaxIOp = decltype(MaxReducer::build());
 
-static_assert(MorphologyDPP<ParArch::CPU, Details>::
-              template validReducerCount<Tuple<MinIOp>>);
-static_assert(!MorphologyDPP<ParArch::CPU, Details>::
-              template validReducerCount<Tuple<>>);
-static_assert(!MorphologyDPP<ParArch::CPU, Details>::
+static_assert(fk::MorphologyDPP<fk::ParArch::CPU, Details>::
+              template validReducerCount<fk::Tuple<MinIOp>>);
+static_assert(!fk::MorphologyDPP<fk::ParArch::CPU, Details>::
+              template validReducerCount<fk::Tuple<>>);
+static_assert(!fk::MorphologyDPP<fk::ParArch::CPU, Details>::
               template validReducerCount<
-                  Tuple<MinIOp, MaxIOp, MinIOp, MaxIOp, MinIOp>>);
+                  fk::Tuple<MinIOp, MaxIOp, MinIOp, MaxIOp, MinIOp>>);
 static_assert(Details::MAX_MASK_WIDTH == 7 && Details::MAX_MASK_HEIGHT == 7);
 
 float inputValue(const int x, const int y) {
@@ -90,6 +88,7 @@ template <typename Reducers>
 bool runCpuCase(const char* name, const Details& details,
                 const Reducers& reducers,
                 const std::vector<bool>& erodePasses) {
+    using namespace fk;
     std::vector<float> input(details.width * details.height);
     std::vector<float> output(input.size(), -777.f);
     for (int y = 0; y < details.height; ++y)
@@ -129,6 +128,7 @@ template <typename Reducers>
 bool runGpuCase(const char* name, const Details& details,
                 const Reducers& reducers,
                 const std::vector<bool>& erodePasses) {
+    using namespace fk;
     std::vector<float> hostInput(details.width * details.height);
     for (int y = 0; y < details.height; ++y)
         for (int x = 0; x < details.width; ++x)
@@ -201,6 +201,7 @@ bool runCase(const char* name, const Details& details,
 } // namespace
 
 int launch() {
+    using namespace fk;
     const auto minOp = MinReducer::build();
     const auto maxOp = MaxReducer::build();
     bool ok = true;

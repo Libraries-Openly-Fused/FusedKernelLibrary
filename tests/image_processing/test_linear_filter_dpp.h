@@ -22,14 +22,12 @@
 #include <cstdio>
 #include <vector>
 
-using namespace fk;
-
 namespace {
 
-using Details = LinearFilterDPPDetails<float, 16, 8, 7, 7>;
-using MulIOp = decltype(Mul<float, float, float, UnaryType>::build());
-using AddIOp = decltype(Add<float, float, float, UnaryType>::build());
-using SubIOp = decltype(Sub<float, float, float, UnaryType>::build());
+using Details = fk::LinearFilterDPPDetails<float, 16, 8, 7, 7>;
+using MulIOp = decltype(fk::Mul<float, float, float, fk::UnaryType>::build());
+using AddIOp = decltype(fk::Add<float, float, float, fk::UnaryType>::build());
+using SubIOp = decltype(fk::Sub<float, float, float, fk::UnaryType>::build());
 
 enum class Arithmetic { NORMAL, MUTATE_MUL_TO_ADD, MUTATE_ADD_TO_SUB };
 
@@ -100,6 +98,7 @@ template <typename ImageRead, typename KernelRead,
 bool runCpu(const Details& details, const ImageRead& image,
             const KernelRead& kernel, const Multiply& multiply,
             const Accumulate& accumulate, const Write& write) {
+    using namespace fk;
     LinearFilterDPP<ParArch::CPU, Details>::exec(
         details, make_tuple(image, kernel), multiply, accumulate, write);
     return true;
@@ -128,6 +127,7 @@ bool runCase(const int width, const int height,
              const Multiply& multiply,
              const Accumulate& accumulate,
              const char* label) {
+    using namespace fk;
     const Details details{width, height, kernelWidth, kernelHeight,
                           anchorX, anchorY};
     const auto input = makeInput(width, height);
@@ -226,6 +226,7 @@ bool runCase(const int width, const int height,
 } // namespace
 
 int launch() {
+    using namespace fk;
     const auto mul = Mul<float, float, float, UnaryType>::build();
     const auto add = Add<float, float, float, UnaryType>::build();
     const auto sub = Sub<float, float, float, UnaryType>::build();

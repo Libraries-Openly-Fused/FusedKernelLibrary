@@ -19,9 +19,7 @@
 #include <fused_kernel/core/execution_model/executors.h>
 #include <iostream>
 
-using namespace fk;
-
-struct TestBackFuser : public BackFuser {
+struct TestBackFuser : public fk::BackFuser {
     template <typename... IOps>
     FK_HOST_FUSE size_t test_idxFirstNonBack() {
         return BackFuser::idxFirstNonBack<IOps...>();
@@ -34,7 +32,7 @@ constexpr size_t testIdxFirstNonBack(const IOps&...) {
 }
 
 bool testBack() {
-
+    using namespace fk;
     // Inputs
     constexpr RawPtr<ND::_2D, fk::uchar3> input{nullptr, {128, 128, 0}};
 
@@ -89,6 +87,7 @@ bool testBack() {
 }
 
 int launch() {
+    using namespace fk;
     Stream stream;
 
     Ptr2D<fk::float2> input(1920, 1080);
