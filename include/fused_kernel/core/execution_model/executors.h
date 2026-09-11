@@ -309,49 +309,30 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         return CtxDim3(blockDimX[bxS], blockDimY[byS][bxS]);
     }
 
-    // The only backend specific pieces: native stream retrieval and last error checking.
-    template <enum ParArch PA>
-    struct GPUBackend;
-
-#if defined(__NVCC__)
-    template <>
-    struct GPUBackend<ParArch::GPU_NVIDIA> {
-        FK_STATIC_STRUCT(GPUBackend, GPUBackend)
-        FK_HOST_STATIC cudaStream_t nativeStream(const Stream_<ParArch::GPU_NVIDIA>& stream) {
-            return stream.getCUDAStream();
-        }
-        FK_HOST_STATIC void checkLastError() {
-            gpuErrchk(cudaGetLastError());
-        }
-    };
-#endif // __NVCC__
-
-#if defined(__HIPCC__)
-    template <>
-    struct GPUBackend<ParArch::GPU_AMD> {
-        FK_STATIC_STRUCT(GPUBackend, GPUBackend)
-        FK_HOST_STATIC hipStream_t nativeStream(const Stream_<ParArch::GPU_AMD>& stream) {
-            return stream.getHIPStream();
-        }
-        FK_HOST_STATIC void checkLastError() {
-            gpuErrchk(hipGetLastError());
-        }
-    };
-#endif // __HIPCC__
-
     FK_HOST_CNST dim3 getDefaultGrid(const ActiveThreads& activeThreads, const dim3& block) {
         return dim3{ static_cast<uint>(ceil(activeThreads.x / static_cast<float>(block.x))),
                      static_cast<uint>(ceil(activeThreads.y / static_cast<float>(block.y))),
                      activeThreads.z };
     }
 
-    template <enum ParArch PA, enum TF TFEN>
-    struct GPUTransformExecutor {
-        FK_STATIC_STRUCT(GPUTransformExecutor, GPUTransformExecutor)
+    template <enum ParArch ARCH, enum TF TFEN>
+#if defined(__NVCC__)
+        requires (ARCH == ParArch::GPU_NVIDIA)
+#else
+        requires (ARCH == ParArch::GPU_AMD)
+#endif
+    struct Executor<TransformDPP<ARCH, TFEN>> {
+    private:
+        using Child = Executor<TransformDPP<ARCH, TFEN>>;
+        using Parent = BaseExecutor<Child>;
         template <typename... IOps>
-        FK_HOST_FUSE void exec(Stream_<PA>& stream_, const IOps&... iOps) {
-            const auto stream = GPUBackend<PA>::nativeStream(stream_);
-            const auto tDetails = TransformDPP<PA, TFEN>::build_details(iOps...);
+        FK_HOST_FUSE void executeOperations_helper(Stream_<ARCH>& stream_, const IOps&... iOps) {
+#if defined(__NVCC__)
+            const cudaStream_t stream = stream_.getCUDAStream();
+#else
+            const hipStream_t stream = stream_.getHIPStream();
+#endif
+            const auto tDetails = TransformDPP<ARCH, TFEN>::build_details(iOps...);
             if constexpr (decltype(tDetails)::TFI::ENABLED) {
                 const ActiveThreads activeThreads = tDetails.activeThreads;
 
@@ -360,11 +341,10 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                 const dim3 block{ ctx_block.x, ctx_block.y, 1 };
                 const dim3 grid = getDefaultGrid(activeThreads, block);
                 if (!tDetails.threadDivisible) {
-                    launchTransformDPP_Kernel<PA, TFEN, false><<<grid, block, 0, stream>>>(tDetails, iOps...);
+                    launchTransformDPP_Kernel<ARCH, TFEN, false><<<grid, block, 0, stream>>>(tDetails, iOps...);
                 } else {
-                    launchTransformDPP_Kernel<PA, TFEN, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
+                    launchTransformDPP_Kernel<ARCH, TFEN, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
                 }
-                GPUBackend<PA>::checkLastError();
             } else {
                 const auto readOp = get_arg<0>(iOps...);
 
@@ -374,17 +354,33 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
 
                 const dim3 block{ ctx_block.x, ctx_block.y, 1 };
                 const dim3 grid = getDefaultGrid(activeThreads, block);
-                launchTransformDPP_Kernel<PA, TFEN, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
-                GPUBackend<PA>::checkLastError();
+                launchTransformDPP_Kernel<ARCH, TFEN, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
             }
+#if defined(__NVCC__)
+            gpuErrchk(cudaGetLastError());
+#else
+            gpuErrchk(hipGetLastError());
+#endif
         }
+    public:
+        FK_STATIC_STRUCT(Executor, Child)
+        FK_HOST_FUSE ParArch parArch() {
+            return ARCH;
+        }
+        DECLARE_EXECUTOR_PARENT_IMPL
     };
 
     template <enum ParArch PA, typename SequenceSelector>
-    struct GPUDivergentBatchExecutor {
+#if defined(__NVCC__)
+        requires (PA == ParArch::GPU_NVIDIA)
+#else
+        requires (PA == ParArch::GPU_AMD)
+#endif
+    struct Executor<DivergentBatchTransformDPP<PA, SequenceSelector>> {
     private:
         using DPPType = DivergentBatchTransformDPP<PA, SequenceSelector>;
         using DPPDetails = typename DPPType::DPPDetails;
+        using SelfType = Executor<DPPType>;
 
         template <typename... IOpSequenceTypes>
         FK_HOST_FUSE ActiveThreads getActiveThreads(const IOpSequenceTypes&... iOpSequences) {
@@ -412,59 +408,27 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             const dim3 block(cxp::min::f(activeThreads.x, 32u), cxp::min::f(activeThreads.y, 8u));
             const dim3 grid(ceil(activeThreads.x / static_cast<float>(block.x)),
                             ceil(activeThreads.y / static_cast<float>(block.y)), activeThreads.z);
+#if defined(__NVCC__)
             launchDivergentBatchTransformDPP_Kernel<PA, SequenceSelector>
-                <<<grid, block, 0, GPUBackend<PA>::nativeStream(stream)>>>(details, iOpSequences...);
-            GPUBackend<PA>::checkLastError();
+                <<<grid, block, 0, stream.getCUDAStream()>>>(details, iOpSequences...);
+            gpuErrchk(cudaGetLastError());
+#else
+            launchDivergentBatchTransformDPP_Kernel<PA, SequenceSelector>
+                <<<grid, block, 0, stream.getHIPStream()>>>(details, iOpSequences...);
+            gpuErrchk(hipGetLastError());
+#endif
         }
 
     public:
-        FK_STATIC_STRUCT(GPUDivergentBatchExecutor, GPUDivergentBatchExecutor)
+        FK_STATIC_STRUCT(Executor, SelfType)
+        FK_HOST_FUSE ParArch parArch() {
+            return PA;
+        }
         template <typename... IOpSequenceTypes>
-        FK_HOST_FUSE void exec(Stream_<PA>& stream, const IOpSequenceTypes&... iOpSequences) {
+        FK_HOST_FUSE void executeOperations(Stream_<PA>& stream, const IOpSequenceTypes&... iOpSequences) {
             executeOperationsFused(stream, fuseBackSequence(iOpSequences)...);
         }
     };
-
-#define DECLARE_GPU_EXECUTORS(PAR_ARCH_VALUE) \
-    template <enum TF TFEN> \
-    struct Executor<TransformDPP<PAR_ARCH_VALUE, TFEN>> { \
-    private: \
-        using Child = Executor<TransformDPP<PAR_ARCH_VALUE, TFEN>>; \
-        using Parent = BaseExecutor<Child>; \
-        template <typename... IOps> \
-        FK_HOST_FUSE void executeOperations_helper(Stream_<PAR_ARCH_VALUE>& stream, const IOps&... iOps) { \
-            GPUTransformExecutor<PAR_ARCH_VALUE, TFEN>::exec(stream, iOps...); \
-        } \
-    public: \
-        FK_STATIC_STRUCT(Executor, Child) \
-        FK_HOST_FUSE ParArch parArch() { \
-            return PAR_ARCH_VALUE; \
-        } \
-        DECLARE_EXECUTOR_PARENT_IMPL \
-    }; \
-    \
-    template <typename SequenceSelector> \
-    struct Executor<DivergentBatchTransformDPP<PAR_ARCH_VALUE, SequenceSelector>> { \
-    private: \
-        using SelfType = Executor<DivergentBatchTransformDPP<PAR_ARCH_VALUE, SequenceSelector>>; \
-    public: \
-        FK_STATIC_STRUCT(Executor, SelfType) \
-        FK_HOST_FUSE ParArch parArch() { \
-            return PAR_ARCH_VALUE; \
-        } \
-        template <typename... IOpSequenceTypes> \
-        FK_HOST_FUSE void executeOperations(Stream_<PAR_ARCH_VALUE>& stream, const IOpSequenceTypes&... iOpSequences) { \
-            GPUDivergentBatchExecutor<PAR_ARCH_VALUE, SequenceSelector>::exec(stream, iOpSequences...); \
-        } \
-    };
-
-#if defined(__NVCC__)
-    DECLARE_GPU_EXECUTORS(ParArch::GPU_NVIDIA)
-#endif // __NVCC__
-
-#if defined(__HIPCC__)
-    DECLARE_GPU_EXECUTORS(ParArch::GPU_AMD)
-#endif // __HIPCC__
 
 #endif // __NVCC__ || __HIPCC__
 } // namespace fk
