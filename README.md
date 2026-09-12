@@ -5,7 +5,7 @@
   [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
   [![C++](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.wikipedia.org/wiki/C%2B%2B20)
   [![CUDA](https://img.shields.io/badge/CUDA-Supported-76B900.svg)](https://developer.nvidia.com/cuda-toolkit)
-  [![ROCm](https://img.shields.io/badge/ROCm-10.0.0_Supported-ED1C24.svg)](https://rocm.amd.com/)
+  [![ROCm](https://img.shields.io/badge/ROCm-10.0.0_Supported-ED1C24.svg)](https://rocm.docs.amd.com/en/latest/)
 </div>
 
 ---
