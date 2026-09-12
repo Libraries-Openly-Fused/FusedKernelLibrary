@@ -124,7 +124,7 @@ namespace cxp {
                                (bits & 0x000FFFFFFFFFFFFFull) != 0;
                     }
                 } else {
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
                     if constexpr (std::is_same_v<ST, float>) {
                         return __isnanf(s);
                     } else {
@@ -155,7 +155,7 @@ namespace cxp {
                         return (bits & 0x7FFFFFFFFFFFFFFFull) == 0x7FF0000000000000ull;
                     }
                 } else {
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
                     if constexpr (std::is_same_v<ST, float>) {
                         return __isinff(s);
                     } else {

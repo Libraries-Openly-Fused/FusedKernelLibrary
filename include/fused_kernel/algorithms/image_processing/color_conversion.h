@@ -57,13 +57,13 @@ namespace fk {
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
             // 0.299*R + 0.587*G + 0.114*B
             if constexpr (std::is_unsigned_v<OutputType>) {
-#ifdef __CUDA_ARCH__
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
                 return __float2uint_rn(compute_luminance(input));
 #else
                 return static_cast<OutputType>(std::nearbyint(compute_luminance(input)));
 #endif
             } else if constexpr (std::is_signed_v<OutputType>) {
-#ifdef __CUDA_ARCH__
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
                 return __float2int_rn(compute_luminance(input));
 #else
                 return static_cast<OutputType>(std::nearbyint(compute_luminance(input)));

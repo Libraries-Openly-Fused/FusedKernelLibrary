@@ -153,7 +153,7 @@ struct saturate_float {
     struct BaseFunc {
         using InstanceType = fk::UnaryType;
         FK_HOST_DEVICE_FUSE float exec(const float s) {
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
             if (base::is_constant_evaluated()) {
                 return fmax::BaseFunc::exec(0.f, fmin::BaseFunc::exec(s, 1.f));
             } else {
