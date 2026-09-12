@@ -349,31 +349,14 @@ namespace fk { // namespace FusedKernel
     };
 
 #if defined(__NVCC__) || defined(__HIPCC__)
-    template <typename SequenceSelector>
-    struct DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelector> {
+    template <ParArch PA, typename SequenceSelector>
+    requires (PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
+    struct DivergentBatchTransformDPP<PA, SequenceSelector> {
     private:
-        using Parent = DivergentBatchTransformDPPBase<ParArch::GPU_NVIDIA, SequenceSelector>;
+        using Parent = DivergentBatchTransformDPPBase<PA, SequenceSelector>;
     public:
-        using DPPDetails = DivergentBatchTransformDPPDetails<ParArch::GPU_NVIDIA>;
-        static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
-        template <typename... IOpSequenceTypes>
-        FK_DEVICE_FUSE void exec(const DPPDetails&, const IOpSequenceTypes&... iOpSequences) {
-            const int x = (blockDim.x * blockIdx.x) + threadIdx.x;
-            const int y = (blockDim.y * blockIdx.y) + threadIdx.y;
-            const int z = blockIdx.z;
-            const Point thread{ x, y, z };
-
-            Parent::template divergent_operate<0>(thread, iOpSequences...);
-        }
-    };
-
-    template <typename SequenceSelector>
-    struct DivergentBatchTransformDPP<ParArch::GPU_AMD, SequenceSelector> {
-    private:
-        using Parent = DivergentBatchTransformDPPBase<ParArch::GPU_AMD, SequenceSelector>;
-    public:
-        using DPPDetails = DivergentBatchTransformDPPDetails<ParArch::GPU_AMD>;
-        static constexpr ParArch PAR_ARCH = ParArch::GPU_AMD;
+        using DPPDetails = DivergentBatchTransformDPPDetails<PA>;
+        static constexpr ParArch PAR_ARCH = PA;
         template <typename... IOpSequenceTypes>
         FK_DEVICE_FUSE void exec(const DPPDetails&, const IOpSequenceTypes&... iOpSequences) {
             const int x = (blockDim.x * blockIdx.x) + threadIdx.x;
