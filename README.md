@@ -125,8 +125,9 @@ You can explore how FKL generates highly optimized assembly without installing a
 FKL is built on rigorously tested academic methodology. If you use FKL in your research, please refer to our publications:
 
 - 📄 **Preprint Journal Paper (arXiv):** [Methodology for GPU Kernel Fusion](https://arxiv.org/abs/2508.07071v2) *(Pending IEEE approval)*
-- 🖼️ **NVIDIA GTC 2025:** [Poster Presentation](https://www.nvidia.com/gtc/posters/?search=P73324#/session/1728599648492001N7Sn)
-- 🏆 **PUMPS + AI 2025:** Award-winning continuation poster at the Barcelona Supercomputing Center ([LinkedIn Post](#)).
+- 🖼️ **NVIDIA GTC 2025:** [![GTC 2025 Poster](docs/posters/FKL_GTC2025.PNG)](docs/posters/FKL_GTC2025.pdf).
+- 🏆 **PUMPS + AI 2025:** Award-winning continuation poster at the Barcelona Supercomputing Center [![PUMPS 2025 Poster]](docs/posters/New_GPU_automatic_kernel_fusion_speciesV2.pdf).
+- **PUMPS + AI 2026:** Explanation of how we avoid performance damaging local memory accesses in a systematic way. [![PUMPS 2026 Poster]](docs/posters/PUMPS2026.pdf).
 
 ---
 
