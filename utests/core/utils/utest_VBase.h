@@ -43,21 +43,23 @@ constexpr bool validateVBaseFor(const std::index_sequence<Idx...>&) {
 template <size_t First, size_t... Rest>
 constexpr bool allEqual = ((First == Rest) && ...);
 
+int launch_impl() {
+
+    static_assert(allEqual<VOne::size, VTwo::size, VThree::size, VFour::size, BaseTypes::size>, "Those TypeLists must be all equal.");
+    constexpr auto idxSeq = std::make_index_sequence<BaseTypes::size>{};
+    static_assert(validateVBaseFor<BaseTypes, BaseTypes>(idxSeq), "Error in VBase with fundamental types");
+    static_assert(validateVBaseFor<VOne, BaseTypes>(idxSeq), "Error in VBase with cuda vector types of one channel");
+    static_assert(validateVBaseFor<VTwo, BaseTypes>(idxSeq), "Error in VBase with cuda vector types of two channels");
+    static_assert(validateVBaseFor<VThree, BaseTypes>(idxSeq), "Error in VBase with cuda vector types of three channels");
+    static_assert(validateVBaseFor<VFour, BaseTypes>(idxSeq), "Error in VBase with cuda vector types of four channels");
+
+    return 0;
+}
 
 } // namespace fk
 
 int launch() {
-    using namespace fk;
-
-    static_assert(allEqual<fk::VOne::size, fk::VTwo::size, fk::VThree::size, fk::VFour::size, fk::BaseTypes::size>, "Those TypeLists must be all equal.");
-    constexpr auto idxSeq = std::make_index_sequence<fk::BaseTypes::size>{};
-    static_assert(validateVBaseFor<fk::BaseTypes, fk::BaseTypes>(idxSeq), "Error in VBase with fundamental types");
-    static_assert(validateVBaseFor<fk::VOne, fk::BaseTypes>(idxSeq), "Error in VBase with cuda vector types of one channel");
-    static_assert(validateVBaseFor<fk::VTwo, fk::BaseTypes>(idxSeq), "Error in VBase with cuda vector types of two channels");
-    static_assert(validateVBaseFor<fk::VThree, fk::BaseTypes>(idxSeq), "Error in VBase with cuda vector types of three channels");
-    static_assert(validateVBaseFor<fk::VFour, fk::BaseTypes>(idxSeq), "Error in VBase with cuda vector types of four channels");
-
-    return 0;
+    return fk::launch_impl();
 }
 
 #endif

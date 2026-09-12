@@ -75,7 +75,6 @@ inline bool test_saturate_float_rt() {
             allCorrect = false;
         }
     };
-
     check(0.f, 0.f, "cxp::saturate_float::f(0.f) should be 0.f");
     check(1.f, 1.f, "cxp::saturate_float::f(1.f) should be 1.f");
     check(0.5f, 0.5f, "cxp::saturate_float::f(0.5f) should be 0.5f");
@@ -101,10 +100,7 @@ inline bool test_saturate_float_rt() {
 }
 
 
-} // namespace fk
-
-int launch() {
-    using namespace fk;
+int launch_impl() {
     static_assert(test_saturate_float_ct(), "saturate_float compile-time tests failed");
 
     if (!test_saturate_float_rt()) {
@@ -113,6 +109,12 @@ int launch() {
 
     std::cout << "All tests passed!" << std::endl;
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }
 
 #endif // FK_TEST_CONSTEXPR_SATURATE_H

@@ -381,7 +381,6 @@ bool test_signbit_rt() {
             allCorrect = false;
         }
     };
-
     check(static_cast<T>(1.0), "1.0");
     check(static_cast<T>(-1.0), "-1.0");
     check(static_cast<T>(0.0), "+0.0");
@@ -1677,10 +1676,7 @@ bool runtime_tests() {
 }
 
 
-} // namespace fk
-
-int launch() {
-    using namespace fk;
+int launch_impl() {
     static_assert(test_round_ct<float>());
     static_assert(test_round_ct<double>());
 
@@ -1748,6 +1744,12 @@ int launch() {
     }
     std::cout << "All tests passed!" << std::endl;
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }
 
 #endif

@@ -34,8 +34,6 @@ struct CtExp {
     static constexpr float value = cxp::expf::f(cxp::bit_cast<float>(Bits));
     static constexpr uint bits = cxp::bit_cast<uint>(value);
 };
-
-// The constexpr path of cxp::expf must be bit identical to std::exp on a float input.
 // The expected bit patterns below were produced by std::exp and are checked against it
 // again at runtime, so a divergence on either side is caught.
 #define CHECK_CT_EXPF(inBits, outBits)                                                                                 \
@@ -62,10 +60,7 @@ CHECK_CT_EXPF(0xC2D20000u, 0x00000000u); // -105.0f      -> 0.0f
 #undef CHECK_CT_EXPF
 
 
-} // namespace fk
-
-int launch() {
-    using namespace fk;
+int launch_impl() {
     bool allCorrect = true;
 
     // Re-verify the same points at runtime against std::exp, so the constants above
@@ -142,6 +137,12 @@ int launch() {
         return 0;
     }
     return -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }
 
 #endif // FK_TEST_CONSTEXPR_EXPF_EXACT_H
