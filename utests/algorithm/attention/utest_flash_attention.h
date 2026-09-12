@@ -24,7 +24,7 @@
 #include <random>
 #include <vector>
 
-using namespace fk;
+namespace fk {
 
 // double-precision CPU oracle: O = softmax(scale * Q K^T [causal]) V
 static void cpuAttention(const std::vector<double>& q, const std::vector<double>& k,
@@ -203,7 +203,7 @@ static void testFusedPrologue() {
        reads every element through it. Verifiable algebra:
        Q prologue read.then(Mul(2)): compare against oracle on 2*Q.
        V prologue read.then(Mul(3)).then(Add(1)): out = 3*(sum p_j v_j) + 1
-       since sum p_j = 1 — compare against 3*oracle + 1. */
+         since sum p_j = 1 - compare against 3*oracle + 1. */
     constexpr int HEAD_DIM = 32, BH = 2, SQ = 24, SK = 48;
     std::mt19937 rng(123);
     std::uniform_real_distribution<float> dist(-1.f, 1.f);
@@ -270,7 +270,7 @@ static void testFusedPrologue() {
     cudaFree(q); cudaFree(k); cudaFree(v); cudaFree(o);
 }
 
-int launch() {
+int launch_impl() {
     testDense<64>("FA dense d64 b2 s64 causal", 2, 64, 64, true, 5e-6, 1);
     testDense<64>("FA dense d64 ragged s67/s131", 2, 67, 131, false, 5e-6, 2);
     testDense<32>("FA dense d32 cross s32->s96", 2, 32, 96, false, 5e-6, 3);
@@ -282,4 +282,10 @@ int launch() {
     if (failures == 0) { return 0; }
     std::cout << failures << " attention test(s) FAILED" << std::endl;
     return -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

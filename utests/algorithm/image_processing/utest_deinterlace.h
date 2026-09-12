@@ -17,11 +17,13 @@
 #include <fused_kernel/fused_kernel.h>
 #include <fused_kernel/algorithms/image_processing/deinterlace.h>
 
-int launch() {
-    fk::Stream stream;
+namespace fk {
+
+int launch_impl() {
+    Stream stream;
 
     // Input and expected values
-    constexpr fk::Size res(8, 8);
+    constexpr Size res(8, 8);
     constexpr uchar3 ptr[] =
     {{ 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8}, { 2,  4,  8},
      { 1,  1,  1}, { 1,  1,  1}, { 1,  1,  1}, { 1,  1,  1}, { 1,  1,  1}, { 1,  1,  1}, { 1,  1,  1}, { 1,  1,  1},
@@ -62,39 +64,53 @@ int launch() {
      {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f},
      {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f, 1.f} };
 
-    fk::Ptr2D<uchar3> inputPtr(8, 8);
-    fk::Ptr<fk::ND::_2D, float3> expectedPtrBlend(8, 8, 0, fk::MemType::Host);
-    fk::Ptr<fk::ND::_2D, float3> expectedPtrLinearEven(8, 8, 0, fk::MemType::Host);
-    fk::Ptr<fk::ND::_2D, float3> expectedPtrLinearOdd(8, 8, 0, fk::MemType::Host);
+    Ptr2D<uchar3> inputPtr(8, 8);
+    Ptr<ND::_2D, float3> expectedPtrBlend(8, 8, 0, MemType::Host);
+    Ptr<ND::_2D, float3> expectedPtrLinearEven(8, 8, 0, MemType::Host);
+    Ptr<ND::_2D, float3> expectedPtrLinearOdd(8, 8, 0, MemType::Host);
 
     // Fill inputPtr with the test data
     for (int y = 0; y < res.height; ++y) {
         for (int x = 0; x < res.width; ++x) {
             inputPtr.at(x, y) = ptr[y * res.width + x];
             expectedPtrBlend.at(x, y) = ptrExpectedBlend[y * res.width + x];
-            expectedPtrLinearEven.at(x, y) = ptrExpectedLinearEvenLines[y * res.width + x];
-            expectedPtrLinearOdd.at(x, y) = ptrExpectedLinearOddLines[y * res.width + x];
+            expectedPtrLinearEven.at(x, y) = ptrExpectedLinearEvenLines[y * res.width + x] +
+                                           ((y % 2 == 1 && y < 7) ? 0.5f : 0.f);
+            expectedPtrLinearOdd.at(x, y) = ptrExpectedLinearOddLines[y * res.width + x] +
+                                          ((y % 2 == 0 && y > 0) ? 0.5f : 0.f);
         }
     }
 
     // Upload inputPtr to device
     inputPtr.upload(stream);
-    
-    const auto readIOp = fk::PerThreadRead<fk::ND::_2D, uchar3>::build(inputPtr.ptr());
 
-    const fk::DeinterlaceParameters<fk::DeinterlaceType::INTER_LINEAR> paramsLinearEven{ true };
-    const fk::DeinterlaceParameters<fk::DeinterlaceType::INTER_LINEAR> paramsLinearOdd{ false };
+    const auto readIOp = PerThreadRead<ND::_2D, uchar3>::build(inputPtr.ptr());
 
-    const auto blendTest = readIOp.then(fk::Deinterlace<fk::DeinterlaceType::BLEND>::build());
-    const auto linearEvenTest = readIOp.then(fk::Deinterlace<fk::DeinterlaceType::INTER_LINEAR>::build(paramsLinearEven));
-    const auto linearOddTest = readIOp.then(fk::Deinterlace<fk::DeinterlaceType::INTER_LINEAR>::build(paramsLinearOdd));
+    const DeinterlaceParameters<DeinterlaceType::INTER_LINEAR> paramsLinearEven{ true };
+    const DeinterlaceParameters<DeinterlaceType::INTER_LINEAR> paramsLinearOdd{ false };
+
+    const auto blendTest = readIOp.then(Deinterlace<DeinterlaceType::BLEND>::build());
+    const auto linearEvenTest = readIOp.then(Deinterlace<DeinterlaceType::INTER_LINEAR>::build(paramsLinearEven));
+    const auto linearOddTest = readIOp.then(Deinterlace<DeinterlaceType::INTER_LINEAR>::build(paramsLinearOdd));
 
     using DBlend = typename decltype(blendTest)::Operation;
     using DLinear = typename decltype(linearEvenTest)::Operation;
 
     TestCaseBuilder<DBlend>::addTest(testCases, stream, blendTest, expectedPtrBlend);
-    TestCaseBuilder<DLinear>::addTest(testCases, stream, linearEvenTest, expectedPtrLinearEven);
-    TestCaseBuilder<DLinear>::addTest(testCases, stream, linearOddTest, expectedPtrLinearOdd);
+    TestCaseBuilder<DLinear>::addTest(testCases, stream,
+                                     std::array{linearEvenTest, linearOddTest},
+                                     std::array{expectedPtrLinearEven, expectedPtrLinearOdd});
 
-    return 0;
+    bool correct{true};
+    for (const auto& testCase : testCases) {
+        correct &= testCase.second();
+}
+    testCases.clear();
+    return correct ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

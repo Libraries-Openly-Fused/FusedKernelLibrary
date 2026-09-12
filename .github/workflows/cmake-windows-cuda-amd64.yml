@@ -1,4 +1,4 @@
-name: CMake on Windows (x64)
+name: CMake on Windows (CUDA x64)
 
 on:
   #push:
@@ -21,11 +21,7 @@ jobs:
 
           - host_compiler: "cl"
             msvc_env_version: "14.51"
-            cuda_version: "13.3"            
-          
-          - host_compiler: "clang-cl"
-            msvc_env_version: "14.51"
-            cuda_version: "13.3"            
+            cuda_version: "13.4"
 
     steps:
       - uses: actions/checkout@v6
@@ -35,11 +31,6 @@ jobs:
         id: strings
         run: |
           echo "build-output-dir=${{github.workspace}}/build" >> "$env:GITHUB_OUTPUT"          
-          echo "D:/clang+llvm-21.1.0-x86_64-pc-windows-msvc/bin/" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append   
-          echo "CUDACXX=${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v${{matrix.cuda_version}}\bin\nvcc.exe" >> "$env:GITHUB_ENV"
-          echo "CC=${{matrix.host_compiler}}" >> "$env:GITHUB_ENV"
-          echo "CXX=${{matrix.host_compiler}}" >> "$env:GITHUB_ENV"
-
       - name: Detect visual studio installation
         run: |
           $vsWhere = "${Env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"   
@@ -51,10 +42,11 @@ jobs:
         run: |
           Import-Module (Get-ChildItem $env:VS_INSTALLATION_PATH -Recurse -File -Filter Microsoft.VisualStudio.DevShell.dll).FullName           
           Enter-VsDevShell -VsInstallPath  $env:VS_INSTALLATION_PATH  -SkipAutomaticLocation -DevCmdArguments $env:DEV_ARGS             
-          cmake -G "Ninja"  -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE=Release -S ${{github.workspace}};        
+          cmake -G "Ninja"  -DCMAKE_CUDA_COMPILER="${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v${{matrix.cuda_version}}\bin\nvcc.exe" `
+          -DENABLE_CPU=OFF -DENABLE_CUDA=ON -DENABLE_HIP=OFF -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE=Release -S ${{github.workspace}};
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           #workaround for rules.ninja generating empty path          
-          (Get-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja) -replace "\\nvcc\\bin\\nvcc.exe", "$env:CUDACXX" | Set-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja
+          (Get-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja) -replace "\\nvcc\\bin\\nvcc.exe", "${env:ProgramFiles}\\NVIDIA GPU Computing Toolkit\\CUDA\\v${{matrix.cuda_version}}\\bin\\nvcc.exe" | Set-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja
 
       - name: Build        
         run: |

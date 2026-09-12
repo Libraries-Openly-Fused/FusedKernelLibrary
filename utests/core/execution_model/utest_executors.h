@@ -19,7 +19,7 @@
 #include <fused_kernel/core/execution_model/executors.h>
 #include <iostream>
 
-using namespace fk;
+namespace fk {
 
 struct TestBackFuser : public BackFuser {
     template <typename... IOps>
@@ -88,7 +88,8 @@ bool testBack() {
     return true;
 }
 
-int launch() {
+int launch_impl() {
+    using namespace fk;
     Stream stream;
 
     Ptr2D<float2> input(1920, 1080);
@@ -132,4 +133,10 @@ int launch() {
     }
 
     return (correct && testBack()) ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

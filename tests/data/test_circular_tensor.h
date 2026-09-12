@@ -22,22 +22,24 @@
 
 #include <iostream>
 
+namespace fk {
+
 template <uint BATCH, uint WIDTH, uint HEIGHT, uint ITERS, typename IT, typename OT>
 bool testCircularTensor() {
-    using TensorOT = typename fk::VectorTraits<OT>::base;
-    constexpr uint COLOR_PLANES = fk::cn<IT>;
+    using TensorOT = typename VectorTraits<OT>::base;
+    constexpr uint COLOR_PLANES = cn<IT>;
 
-    fk::CircularTensor<TensorOT, COLOR_PLANES, BATCH, fk::CircularTensorOrder::NewestFirst, fk::ColorPlanes::Standard>
+    CircularTensor<TensorOT, COLOR_PLANES, BATCH, CircularTensorOrder::NewestFirst, ColorPlanes::Standard>
         myTensor(WIDTH, HEIGHT);
-    fk::Ptr2D<IT> input(WIDTH, HEIGHT);
+    Ptr2D<IT> input(WIDTH, HEIGHT);
 
-    fk::Stream fk_stream;
-    fk::setTo(10.0f, myTensor, fk_stream);
+    Stream fk_stream;
+    setTo(10.0f, myTensor, fk_stream);
 
     for (int i = 0; i < ITERS; i++) {
-        fk::setTo(fk::make_<IT>(i + 1, i + 1, i + 1), input, fk_stream);
-        myTensor.update(fk_stream, fk::Read<fk::PerThreadRead<fk::ND::_2D, IT>>{input.ptr()},
-                        fk::Unary<fk::SaturateCast<IT, OT>>{}, fk::Write<fk::TensorSplit<OT>>{myTensor.ptr()});
+        setTo(make_<IT>(i + 1, i + 1, i + 1), input, fk_stream);
+        myTensor.update(fk_stream, Read<PerThreadRead<ND::_2D, IT>>{input.ptr()},
+                        Unary<SaturateCast<IT, OT>>{}, Write<TensorSplit<OT>>{myTensor.ptr()});
         fk_stream.sync();
     }
 
@@ -49,8 +51,8 @@ bool testCircularTensor() {
         const TensorOT value = (TensorOT)(ITERS - z);
         for (int y = 0; y < HEIGHT; y++) {
             for (int x = 0; x < WIDTH; x++) {
-                const fk::Point p{x, y, z};
-                const TensorOT res = *fk::PtrAccessor<fk::ND::_3D>::point(p, myTensor.ptrPinned());
+                const Point p{x, y, z};
+                const TensorOT res = *PtrAccessor<ND::_3D>::point(p, myTensor.ptrPinned());
                 correct &= value == res;
             }
         }
@@ -71,7 +73,7 @@ bool launchTest() {
     }
 }
 
-int launch() {
+int launch_impl() {
     bool correct = true;
     correct &= launchTest<2, 128, 128, 100, uchar3, float3>();
     correct &= launchTest<3, 128, 128, 100, uchar3, float3>();
@@ -88,4 +90,10 @@ int launch() {
     correct &= launchTest<14, 128, 128, 100, uchar3, float3>();
     correct &= launchTest<15, 128, 128, 100, uchar3, float3>();
     return correct ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

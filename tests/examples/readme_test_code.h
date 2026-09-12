@@ -22,9 +22,10 @@
 #include <fused_kernel/algorithms/image_processing/resize.h>
 #include <fused_kernel/fused_kernel.h>
 
-using namespace fk;
+namespace fk {
 
-int launch() {
+int launch_impl() {
+using namespace fk;
     Stream stream;
 
     // We set all outputs to the same size
@@ -70,7 +71,7 @@ int launch() {
     // Execute the operations in a single kernel
     // At compile time, the types are used to define the kernel code
     // At runtime, the kernel is executed with the provided parameters
-    executeOperations<fk::TransformDPP<>>(stream, mySender, myReceiver);
+    executeOperations<TransformDPP<>>(stream, mySender, myReceiver);
     stream.sync();
 
     // Use the Tensor for inference
@@ -103,4 +104,10 @@ int launch() {
     stream_cpu.sync();
 
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

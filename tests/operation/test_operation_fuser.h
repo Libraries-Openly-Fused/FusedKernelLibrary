@@ -18,7 +18,7 @@
 #include <fused_kernel/core/core.h>
 #include <fused_kernel/algorithms/algorithms.h>
 
-using namespace fk;
+namespace fk {
 
 using ComplexType =
 Read<FusedOperation<
@@ -58,6 +58,12 @@ constexpr bool test_InstantiableFusedOperationToOperationTuple() {
     return true;
 }
 
-int launch() {
+int launch_impl() {
     return test_InstantiableFusedOperationToOperationTuple() ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

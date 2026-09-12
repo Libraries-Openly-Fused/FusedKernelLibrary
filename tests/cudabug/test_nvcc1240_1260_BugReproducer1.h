@@ -18,6 +18,8 @@
 
 #include <type_traits>
 
+namespace fk {
+
 // Why does this code not compile?
 // There are 4 ways of making it compile
 // 1) Compile with nvcc 12.3 or older, or 12.8 or newer
@@ -47,6 +49,12 @@ constexpr bool function1() {
     return variable<true>;
 }*/
 
-int launch() {
+int launch_impl() {
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

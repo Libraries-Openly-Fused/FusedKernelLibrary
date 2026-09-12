@@ -121,19 +121,20 @@ public:
     }
 };
 
-#if defined(__NVCC__)
-template <typename T, int EX, int EY, int KW, int KH>
-struct BoxFilterQuadDPP<ParArch::GPU_NVIDIA, T, EX, EY, KW, KH> {
+#if defined(__NVCC__) || defined(__HIPCC__)
+template <ParArch PA, typename T, int EX, int EY, int KW, int KH>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
+struct BoxFilterQuadDPP<PA, T, EX, EY, KW, KH> {
 private:
     using SelfType = BoxFilterQuadDPP<
-        ParArch::GPU_NVIDIA, T, EX, EY, KW, KH>;
+        PA, T, EX, EY, KW, KH>;
     static constexpr int MAX_RUNTIME_KERNEL_WIDTH = 31;
     static constexpr int MAX_SPAN =
         EX + (KW > 0 ? KW : MAX_RUNTIME_KERNEL_WIDTH) - 1;
 
 public:
     FK_STATIC_STRUCT(BoxFilterQuadDPP, SelfType)
-    static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
+    static constexpr ParArch PAR_ARCH = PA;
     static constexpr int BLOCK_THREADS = 256;
 
     FK_HOST_DEVICE_FUSE bool accepts(const BoxFilterQuadDetails& details) {
@@ -179,7 +180,7 @@ public:
                       "BoxFilterQuadDPP kernel dimensions are both static or both runtime");
         static_assert(cn<T> == 1,
                       "BoxFilterQuadDPP currently supports scalar pixel types");
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
         if (!accepts(details)) return;
 
         const int kernelWidth = KW > 0 ? KW : details.kernelWidth;
@@ -251,7 +252,7 @@ public:
                 }
             }
         }
-#endif // defined(__CUDA_ARCH__)
+#endif // defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
     }
 };
 
@@ -262,21 +263,29 @@ __global__ void launchBoxFilterQuadDPP_Kernel(
     DPP::exec(details, iOps...);
 }
 
-template <typename DPP, typename... IOps>
+template <typename DPP, typename... IOps, ParArch PA>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
 FK_HOST_FUSE void executeBoxFilterQuad(
-        Stream_<ParArch::GPU_NVIDIA>& stream,
+        Stream_<PA>& stream,
         const BoxFilterQuadDetails& details,
         const IOps&... iOps) {
-    static_assert(DPP::PAR_ARCH == ParArch::GPU_NVIDIA,
-                  "GPU stream requires the NVIDIA BoxFilterQuadDPP specialization");
+    static_assert(DPP::PAR_ARCH == PA,
+                  "GPU stream requires the matching BoxFilterQuadDPP specialization");
     if (!DPP::accepts(details)) return;
     const auto launch = DPP::launchConfig(details);
+#if defined(__HIPCC__)
+    launchBoxFilterQuadDPP_Kernel<DPP, IOps...>
+        <<<launch.blocks, launch.threads, 0, stream.getHIPStream()>>>(
+            details, iOps...);
+    gpuErrchk(hipGetLastError());
+#else
     launchBoxFilterQuadDPP_Kernel<DPP, IOps...>
         <<<launch.blocks, launch.threads, 0, stream.getCUDAStream()>>>(
             details, iOps...);
     gpuErrchk(cudaGetLastError());
+#endif
 }
-#endif // defined(__NVCC__)
+#endif // defined(__NVCC__) || defined(__HIPCC__)
 
 template <typename DPP, typename... IOps>
 FK_HOST_FUSE void executeBoxFilterQuad(

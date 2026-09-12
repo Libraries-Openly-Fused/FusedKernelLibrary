@@ -15,6 +15,11 @@ function(add_cuda_to_test TARGET_NAME)
     endif()
 endfunction()
 
+function(add_hip_to_test TARGET_NAME)
+    add_hip_to_target(${TARGET_NAME} "")
+    set_target_hip_arch_flags(${TARGET_NAME})
+endfunction()
+
 function(configure_test_target_flags TARGET_NAME TEST_SOURCE DIR)
         
         set(TEST_GENERATED_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}_${EXTENSION}/launcher.${EXTENSION}") #use the same name as the target	)			       
@@ -45,6 +50,8 @@ endfunction()
 function (set_ide_target_folder  TARGET_NAME  DIR_PARENT_PATH EXTENSION) 
  if (${EXTENSION} STREQUAL "cu")
             set(FKL_BACKEND "cuda")
+ elseif(${EXTENSION} STREQUAL "hip")
+     set(FKL_BACKEND "hip")
         elseif(${EXTENSION} STREQUAL "cpp")  
             set(FKL_BACKEND "cpu")
         else()
@@ -65,7 +72,15 @@ function (add_generated_test_stub TARGET_NAME_EXT TEST_SOURCE DIR)
 		cmake_path(GET path2 FILENAME DIR_NAME)   
         cmake_path(GET path2 PARENT_PATH DIR_PARENT_PATH)  
         string(REPLACE " " "" DIR_PARENT_PATH "${DIR_PARENT_PATH}") #for windows     
-              
+        if (${EXTENSION} STREQUAL "cu")
+            set(FKL_BACKEND "cuda")
+            set_source_files_properties("${TEST_GENERATED_SOURCE}" PROPERTIES LANGUAGE CUDA) #set the language of the source file to CUDA
+        elseif (${EXTENSION} STREQUAL "hip")
+            set(FKL_BACKEND "hip")
+            set_source_files_properties("${TEST_GENERATED_SOURCE}" PROPERTIES LANGUAGE HIP) #set the language of the source file to HIP
+        elseif (${EXTENSION} STREQUAL "cpp")
+            set_source_files_properties("${TEST_GENERATED_SOURCE}" PROPERTIES LANGUAGE CXX) #set the language of the source file to CUDA
+        endif()
         set_ide_target_folder("${TARGET_NAME_EXT}" "${DIR_PARENT_PATH}" "${EXTENSION}")
 
 endfunction()

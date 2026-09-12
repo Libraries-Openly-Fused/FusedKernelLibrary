@@ -27,6 +27,8 @@
 #include <iomanip>
 #include <cstring>
 
+namespace fk {
+
 // Test isnan function compile-time
 template <typename T>
 constexpr bool test_isnan_ct() {
@@ -375,7 +377,7 @@ bool test_signbit_rt() {
     auto check = [&](T value, const char *name) {
         if (cxp::signbit::f(value) != static_cast<bool>(std::signbit(value))) {
             std::cout << "Runtime Fail: cxp::signbit::f(" << name << ") disagrees with std::signbit for T="
-                      << fk::typeToString<T>() << std::endl;
+                      << typeToString<T>() << std::endl;
             allCorrect = false;
         }
     };
@@ -591,9 +593,9 @@ bool test_abs_rt() {
                           "cxp::abs::f(minValue<T>) should have the same type as std::abs(cxp::minValue<T>)");
             std::cout << "Failed: abs(min) should be max for signed types" << std::endl;
             if constexpr (sizeof(T) < 4) {
-                std::cout << "T= " + fk::typeToString<T>() + " Expected: " << std::abs(cxp::minValue<T> + extra) << ", got: " << static_cast<int>(cxp::abs::f(cxp::minValue<T> + extra)) << std::endl;
+                std::cout << "T= " + typeToString<T>() + " Expected: " << std::abs(cxp::minValue<T> + extra) << ", got: " << static_cast<int>(cxp::abs::f(cxp::minValue<T> + extra)) << std::endl;
             } else {
-                std::cout << "T= " + fk::typeToString<T>() + " Expected: " << std::abs(cxp::minValue<T> + extra) << ", got: " << cxp::abs::f(cxp::minValue<T> + extra) << std::endl;
+                std::cout << "T= " + typeToString<T>() + " Expected: " << std::abs(cxp::minValue<T> + extra) << ", got: " << cxp::abs::f(cxp::minValue<T> + extra) << std::endl;
             }
             allCorrect = false;
         }
@@ -1386,8 +1388,8 @@ bool test_fmaxf_rt() {
     }
 
     // --- Vector Tests (float3) ---
-    float3 v1 = fk::make_<float3>(1.0f, nan_val, neg_zero);
-    float3 v2 = fk::make_<float3>(5.0f, 3.0f, pos_zero);
+    float3 v1 = make_<float3>(1.0f, nan_val, neg_zero);
+    float3 v2 = make_<float3>(5.0f, 3.0f, pos_zero);
     float3 v_max = cxp::fmaxf::f(v1, v2);
 
     if (v_max.x != 5.0f || v_max.y != 3.0f || cxp::bit_cast<uint>(v_max.z) != 0x00000000) {
@@ -1396,8 +1398,8 @@ bool test_fmaxf_rt() {
     }
 
     // --- Vector Tests (int2 using standard max) ---
-    int2 i1 = fk::make_<int2>(100, -50);
-    int2 i2 = fk::make_<int2>(200, -10);
+    int2 i1 = make_<int2>(100, -50);
+    int2 i2 = make_<int2>(200, -10);
     int2 i_max = cxp::max::f(i1, i2);
 
     if (i_max.x != 200 || i_max.y != -10) {
@@ -1446,8 +1448,8 @@ bool test_fminf_rt() {
     }
 
     // --- Vector Tests (float3) ---
-    float3 v1 = fk::make_<float3>(1.0f, nan_val, neg_zero);
-    float3 v2 = fk::make_<float3>(5.0f, 3.0f, pos_zero);
+    float3 v1 = make_<float3>(1.0f, nan_val, neg_zero);
+    float3 v2 = make_<float3>(5.0f, 3.0f, pos_zero);
     float3 v_min = cxp::fminf::f(v1, v2);
 
     if (v_min.x != 1.0f || v_min.y != 3.0f || cxp::bit_cast<uint>(v_min.z) != 0x80000000) {
@@ -1456,8 +1458,8 @@ bool test_fminf_rt() {
     }
 
     // --- Vector Tests (int2 using standard min) ---
-    int2 i1 = fk::make_<int2>(100, -50);
-    int2 i2 = fk::make_<int2>(200, -10);
+    int2 i1 = make_<int2>(100, -50);
+    int2 i2 = make_<int2>(200, -10);
     int2 i_min = cxp::min::f(i1, i2);
 
     if (i_min.x != 100 || i_min.y != -50) {
@@ -1674,7 +1676,7 @@ bool runtime_tests() {
     return allCorrect;
 }
 
-int launch() {
+int launch_impl() {
     static_assert(test_round_ct<float>());
     static_assert(test_round_ct<double>());
 
@@ -1742,6 +1744,12 @@ int launch() {
     }
     std::cout << "All tests passed!" << std::endl;
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }
 
 #endif

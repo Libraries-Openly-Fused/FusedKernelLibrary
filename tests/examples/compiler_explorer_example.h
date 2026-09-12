@@ -18,7 +18,7 @@
 #include <fused_kernel/core/execution_model/execution_model.h>
 #include <fused_kernel/algorithms/algorithms.h>
 
-using namespace fk;
+namespace fk {
 
 void testLTS0013() {
     // Define input and output data
@@ -45,8 +45,14 @@ void testLTS0013() {
     stream.sync();
 }
 
-int launch() {
+int launch_impl() {
     testLTS0013();
 
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

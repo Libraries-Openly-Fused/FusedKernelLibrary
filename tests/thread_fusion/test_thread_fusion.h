@@ -19,6 +19,8 @@
 #include <fused_kernel/core/execution_model/thread_fusion.h>
 #include "tests/nvtx.h"
 
+namespace fk {
+
 template <typename OriginalType>
 bool testThreadFusion() {
     constexpr OriginalType eightNumbers[8]{ static_cast<OriginalType>(10),
@@ -30,7 +32,7 @@ bool testThreadFusion() {
                                             static_cast<OriginalType>(3),
                                             static_cast<OriginalType>(4) };
 
-    using BTInfo = fk::ThreadFusionInfo<OriginalType, OriginalType, true>;
+    using BTInfo = ThreadFusionInfo<OriginalType, OriginalType, true>;
 
     const typename BTInfo::BiggerReadType biggerType = ((typename BTInfo::BiggerReadType*) eightNumbers)[0];
 
@@ -65,15 +67,14 @@ bool testThreadFusion() {
     }
 }
 
-namespace fk {
     template <typename OriginalType>
     bool testThreadFusionAggregate() {
-        constexpr OriginalType fourNumbers[4]{ fk::make_<OriginalType>(10),
-                                               fk::make_<OriginalType>(2),
-                                               fk::make_<OriginalType>(3),
-                                               fk::make_<OriginalType>(4) };
+        constexpr OriginalType fourNumbers[4]{ make_<OriginalType>(10),
+                                               make_<OriginalType>(2),
+                                               make_<OriginalType>(3),
+                                               make_<OriginalType>(4) };
 
-        using BTInfo = fk::ThreadFusionInfo<OriginalType, OriginalType, true>;
+        using BTInfo = ThreadFusionInfo<OriginalType, OriginalType, true>;
 
         const typename BTInfo::BiggerReadType biggerType = ((typename BTInfo::BiggerReadType*) fourNumbers)[0];
 
@@ -96,9 +97,8 @@ namespace fk {
             return false;
         }
     }
-}
 
-int launch() {
+int launch_impl() {
     bool passed = true;
     {
         PUSH_RANGE_RAII p("testThreadFusion");
@@ -117,9 +117,9 @@ int launch() {
     }
 
 #define LAUNCH_AGGREGATE(type) \
-    passed &= fk::testThreadFusionAggregate<type ## 2>(); \
-    passed &= fk::testThreadFusionAggregate<type ## 3>(); \
-    passed &= fk::testThreadFusionAggregate<type ## 4>();
+    passed &= testThreadFusionAggregate<type ## 2>(); \
+    passed &= testThreadFusionAggregate<type ## 3>(); \
+    passed &= testThreadFusionAggregate<type ## 4>();
 
     {
         PUSH_RANGE_RAII p("testThreadFusionAggregate");
@@ -139,4 +139,10 @@ int launch() {
 #undef LAUNCH_AGGREGATE
 
     return passed ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

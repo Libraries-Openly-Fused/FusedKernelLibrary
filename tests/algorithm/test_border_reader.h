@@ -18,16 +18,23 @@
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/image_processing/border_reader.h>
 
-int launch() {
+namespace fk {
 
-    constexpr auto readIOp = fk::PerThreadRead<fk::ND::_2D, uchar3>::build(
-        fk::RawPtr<fk::ND::_2D, uchar3>{ nullptr, { 128, 128, 128 * sizeof(uchar3) }});
+int launch_impl() {
+    constexpr auto readIOp = PerThreadRead<ND::_2D, uchar3>::build(
+        RawPtr<ND::_2D, uchar3>{ nullptr, { 128, 128, 128 * sizeof(uchar3) }});
 
-    constexpr auto borderIOp = fk::BorderReader<fk::BorderType::CONSTANT>::build(readIOp, fk::make_set<uchar3>(0));
+    constexpr auto borderIOp = BorderReader<BorderType::CONSTANT>::build(readIOp, make_set<uchar3>(0));
 
     static_assert(std::is_same_v<std::decay_t<decltype(borderIOp)>,
-        fk::ReadBack<fk::BorderReader<fk::BorderType::CONSTANT, fk::BorderReaderParameters<fk::BorderType::CONSTANT, uchar3>, fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>,
+        ReadBack<BorderReader<BorderType::CONSTANT, BorderReaderParameters<BorderType::CONSTANT, uchar3>, Read<PerThreadRead<ND::_2D, uchar3>>>>>,
         "Unexpected type for borderIOp");
 
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

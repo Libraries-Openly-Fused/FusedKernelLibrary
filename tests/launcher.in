@@ -1,5 +1,5 @@
 ﻿/* Copyright 2023 Oscar Amoros Huguet
-   Copyright 2023 Albert Andaluz Gonzalez
+   Copyright 2023-2026 Albert Andaluz Gonzalez
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -14,7 +14,17 @@
    limitations under the License. */
 
  
+#include <type_traits>
+#if defined(__NVCC__)
+#include <vector_types.h>
+#elif defined(__HIPCC__)
+#include <hip/hip_vector_types.h>
+#endif
 #include "@TEST_SOURCE@"
+
+#if defined(__NVCC__) || defined(__HIPCC__)
+static_assert(std::is_same_v<uint3, ::uint3>, "Test headers must not expose fk::uint3 in global lookup");
+#endif
 
 int launcher() {
     return launch();

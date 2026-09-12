@@ -25,13 +25,14 @@
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/fused_kernel.h>
 
-using namespace fk;
+namespace fk {
 
 struct MySelector {
     FK_HOST_DEVICE_FUSE uint at(const uint& index) { return index == 0 ? 0u : 1u; }
 };
 
-int launch() {
+int launch_impl() {
+    using namespace fk;
     Stream stream;
 
     constexpr int WIDTH = 8;
@@ -41,7 +42,7 @@ int launch() {
     Ptr2D<float> imgB(WIDTH, HEIGHT);
     Tensor<float> output(WIDTH, HEIGHT, 2);
 
-    // Build the const lvalue sequences — this is the value category that triggered the bug
+    // Build the const lvalue sequences - this is the value category that triggered the bug
     const auto seq1 = buildOperationSequence(PerThreadRead<ND::_2D, float>::build(imgA),
                                              Mul<float>::build(2.0f),
                                              TensorWrite<float>::build(output));
@@ -56,4 +57,10 @@ int launch() {
     stream.sync();
 
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

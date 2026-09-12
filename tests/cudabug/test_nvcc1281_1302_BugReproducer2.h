@@ -18,7 +18,9 @@
 
 #include <array>
 
-/* This code does not compile with gcc 13.3.0 with:
+namespace fk {
+
+/* This code does not compile with gcc 13.3.0 and 13.4.0 with:
 *   - CUDA SDK 12.8.1 (nvcc 12.8.93)
 *   - TO
 *   - CUDA SDK 13.0.2 (nvcc 13.0.88)
@@ -67,6 +69,12 @@ void test2() {
 }
 #endif
 
-int launch() {
+int launch_impl() {
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

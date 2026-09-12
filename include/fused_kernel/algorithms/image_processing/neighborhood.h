@@ -72,7 +72,7 @@ public:
         return ReadIOp::Operation::exec(Point{x, y, 0}, input);
     }
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
     template <typename ReadIOp>
     FK_DEVICE_STATIC void stageReplicate(const int width,
                                          const int height,

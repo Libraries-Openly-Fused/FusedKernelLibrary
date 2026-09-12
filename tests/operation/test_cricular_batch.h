@@ -20,21 +20,23 @@
 
 #include <iostream>
 
+namespace fk {
+
 template <uint WIDTH, uint HEIGHT, uint BATCH, uint FIRST>
 bool testCircularBatchRead() {
-    fk::Stream stream;
-    fk::Stream fk_stream(stream);
+    Stream stream;
+    Stream fk_stream(stream);
 
-    std::vector<fk::Ptr2D<uchar3>> inputAllocations;
-    std::array<fk::RawPtr<fk::ND::_2D, uchar3>, BATCH> input;
-    fk::Tensor<uchar3> output;
+    std::vector<Ptr2D<uchar3>> inputAllocations;
+    std::array<RawPtr<ND::_2D, uchar3>, BATCH> input;
+    Tensor<uchar3> output;
 
     for (int i = 0; i < BATCH; i++) {
-        fk::Ptr2D<uchar3> temp(WIDTH, HEIGHT, 0);
+        Ptr2D<uchar3> temp(WIDTH, HEIGHT, 0);
         for (int y = 0; y < HEIGHT; y++) {
             for (int x = 0; x < WIDTH; x++) {
-                const fk::Point p{x, y, 0};
-                *fk::PtrAccessor<fk::ND::_2D>::point(p, temp.ptrPinned()) = fk::make_<uchar3>(i, i, i);
+                const Point p{x, y, 0};
+                *PtrAccessor<ND::_2D>::point(p, temp.ptrPinned()) = make_<uchar3>(i, i, i);
             }
         }
         temp.upload(stream);
@@ -43,15 +45,15 @@ bool testCircularBatchRead() {
     }
     output.allocTensor(WIDTH, HEIGHT, BATCH);
 
-    fk::Read<fk::CircularBatchRead<fk::CircularDirection::Ascendent, fk::PerThreadRead<fk::ND::_2D, uchar3>, BATCH>>
+    Read<CircularBatchRead<CircularDirection::Ascendent, PerThreadRead<ND::_2D, uchar3>, BATCH>>
         circularBatchRead;
     circularBatchRead.params.first = FIRST;
     for (int i = 0; i < BATCH; i++) {
         circularBatchRead.params.opData[i].params = input[i];
     }
-    fk::Write<fk::PerThreadWrite<fk::ND::_3D, uchar3>> write3D{{output}};
+    Write<PerThreadWrite<ND::_3D, uchar3>> write3D{{output}};
 
-    fk::executeOperations<fk::TransformDPP<>>(fk_stream, circularBatchRead, write3D);
+    executeOperations<TransformDPP<>>(fk_stream, circularBatchRead, write3D);
 
     output.download(stream);
     stream.sync();
@@ -60,10 +62,10 @@ bool testCircularBatchRead() {
     for (int z = 0; z < BATCH; z++) {
         for (int y = 0; y < HEIGHT; y++) {
             for (int x = 0; x < WIDTH; x++) {
-                fk::Point p{x, y, z};
-                uchar3 res = *fk::PtrAccessor<fk::ND::_3D>::point(p, output.ptrPinned());
+                Point p{x, y, z};
+                uchar3 res = *PtrAccessor<ND::_3D>::point(p, output.ptrPinned());
                 uchar newZ = (z + FIRST);
-                uchar3 gt = newZ >= BATCH ? fk::make_set<uchar3>(newZ - BATCH) : fk::make_set<uchar3>(newZ);
+                uchar3 gt = newZ >= BATCH ? make_set<uchar3>(newZ - BATCH) : make_set<uchar3>(newZ);
                 correct &= res.x == gt.x;
                 correct &= res.y == gt.y;
                 correct &= res.z == gt.z;
@@ -87,7 +89,7 @@ bool launchTestCircularBatchRead() {
     }
 }
 
-int launch() {
+int launch_impl() {
     bool correct = true;
     correct &= launchTestCircularBatchRead<32, 32, 2, 0>();
     correct &= launchTestCircularBatchRead<32, 32, 3, 2>();
@@ -104,4 +106,10 @@ int launch() {
     correct &= launchTestCircularBatchRead<32, 32, 14, 4>();
     correct &= launchTestCircularBatchRead<32, 32, 15, 4>();
     return correct ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

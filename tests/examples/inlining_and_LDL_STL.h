@@ -23,7 +23,7 @@
 #include <fused_kernel/algorithms/image_processing/resize.h>
 #include <fused_kernel/fused_kernel.h>
 
-using namespace fk;
+namespace fk {
 
 template <ParArch PA = defaultParArch> struct SimpleTransformDPPValue;
 template <ParArch PA = defaultParArch> struct SimpleTransformDPPValueLessCallDepth;
@@ -466,11 +466,11 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     constexpr int BATCH = 100;
 
     // We have a 4K source image
-    Ptr2D<uchar3> inputImage(3840, 2160);
-    Ptr2D<float3> outputImage(3840, 2160);
+    Ptr2D<fk::uchar3> inputImage(3840, 2160);
+    Ptr2D<fk::float3> outputImage(3840, 2160);
 
     // We want a Tensor of contiguous memory for all images
-    Tensor<float3> output(outputSize.width, outputSize.height, BATCH);
+    Tensor<fk::float3> output(outputSize.width, outputSize.height, BATCH);
 
     // Crops can be of different sizes
     std::array<Rect, 10> crops10{Rect(0, 0, 34, 25),      Rect(40, 40, 70, 15),     Rect(100, 200, 60, 59),
@@ -537,8 +537,10 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     stream.sync();
 }
 
+} // namespace fk
+
 int launch() {
-    testCompareReferenceVSValueVSInstantiableDPP();
+    fk::testCompareReferenceVSValueVSInstantiableDPP();
 
     return 0; 
 }

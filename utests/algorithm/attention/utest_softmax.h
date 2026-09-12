@@ -23,7 +23,7 @@
 #include <random>
 #include <vector>
 
-using namespace fk;
+namespace fk {
 
 static int failures = 0;
 
@@ -125,11 +125,17 @@ static void runPrologueCase(const char* name, const int width, const int height,
     }
 }
 
-int launch() {
+int launch_impl() {
     runCase("Softmax f32 7x3", 7, 3, -4.f, 4.f, 1e-6, 1);
     runCase("Softmax f32 256x16 (block-sized)", 256, 16, -8.f, 8.f, 1e-6, 2);
     runCase("Softmax f32 1000x8 (strided non-pow2)", 1000, 8, -8.f, 8.f, 1e-6, 3);
     runCase("Softmax f32 stability |x|<=500", 333, 5, -500.f, 500.f, 1e-6, 4);
     runPrologueCase("Softmax prologue ReadIOp.then(Mul(2)).then(Add(1)) 100x6", 100, 6, 1e-6, 5);
     return failures == 0 ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

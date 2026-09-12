@@ -23,7 +23,7 @@
 
 #include <iostream>
 
-using namespace fk;
+namespace fk {
 
 using PtrToTest = Ptr2D<uchar3>;
 constexpr int WIDTH = 64;
@@ -139,8 +139,8 @@ void test_download(Stream& stream) {
     stream.sync();
 }
 
-int launch() {
-
+int launch_impl() {
+    using namespace fk;
     Stream stream;
 
     PtrToTest test0(WIDTH, HEIGHT);
@@ -149,7 +149,7 @@ int launch() {
     bool h_correct{ true };
     for (int y = 0; y < HEIGHT; y++) {
         for (int x = 0; x < WIDTH; x++) {
-            const Bool3 boolVect = *PtrAccessor<ND::_2D>::cr_point(Point{x, y, 0}, test0.ptrPinned()) == make_<uchar3>(1, 2, 3);
+            const bool boolVect = *PtrAccessor<ND::_2D>::cr_point(Point{x, y, 0}, test0.ptrPinned()) == make_<uchar3>(1, 2, 3);
             const bool allTrue = boolVect;
             h_correct &= allTrue;
         }
@@ -193,4 +193,10 @@ int launch() {
     test_download(stream);
 
     return result && h_correct && h_correct2 ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

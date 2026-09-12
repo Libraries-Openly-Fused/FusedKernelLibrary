@@ -15,8 +15,8 @@
 /* Regression test for the compute->write fused-IOp path (PR #287, review
  * r3473806517 / fix r3473994080).
  *
- * Chaining a COMPUTE op onto a Write IOp — the `epilogue.then(D)` shape DPP
- * epilogues use — must both COMPOSE into a write-type IOp and INSTANTIATE its
+ * Chaining a COMPUTE op onto a Write IOp - the `epilogue.then(D)` shape DPP
+ * epilogues use - must both COMPOSE into a write-type IOp and INSTANTIATE its
  * exec(). This previously failed to compile in the WriteType (and ClosedType)
  * FusedOperation_ specialisations:
  *
@@ -44,7 +44,7 @@
 #include <vector>
 #include <cmath>
 
-using namespace fk;
+namespace fk {
 
 // Invoke the fused compute->write IOp the way a DPP epilogue would: pass the
 // whole fused IOp (epilogue.then(D)) and call its Operation::exec(thread, value, iop).
@@ -79,11 +79,18 @@ static bool runCase(const char* name, const Epi& epilogue, float in, float expec
     return true;
 }
 
-int launch() {
+int launch_impl() {
+    using namespace fk;
     bool ok = true;
     // identity epilogue: Cast<float,float> pass-through, fused with the write.
     ok &= runCase("identity",   Cast<float, float>::build(),                              10.0f, 10.0f);
     // scale+bias IOp chain: (v*2) then (+0.5), fused with the write.
     ok &= runCase("scale+bias", Mul<float>::build(2.f).then(Add<float>::build(0.5f)),     10.0f, 20.5f);
     return ok ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

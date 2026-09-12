@@ -17,25 +17,49 @@
 
 #include <fused_kernel/core/utils/vector_utils.h>
 
+namespace fk {
+
+static_assert(std::is_same_v<decltype(uchar3{} + uchar3{}), int3>);
+static_assert(std::is_same_v<decltype(uchar3{} / 255.0f), float3>);
+static_assert(std::is_same_v<decltype(int3{} + float3{}), float3>);
+static_assert(std::is_same_v<decltype(int3{} == int3{}), bool3>);
+static_assert(std::is_same_v<decltype(-short1{}), int>);
+static_assert(std::is_same_v<decltype(std::declval<int3&>() += 1), int3>);
+static_assert((uchar3{250, 1, 2} + uchar3{10, 2, 3}).x == 260);
+static_assert((int3{3, 5, 7} == int3{3, 0, 7}).x);
+static_assert(!(int3{3, 5, 7} == int3{3, 0, 7}).y);
+static_assert(make_set<float3>(2.f).z == 2.f);
+static_assert(std::is_aggregate_v<float3>);
+#if defined(__HIPCC__) || defined(__NVCC__)
+static_assert(!std::is_same_v<float3, ::float3>);
+static_assert(!vector_type<::float3>);
+#endif
+
 template <typename InputTypeList, typename ExpectedTypeList, size_t... Idx>
 constexpr bool validateVBaseFor(const std::index_sequence<Idx...>&) {
-    return (std::is_same_v<fk::EquivalentType_t<fk::TypeAt_t<Idx, InputTypeList>, InputTypeList, ExpectedTypeList>, fk::VBase<fk::TypeAt_t<Idx, InputTypeList>>> && ...);
+    return (std::is_same_v<EquivalentType_t<TypeAt_t<Idx, InputTypeList>, InputTypeList, ExpectedTypeList>, VBase<TypeAt_t<Idx, InputTypeList>>> && ...);
 }
 
 template <size_t First, size_t... Rest>
 constexpr bool allEqual = ((First == Rest) && ...);
 
-int launch() {
+int launch_impl() {
 
-    static_assert(allEqual<fk::VOne::size, fk::VTwo::size, fk::VThree::size, fk::VFour::size, fk::BaseTypes::size>, "Those TypeLists must be all equal.");
-    constexpr auto idxSeq = std::make_index_sequence<fk::BaseTypes::size>{};
-    static_assert(validateVBaseFor<fk::BaseTypes, fk::BaseTypes>(idxSeq), "Error in VBase with fundamental types");
-    static_assert(validateVBaseFor<fk::VOne, fk::BaseTypes>(idxSeq), "Error in VBase with cuda vector types of one channel");
-    static_assert(validateVBaseFor<fk::VTwo, fk::BaseTypes>(idxSeq), "Error in VBase with cuda vector types of two channels");
-    static_assert(validateVBaseFor<fk::VThree, fk::BaseTypes>(idxSeq), "Error in VBase with cuda vector types of three channels");
-    static_assert(validateVBaseFor<fk::VFour, fk::BaseTypes>(idxSeq), "Error in VBase with cuda vector types of four channels");
+    static_assert(allEqual<VOne::size, VTwo::size, VThree::size, VFour::size, BaseTypes::size>, "Those TypeLists must be all equal.");
+    constexpr auto idxSeq = std::make_index_sequence<BaseTypes::size>{};
+    static_assert(validateVBaseFor<BaseTypes, BaseTypes>(idxSeq), "Error in VBase with fundamental types");
+    static_assert(validateVBaseFor<VOne, BaseTypes>(idxSeq), "Error in VBase with cuda vector types of one channel");
+    static_assert(validateVBaseFor<VTwo, BaseTypes>(idxSeq), "Error in VBase with cuda vector types of two channels");
+    static_assert(validateVBaseFor<VThree, BaseTypes>(idxSeq), "Error in VBase with cuda vector types of three channels");
+    static_assert(validateVBaseFor<VFour, BaseTypes>(idxSeq), "Error in VBase with cuda vector types of four channels");
 
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }
 
 #endif

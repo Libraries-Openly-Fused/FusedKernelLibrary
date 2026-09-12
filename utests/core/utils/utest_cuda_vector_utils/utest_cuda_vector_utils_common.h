@@ -14,7 +14,6 @@
 #pragma warning(disable : 4804 4805 4806)
 #endif
 
-using namespace fk;
 std::vector<std::string> unexpected_failed_compilations;
 
 // SFINAE-based test helpers
@@ -136,9 +135,10 @@ template <typename T1, typename T2, typename = void> struct can_or_assign : std:
 template <typename T1, typename T2>
 struct can_or_assign<T1, T2, std::void_t<decltype(std::declval<T1 &>() |= std::declval<T2>())>> : std::true_type {};
 
-using VecAndStdTypes = TypeListCat_t<VAll, StandardTypes>;
+using VecAndStdTypes = fk::TypeListCat_t<fk::VAll, fk::StandardTypes>;
 
 template <typename T> void detectUnaryUnexpectedCompilationErrors() {
+    using namespace fk;
     if constexpr (can_unary_minus<T>::value != can_unary_minus<VBase<T>>::value) {
         unexpected_failed_compilations.push_back("unaryMinus_" + typeToString<T>());
     }
@@ -151,6 +151,7 @@ template <typename T> void detectUnaryUnexpectedCompilationErrors() {
 }
 
 template <typename I1, typename I2> void detectBinaryUnexpectedCompilationErrors() {
+    using namespace fk;
     if constexpr (cn<I1> == cn<I2>) {
         if constexpr (can_add<I1, I2>::value != can_add<VBase<I1>, VBase<I2>>::value) {
             unexpected_failed_compilations.push_back("binaryAdd_" + typeToString<I1>() + "_" + typeToString<I2>());
@@ -203,6 +204,7 @@ template <typename I1, typename I2> void detectBinaryUnexpectedCompilationErrors
 }
 
 template <typename I1, typename I2> void detectCompoundUnexpectedCompilationErrors() {
+    using namespace fk;
     if constexpr (fk::AreVVEqCN<I1, I2>::value || fk::AreVS<I1, I2>::value) {
         // The case scalar += vector is not supported (same for the other compound operators)
         if constexpr (can_add_assign<I1, I2>::value != can_add_assign<VBase<I1>, VBase<I2>>::value) {
@@ -227,6 +229,7 @@ template <typename I1, typename I2> void detectCompoundUnexpectedCompilationErro
 }
 
 template <typename T> constexpr inline bool testUnaryMinus() {
+    using namespace fk;
     if constexpr (can_unary_minus<T>::value) {
         constexpr VBase<T> base_val{static_cast<VBase<T>>(5)};
         constexpr T val = make_set<T>(base_val);
@@ -242,6 +245,7 @@ template <typename T> constexpr inline bool testUnaryMinus() {
 }
 
 template <typename T> constexpr inline bool testUnaryNot() {
+    using namespace fk;
     if constexpr (can_unary_not<T>::value) {
         constexpr VBase<T> base_val{static_cast<VBase<T>>(5)};
         constexpr T val = make_set<T>(base_val);
@@ -257,6 +261,7 @@ template <typename T> constexpr inline bool testUnaryNot() {
 }
 
 template <typename T> constexpr inline bool testUnaryBitwiseNot() {
+    using namespace fk;
     if constexpr (can_unary_bitwise_not<T>::value) {
         constexpr VBase<T> base_val{static_cast<VBase<T>>(5)};
         constexpr T val = make_set<T>(base_val);
@@ -271,6 +276,7 @@ template <typename T> constexpr inline bool testUnaryBitwiseNot() {
     }
 }
 template <typename T> bool testUnaryOperators() {
+    using namespace fk;
     bool correct{true};
     if (!testUnaryMinus<T>()) {
         std::cout << "Failed unaryMinus test for type: " << typeToString<T>() << std::endl;
@@ -289,6 +295,7 @@ template <typename T> bool testUnaryOperators() {
 
 #define BINARY_OP_TEST(OP_NAME, OP)                                                                                    \
     template <typename I1, typename I2> constexpr inline bool binary##OP_NAME() {                                      \
+        using namespace fk;                                                                                           \
         if constexpr (can_##OP_NAME<I1, I2>::value) {                                                                  \
             constexpr VBase<I1> base_val1{static_cast<VBase<I1>>(5)};                                                  \
             constexpr VBase<I2> base_val2{static_cast<VBase<I2>>(3)};                                                  \
@@ -324,6 +331,7 @@ BINARY_OP_TEST(bitwise_xor, ^)
 #undef BINARY_OP_TEST
 
 template <typename I1, typename I2> bool testBinaryOperators() {
+    using namespace fk;
     constexpr std::array<std::string_view, 15> binaryOperatorTestNames{
         "binaryAdd",        "binaryMinus",     "binaryMul",        "binaryDiv",       "binaryEqual",
         "binaryNotEqual",   "binaryLess",      "binaryLessEqual",  "binaryGreater",   "binaryGreaterEqual",
@@ -347,6 +355,7 @@ template <typename I1, typename I2> bool testBinaryOperators() {
 
 #define COMPOUND_OP_TEST(OP_NAME, OP)                                                                                  \
     template <typename I1, typename I2> constexpr inline bool compound##OP_NAME() {                                    \
+        using namespace fk;                                                                                           \
         if constexpr (can_##OP_NAME<I1, I2>::value) {                                                                  \
             VBase<I1> base_val1{static_cast<VBase<I1>>(5)};                                                            \
             constexpr VBase<I2> base_val2{static_cast<VBase<I2>>(3)};                                                  \
@@ -374,6 +383,7 @@ COMPOUND_OP_TEST(or_assign, |=)
 
 // Test compound operators
 template <typename I1, typename I2> bool testCompoundOperators() {
+    using namespace fk;
     constexpr std::array<std::string_view, 6> compoundOperatorTestNames{"compoundAddAssign", "compoundSubAssign",
                                                                         "compoundMulAssign", "compoundDivAssign",
                                                                         "compoundAndAssign", "compoundOrAssign"};
@@ -393,7 +403,7 @@ template <typename I1, typename I2> bool testCompoundOperators() {
 
 template <typename TypeList_> struct UnaryTest;
 
-template <typename... Types> struct UnaryTest<TypeList<Types...>> {
+template <typename... Types> struct UnaryTest<fk::TypeList<Types...>> {
     static bool execute() {
         (detectUnaryUnexpectedCompilationErrors<Types>(), ...);
         return (testUnaryOperators<Types>() && ...);
@@ -403,7 +413,7 @@ template <typename... Types> struct UnaryTest<TypeList<Types...>> {
 template <typename TypeList1, typename TypeList2> struct BinaryTests;
 
 template <typename Type1, typename... Types1, typename... Types2>
-struct BinaryTests<TypeList<Type1, Types1...>, TypeList<Types2...>> {
+struct BinaryTests<fk::TypeList<Type1, Types1...>, fk::TypeList<Types2...>> {
     static bool execute() {
         if constexpr (sizeof...(Types1) == 0) {
             (detectBinaryUnexpectedCompilationErrors<Type1, Types2>(), ...);
@@ -411,7 +421,7 @@ struct BinaryTests<TypeList<Type1, Types1...>, TypeList<Types2...>> {
         } else {
             (detectBinaryUnexpectedCompilationErrors<Type1, Types2>(), ...);
             const bool result = (testBinaryOperators<Type1, Types2>() && ...);
-            return result && BinaryTests<TypeList<Types1...>, TypeList<Types2...>>::execute();
+            return result && BinaryTests<fk::TypeList<Types1...>, fk::TypeList<Types2...>>::execute();
         }
     }
 };
@@ -419,7 +429,7 @@ struct BinaryTests<TypeList<Type1, Types1...>, TypeList<Types2...>> {
 template <typename TypeList1, typename TypeList2> struct CompoundTests;
 
 template <typename Type1, typename... Types1, typename... Types2>
-struct CompoundTests<TypeList<Type1, Types1...>, TypeList<Types2...>> {
+struct CompoundTests<fk::TypeList<Type1, Types1...>, fk::TypeList<Types2...>> {
     static bool execute() {
         if constexpr (sizeof...(Types1) == 0) {
             (detectCompoundUnexpectedCompilationErrors<Type1, Types2>(), ...);
@@ -427,7 +437,7 @@ struct CompoundTests<TypeList<Type1, Types1...>, TypeList<Types2...>> {
         } else {
             (detectCompoundUnexpectedCompilationErrors<Type1, Types2>(), ...);
             const bool result = (testCompoundOperators<Type1, Types2>() && ...);
-            return result && CompoundTests<TypeList<Types1...>, TypeList<Types2...>>::execute();
+            return result && CompoundTests<fk::TypeList<Types1...>, fk::TypeList<Types2...>>::execute();
         }
     }
 };

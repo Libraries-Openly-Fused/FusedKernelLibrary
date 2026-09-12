@@ -14,6 +14,14 @@
 
 #include "tests/main.h"
 
-int launch() {
+namespace fk {
+
+int launch_impl() {
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

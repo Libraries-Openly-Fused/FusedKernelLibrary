@@ -20,38 +20,40 @@
 #include <fused_kernel/algorithms/image_processing/crop.h>
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 
+namespace fk {
+
 // Operation types
 // Read
-using RPerThrFloat = fk::PerThreadRead<fk::ND::_2D, float>;
+using RPerThrFloat = PerThreadRead<ND::_2D, float>;
 // ReadBack
-using RBResize = fk::ResizeComplete<fk::AspectRatio::IGNORE_AR, fk::Instantiable<fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::Instantiable<RPerThrFloat>>>>;
+using RBResize = ResizeComplete<AspectRatio::IGNORE_AR, Instantiable<InterpolateComplete<InterpolationType::INTER_LINEAR, Instantiable<RPerThrFloat>>>>;
 // Unary
-using UIntFloat = fk::Cast<int, float>;
-using UFloatInt = fk::Cast<float, int>;
-using Unaries = fk::TypeList<UIntFloat, UFloatInt>;
+using UIntFloat = Cast<int, float>;
+using UFloatInt = Cast<float, int>;
+using Unaries = TypeList<UIntFloat, UFloatInt>;
 // Binary
-using BAddInt = fk::Add<int>;
-using BAddFloat = fk::Add<float>;
-using Binaries = fk::TypeList<BAddInt, BAddFloat>;
+using BAddInt = Add<int>;
+using BAddFloat = Add<float>;
+using Binaries = TypeList<BAddInt, BAddFloat>;
 // Ternary
-using TInterpFloat = fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::Instantiable<RPerThrFloat>>;
+using TInterpFloat = InterpolateComplete<InterpolationType::INTER_LINEAR, Instantiable<RPerThrFloat>>;
 // Write
-using WPerThrFloat = fk::PerThreadWrite<fk::ND::_2D, float>;
+using WPerThrFloat = PerThreadWrite<ND::_2D, float>;
 // MidWrite
-using FusedPerThrFloat = fk::FusedOperation<fk::MidWrite<WPerThrFloat>, fk::Binary<BAddFloat>>;
+using FusedPerThrFloat = FusedOperation<MidWrite<WPerThrFloat>, Binary<BAddFloat>>;
 
 // Test combination type lists
 template <typename... Types>
-using TL = fk::TypeList<Types...>;
+using TL = TypeList<Types...>;
 
 template <typename TL1, typename TL2>
-using TLC = fk::TypeListCat_t<TL1, TL2>;
+using TLC = TypeListCat_t<TL1, TL2>;
 
 template <typename TL, typename T>
-using ITB = fk::InsertTypeBack_t<TL, T>;
+using ITB = InsertTypeBack_t<TL, T>;
 
 template <typename T, typename TL>
-using ITF = fk::InsertTypeFront_t<T, TL>;
+using ITF = InsertTypeFront_t<T, TL>;
 
 // No Read
 using NoRead = ITB<ITB<ITB<TLC<TLC<TL<RBResize>, Unaries>, Binaries>, TInterpFloat>, WPerThrFloat>, FusedPerThrFloat>;
@@ -75,38 +77,38 @@ using AllCompute = ITB<TLC<Unaries, Binaries>, TInterpFloat>;
 template <typename TypeList>
 struct ContainsReadType;
 template <typename... Types>
-struct ContainsReadType<fk::TypeList<Types...>> {
-    static constexpr bool value = fk::or_v<fk::opIs<fk::ReadType, Types>...>;
+struct ContainsReadType<TypeList<Types...>> {
+    static constexpr bool value = or_v<opIs<ReadType, Types>...>;
 };
 
 template <typename TypeList>
 struct ContainsReadBackType;
 template <typename... Types>
-struct ContainsReadBackType<fk::TypeList<Types...>> {
-    static constexpr bool value = fk::or_v<fk::opIs<fk::ReadBackType, Types>...>;
+struct ContainsReadBackType<TypeList<Types...>> {
+    static constexpr bool value = or_v<opIs<ReadBackType, Types>...>;
 };
 
 template <typename TypeList>
 struct NoneAnyWriteType;
 template <typename... Types>
-struct NoneAnyWriteType<fk::TypeList<Types...>> {
-    static constexpr bool value = fk::noneAnyWriteType<Types...>;
+struct NoneAnyWriteType<TypeList<Types...>> {
+    static constexpr bool value = noneAnyWriteType<Types...>;
 };
 
 template <typename TypeList>
 struct NoneFusedType;
 
 template <typename... Types>
-struct NoneFusedType<fk::TypeList<Types...>> {
-    static constexpr bool value = !fk::or_v<fk::opIs<fk::OpenType, Types>...>;
+struct NoneFusedType<TypeList<Types...>> {
+    static constexpr bool value = !or_v<opIs<OpenType, Types>...>;
 };
 
 template <typename TypeList_t>
 struct Test_allUnaryTypes;
 
 template <typename... OpsOrIOps>
-struct Test_allUnaryTypes<fk::TypeList<OpsOrIOps...>> {
-    static constexpr bool value = fk::allUnaryTypes<OpsOrIOps...>;
+struct Test_allUnaryTypes<TypeList<OpsOrIOps...>> {
+    static constexpr bool value = allUnaryTypes<OpsOrIOps...>;
 };
 
 constexpr bool test_allUnaryTypes() {
@@ -117,29 +119,29 @@ constexpr bool test_allUnaryTypes() {
     constexpr bool mustFalse4 = Test_allUnaryTypes<NoAnyWrite>::value;
     constexpr bool mustFalse5 = Test_allUnaryTypes<NoBinary>::value;
     using ComplexType =
-    fk::Read<fk::FusedOperation<typename fk::ResizeComplete<fk::AspectRatio::PRESERVE_AR,
-                                fk::Ternary<fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>>>::InstantiableType,
-                                typename fk::Mul<float3, float3, float3>::InstantiableType>>;
-    constexpr bool mustFalse6 = fk::allUnaryTypes<ComplexType>;
+    Read<FusedOperation<typename ResizeComplete<AspectRatio::PRESERVE_AR,
+                                Ternary<InterpolateComplete<InterpolationType::INTER_LINEAR, ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>>>::InstantiableType,
+                                typename Mul<float3, float3, float3>::InstantiableType>>;
+    constexpr bool mustFalse6 = allUnaryTypes<ComplexType>;
 
     using ComplexType2 =
-        fk::Read<fk::FusedOperation<typename fk::ResizeComplete<fk::AspectRatio::PRESERVE_AR,
-                                    fk::Ternary<fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>>>::InstantiableType,
-                                    typename fk::Mul<float3, float3, float3>::InstantiableType>>;
-    constexpr bool mustFalse7 = Test_allUnaryTypes<fk::TypeList<ComplexType2>>::value;
+        Read<FusedOperation<typename ResizeComplete<AspectRatio::PRESERVE_AR,
+                                    Ternary<InterpolateComplete<InterpolationType::INTER_LINEAR, ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>>>::InstantiableType,
+                                    typename Mul<float3, float3, float3>::InstantiableType>>;
+    constexpr bool mustFalse7 = Test_allUnaryTypes<TypeList<ComplexType2>>::value;
 
-    return mustTrue && !fk::or_v<mustFalse1, mustFalse2, mustFalse3, mustFalse4, mustFalse5, mustFalse6, mustFalse7>;
+    return mustTrue && !or_v<mustFalse1, mustFalse2, mustFalse3, mustFalse4, mustFalse5, mustFalse6, mustFalse7>;
 }
 
-int launch() {
+int launch_impl() {
     // isReadType
     constexpr bool noneRead = !ContainsReadType<NoRead>::value;
-    constexpr bool isRead = fk::opIs<fk::ReadType, RPerThrFloat>;
+    constexpr bool isRead = opIs<ReadType, RPerThrFloat>;
     static_assert(noneRead && isRead, "Something wrong with isReadType");
 
     // isReadBackType
     constexpr bool noneReadBack = !ContainsReadBackType<NoReadBack>::value;
-    constexpr bool isReadBack = fk::opIs<fk::ReadBackType, RBResize>;
+    constexpr bool isReadBack = opIs<ReadBackType, RBResize>;
     static_assert(noneReadBack && isReadBack, "Something wrong with isReadType");
 
     // noneAnyWriteType
@@ -151,4 +153,10 @@ int launch() {
     static_assert(allUnaryTypes_v, "Something wrong with allUnaryTypes");
     
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

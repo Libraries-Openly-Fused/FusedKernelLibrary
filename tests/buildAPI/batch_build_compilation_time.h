@@ -24,7 +24,7 @@
 #include <fused_kernel/algorithms/image_processing/border_reader.h>
 #include <fused_kernel/fused_kernel.h>
 
-using namespace fk;
+namespace fk {
 
 void testCompareReferenceVSValueVSInstantiableDPP() {
     Stream stream;
@@ -74,8 +74,14 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     stream.sync();
 }
 
-int launch() {
+int launch_impl() {
     testCompareReferenceVSValueVSInstantiableDPP();
 
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

@@ -18,12 +18,19 @@
 #include <fused_kernel/core/core.h>
 #include <fused_kernel/fused_kernel.h>
 
-int launch() {
+namespace fk {
 
-    fk::Ptr2D<float> input(10, 10);
-    auto readOp = fk::PerThreadRead<fk::ND::_2D, float>::build(input);
+int launch_impl() {
+    Ptr2D<float> input(10, 10);
+    auto readOp = PerThreadRead<ND::_2D, float>::build(input);
 
-    std::cout << "Read Operation typeToString: " << fk::typeToString<decltype(readOp)>() << std::endl;
-    
+    std::cout << "Read Operation typeToString: " << typeToString<decltype(readOp)>() << std::endl;
+
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

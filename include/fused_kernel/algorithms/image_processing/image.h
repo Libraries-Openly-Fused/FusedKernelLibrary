@@ -82,6 +82,21 @@ namespace fk {
         inline void download(Stream_<ParArch::GPU_NVIDIA>& stream) {
             data.download(stream);
         }
+#elif defined(__HIPCC__)
+        inline void uploadTo(Image& other, hipStream_t stream = 0) {
+            data.uploadTo(other.data, stream);
+        }
+
+        inline void downloadTo(Image& other, hipStream_t stream = 0) {
+            data.downloadTo(other.data, stream);
+        }
+
+        inline void upload(Stream_<ParArch::GPU_AMD>& stream) {
+            data.upload(stream);
+        }
+        inline void download(Stream_<ParArch::GPU_AMD>& stream) {
+            data.download(stream);
+        }
 #else
         inline void upload(Stream& stream) {}
         inline void download(Stream& stream) {}

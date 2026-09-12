@@ -9,7 +9,7 @@ endfunction()
 
 function(add_cuda_lineinfo_to_target TARGET_NAME)
     #-G already implies lineinfo, so only pass flag if debug code is not 
-    if (NOT ${ENABLE_DEBUG})
+    if (NOT ENABLE_DEBUG)
         if (CMAKE_CUDA_COMPILER_ID STREQUAL "NVIDIA")
             target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>: -lineinfo>)    
         endif()

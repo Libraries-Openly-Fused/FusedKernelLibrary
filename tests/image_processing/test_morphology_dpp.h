@@ -26,7 +26,7 @@
 #include <type_traits>
 #include <vector>
 
-using namespace fk;
+namespace fk {
 
 namespace {
 
@@ -124,7 +124,7 @@ bool runCpuCase(const char* name, const Details& details,
     return true;
 }
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
 template <typename Reducers>
 bool runGpuCase(const char* name, const Details& details,
                 const Reducers& reducers,
@@ -192,7 +192,7 @@ bool runCase(const char* name, const Details& details,
              const Reducers& reducers,
              const std::vector<bool>& erodePasses) {
     bool ok = runCpuCase(name, details, reducers, erodePasses);
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
     ok = runGpuCase(name, details, reducers, erodePasses) && ok;
 #endif
     return ok;
@@ -200,7 +200,8 @@ bool runCase(const char* name, const Details& details,
 
 } // namespace
 
-int launch() {
+int launch_impl() {
+    using namespace fk;
     const auto minOp = MinReducer::build();
     const auto maxOp = MaxReducer::build();
     bool ok = true;
@@ -229,4 +230,10 @@ int launch() {
     }
     if (ok) std::printf("MorphologyDPP 1-4 pass contracts: PASS\n");
     return ok ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

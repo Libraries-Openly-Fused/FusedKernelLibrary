@@ -23,7 +23,7 @@
 #include <cstdio>
 #include <vector>
 
-using namespace fk;
+namespace fk {
 
 namespace {
 
@@ -116,7 +116,7 @@ bool runCase(const Details& details, const Selection& selection,
     }
     if (!compare(cpuOutput, expected, label)) return false;
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
     Ptr2D<float> gpuInput(details.width, details.height);
     Ptr2D<float> gpuOutput(details.width, details.height);
     for (int y = 0; y < details.height; ++y)
@@ -154,7 +154,8 @@ bool runCase(const Details& details, const Selection& selection,
 
 } // namespace
 
-int launch() {
+int launch_impl() {
+    using namespace fk;
     const auto median = MedianWindowSelect<float, 49>::build();
     const auto minimum = MinimumWindowSelect<float, 49>::build();
     bool ok = true;
@@ -171,4 +172,10 @@ int launch() {
     if (Details::valid(evenWindow)) ok = false;
     if (ok) std::printf("MedianFilterDPP contracts: PASS\n");
     return ok ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

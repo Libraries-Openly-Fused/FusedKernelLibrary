@@ -23,7 +23,7 @@
 #include <fused_kernel/algorithms/basic_ops/set.h>
 #include <fused_kernel/fused_kernel.h>
 
-using namespace fk;
+namespace fk {
 
 // Operation types
 // Read
@@ -170,7 +170,8 @@ constexpr inline bool test_batched() {
     return std::is_same_v<decltype(batcheResize), decltype(fusedBatchesOp)>;
 }
 
-int launch() {
+int launch_impl() {
+    using namespace fk;
     constexpr Instantiable<RPerThrFloat> func1{};
     func1.then(UFloatInt::build());
     fuse(func1, UFloatInt::build());
@@ -249,7 +250,7 @@ int launch() {
     static_assert(someReadOpAlt.getActiveThreads().y == 32, "Wrong height");
     static_assert(someReadOpAlt.getActiveThreads().z == 1, "Wrong depth");
 
-    executeOperations<fk::TransformDPP<>>(stream, someReadOpAlt, PerThreadWrite<ND::_2D, uint3>::build(outputAlt));
+    executeOperations<TransformDPP<>>(stream, someReadOpAlt, PerThreadWrite<ND::_2D, uint3>::build(outputAlt));
 
     outputAlt.download(stream);
     stream.sync();
@@ -271,4 +272,10 @@ int launch() {
                                     test_read_then_readback()>;
 
     return (correct && correct2 && correct3) ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

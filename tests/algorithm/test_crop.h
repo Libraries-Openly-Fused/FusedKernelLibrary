@@ -18,9 +18,11 @@
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/image_processing/resize.h>
 
+namespace fk {
+
+int launch_impl() {
 using namespace fk;
 
-int launch() {
     constexpr RawPtr<ND::_2D, uchar3> input{ nullptr, {128, 128, 128*sizeof(uchar3)}};
     constexpr auto readIOp = PerThreadRead<ND::_2D, uchar3>::build(input);
     using ReadIOp = decltype(readIOp);
@@ -45,4 +47,10 @@ int launch() {
     static_assert(batchCropResize.getActiveThreads().z == 2);
 
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

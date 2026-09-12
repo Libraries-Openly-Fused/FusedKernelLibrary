@@ -16,25 +16,32 @@
 
 #include <fused_kernel/core/data/rect.h>
 
-int launch() {
+namespace fk {
 
-    constexpr fk::Rect test(fk::Point{16, 32, 0}, fk::Size(32, 64));
+int launch_impl() {
+    constexpr Rect test(Point{16, 32, 0}, Size(32, 64));
     static_assert(test.x == 16, "Something wrong");
     static_assert(test.y == 32, "Something wrong");
     static_assert(test.width == 32, "Something wrong");
     static_assert(test.height == 64, "Something wrong");
 
-    constexpr fk::Rect test2;
+    constexpr Rect test2;
     static_assert(test2.x == 0, "Something wrong");
     static_assert(test2.y == 0, "Something wrong");
     static_assert(test2.width == 0, "Something wrong");
     static_assert(test2.height == 0, "Something wrong");
 
-    constexpr fk::Rect_<float, double> test3(3.f, 5.f, 10.0, 20.0);
+    constexpr Rect_<float, double> test3(3.f, 5.f, 10.0, 20.0);
     static_assert(test3.x == 3.f, "Something wrong");
     static_assert(test3.y == 5.f, "Something wrong");
     static_assert(test3.width == 10.0, "Something wrong");
     static_assert(test3.height == 20.0, "Something wrong");
 
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

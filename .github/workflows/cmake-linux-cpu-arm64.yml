@@ -1,4 +1,4 @@
-name: CMake on Linux (ARM64)
+name: CMake on Linux (CPU ARM64)
 
 on:
   #push:
@@ -8,36 +8,32 @@ on:
 
 jobs:
   build:
-    runs-on: [self-hosted, linux, arm64, cuda]
+    runs-on: [self-hosted, linux, arm64]
 
     strategy:
       # Set fail-fast to false to ensure that feedback is delivered for all matrix combinations.
       #Consider changing this to true when your workflow is stable.
       fail-fast: false
 
-      matrix: 
+      matrix:
         include:
           - host_compiler: "g++-13"
-            cuda_toolkit: "13.3"
-          - host_compiler: "clang++-21"
-            cuda_toolkit: "13.3"  
+          - host_compiler: "clang++-23"
 
- 
     steps:
       - uses: actions/checkout@v6
       - name: Set reusable strings
         # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
         id: strings
         run: |
-          echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"      
-          echo "PATH=$HOME/cmake-4.3.3-linux-aarch64/bin/:$PATH" >> "$GITHUB_ENV"
-          echo "CUDACXX=/usr/local/cuda-${{matrix.cuda_toolkit}}/bin/nvcc" >> "$GITHUB_ENV"
-          echo "CC=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
-          echo "CXX=${{matrix.host_compiler}}" >> "$GITHUB_ENV"                    
-          
+          echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"
+          echo "PATH=$HOME/cmake-4.4.2-linux-aarch64/bin/:$PATH" >> "$GITHUB_ENV"
+
       - name: Configure CMake
         run: |
-          cmake -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
+          cmake -G "Ninja" -DCMAKE_CXX_COMPILER="${{matrix.host_compiler}}" \
+          -DENABLE_HIP=OFF  -DENABLE_CUDA=OFF -DENABLE_CPU=ON   \
+          -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
 
       - name: Build
         run: |

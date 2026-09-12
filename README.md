@@ -1,12 +1,30 @@
 # Fused Kernel Library (FKL) Main branch
   
-The Fused Kernel Library is a C++20 implementation of a methodology that allows to define a set of operations that need to be executed inside a kernel, in the same order that they are expressed. The library currently has CPU and CUDA backends, but other GPU language implemenations (such as HIP) are possible.
+The Fused Kernel Library is a C++20 implementation of a methodology that allows to define a set of operations that need to be executed inside a kernel, in the same order that they are expressed. The library currently has CPU, CUDA and ROCM backends, but other GPU language implementations are possible.
 
 It automatically implements Vertical and Horizontal fusion, and also implements two new Fusion techniques, Backwards Vertical Fusion (akin to OpenCV Filters, but with an standard generic API), and Divergent Horizontal Fusion.
 
 This is the Main branch of the repository, where the FKL API can be modified, the minimum C++ version can be increased (currently it is C++20), and in general, we can break retro-compatibility with the goal of improving future code maintainability, code performance, and being able to fuse more types of algorithms.
 
-If you are looking for a more stable branch, where new features can be added, but the FKL API is frozen to ensure your user code will continue to work with newer versions, check the LTS-C++17 branch.
+If you are looking for a more stable branch, where new features can be added, but the FKL API is frozen to ensure your user code will continue to work with newer versions, check the LTS-C++17 branch (ROCM is not supported there).
+
+## ROCm image-processing support
+
+HIP builds use `ParArch::GPU_AMD` and an AMD `Stream` by default. Composable image operations such as crop, resize, warping, color conversion and deinterlacing support this backend through `executeOperations<TransformDPP<>>`.
+
+The specialized filter DPPs below also support AMD GPU execution through HIP:
+
+| DPP | CUDA/HIP launchers |
+| --- | --- |
+| `BoxFilterQuadDPP` | `executeBoxFilterQuad` |
+| `MorphQuadDPP` | `executeMorphQuad` |
+| `ConvQuadDPP` | `executeConvQuad` |
+| `MedianQuadDPP` | `executeMedianQuad` |
+| `LinearFilterDPP` | `executeLinearFilter`, `executeBoxFilter` |
+| `MedianFilterDPP` | `executeMedianFilter` |
+| `MorphologyDPP` | `executeMorphology`, `executeErode`, `executeDilate`, `executeOpen`, `executeClose` |
+
+The [image-processing umbrella](include/fused_kernel/algorithms/image_processing/image_processing.h) exposes these filters on all backends. For quad launchers, select the DPP with `defaultParArch` (or explicitly `ParArch::GPU_AMD` in HIP builds) and pass a matching `Stream`. Tiled launchers infer their details and accept the default GPU stream directly. GPU launchers execute on the supplied CUDA/HIP stream and report launch errors; they do not fall back to CPU execution. Existing CPU specializations remain available for explicit CPU execution with host-accessible data.
 
 ## Reference paper and other publications
 This repository provides the official implementation of a kernel fusion methodology for GPU libraries, providing the mechanisms to perform automatic Vertical Fusion, Horizontal Fusion, Backwards Vertical Fusion and Divergent Horizontal Fusion.
@@ -34,13 +52,14 @@ You can view and run a similar code in this [FKL Playground](https://colab.resea
 #include <fused_kernel/algorithms/image_processing/resize.h>
 #include <fused_kernel/fused_kernel.h>
 
+void preprocess() {
 using namespace fk;
 
 // Create the fkl CUDA stream
 Stream stream;
 
 // Get the input image
-const Ptr2D<uchar3> inputImage = getGPUSourceImage(stream);
+    const Ptr2D<fk::uchar3> inputImage = getGPUSourceImage(stream);
 
 // Define the crops on the source image
 constexpr std::array<Rect, BATCH> crops{
@@ -52,7 +71,7 @@ constexpr std::array<Rect, BATCH> crops{
 };
 
 // We want a Tensor of contiguous memory for all crops as output
-Tensor<uchar3> output(outputSize.width, outputSize.height, BATCH);
+    Tensor<fk::uchar3> output(outputSize.width, outputSize.height, BATCH);
 
 // CREATING AND EXECUTING YOUR FUSED CUDA KERNEL
 // Create a fused operation that reads the input image,
@@ -60,15 +79,16 @@ Tensor<uchar3> output(outputSize.width, outputSize.height, BATCH);
 // At compile time, the types are used to define the kernel code.
 // At runtime, the kernel is executed with the provided parameters.
 executeOperations<TransformDPP<>>(stream,
-                                  PerThreadRead<ND::_2D, uchar3>::build(inputImage.ptr()),
+        PerThreadRead<ND::_2D, fk::uchar3>::build(inputImage.ptr()),
                                   Crop<>::build(crops),
                                   Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>::build(outputSize, backgroundColor),
-                                  Mul<float3>::build(make_<float3>(2.f, 2.f, 2.f)),
-                                  Sub<float3>::build(make_set<float3>(128.f)),
-                                  SaturateCast<float3, uchar3>::build(),
-                                  TensorWrite<uchar3>::build(output.ptr()));
+        Mul<fk::float3>::build(make_<fk::float3>(2.f, 2.f, 2.f)),
+        Sub<fk::float3>::build(make_set<fk::float3>(128.f)),
+        SaturateCast<fk::float3, fk::uchar3>::build(),
+        TensorWrite<fk::uchar3>::build(output.ptr()));
 
 stream.sync();
+}
 
 ```
 Let's see a bit more in detail what is going on in the code.
@@ -76,7 +96,7 @@ Let's see a bit more in detail what is going on in the code.
 First of all, take into account that there is no CUDA kernel launch until we call the function executeOperations. Until then, we accumulate and combine information to build the final kernel.
 
 ```C++
-PerThreadRead<ND::_2D, uchar3>::build(inputImage.ptr()),
+PerThreadRead<ND::_2D, fk::uchar3>::build(inputImage.ptr()),
 ```
 In this line we are specifying that we want to read a 4K (2D) image, where we will have one CUDA thread per each pixel.
 
@@ -100,16 +120,16 @@ Each thread will work as if the source image had the size informed by the corres
 Each thread will ask the Crop operation for the pixels it needs to interpolate the output pixel.
 
 ```C++
-Mul<float3>::build(mulValue),
-Sub<float3>::build(subValue),
-Div<float3>::build(divValue),
-ColorConversion<COLOR_RGB2BGR, float3, float3>::build(),
+Mul<fk::float3>::build(mulValue),
+Sub<fk::float3>::build(subValue),
+Div<fk::float3>::build(divValue),
+ColorConversion<COLOR_RGB2BGR, fk::float3, fk::float3>::build(),
 ```
 
 The following 4 lines will add element wise continuation operations to be applied to the output of the fused operation "PerThreadRead + Crop + Resize" (`Read<BatchRead<BATCH, Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR, ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>>>`).
 
 ```C++
-TensorWrite<float3>::build(output));
+TensorWrite<fk::float3>::build(output));
 ```
 
 The Operation TensorWrite will write the 60x60x5 pixels into a contiguous memory region, without padding on the x axis. The CUDA kernel will receive as parameters the fused operation and the continuation operations, including TensorWrite, as a parameter pack. The kernel is a variadic template kernel function.
@@ -117,6 +137,31 @@ The Operation TensorWrite will write the 60x60x5 pixels into a contiguous memory
 DNNs generated with Pytorch usually expect the 3 pixel channels to be split into separated planes, but despite we include the split Operation, this is not the most efficient memory layout for the GPUs, and we wanted to show the creation of most efficient Tensor shape. 
 
 You can view and run a similar code in this [FKL Playground](https://colab.research.google.com/drive/1WZd8FcWEKWAuxnJEOTfr0mrWVBtz8bzl?usp=sharing) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WZd8FcWEKWAuxnJEOTfr0mrWVBtz8bzl?usp=sharing)
+
+## Vector types and HIP/CUDA interoperability
+
+FKL owns its vector types and operators in `namespace fk` on every backend. Use
+`fk::float3`, `fk::uchar4`, etc. outside that namespace, even with `using namespace fk;`:
+HIP and CUDA declare different types with the same names in the global namespace.
+CPU-only builds retain global aliases when vendor vector headers have not been included;
+include vendor headers first when using them from an ordinary C++ translation unit.
+
+Do not put `using namespace fk;` at global scope in CUDA translation units or headers.
+Even when your own vector names are qualified, nvcc appends host-registration code that
+uses unqualified CUDA types such as `uint3`. A global using-directive makes those names
+ambiguous. Keep using-directives inside functions, as in the example above, and qualify
+FKL names in declarations outside those functions.
+
+Arithmetic follows scalar C++ promotions per component (for example, `fk::uchar3 / float`
+returns `fk::float3`), and comparisons return component-wise `fk::boolN` masks.
+The `.x/.y/.z/.w` fields, aggregate initialization, `fk::make_`, and `fk::make_set` remain
+available. Internal FKL expressions do not need backend-specific casts or operators.
+
+Native HIP/CUDA vector types are not FKL vector types. At APIs that require a native
+vector, convert values explicitly by component, for example
+`::float3 native{value.x, value.y, value.z}` and `fk::float3 value{native.x, native.y, native.z}`.
+Do not reinterpret vector pointers: layouts are not universally interchangeable.
+For example, `fk::double3` has size/alignment 32/16, while AMD's Clang `::double3` has 24/8.
 
 ## Fusion and inclusion
 
@@ -159,7 +204,7 @@ This has been tested before, by creating special compilers that generate the ass
 
 ## Closed source friendly
 
-A company that has it's own CUDA kernels, and wants to start fusing them along with operations present in this library, can do so by shaping their kernels into a conformant FusedKernel Operation, that can be passed as a template parameter of one of the FKL InstantiableOperation structs.
+A company that has its own CUDA or HIP kernels, and wants to start fusing them along with operations present in this library, can do so by shaping their kernels into a conformant FusedKernel Operation, that can be passed as a template parameter of one of the FKL InstantiableOperation structs.
 
 With this strategy, they don't need to share any of their code. They just need to make their kernels fusionable.
 
@@ -168,5 +213,16 @@ With this strategy, they don't need to share any of their code. They just need t
 This is an Apache 2.0 OpenSource project, currently with no funding. The 3 main contributors work on the project on their spare time. In the case of the main author, he can work on solving bugs or adding features during his work hours on Grup Mediapro S.L.U. The code added during that time will include Copyright Grup Mediapro S.L.U.
 
 As per Apache 2.0 we provide no guaratees, or free support. Nevertheless, the software has some testing on the following OS and compiler versions:
-- Ubuntu 24.04 g++ 13 + CUDA 13.3 or clang21 + CUDA 13.3 for both amd64 and arm64 systems.
-- Windows 11 Visual Studio 2022 + CUDA 13.0 or Visual Studio 2026 + CUDA 13.3 or clang-cl (VS2026) + CUDA 13.3 on amd64 systems.
+
+For CUDA builds (x86_64 and arm64)
+- Ubuntu 24.04 g++ 13 + CUDA 13.4
+- Windows 11 Visual Studio 2026 (14.44 toolset) + CUDA 13.0
+- Windows Visual Studio 2026 (14.51 toolset) + CUDA 13.4
+
+For ROCM builds (x86_64 only):
+- Ubuntu 24.04 + ROCM 10.0.0
+- Windows 11 25H2 + ROCM 10.0.0
+
+For the CPU backend
+- gcc++13 or clang++-23 on linux
+- visual studio 2026 (14.51) on windows

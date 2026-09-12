@@ -1,6 +1,5 @@
 function (add_generated_lib TARGET_NAME TEST_SOURCES DIR)                        
         add_library(${TARGET_NAME} SHARED "${TEST_SOURCES}" )
-        set_target_properties(${TARGET_NAME}  PROPERTIES LINKER_LANGUAGE CXX)      
         add_generated_export_header_to_target(${TARGET_NAME})
         configure_test_target_flags("${TARGET_NAME}" "${TEST_SOURCES}" "${DIR}")  
         set_property(TARGET "${TARGET_NAME}" PROPERTY FOLDER "${DIR}")  
@@ -23,9 +22,14 @@ function (add_shared_target TARGET_BASE_NAME EXTENSION FUNDAMENTAL_TYPE DIR)
     add_generated_lib("${TARGET_NAME}_${EXTENSION}" "${SOURCES}"  "${DIR}")                                     
     target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/")   #testcommon       
     target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_BINARY_DIR}/generated/${GEN_DIR}/")   #testcommon       
-   
-    if (MSVC)
+
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
         target_compile_options(${TARGET_NAME}_${EXTENSION} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>)
+    endif()
+    #ignore warnings about declspec
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        target_compile_options(${TARGET_NAME}_${EXTENSION} BEFORE PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wno-ignored-attributes>)
+        target_compile_options(${TARGET_NAME}_${EXTENSION} BEFORE PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-Xarch_device -Wno-ignored-attributes>)
     endif()
 endfunction()
 
@@ -34,6 +38,8 @@ function (add_shared_test_lib TARGET_BASE_NAME DIR EXTENSION FUNDAMENTAL_TYPE)
     add_shared_target("${TARGET_BASE_NAME}" "${EXTENSION}" "${FUNDAMENTAL_TYPE}" "${DIR}")         
     if ("${EXTENSION}" STREQUAL "cu")
        add_cuda_to_test("${TARGET_NAME}_${EXTENSION}")                   
+    elseif ("${EXTENSION}" STREQUAL "hip")
+       add_hip_to_test("${TARGET_NAME}_${EXTENSION}")
     endif()                    
    
 endfunction()

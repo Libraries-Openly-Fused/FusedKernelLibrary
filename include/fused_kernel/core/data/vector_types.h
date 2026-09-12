@@ -24,25 +24,25 @@ namespace fk {
     struct Bool1 {
         bool x;
         // Making it easier to evalute in expressions that expect a bool
-        FK_HOST_CNST operator bool() const { return x; }
+        FK_HOST_DEVICE_CNST operator bool() const { return x; }
     };
 
     struct Bool2 {
         bool x, y;
         // Making it easier to evalute in expressions that expect a bool
-        FK_HOST_CNST operator bool() const { return x && y; }
+        FK_HOST_DEVICE_CNST operator bool() const { return x && y; }
     };
 
     struct Bool3 {
         bool x, y, z;
         // Making it easier to evalute in expressions that expect a bool
-        FK_HOST_CNST operator bool() const { return x && y && z; }
+        FK_HOST_DEVICE_CNST operator bool() const { return x && y && z; }
     };
 
     struct Bool4 {
         bool x, y, z, w;
         // Making it easier to evalute in expressions that expect a bool
-        FK_HOST_CNST operator bool() const { return x && y && z && w; }
+        FK_HOST_DEVICE_CNST operator bool() const { return x && y && z && w; }
     };
 
     struct Bool {
@@ -58,14 +58,11 @@ namespace fk {
         FK_HOST_DEVICE_FUSE bool vOr(const Bool4 & bool4) { return bool4.x || bool4.y || bool4.z || bool4.w; }
     };
 
-} // namespace fk
+    using bool1 = Bool1;
+    using bool2 = Bool2;
+    using bool3 = Bool3;
+    using bool4 = Bool4;
 
-using bool1 = fk::Bool1;
-using bool2 = fk::Bool2;
-using bool3 = fk::Bool3;
-using bool4 = fk::Bool4;
-
-namespace fk {
     struct Char1 {
         signed char x;
     };
@@ -257,59 +254,80 @@ namespace fk {
     struct alignas(16) Double4 {
         double x, y, z, w;
     };
+
+    using char1 = Char1;
+    using uchar1 = Uchar1;
+    using char2 = Char2;
+    using uchar2 = Uchar2;
+    using char3 = Char3;
+    using uchar3 = Uchar3;
+    using char4 = Char4;
+    using uchar4 = Uchar4;
+    using short1 = Short1;
+    using ushort1 = Ushort1;
+    using short2 = Short2;
+    using ushort2 = Ushort2;
+    using short3 = Short3;
+    using ushort3 = Ushort3;
+    using short4 = Short4;
+    using ushort4 = Ushort4;
+    using int1 = Int1;
+    using uint1 = Uint1;
+    using int2 = Int2;
+    using uint2 = Uint2;
+    using int3 = Int3;
+    using uint3 = Uint3;
+    using int4 = Int4;
+    using uint4 = Uint4;
+    using long1 = Long1;
+    using ulong1 = Ulong1;
+    using long2 = Long2;
+    using ulong2 = Ulong2;
+    using long3 = Long3;
+    using ulong3 = Ulong3;
+    using long4 = Long4;
+    using ulong4 = Ulong4;
+    using float1 = Float1;
+    using float2 = Float2;
+    using float3 = Float3;
+    using float4 = Float4;
+    using longlong1 = Longlong1;
+    using ulonglong1 = Ulonglong1;
+    using longlong2 = Longlong2;
+    using ulonglong2 = Ulonglong2;
+    using longlong3 = Longlong3;
+    using ulonglong3 = Ulonglong3;
+    using longlong4 = Longlong4;
+    using ulonglong4 = Ulonglong4;
+    using double1 = Double1;
+    using double2 = Double2;
+    using double3 = Double3;
+    using double4 = Double4;
 } // namespace fk
 
-#if defined(__VECTOR_TYPES_H__) || defined(__CUDACC__) || defined(__NVCC__)
-#include <vector_types.h>
-#else
-using char1 = fk::Char1;
-using uchar1 = fk::Uchar1;
-using char2 = fk::Char2;
-using uchar2 = fk::Uchar2;
-using char3 = fk::Char3;
-using uchar3 = fk::Uchar3;
-using char4 = fk::Char4;
-using uchar4 = fk::Uchar4;
-using short1 = fk::Short1;
-using ushort1 = fk::Ushort1;
-using short2 = fk::Short2;
-using ushort2 = fk::Ushort2;
-using short3 = fk::Short3;
-using ushort3 = fk::Ushort3;
-using short4 = fk::Short4;
-using ushort4 = fk::Ushort4;
-using int1 = fk::Int1;
-using uint1 = fk::Uint1;
-using int2 = fk::Int2;
-using uint2 = fk::Uint2;
-using int3 = fk::Int3;
-using uint3 = fk::Uint3;
-using int4 = fk::Int4;
-using uint4 = fk::Uint4;
-using long1 = fk::Long1;
-using ulong1 = fk::Ulong1;
-using long2 = fk::Long2;
-using ulong2 = fk::Ulong2;
-using long3 = fk::Long3;
-using ulong3 = fk::Ulong3;
-using long4 = fk::Long4;
-using ulong4 = fk::Ulong4;
-using float1 = fk::Float1;
-using float2 = fk::Float2;
-using float3 = fk::Float3;
-using float4 = fk::Float4;
-using longlong1 = fk::Longlong1;
-using ulonglong1 = fk::Ulonglong1;
-using longlong2 = fk::Longlong2;
-using ulonglong2 = fk::Ulonglong2;
-using longlong3 = fk::Longlong3;
-using ulonglong3 = fk::Ulonglong3;
-using longlong4 = fk::Longlong4;
-using ulonglong4 = fk::Ulonglong4;
-using double1 = fk::Double1;
-using double2 = fk::Double2;
-using double3 = fk::Double3;
-using double4 = fk::Double4;
-#endif /* __NVCC__ || __HIPCC__ */
+#if !defined(__HIPCC__) && !defined(__CUDACC__) && !defined(__NVCC__) && !defined(__VECTOR_TYPES_H__) && \
+    !defined(HIP_INCLUDE_HIP_HIP_VECTOR_TYPES_H)
+#define FK_EXPORT_VECTOR_TYPES(BaseType) \
+    using fk::BaseType##1; \
+    using fk::BaseType##2; \
+    using fk::BaseType##3; \
+    using fk::BaseType##4;
+
+FK_EXPORT_VECTOR_TYPES(bool)
+FK_EXPORT_VECTOR_TYPES(char)
+FK_EXPORT_VECTOR_TYPES(uchar)
+FK_EXPORT_VECTOR_TYPES(short)
+FK_EXPORT_VECTOR_TYPES(ushort)
+FK_EXPORT_VECTOR_TYPES(int)
+FK_EXPORT_VECTOR_TYPES(uint)
+FK_EXPORT_VECTOR_TYPES(long)
+FK_EXPORT_VECTOR_TYPES(ulong)
+FK_EXPORT_VECTOR_TYPES(longlong)
+FK_EXPORT_VECTOR_TYPES(ulonglong)
+FK_EXPORT_VECTOR_TYPES(float)
+FK_EXPORT_VECTOR_TYPES(double)
+
+#undef FK_EXPORT_VECTOR_TYPES
+#endif
 
 #endif /* FK_VECTOR_TYPES */

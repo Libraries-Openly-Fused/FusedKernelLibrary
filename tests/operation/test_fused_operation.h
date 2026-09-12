@@ -19,7 +19,7 @@
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/image_processing/image_processing.h>
 
-using namespace fk;
+namespace fk {
 
 constexpr bool test_fuseDFResultingTypes() {
 
@@ -34,7 +34,7 @@ constexpr bool test_fuseDFResultingTypes() {
 
     constexpr auto fused1 = fuse(readOp, addOp, castOp);
 
-    constexpr auto read = Read<PerThreadRead<ND::_2D, float>>{ { fk::RawPtr<ND::_2D, float>{nullptr, {128, 4}} } };
+    constexpr auto read = Read<PerThreadRead<ND::_2D, float>>{ { RawPtr<ND::_2D, float>{nullptr, {128, 4}} } };
     static_assert(std::is_same_v<std::decay_t<decltype(read)>, Read<PerThreadRead<ND::_2D, float>>>, "Unexpected type after fuseIOps");
 
     constexpr auto readOp2 = PerThreadRead<ND::_2D, uchar3>::build(RawPtr<ND::_2D, uchar3>{nullptr, PtrDims<ND::_2D>(128, 128)});
@@ -50,82 +50,83 @@ constexpr bool test_fuseDFResultingTypes() {
     static_assert(get_opt<2>(resizeReadWithDiv.params).params == 4.3f, "Unexpected value after resizeRead");
 
     static_assert(std::is_same_v<typename std::decay_t<decltype(fused1)>::Operation,
-        fk::FusedOperation<fk::Read<fk::PerThreadRead<fk::ND::_2D, float>>, fk::Binary<fk::Add<float>>, fk::Unary<fk::Cast<float, int>>>>, "Unexpected type after fuseIOps");
+        FusedOperation<Read<PerThreadRead<ND::_2D, float>>, Binary<Add<float>>, Unary<Cast<float, int>>>>, "Unexpected type after fuseIOps");
 
-    constexpr bool result1 = fk::is_fused_operation<fk::FusedOperation<fk::Read<fk::PerThreadRead<fk::ND::_2D, float>>, fk::Binary<fk::Add<float>>, fk::Unary<fk::Cast<float, int>>>>::value;
+    constexpr bool result1 = is_fused_operation<FusedOperation<Read<PerThreadRead<ND::_2D, float>>, Binary<Add<float>>, Unary<Cast<float, int>>>>::value;
 
-    constexpr bool result2 = fk::is_fused_operation<typename decltype(fused1)::Operation>::value;
+    constexpr bool result2 = is_fused_operation<typename decltype(fused1)::Operation>::value;
 
     static_assert(result1 && result2, "is_fused_operation does not work properly");
 
-    constexpr auto fused2 = fk::fuse(readOp, addOp, writeOp);
+    constexpr auto fused2 = fuse(readOp, addOp, writeOp);
     static_assert(std::is_same_v<typename std::decay_t<decltype(fused2)>::Operation,
-        fk::FusedOperation<fk::Read<fk::PerThreadRead<fk::ND::_2D, float>>, fk::Binary<fk::Add<float>>, fk::Write<fk::PerThreadWrite<fk::ND::_2D, float>>>>,
+        FusedOperation<Read<PerThreadRead<ND::_2D, float>>, Binary<Add<float>>, Write<PerThreadWrite<ND::_2D, float>>>>,
         "Unexpected type after fuseIOps");
 
     return result1 && result2;
 }
 
 constexpr bool test_fuseFusedOperations() {
-    const fk::Read<fk::PerThreadRead<fk::ND::_2D, float>> readOp{};
-    const fk::Binary<fk::Add<float>> addOp{ 3.f };
-    const fk::Unary<fk::Cast<float, int>> castOp{};
+    const Read<PerThreadRead<ND::_2D, float>> readOp{};
+    const Binary<Add<float>> addOp{ 3.f };
+    const Unary<Cast<float, int>> castOp{};
 
-    const auto fused1 = fk::fuse(readOp, addOp);
-    [[maybe_unused]] const auto fused2 = fk::fuse(fused1, castOp);
+    const auto fused1 = fuse(readOp, addOp);
+    [[maybe_unused]] const auto fused2 = fuse(fused1, castOp);
 
     return true;
 }
 
-int launch() {
-    constexpr auto opTuple1 = fk::make_new_operation_tuple(fk::Add<int, int, int, fk::UnaryType>::build());
+int launch_impl() {
+    using namespace fk;
+    constexpr auto opTuple1 = make_new_operation_tuple(Add<int, int, int, UnaryType>::build());
 
     using OpTuple1Type = std::decay_t<decltype(opTuple1)>;
 
     static_assert(OpTuple1Type::size == 1, "Wrong operation tuple size");
 
-    constexpr auto opTuple2 = fk::make_new_operation_tuple(fk::Add<int, int, int, fk::UnaryType> ::build(), fk::Add<int>::build(3));
+    constexpr auto opTuple2 = make_new_operation_tuple(Add<int, int, int, UnaryType> ::build(), Add<int>::build(3));
 
     using OpTuple2Type = decltype(opTuple2);
 
-    constexpr auto df2 = fk::Add<int, int, int, fk::UnaryType>::build().then(fk::Add<int >::build(3));
+    constexpr auto df2 = Add<int, int, int, UnaryType>::build().then(Add<int >::build(3));
     static_assert(get_opt<1>(df2.params).params == 3, "");
 
-    constexpr auto result1 = std::decay_t<decltype(fk::get_opt<0>(df2.params))>::Operation::exec(fk::Tuple<int, int>{4, 4});
+    constexpr auto result1 = std::decay_t<decltype(get_opt<0>(df2.params))>::Operation::exec(Tuple<int, int>{4, 4});
 
     static_assert(result1 == 8, "Wrong result1");
 
     static_assert(OpTuple2Type::size == 2, "Wrong operation tuple size");
-    static_assert(fk::opIs<BinaryType, TypeAt_t<1, typename OpTuple2Type::Operations>>, "Wrong Operation Type");
+    static_assert(opIs<BinaryType, TypeAt_t<1, typename OpTuple2Type::Operations>>, "Wrong Operation Type");
     static_assert(get_opt<1>(opTuple2).params == 3, "Wrong value");
 
-    constexpr auto opTuple3 = fk::make_new_operation_tuple(fk::Add<int, int, int, fk::UnaryType>::build(),
-    fk::Cast<int, float>::build(), fk::Cast<float, int>::build());
+    constexpr auto opTuple3 = make_new_operation_tuple(Add<int, int, int, UnaryType>::build(),
+    Cast<int, float>::build(), Cast<float, int>::build());
 
     using OpTuple3Type = decltype(opTuple3);
 
-    constexpr auto df3 = fk::Add<int, int, int, fk::UnaryType>::build().then(fk::Cast<int, float>::build()).then(fk::Cast<float, int>::build());
+    constexpr auto df3 = Add<int, int, int, UnaryType>::build().then(Cast<int, float>::build()).then(Cast<float, int>::build());
 
-    constexpr auto result3 = TypeAt_t<0, typename decltype(df3)::Operation::Operations>::Operation::exec(fk::Tuple<int, int>{5,20});
+    constexpr auto result3 = TypeAt_t<0, typename decltype(df3)::Operation::Operations>::Operation::exec(Tuple<int, int>{5,20});
     static_assert(result3 == 25, "Wrong result3");
 
     static_assert(OpTuple3Type::size == 3, "Wrong operation tuple size");
     //opTuple3.next; //must not compile
-    static_assert(fk::opIs<UnaryType, TypeAt_t<0, typename OpTuple3Type::Operations>>, "Wrong Operation Type");
+    static_assert(opIs<UnaryType, TypeAt_t<0, typename OpTuple3Type::Operations>>, "Wrong Operation Type");
 
     static_assert(test_fuseDFResultingTypes(), "Something wrong with the types generated by fusedDF");
     static_assert(test_fuseFusedOperations(), "Something wrong while fusing a FusedOperation with another operation");
 
     using SomeFusedOp =
-    fk::FusedOperation<
-        fk::ReadBack<fk::ResizeComplete<fk::AspectRatio::PRESERVE_AR,
-                  fk::Ternary<fk::InterpolateComplete<
-                      fk::InterpolationType::INTER_LINEAR,
-                   fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>>>>,
-        fk::Binary<fk::Mul<float3, float3, float3>>,
-        fk::Binary<fk::Sub<float3, float3, float3>>,
-        fk::Binary<fk::Div<float3, float3, float3>>,
-        fk::Unary<fk::VectorReorder<float3, 2, 1, 0>>>;
+    FusedOperation<
+        ReadBack<ResizeComplete<AspectRatio::PRESERVE_AR,
+                  Ternary<InterpolateComplete<
+                      InterpolationType::INTER_LINEAR,
+                   ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>>>>,
+        Binary<Mul<float3, float3, float3>>,
+        Binary<Sub<float3, float3, float3>>,
+        Binary<Div<float3, float3, float3>>,
+        Unary<VectorReorder<float3, 2, 1, 0>>>;
 
     static_assert(isCompleteOperation<SomeFusedOp>, "Something wrong with the compiler?");
 
@@ -139,176 +140,176 @@ int launch() {
     // Test 1: ClosedType FusedOperation (Read + operations + Write)
     // This combines ReadType at the start and WriteType at the end
     {
-        using ClosedFusedOp = fk::FusedOperation<
-            fk::Read<fk::PerThreadRead<fk::ND::_2D, float>>,
-            fk::Binary<fk::Add<float>>,
-            fk::Unary<fk::Cast<float, int>>,
-            fk::Write<fk::PerThreadWrite<fk::ND::_2D, int>>
+        using ClosedFusedOp = FusedOperation<
+            Read<PerThreadRead<ND::_2D, float>>,
+            Binary<Add<float>>,
+            Unary<Cast<float, int>>,
+            Write<PerThreadWrite<ND::_2D, int>>
         >;
-        static_assert(std::is_same_v<typename ClosedFusedOp::InstanceType, fk::ClosedType>,
+        static_assert(std::is_same_v<typename ClosedFusedOp::InstanceType, ClosedType>,
             "ClosedType FusedOperation not correctly identified");
     }
 
     // Test 2: WriteType FusedOperation (operations + Write, no Read at start)
     {
-        using WriteFusedOp = fk::FusedOperation<
-            fk::Binary<fk::Add<float>>,
-            fk::Unary<fk::Cast<float, int>>,
-            fk::Write<fk::PerThreadWrite<fk::ND::_2D, int>>
+        using WriteFusedOp = FusedOperation<
+            Binary<Add<float>>,
+            Unary<Cast<float, int>>,
+            Write<PerThreadWrite<ND::_2D, int>>
         >;
-        static_assert(std::is_same_v<typename WriteFusedOp::InstanceType, fk::WriteType>,
+        static_assert(std::is_same_v<typename WriteFusedOp::InstanceType, WriteType>,
             "WriteType FusedOperation not correctly identified");
     }
 
     // Test 3: ReadType FusedOperation (Read + operations, no Write at end)
     {
-        using ReadFusedOp = fk::FusedOperation<
-            fk::Read<fk::PerThreadRead<fk::ND::_2D, float>>,
-            fk::Binary<fk::Add<float>>,
-            fk::Unary<fk::Cast<float, int>>
+        using ReadFusedOp = FusedOperation<
+            Read<PerThreadRead<ND::_2D, float>>,
+            Binary<Add<float>>,
+            Unary<Cast<float, int>>
         >;
-        static_assert(std::is_same_v<typename ReadFusedOp::InstanceType, fk::ReadType>,
+        static_assert(std::is_same_v<typename ReadFusedOp::InstanceType, ReadType>,
             "ReadType FusedOperation not correctly identified");
     }
 
     // Test 4: UnaryType FusedOperation (all operations are Unary)
     {
-        using UnaryChainOp = fk::FusedOperation<
-            fk::Unary<fk::Cast<int, float>>,
-            fk::Unary<fk::Cast<float, double>>,
-            fk::Unary<fk::Cast<double, int>>
+        using UnaryChainOp = FusedOperation<
+            Unary<Cast<int, float>>,
+            Unary<Cast<float, double>>,
+            Unary<Cast<double, int>>
         >;
-        static_assert(std::is_same_v<typename UnaryChainOp::InstanceType, fk::UnaryType>,
+        static_assert(std::is_same_v<typename UnaryChainOp::InstanceType, UnaryType>,
             "UnaryType FusedOperation not correctly identified");
     }
 
     // Test 5: BinaryType FusedOperation (compute operations, no Read/Write/MidWrite)
     {
-        using BinaryChainOp = fk::FusedOperation<
-            fk::Binary<fk::Add<float>>,
-            fk::Binary<fk::Mul<float>>,
-            fk::Binary<fk::Sub<float>>
+        using BinaryChainOp = FusedOperation<
+            Binary<Add<float>>,
+            Binary<Mul<float>>,
+            Binary<Sub<float>>
         >;
-        static_assert(std::is_same_v<typename BinaryChainOp::InstanceType, fk::BinaryType>,
+        static_assert(std::is_same_v<typename BinaryChainOp::InstanceType, BinaryType>,
             "BinaryType FusedOperation not correctly identified");
     }
 
     // Test 6: Deeply nested ReadType (5+ levels)
     {
-        using DeeplyNestedRead = fk::FusedOperation<
-            fk::Read<fk::PerThreadRead<fk::ND::_2D, float>>,
-            fk::Binary<fk::Add<float>>,
-            fk::Binary<fk::Mul<float>>,
-            fk::Binary<fk::Sub<float>>,
-            fk::Binary<fk::Div<float>>,
-            fk::Unary<fk::Cast<float, int>>
+        using DeeplyNestedRead = FusedOperation<
+            Read<PerThreadRead<ND::_2D, float>>,
+            Binary<Add<float>>,
+            Binary<Mul<float>>,
+            Binary<Sub<float>>,
+            Binary<Div<float>>,
+            Unary<Cast<float, int>>
         >;
-        static_assert(std::is_same_v<typename DeeplyNestedRead::InstanceType, fk::ReadType>,
+        static_assert(std::is_same_v<typename DeeplyNestedRead::InstanceType, ReadType>,
             "Deeply nested ReadType FusedOperation failed");
     }
 
     // Test 7: Deeply nested ClosedType (5+ levels)
     {
-        using DeeplyNestedClosed = fk::FusedOperation<
-            fk::Read<fk::PerThreadRead<fk::ND::_2D, float>>,
-            fk::Binary<fk::Add<float>>,
-            fk::Binary<fk::Mul<float>>,
-            fk::Binary<fk::Sub<float>>,
-            fk::Binary<fk::Div<float>>,
-            fk::Unary<fk::Cast<float, int>>,
-            fk::Write<fk::PerThreadWrite<fk::ND::_2D, int>>
+        using DeeplyNestedClosed = FusedOperation<
+            Read<PerThreadRead<ND::_2D, float>>,
+            Binary<Add<float>>,
+            Binary<Mul<float>>,
+            Binary<Sub<float>>,
+            Binary<Div<float>>,
+            Unary<Cast<float, int>>,
+            Write<PerThreadWrite<ND::_2D, int>>
         >;
-        static_assert(std::is_same_v<typename DeeplyNestedClosed::InstanceType, fk::ClosedType>,
+        static_assert(std::is_same_v<typename DeeplyNestedClosed::InstanceType, ClosedType>,
             "Deeply nested ClosedType FusedOperation failed");
     }
 
     // Test 8: Deeply nested UnaryType (5+ levels)
     {
-        using DeeplyNestedUnary = fk::FusedOperation<
-            fk::Unary<fk::Cast<int, float>>,
-            fk::Unary<fk::Cast<float, double>>,
-            fk::Unary<fk::Cast<double, float>>,
-            fk::Unary<fk::Cast<float, double>>,
-            fk::Unary<fk::Cast<double, int>>
+        using DeeplyNestedUnary = FusedOperation<
+            Unary<Cast<int, float>>,
+            Unary<Cast<float, double>>,
+            Unary<Cast<double, float>>,
+            Unary<Cast<float, double>>,
+            Unary<Cast<double, int>>
         >;
-        static_assert(std::is_same_v<typename DeeplyNestedUnary::InstanceType, fk::UnaryType>,
+        static_assert(std::is_same_v<typename DeeplyNestedUnary::InstanceType, UnaryType>,
             "Deeply nested UnaryType FusedOperation failed");
     }
 
     // Test 9: Deeply nested BinaryType (5+ levels)
     {
-        using DeeplyNestedBinary = fk::FusedOperation<
-            fk::Binary<fk::Add<float>>,
-            fk::Binary<fk::Mul<float>>,
-            fk::Binary<fk::Sub<float>>,
-            fk::Binary<fk::Div<float>>,
-            fk::Binary<fk::Add<float>>
+        using DeeplyNestedBinary = FusedOperation<
+            Binary<Add<float>>,
+            Binary<Mul<float>>,
+            Binary<Sub<float>>,
+            Binary<Div<float>>,
+            Binary<Add<float>>
         >;
-        static_assert(std::is_same_v<typename DeeplyNestedBinary::InstanceType, fk::BinaryType>,
+        static_assert(std::is_same_v<typename DeeplyNestedBinary::InstanceType, BinaryType>,
             "Deeply nested BinaryType FusedOperation failed");
     }
 
     // Test 10: Deeply nested WriteType (5+ levels)
     {
-        using DeeplyNestedWrite = fk::FusedOperation<
-            fk::Binary<fk::Add<float>>,
-            fk::Binary<fk::Mul<float>>,
-            fk::Binary<fk::Sub<float>>,
-            fk::Binary<fk::Div<float>>,
-            fk::Unary<fk::Cast<float, int>>,
-            fk::Write<fk::PerThreadWrite<fk::ND::_2D, int>>
+        using DeeplyNestedWrite = FusedOperation<
+            Binary<Add<float>>,
+            Binary<Mul<float>>,
+            Binary<Sub<float>>,
+            Binary<Div<float>>,
+            Unary<Cast<float, int>>,
+            Write<PerThreadWrite<ND::_2D, int>>
         >;
-        static_assert(std::is_same_v<typename DeeplyNestedWrite::InstanceType, fk::WriteType>,
+        static_assert(std::is_same_v<typename DeeplyNestedWrite::InstanceType, WriteType>,
             "Deeply nested WriteType FusedOperation failed");
     }
 
     // Test 11: Very deeply nested ClosedType (10+ levels) - stress test
     {
-        using VeryDeeplyNestedClosed = fk::FusedOperation<
-            fk::Read<fk::PerThreadRead<fk::ND::_2D, float>>,
-            fk::Binary<fk::Add<float>>,
-            fk::Binary<fk::Mul<float>>,
-            fk::Binary<fk::Sub<float>>,
-            fk::Binary<fk::Div<float>>,
-            fk::Binary<fk::Add<float>>,
-            fk::Binary<fk::Mul<float>>,
-            fk::Unary<fk::Cast<float, double>>,
-            fk::Binary<fk::Div<double>>,
-            fk::Unary<fk::Cast<double, float>>,
-            fk::Unary<fk::Cast<float, int>>,
-            fk::Write<fk::PerThreadWrite<fk::ND::_2D, int>>
+        using VeryDeeplyNestedClosed = FusedOperation<
+            Read<PerThreadRead<ND::_2D, float>>,
+            Binary<Add<float>>,
+            Binary<Mul<float>>,
+            Binary<Sub<float>>,
+            Binary<Div<float>>,
+            Binary<Add<float>>,
+            Binary<Mul<float>>,
+            Unary<Cast<float, double>>,
+            Binary<Div<double>>,
+            Unary<Cast<double, float>>,
+            Unary<Cast<float, int>>,
+            Write<PerThreadWrite<ND::_2D, int>>
         >;
-        static_assert(std::is_same_v<typename VeryDeeplyNestedClosed::InstanceType, fk::ClosedType>,
+        static_assert(std::is_same_v<typename VeryDeeplyNestedClosed::InstanceType, ClosedType>,
             "Very deeply nested ClosedType FusedOperation failed");
     }
 
     // Test 12: Mixed compute types (Binary and Unary) in deep chain
     {
-        using MixedComputeChain = fk::FusedOperation<
-            fk::Binary<fk::Add<int>>,
-            fk::Unary<fk::Cast<int, float>>,
-            fk::Binary<fk::Mul<float>>,
-            fk::Unary<fk::Cast<float, double>>,
-            fk::Binary<fk::Div<double>>,
-            fk::Unary<fk::Cast<double, int>>
+        using MixedComputeChain = FusedOperation<
+            Binary<Add<int>>,
+            Unary<Cast<int, float>>,
+            Binary<Mul<float>>,
+            Unary<Cast<float, double>>,
+            Binary<Div<double>>,
+            Unary<Cast<double, int>>
         >;
-        static_assert(std::is_same_v<typename MixedComputeChain::InstanceType, fk::BinaryType>,
+        static_assert(std::is_same_v<typename MixedComputeChain::InstanceType, BinaryType>,
             "Mixed compute chain should be BinaryType when not all are Unary");
     }
 
     // Test 13: Verify complex existing SomeFusedOp is still valid
     // This ensures backward compatibility with existing complex operations
-    static_assert(std::is_same_v<typename SomeFusedOp::InstanceType, fk::ReadType>,
+    static_assert(std::is_same_v<typename SomeFusedOp::InstanceType, ReadType>,
         "Complex SomeFusedOp should be ReadType (starts with ReadBack, no Write at end)");
 
     // Test 14: Verify operation fusion with .then() for deep chains
     {
-        constexpr auto chain1 = fk::Add<int, int, int, fk::UnaryType>::build()
-            .then(fk::Cast<int, float>::build())
-            .then(fk::Cast<float, double>::build())
-            .then(fk::Cast<double, float>::build())
-            .then(fk::Cast<float, int>::build());
-        
+        constexpr auto chain1 = Add<int, int, int, UnaryType>::build()
+            .then(Cast<int, float>::build())
+            .then(Cast<float, double>::build())
+            .then(Cast<double, float>::build())
+            .then(Cast<float, int>::build());
+
         using ChainType = std::decay_t<decltype(chain1)>;
         static_assert(ChainType::Operation::Operations::size == 5,
             "Deep .then() chain should have 5 operations");
@@ -316,57 +317,63 @@ int launch() {
 
     // Test 15: Verify FusedOperation can be fused again (nesting FusedOperations)
     {
-        constexpr auto inner = fk::fuse(
-            fk::Add<int, int, int, fk::UnaryType>::build(),
-            fk::Cast<int, float>::build()
+        constexpr auto inner = fuse(
+            Add<int, int, int, UnaryType>::build(),
+            Cast<int, float>::build()
         );
-        [[maybe_unused]] constexpr auto outer = fk::fuse(
+        [[maybe_unused]] constexpr auto outer = fuse(
             inner,
-            fk::Cast<float, int>::build()
+            Cast<float, int>::build()
         );
         // This should compile without errors
     }
 
     // Test 16: Edge case - Single operation wrapped in FusedOperation
     {
-        using SingleOpFused = fk::FusedOperation<fk::Unary<fk::Cast<int, float>>>;
-        static_assert(std::is_same_v<typename SingleOpFused::InstanceType, fk::UnaryType>,
+        using SingleOpFused = FusedOperation<Unary<Cast<int, float>>>;
+        static_assert(std::is_same_v<typename SingleOpFused::InstanceType, UnaryType>,
             "Single Unary operation should be UnaryType");
     }
 
     // Test 17: Edge case - Two operations (minimum for meaningful fusion)
     {
-        using TwoOpFused = fk::FusedOperation<
-            fk::Binary<fk::Add<float>>,
-            fk::Unary<fk::Cast<float, int>>
+        using TwoOpFused = FusedOperation<
+            Binary<Add<float>>,
+            Unary<Cast<float, int>>
         >;
-        static_assert(std::is_same_v<typename TwoOpFused::InstanceType, fk::BinaryType>,
+        static_assert(std::is_same_v<typename TwoOpFused::InstanceType, BinaryType>,
             "Two mixed compute ops should be BinaryType");
     }
 
     // Test 18: Maximum stress test - 15+ operations deeply nested
     {
-        using MaxStressTest = fk::FusedOperation<
-            fk::Read<fk::PerThreadRead<fk::ND::_2D, float>>,
-            fk::Binary<fk::Add<float>>,
-            fk::Binary<fk::Mul<float>>,
-            fk::Binary<fk::Sub<float>>,
-            fk::Binary<fk::Div<float>>,
-            fk::Binary<fk::Add<float>>,
-            fk::Binary<fk::Mul<float>>,
-            fk::Binary<fk::Sub<float>>,
-            fk::Unary<fk::Cast<float, double>>,
-            fk::Binary<fk::Div<double>>,
-            fk::Binary<fk::Add<double>>,
-            fk::Unary<fk::Cast<double, float>>,
-            fk::Binary<fk::Mul<float>>,
-            fk::Unary<fk::Cast<float, int>>,
-            fk::Binary<fk::Add<int>>,
-            fk::Write<fk::PerThreadWrite<fk::ND::_2D, int>>
+        using MaxStressTest = FusedOperation<
+            Read<PerThreadRead<ND::_2D, float>>,
+            Binary<Add<float>>,
+            Binary<Mul<float>>,
+            Binary<Sub<float>>,
+            Binary<Div<float>>,
+            Binary<Add<float>>,
+            Binary<Mul<float>>,
+            Binary<Sub<float>>,
+            Unary<Cast<float, double>>,
+            Binary<Div<double>>,
+            Binary<Add<double>>,
+            Unary<Cast<double, float>>,
+            Binary<Mul<float>>,
+            Unary<Cast<float, int>>,
+            Binary<Add<int>>,
+            Write<PerThreadWrite<ND::_2D, int>>
         >;
-        static_assert(std::is_same_v<typename MaxStressTest::InstanceType, fk::ClosedType>,
+        static_assert(std::is_same_v<typename MaxStressTest::InstanceType, ClosedType>,
             "Maximum stress test (15+ ops) ClosedType FusedOperation failed");
     }
 
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

@@ -173,11 +173,12 @@ public:
     }
 };
 
-#if defined(__NVCC__)
-template <typename DPPDetails>
-struct MedianFilterDPP<ParArch::GPU_NVIDIA, DPPDetails> {
+#if defined(__NVCC__) || defined(__HIPCC__)
+template <ParArch PA, typename DPPDetails>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
+struct MedianFilterDPP<PA, DPPDetails> {
 private:
-    using SelfType = MedianFilterDPP<ParArch::GPU_NVIDIA, DPPDetails>;
+    using SelfType = MedianFilterDPP<PA, DPPDetails>;
     using T = typename DPPDetails::ValueType;
     using Stage = NeighborhoodDPPStage<
         typename DPPDetails::NeighborhoodPolicy>;
@@ -185,7 +186,7 @@ private:
 
 public:
     FK_STATIC_STRUCT(MedianFilterDPP, SelfType)
-    static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
+    static constexpr ParArch PAR_ARCH = PA;
 
     template <typename ReadIOp, typename WriteIOp, typename SelectionIOp>
     FK_DEVICE_STATIC void exec(const DPPDetails& details,
@@ -235,23 +236,24 @@ public:
     }
 };
 
-template <typename DPPDetails, typename ReadIOp,
+template <ParArch PA, typename DPPDetails, typename ReadIOp,
           typename WriteIOp, typename SelectionIOp>
 __global__ void medianFilterDPPKernel(const DPPDetails details,
                                       const ReadIOp input,
                                       const WriteIOp output,
                                       const SelectionIOp selection) {
-    MedianFilterDPP<ParArch::GPU_NVIDIA, DPPDetails>::exec(
+    MedianFilterDPP<PA, DPPDetails>::exec(
         details, input, output, selection);
 }
 
 template <typename DPPDetails, typename ReadIOp,
-          typename WriteIOp, typename SelectionIOp>
+          typename WriteIOp, typename SelectionIOp, ParArch PA>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
 inline bool executeMedianFilter(const DPPDetails& details,
                                 const ReadIOp& input,
                                 const WriteIOp& output,
                                 const SelectionIOp& selection,
-                                Stream_<ParArch::GPU_NVIDIA>& stream) {
+                                Stream_<PA>& stream) {
     if (!DPPDetails::valid(details)) return false;
     const dim3 block(DPPDetails::TILE_WIDTH,
                      DPPDetails::TILE_HEIGHT, 1);
@@ -260,12 +262,18 @@ inline bool executeMedianFilter(const DPPDetails& details,
                     (details.height + DPPDetails::TILE_HEIGHT - 1) /
                         DPPDetails::TILE_HEIGHT,
                     1);
-    medianFilterDPPKernel<<<grid, block, 0, stream.getCUDAStream()>>>(
+#if defined(__HIPCC__)
+    medianFilterDPPKernel<PA><<<grid, block, 0, stream.getHIPStream()>>>(
+        details, input, output, selection);
+    gpuErrchk(hipGetLastError());
+#else
+    medianFilterDPPKernel<PA><<<grid, block, 0, stream.getCUDAStream()>>>(
         details, input, output, selection);
     gpuErrchk(cudaGetLastError());
+#endif
     return true;
 }
-#endif // defined(__NVCC__)
+#endif // defined(__NVCC__) || defined(__HIPCC__)
 
 } // namespace fk
 

@@ -380,6 +380,7 @@ namespace fk {
 #ifdef DEBUG_MATRIX
 #include <iostream>
 
+namespace fk {
 template <typename T>
 struct to_printable {
     FK_HOST_FUSE int exec(T val) {
@@ -428,8 +429,10 @@ template <typename T>
 inline constexpr typename std::enable_if_t<fk::validCUDAVec<T>, std::ostream&> operator<<(std::ostream& outs, const T& val) {
     return print_vector<T>::exec(outs, val);
 }
+} // namespace fk
 #endif
 
+namespace fk {
 // ####################### VECTOR OPERATORS ##########################
 // Implemented in a way that the return types follow the c++ standard, for each vector component
 // The user is responsible for knowing the type conversion hazards, inherent to the C++ language.
@@ -680,5 +683,7 @@ FK_HOST_DEVICE_CNST auto operator>>(const I1& a, const I2& b)
         }
     }
 }
+
+} // namespace fk
 
 #endif

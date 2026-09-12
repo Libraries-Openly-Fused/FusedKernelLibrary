@@ -23,7 +23,6 @@ struct M3x3Float {
     const float3 y;
     const float3 z;
 };
-} // namespace fk
 
 // Matrix * Scalar
 FK_HOST_DEVICE_CNST fk::M3x3Float operator*(const fk::M3x3Float &matrix, float scalar) {
@@ -39,5 +38,7 @@ FK_HOST_DEVICE_CNST fk::M3x3Float operator*(float scalar, const fk::M3x3Float &m
 FK_HOST_DEVICE_CNST fk::M3x3Float operator*(const fk::M3x3Float &matrix1, const fk::M3x3Float &matrix2) {
     return {matrix1.x * matrix2.x, matrix1.y * matrix2.y, matrix1.z * matrix2.z};
 }
+
+} // namespace fk
 
 #endif // !FK_STATIC_MATRIX_H

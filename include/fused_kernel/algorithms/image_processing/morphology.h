@@ -183,11 +183,12 @@ public:
     }
 };
 
-#if defined(__NVCC__)
-template <typename DPPDetails>
-struct MorphologyDPP<ParArch::GPU_NVIDIA, DPPDetails> {
+#if defined(__NVCC__) || defined(__HIPCC__)
+template <ParArch PA, typename DPPDetails>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
+struct MorphologyDPP<PA, DPPDetails> {
 private:
-    using SelfType = MorphologyDPP<ParArch::GPU_NVIDIA, DPPDetails>;
+    using SelfType = MorphologyDPP<PA, DPPDetails>;
     using T = typename DPPDetails::ValueType;
 
     template <typename InputReadIOp>
@@ -202,7 +203,7 @@ private:
 
 public:
     FK_STATIC_STRUCT(MorphologyDPP, SelfType)
-    static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
+    static constexpr ParArch PAR_ARCH = PA;
 
     template <typename Reducers>
     static constexpr bool validReducerCount =
@@ -223,7 +224,7 @@ public:
                       "Morphology input must be a complete Read IOp");
         static_assert(isAnyWriteType<OutputWriteIOp>,
                       "Morphology output must be a Write IOp");
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
         __shared__ T stage0[DPPDetails::MAX_STAGE_ELEMENTS];
         __shared__ T stage1[DPPDetails::MAX_STAGE_ELEMENTS];
 
@@ -332,25 +333,26 @@ public:
     }
 };
 
-template <typename DPPDetails, typename InputReadIOp,
+template <ParArch PA, typename DPPDetails, typename InputReadIOp,
           typename OutputWriteIOp, typename Reducers>
 __global__ void morphologyDPPKernel(const DPPDetails details,
                                     const InputReadIOp input,
                                     const OutputWriteIOp output,
                                     const Reducers reducers) {
-    MorphologyDPP<ParArch::GPU_NVIDIA, DPPDetails>::exec(
+    MorphologyDPP<PA, DPPDetails>::exec(
         details, input, output, reducers);
 }
 
 template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp, typename Reducers>
+          typename OutputWriteIOp, typename Reducers, ParArch PA>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
 inline bool executeMorphology(const DPPDetails& details,
                               const InputReadIOp& input,
                               const OutputWriteIOp& output,
                               const Reducers& reducers,
-                              Stream_<ParArch::GPU_NVIDIA>& stream) {
+                              Stream_<PA>& stream) {
     if (!DPPDetails::valid(details)) return false;
-    static_assert(MorphologyDPP<ParArch::GPU_NVIDIA, DPPDetails>::
+    static_assert(MorphologyDPP<PA, DPPDetails>::
                       template validReducerCount<Reducers>,
                   "MorphologyDPP requires 1 through 4 reducers");
     const dim3 block(DPPDetails::TILE_WIDTH, DPPDetails::TILE_HEIGHT, 1);
@@ -359,18 +361,25 @@ inline bool executeMorphology(const DPPDetails& details,
                     (details.height + DPPDetails::TILE_HEIGHT - 1) /
                         DPPDetails::TILE_HEIGHT,
                     1);
-    morphologyDPPKernel<<<grid, block, 0, stream.getCUDAStream()>>>(
+#if defined(__HIPCC__)
+    morphologyDPPKernel<PA><<<grid, block, 0, stream.getHIPStream()>>>(
+        details, input, output, reducers);
+    gpuErrchk(hipGetLastError());
+#else
+    morphologyDPPKernel<PA><<<grid, block, 0, stream.getCUDAStream()>>>(
         details, input, output, reducers);
     gpuErrchk(cudaGetLastError());
+#endif
     return true;
 }
 
 template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp>
+          typename OutputWriteIOp, ParArch PA>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
 inline bool executeErode(const DPPDetails& details,
                          const InputReadIOp& input,
                          const OutputWriteIOp& output,
-                         Stream_<ParArch::GPU_NVIDIA>& stream) {
+                         Stream_<PA>& stream) {
     using T = typename DPPDetails::ValueType;
     return executeMorphology(
         details, input, output,
@@ -378,11 +387,12 @@ inline bool executeErode(const DPPDetails& details,
 }
 
 template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp>
+          typename OutputWriteIOp, ParArch PA>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
 inline bool executeDilate(const DPPDetails& details,
                           const InputReadIOp& input,
                           const OutputWriteIOp& output,
-                          Stream_<ParArch::GPU_NVIDIA>& stream) {
+                          Stream_<PA>& stream) {
     using T = typename DPPDetails::ValueType;
     return executeMorphology(
         details, input, output,
@@ -390,11 +400,12 @@ inline bool executeDilate(const DPPDetails& details,
 }
 
 template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp>
+          typename OutputWriteIOp, ParArch PA>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
 inline bool executeOpen(const DPPDetails& details,
                         const InputReadIOp& input,
                         const OutputWriteIOp& output,
-                        Stream_<ParArch::GPU_NVIDIA>& stream) {
+                        Stream_<PA>& stream) {
     using T = typename DPPDetails::ValueType;
     return executeMorphology(
         details, input, output,
@@ -403,18 +414,19 @@ inline bool executeOpen(const DPPDetails& details,
 }
 
 template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp>
+          typename OutputWriteIOp, ParArch PA>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
 inline bool executeClose(const DPPDetails& details,
                          const InputReadIOp& input,
                          const OutputWriteIOp& output,
-                         Stream_<ParArch::GPU_NVIDIA>& stream) {
+                         Stream_<PA>& stream) {
     using T = typename DPPDetails::ValueType;
     return executeMorphology(
         details, input, output,
         make_tuple(Max<T, T, T, UnaryType>::build(),
                    Min<T, T, T, UnaryType>::build()), stream);
 }
-#endif // defined(__NVCC__)
+#endif // defined(__NVCC__) || defined(__HIPCC__)
 
 } // namespace fk
 

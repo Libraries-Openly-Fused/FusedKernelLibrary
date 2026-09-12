@@ -22,7 +22,7 @@
 #include <cstdio>
 #include <vector>
 
-using namespace fk;
+namespace fk {
 
 namespace {
 
@@ -166,7 +166,7 @@ bool runCase(const int width, const int height,
     }
     if (!compare(cpuOutput, expected, label)) return false;
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
     Ptr2D<float> gpuInput(width, height);
     Ptr2D<float> gpuKernel(kernelWidth, kernelHeight);
     Ptr2D<float> gpuOutput(width, height);
@@ -225,7 +225,8 @@ bool runCase(const int width, const int height,
 
 } // namespace
 
-int launch() {
+int launch_impl() {
+    using namespace fk;
     const auto mul = Mul<float, float, float, UnaryType>::build();
     const auto add = Add<float, float, float, UnaryType>::build();
     const auto sub = Sub<float, float, float, UnaryType>::build();
@@ -247,4 +248,10 @@ int launch() {
     if (Details::valid(invalid)) ok = false;
     if (ok) std::printf("LinearFilterDPP contracts: PASS\n");
     return ok ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }
