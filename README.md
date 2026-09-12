@@ -172,7 +172,7 @@ This was done in purpose to make it easier to join efforts with other libraries 
 Additionally, this flexibility helps companies with closed-source frameworks to apply the FKL methodology and even make use of the library, combining it with their own code and data types.
 ### Horizontal Fusion
 
-This fusion technique is widely known and used. It is based on the idea of processing several data planes in parallel, with the same CUDA kernel. For that, we use the blockIdx.z, to distinguish between thread planes and data planes.
+This fusion technique is widely known and used. It is based on the idea of processing several data planes in parallel, with the same GPU kernel. For that, we use the blockIdx.z, to distinguish between thread planes and data planes.
 
 This is usually very beneficial when each plane is very small, and the resulting 2D Grid is not taking advantage of the GPU memory bandwidth.
 
