@@ -41,7 +41,7 @@ namespace fk { // namespace FusedKernel
 
     template <typename Enabler, bool THREAD_FUSION, typename... IOps>
     struct TransformDPPDetails_;
-
+    
     template <bool THREAD_FUSION, typename... IOps>
     struct TransformDPPDetails_<std::enable_if_t<BuildTFI<THREAD_FUSION, IOps...>::TFI::ENABLED, void>,
                                THREAD_FUSION, IOps...> {

@@ -1,4 +1,4 @@
-/* Copyright 2024-2026 Oscar Amoros Huguet
+﻿/* Copyright 2024-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -11,6 +11,7 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License. */
+
 
 #include <tests/main.h>
 
@@ -76,6 +77,7 @@ constexpr inline bool test_read_then_batch() {
 }
 
 constexpr inline bool test_readback_then_batch() {
+
     constexpr RawPtr<ND::_2D, float> input{ nullptr, { 64, 64, 64 * sizeof(float) } };
     constexpr auto readIOp = RPerThrFloat::build(input);
     constexpr auto oneResize = Resize<InterpolationType::INTER_LINEAR>::build(readIOp, Size(32, 32));
@@ -130,6 +132,7 @@ constexpr inline bool test_read_then_readback() {
 }
 
 constexpr inline bool test_batched() {
+
     constexpr std::array<RawPtr<ND::_2D, float>, 2> inputs{ RawPtr<ND::_2D, float>{nullptr, {64,64, 64*sizeof(float)}},
                                                         RawPtr<ND::_2D, float>{nullptr, {64,64, 64*(sizeof(float))}}};
 

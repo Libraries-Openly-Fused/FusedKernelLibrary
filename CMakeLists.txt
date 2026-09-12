@@ -14,8 +14,8 @@ include (cmake/deploy/deploy_dependencies.cmake)
 include (cmake/archflags.cmake)
 include (cmake/generators/version_header.cmake)
 include (cmake/generators/export_header.cmake)
-project(FusedKernelLibrary VERSION ${PROJECT_VERSION} LANGUAGES CXX
-DESCRIPTION "Implementation of a methodology that allows all sorts of user defined GPU kernel fusion, for non CUDA programmers."
+project(FusedKernelLibrary VERSION ${PROJECT_VERSION} LANGUAGES CXX  
+DESCRIPTION "Implementation of a methodology that allows all sorts of user defined GPU kernel fusion, for non CUDA programmers." 
 HOMEPAGE_URL "https://github.com/morousg/FusedKernelLibrary" )
 
 # Options for enabling different types of GPU support
@@ -25,7 +25,7 @@ option(ENABLE_HIP "Enable HIP support" ON)
 include(CheckLanguage)
 if (ENABLE_CUDA)
     include(cmake/libs/cuda/cuda_init.cmake)
-endif()
+    endif()
 
 if (ENABLE_HIP)
     include(cmake/libs/hip/hip_init.cmake)
@@ -38,16 +38,16 @@ option (BUILD_TEST "build standard  tests" ON)
 option (BUILD_UTEST "build standard unit tests" ON)
 option (ENABLE_BENCHMARK "build benchmarking unit tests" OFF)
 
-if (${BUILD_TEST})
+if (${BUILD_TEST})    
     include (cmake/tests/discover_tests.cmake)
-    enable_testing()
-    add_subdirectory(tests)
+    enable_testing()  
+    add_subdirectory(tests)    
 endif()
 
-if (${BUILD_UTEST})
+if (${BUILD_UTEST})    
     include (cmake/tests/discover_tests.cmake)
-    enable_testing()
-    add_subdirectory(utests)
+    enable_testing()      
+    add_subdirectory(utests)         
 endif()
 
 if (${ENABLE_BENCHMARK})

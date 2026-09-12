@@ -387,7 +387,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             const uint x = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().x...);
             const uint y = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().y...);
             const uint z = cxp::sum::f(get<0>(iOpSequences.iOps).getActiveThreads().z...);
-            return ActiveThreads{ x, y, z };
+            return ActiveThreads{ x, y, z }; 
         }
 
         template <typename... IOps>

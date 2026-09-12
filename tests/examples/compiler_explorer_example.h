@@ -27,7 +27,7 @@ void testLTS0013() {
                                Rect(100, 200, 60, 40),
                                Rect(400, 20, 30, 50),
                                Rect(1000, 800, 30, 30),
-                               Rect(40, 40, 40, 40)};
+                               Rect(40, 40, 40, 40)}; 
     Tensor<uchar4> output(64, 64, 5);
     Stream stream;
 

@@ -1,4 +1,4 @@
-/* Copyright 2024-2026 Oscar Amoros Huguet
+﻿/* Copyright 2024-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -12,6 +12,7 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
+
 #include <tests/main.h>
 
 #include <fused_kernel/algorithms/basic_ops/basic_ops.h>
@@ -21,6 +22,7 @@
 namespace fk {
 
 constexpr bool test_fuseDFResultingTypes() {
+
     constexpr Read<PerThreadRead<ND::_2D, float>> readOp{};
     constexpr Binary<Add<float>> addOp{ 3.f };
     constexpr Unary<Cast<float, int>> castOp{};

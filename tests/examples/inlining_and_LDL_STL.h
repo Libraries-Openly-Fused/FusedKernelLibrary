@@ -215,8 +215,8 @@ __global__ void launchSimpleTransformDPPValue_Kernel(const __grid_constant__ IOp
     SimpleTransformDPPValue<ParArch::GPU_NVIDIA>::exec(iOps...);
 }
 
-template <size_t N, typename T>
-FK_HOST_DEVICE_CNST T dummyCalls(const T something) {
+template <size_t N, typename T> 
+FK_HOST_DEVICE_CNST T dummyCalls(const T something) { 
     if constexpr (N == 0) {
         return something;
     } else {
@@ -271,8 +271,8 @@ struct DummyOp {
 
     static constexpr inline InstantiableType build(const OperationDataType &opData) { return Parent::build(opData); }
     static constexpr inline InstantiableType build(const ParamsType &params) { return Parent::build(params); }
-
-    FK_HOST_DEVICE_FUSE O exec(const I input, const P params) {
+    
+    FK_HOST_DEVICE_FUSE O exec(const I input, const P params) { 
         return static_cast<O>(input + params);
     }
 };
@@ -351,7 +351,7 @@ struct Executor<SimpleTransformDPPValue<ParArch::GPU_NVIDIA>> {
     template <typename... IOps>
     FK_HOST_FUSE void executeOperations_helper(Stream_<ParArch::GPU_NVIDIA> &stream_, const IOps &...iOps) {
         const cudaStream_t stream = stream_.getCUDAStream();
-
+        
         const auto readOp = get_arg<0>(iOps...);
 
         const ActiveThreads activeThreads = readOp.getActiveThreads();
@@ -363,7 +363,7 @@ struct Executor<SimpleTransformDPPValue<ParArch::GPU_NVIDIA>> {
                         static_cast<uint>(ceil(activeThreads.y / static_cast<float>(block.y))), activeThreads.z};
         launchSimpleTransformDPPValue_Kernel<<<grid, block, 0, stream>>>(iOps...);
         gpuErrchk(cudaGetLastError());
-
+        
     }
 
   public:
@@ -542,5 +542,5 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
 int launch() {
     fk::testCompareReferenceVSValueVSInstantiableDPP();
 
-    return 0;
+    return 0; 
 }

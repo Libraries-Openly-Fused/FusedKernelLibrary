@@ -1,4 +1,4 @@
-/* Copyright 2023-2026 Oscar Amoros Huguet
+﻿/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@
 namespace fk {
 
 int launch_impl() {
-    using namespace fk;
+using namespace fk;
     constexpr size_t BATCH = 20;
     constexpr RawPtr<ND::_2D, float> data{ nullptr,{16,16,16} };
     constexpr std::array<RawPtr<ND::_2D, float>, BATCH> inputs = make_set_std_array<BATCH>(data);

@@ -35,41 +35,41 @@ You can view and run a similar code in this [FKL Playground](https://colab.resea
 #include <fused_kernel/fused_kernel.h>
 
 void preprocess() {
-    using namespace fk;
+using namespace fk;
 
-    // Create the fkl CUDA stream
-    Stream stream;
+// Create the fkl CUDA stream
+Stream stream;
 
-    // Get the input image
+// Get the input image
     const Ptr2D<fk::uchar3> inputImage = getGPUSourceImage(stream);
 
-    // Define the crops on the source image
-    constexpr std::array<Rect, BATCH> crops{
-        Rect(300, 125, 60, 40),
-        Rect(400, 125, 60, 40),
-        Rect(530, 270, 130, 140),
-        Rect(560, 115, 100, 35),
-        Rect(572, 196, 40, 15)
-    };
+// Define the crops on the source image
+constexpr std::array<Rect, BATCH> crops{
+    Rect(300, 125, 60, 40),
+    Rect(400, 125, 60, 40),
+    Rect(530, 270, 130, 140),
+    Rect(560, 115, 100, 35),
+    Rect(572, 196, 40, 15)
+};
 
-    // We want a Tensor of contiguous memory for all crops as output
+// We want a Tensor of contiguous memory for all crops as output
     Tensor<fk::uchar3> output(outputSize.width, outputSize.height, BATCH);
 
-    // CREATING AND EXECUTING YOUR FUSED CUDA KERNEL
-    // Create a fused operation that reads the input image,
-    // crops it, resizes it, and applies arithmetic operations.
-    // At compile time, the types are used to define the kernel code.
-    // At runtime, the kernel is executed with the provided parameters.
-    executeOperations<TransformDPP<>>(stream,
+// CREATING AND EXECUTING YOUR FUSED CUDA KERNEL
+// Create a fused operation that reads the input image,
+// crops it, resizes it, and applies arithmetic operations.
+// At compile time, the types are used to define the kernel code.
+// At runtime, the kernel is executed with the provided parameters.
+executeOperations<TransformDPP<>>(stream,
         PerThreadRead<ND::_2D, fk::uchar3>::build(inputImage.ptr()),
-        Crop<>::build(crops),
-        Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>::build(outputSize, backgroundColor),
+                                  Crop<>::build(crops),
+                                  Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>::build(outputSize, backgroundColor),
         Mul<fk::float3>::build(make_<fk::float3>(2.f, 2.f, 2.f)),
         Sub<fk::float3>::build(make_set<fk::float3>(128.f)),
         SaturateCast<fk::float3, fk::uchar3>::build(),
         TensorWrite<fk::uchar3>::build(output.ptr()));
 
-    stream.sync();
+stream.sync();
 }
 
 ```

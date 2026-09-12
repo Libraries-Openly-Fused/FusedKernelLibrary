@@ -75,6 +75,7 @@ inline bool test_saturate_float_rt() {
             allCorrect = false;
         }
     };
+
     check(0.f, 0.f, "cxp::saturate_float::f(0.f) should be 0.f");
     check(1.f, 1.f, "cxp::saturate_float::f(1.f) should be 1.f");
     check(0.5f, 0.5f, "cxp::saturate_float::f(0.5f) should be 0.5f");

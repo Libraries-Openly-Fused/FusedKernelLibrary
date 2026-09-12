@@ -1,4 +1,4 @@
-/* Copyright 2024-2026 Oscar Amoros Huguet
+﻿/* Copyright 2024-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -11,6 +11,7 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License. */
+
 
 #include <tests/main.h>
 
@@ -25,7 +26,7 @@ struct CheckCompliance {
     static constexpr bool value = Restriction::template complies<T>();
 };
 
-template <typename Restriction, typename TypeList_>
+template <typename Restriction, typename TypeList_> 
 struct AllIOpsComply;
 
 template <typename Restriction, typename... Types>

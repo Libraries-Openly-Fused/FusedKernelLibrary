@@ -48,6 +48,7 @@ using WPerThrFloat = PerThreadWrite<ND::_2D, float>;
 using MWPerThrFloat = FusedOperation<WPerThrFloat, BAddFloat>;
 
 constexpr bool test_InstantiableFusedOperationToOperationTuple() {
+
     constexpr auto fusedOp = FusedOperation<>::build(ComplexType{}, Add<float3>::build(make_set<float3>(2.f)));
 
     constexpr auto opTuple = fusedOp.params;

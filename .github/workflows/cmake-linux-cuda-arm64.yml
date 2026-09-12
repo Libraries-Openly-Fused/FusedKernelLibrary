@@ -15,7 +15,7 @@ jobs:
       #Consider changing this to true when your workflow is stable.
       fail-fast: false
 
-      matrix:
+      matrix: 
         include:
           - host_compiler: "g++-13"
             cuda_toolkit: "13.4"
@@ -26,7 +26,7 @@ jobs:
         # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
         id: strings
         run: |
-          echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"
+          echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"      
           echo "PATH=$HOME/cmake-4.4.2-linux-aarch64/bin/:$PATH" >> "$GITHUB_ENV"
 
 

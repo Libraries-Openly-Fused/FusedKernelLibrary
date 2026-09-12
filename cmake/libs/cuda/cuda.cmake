@@ -14,7 +14,7 @@ find_package(CUDAToolkit REQUIRED)
 
 # extra cuda_libraries only detected after project() this is needed for compatibility with old local builds that only
 # have cuda in normal location instead of custom location
-
+ 
 # some external libs(opencv) use findCuda, so we set this variable for compatibility
 set(CUDA_TOOLKIT_ROOT_DIR_ORIG ${CUDAToolkit_LIBRARY_ROOT})
 string(REPLACE "\\" "/" CUDA_TOOLKIT_ROOT_DIR_ORIG ${CUDA_TOOLKIT_ROOT_DIR_ORIG})
@@ -25,7 +25,7 @@ option(ENABLE_LINE_INFO "Enable line info for kernels compilation" ON)
 get_cuda_component_version("cuda" CUDA_VERSION_FROM_VERSION_FILE)
 # findcudatookit requires nvcc version instead of cuda sdk version
 get_cuda_component_version("cuda_nvcc" CUDA_NVCC_VERSION_FROM_VERSION_FILE)
-
+ 
 # split cuda version string
 string(REGEX REPLACE "([0-9]+).[0-9]+.[0-9]+" "\\1" CUDA_VERSION_MAJOR ${CUDA_VERSION_FROM_VERSION_FILE})
 string(REGEX REPLACE "[0-9]+.([0-9]+).[0-9]+" "\\1" CUDA_VERSION_MINOR ${CUDA_VERSION_FROM_VERSION_FILE})
@@ -50,7 +50,7 @@ function(add_cuda_to_target TARGET_NAME COMPONENTS)
     set(COMPONENTS_TO_DEPLOY ${COMPONENTS})
     list(TRANSFORM EXPORTED_CUDA_TARGETS PREPEND "CUDA::")
     target_link_libraries(${TARGET_NAME} PRIVATE ${EXPORTED_CUDA_TARGETS})
-
+    
     if(NOT UNIX)
         deploy_cuda_dependencies(${TARGET_NAME} "${COMPONENTS_TO_DEPLOY}")
     endif()

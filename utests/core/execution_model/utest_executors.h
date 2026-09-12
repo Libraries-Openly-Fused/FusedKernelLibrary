@@ -34,6 +34,7 @@ constexpr size_t testIdxFirstNonBack(const IOps&...) {
 }
 
 bool testBack() {
+
     // Inputs
     constexpr RawPtr<ND::_2D, uchar3> input{nullptr, {128, 128, 0}};
 

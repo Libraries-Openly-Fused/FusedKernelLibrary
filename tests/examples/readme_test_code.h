@@ -25,7 +25,7 @@
 namespace fk {
 
 int launch_impl() {
-    using namespace fk;
+using namespace fk;
     Stream stream;
 
     // We set all outputs to the same size
@@ -83,6 +83,7 @@ int launch_impl() {
 
     // We want a Tensor of contiguous memory for all images
     Tensor<float3> cpu_output(outputSize.width, outputSize.height, BATCH, 1, MemType::Host);
+
 
     // Create a fused operation that reads the input image,
     // crops it, resizes it, and applies arithmetic operations

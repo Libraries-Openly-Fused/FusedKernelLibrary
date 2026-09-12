@@ -104,7 +104,7 @@ int launch_impl() {
     bool correct{true};
     for (const auto& testCase : testCases) {
         correct &= testCase.second();
-    }
+}
     testCases.clear();
     return correct ? 0 : -1;
 }
