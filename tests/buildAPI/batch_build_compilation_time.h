@@ -24,8 +24,9 @@
 #include <fused_kernel/algorithms/image_processing/border_reader.h>
 #include <fused_kernel/fused_kernel.h>
 
+namespace fk {
+
 void testCompareReferenceVSValueVSInstantiableDPP() {
-    using namespace fk;
     Stream stream;
 
     // We set all outputs to the same size
@@ -39,7 +40,7 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     Image<PixelFormat::NV12> inputImage(3840, 2160);
 
     // Intermediate RGB image after YUV to RGB conversion
-    Ptr2D<fk::float3> rgbImg(3840, 2160);
+    Ptr2D<float3> rgbImg(3840, 2160);
 
     // Crops can be of different sizes
     constexpr std::array<Rect, BATCH_10> crops_10{Rect(0, 0, 34, 25),      Rect(40, 40, 70, 15),     Rect(100, 200, 60, 59),
@@ -47,7 +48,7 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
                                          Rect(40, 40, 70, 15),    Rect(100, 200, 60, 59),   Rect(300, 1000, 20, 23),
                                          Rect(3000, 2000, 12, 11) };
     std::array<Rect, BATCH> crops{};
-    std::array<Ptr2D<fk::float3>, BATCH> cropedPtrs;
+    std::array<Ptr2D<float3>, BATCH> cropedPtrs;
 
     for (int i = 0; i < BATCH_10; ++i) {
         int j{ 0 };
@@ -58,7 +59,7 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
         }
     }
 
-    const fk::float3 backgroundColor{ 0.f, 0.f, 0.f };
+    const float3 backgroundColor{ 0.f, 0.f, 0.f };
 
     // Create the operation instances once, and use them multiple times
     const auto readIOp = ReadYUV<PixelFormat::NV12>::build(inputImage);
@@ -73,8 +74,16 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     stream.sync();
 }
 
-int launch() {
+
+
+int launch_impl() {
     testCompareReferenceVSValueVSInstantiableDPP();
 
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

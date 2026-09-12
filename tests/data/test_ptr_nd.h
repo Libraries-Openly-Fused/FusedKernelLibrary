@@ -23,7 +23,9 @@
 
 #include <iostream>
 
-using PtrToTest = fk::Ptr2D<fk::uchar3>;
+namespace fk {
+
+using PtrToTest = Ptr2D<uchar3>;
 constexpr int WIDTH = 64;
 constexpr int HEIGHT = 64;
 
@@ -39,20 +41,19 @@ PtrToTest& test_return_by_reference(PtrToTest& somePtr) {
     return somePtr;
 }
 
-void test_uploadTo(fk::Stream& stream) {
-    using namespace fk;
+void test_uploadTo(Stream& stream) {
 #if defined(__NVCC__)
     // Device pointers
-    Ptr1D<fk::uchar3> test1D(1333, 0, MemType::Device);
-    Ptr2D<fk::uchar3> test2D(1333, 444, 0, MemType::Device);
-    Ptr3D<fk::uchar3> test3D(1333, 444, 22, 1, 0, MemType::Device);
-    Tensor<fk::uchar3> testTensor(1333, 444, 22, 1, MemType::Device);
+    Ptr1D<uchar3> test1D(1333, 0, MemType::Device);
+    Ptr2D<uchar3> test2D(1333, 444, 0, MemType::Device);
+    Ptr3D<uchar3> test3D(1333, 444, 22, 1, 0, MemType::Device);
+    Tensor<uchar3> testTensor(1333, 444, 22, 1, MemType::Device);
 
     // Host Pinned Pointers
-    Ptr1D<fk::uchar3> test1D_h(1333, 0, MemType::HostPinned);
-    Ptr2D<fk::uchar3> test2D_h(1333, 444, 0, MemType::HostPinned);
-    Ptr3D<fk::uchar3> test3D_h(1333, 444, 22, 1, 0, MemType::HostPinned);
-    Tensor<fk::uchar3> testTensor_h(1333, 444, 22, 1, MemType::HostPinned);
+    Ptr1D<uchar3> test1D_h(1333, 0, MemType::HostPinned);
+    Ptr2D<uchar3> test2D_h(1333, 444, 0, MemType::HostPinned);
+    Ptr3D<uchar3> test3D_h(1333, 444, 22, 1, 0, MemType::HostPinned);
+    Tensor<uchar3> testTensor_h(1333, 444, 22, 1, MemType::HostPinned);
 
     // Must work
     test1D_h.uploadTo(test1D, stream);
@@ -75,20 +76,19 @@ void test_uploadTo(fk::Stream& stream) {
 #endif
 }
 
-void test_downloadTo(fk::Stream& stream) {
-    using namespace fk;
+void test_downloadTo(Stream& stream) {
 #if defined(__NVCC__)
     // Device pointers
-    Ptr1D<fk::uchar3> test1D(1333, 0, MemType::Device);
-    Ptr2D<fk::uchar3> test2D(1333, 444, 0, MemType::Device);
-    Ptr3D<fk::uchar3> test3D(1333, 444, 22, 1, 0, MemType::Device);
-    Tensor<fk::uchar3> testTensor(1333, 444, 22, 1, MemType::Device);
+    Ptr1D<uchar3> test1D(1333, 0, MemType::Device);
+    Ptr2D<uchar3> test2D(1333, 444, 0, MemType::Device);
+    Ptr3D<uchar3> test3D(1333, 444, 22, 1, 0, MemType::Device);
+    Tensor<uchar3> testTensor(1333, 444, 22, 1, MemType::Device);
 
     // Host Pinned Pointers
-    Ptr1D<fk::uchar3> test1D_h(1333, 0, MemType::HostPinned);
-    Ptr2D<fk::uchar3> test2D_h(1333, 444, 0, MemType::HostPinned);
-    Ptr3D<fk::uchar3> test3D_h(1333, 444, 22, 1, 0, MemType::HostPinned);
-    Tensor<fk::uchar3> testTensor_h(1333, 444, 22, 1, MemType::HostPinned);
+    Ptr1D<uchar3> test1D_h(1333, 0, MemType::HostPinned);
+    Ptr2D<uchar3> test2D_h(1333, 444, 0, MemType::HostPinned);
+    Ptr3D<uchar3> test3D_h(1333, 444, 22, 1, 0, MemType::HostPinned);
+    Tensor<uchar3> testTensor_h(1333, 444, 22, 1, MemType::HostPinned);
 
     // Must work
     test1D.downloadTo(test1D_h, stream);
@@ -107,13 +107,12 @@ void test_downloadTo(fk::Stream& stream) {
 #endif
 }
 
-void test_upload(fk::Stream& stream) {
-    using namespace fk;
+void test_upload(Stream& stream) {
     // Device pointers
-    Ptr1D<fk::uchar3> test1D(1333);
-    Ptr2D<fk::uchar3> test2D(1333, 444);
-    Ptr3D<fk::uchar3> test3D(1333, 444, 22);
-    Tensor<fk::uchar3> testTensor(1333, 444, 22);
+    Ptr1D<uchar3> test1D(1333);
+    Ptr2D<uchar3> test2D(1333, 444);
+    Ptr3D<uchar3> test3D(1333, 444, 22);
+    Tensor<uchar3> testTensor(1333, 444, 22);
 
     // Must work
     test1D.upload(stream);
@@ -124,13 +123,12 @@ void test_upload(fk::Stream& stream) {
     stream.sync();
 }
 
-void test_download(fk::Stream& stream) {
-    using namespace fk;
+void test_download(Stream& stream) {
     // Device pointers
-    Ptr1D<fk::uchar3> test1D(1333);
-    Ptr2D<fk::uchar3> test2D(1333, 444);
-    Ptr3D<fk::uchar3> test3D(1333, 444, 22);
-    Tensor<fk::uchar3> testTensor(1333, 444, 22);
+    Ptr1D<uchar3> test1D(1333);
+    Ptr2D<uchar3> test2D(1333, 444);
+    Ptr3D<uchar3> test3D(1333, 444, 22);
+    Tensor<uchar3> testTensor(1333, 444, 22);
 
     // Must work
     test1D.download(stream);
@@ -141,17 +139,19 @@ void test_download(fk::Stream& stream) {
     stream.sync();
 }
 
-int launch() {
+
+
+int launch_impl() {
     using namespace fk;
     Stream stream;
 
     PtrToTest test0(WIDTH, HEIGHT);
-    setTo(make_<fk::uchar3>(1, 2, 3), test0, stream);
+    setTo(make_<uchar3>(1, 2, 3), test0, stream);
     stream.sync();
     bool h_correct{ true };
     for (int y = 0; y < HEIGHT; y++) {
         for (int x = 0; x < WIDTH; x++) {
-            const bool boolVect = *PtrAccessor<ND::_2D>::cr_point(Point{x, y, 0}, test0.ptrPinned()) == make_<fk::uchar3>(1, 2, 3);
+            const bool boolVect = *PtrAccessor<ND::_2D>::cr_point(Point{x, y, 0}, test0.ptrPinned()) == make_<uchar3>(1, 2, 3);
             const bool allTrue = boolVect;
             h_correct &= allTrue;
         }
@@ -177,14 +177,14 @@ int launch() {
     result &= test6.getRefCount() == 1;
 
     PtrToTest test7(WIDTH, HEIGHT);
-    setTo(make_<fk::uchar3>(3,6,10), test7, stream);
+    setTo(make_<uchar3>(3,6,10), test7, stream);
     test7.download(stream);
     stream.sync();
 
     bool h_correct2{ true };
     for (int y = 0; y < HEIGHT; y++) {
         for (int x = 0; x < WIDTH; x++) {
-            const bool allTrue = test7.at(Point{x, y, 0}) == fk::uchar3{3, 6, 10};
+            const bool allTrue = test7.at(Point{x, y, 0}) == uchar3{3, 6, 10};
             h_correct2 &= allTrue;
         }
     }
@@ -195,4 +195,10 @@ int launch() {
     test_download(stream);
 
     return result && h_correct && h_correct2 ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

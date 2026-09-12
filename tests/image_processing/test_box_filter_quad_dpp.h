@@ -23,6 +23,8 @@
 #include <cstdio>
 #include <vector>
 
+namespace fk {
+
 namespace {
 
 constexpr unsigned char READ_BIAS = 1;
@@ -56,11 +58,10 @@ struct CaseResult {
     std::vector<unsigned char> output;
 };
 
-template <fk::ParArch PA, int EX, int EY, int KW, int KH>
+template <ParArch PA, int EX, int EY, int KW, int KH>
 CaseResult runCase(const int width, const int height,
                    const int runtimeKW, const int runtimeKH,
                    const int anchorX, const int anchorY) {
-    using namespace fk;
     using DPP = BoxFilterQuadDPP<PA, unsigned char, EX, EY, KW, KH>;
     constexpr bool GPU = PA == ParArch::GPU_NVIDIA;
     const MemType memoryType = GPU ? MemType::DeviceAndPinned : MemType::Host;
@@ -122,11 +123,11 @@ bool verifyCase(const int width, const int height,
                 const int runtimeKW, const int runtimeKH,
                 const int anchorX, const int anchorY,
                 const char* name) {
-    const auto cpu = runCase<fk::ParArch::CPU, EX, EY, KW, KH>(
+    const auto cpu = runCase<ParArch::CPU, EX, EY, KW, KH>(
         width, height, runtimeKW, runtimeKH, anchorX, anchorY);
     bool ok = cpu.passed;
 #if defined(__NVCC__)
-    const auto gpu = runCase<fk::ParArch::GPU_NVIDIA, EX, EY, KW, KH>(
+    const auto gpu = runCase<ParArch::GPU_NVIDIA, EX, EY, KW, KH>(
         width, height, runtimeKW, runtimeKH, anchorX, anchorY);
     ok = gpu.passed && gpu.output == cpu.output && ok;
     std::printf("BoxFilterQuad %-14s %dx%d k%dx%d CPU/GPU %s\n",
@@ -146,7 +147,9 @@ bool verifyCase(const int width, const int height,
 
 } // namespace
 
-int launch() {
+
+
+int launch_impl() {
     bool ok = true;
     ok = verifyCase<4, 4, 3, 3>(257, 129, 3, 3, 1, 1, "3x3-odd") && ok;
     ok = verifyCase<4, 4, 5, 5>(192, 108, 5, 5, 2, 2, "5x5") && ok;
@@ -155,4 +158,10 @@ int launch() {
     ok = verifyCase<4, 4, 9, 9>(120, 80, 9, 9, 4, 4, "9x9") && ok;
     ok = verifyCase<4, 4, 0, 0>(73, 41, 11, 5, 2, 3, "runtime-11x5") && ok;
     return ok ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

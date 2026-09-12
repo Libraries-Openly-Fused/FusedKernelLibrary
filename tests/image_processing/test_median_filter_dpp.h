@@ -23,12 +23,14 @@
 #include <cstdio>
 #include <vector>
 
+namespace fk {
+
 namespace {
 
-using Details = fk::MedianFilterDPPDetails<float, 16, 8, 7, 7>;
-using Window = fk::NeighborhoodWindow<float, 49>;
-using MedianSelection = decltype(fk::MedianWindowSelect<float, 49>::build());
-using MinSelection = decltype(fk::MinimumWindowSelect<float, 49>::build());
+using Details = MedianFilterDPPDetails<float, 16, 8, 7, 7>;
+using Window = NeighborhoodWindow<float, 49>;
+using MedianSelection = decltype(MedianWindowSelect<float, 49>::build());
+using MinSelection = decltype(MinimumWindowSelect<float, 49>::build());
 
 enum class SelectionKind { MEDIAN, MINIMUM };
 
@@ -86,7 +88,6 @@ template <typename Selection>
 bool runCase(const Details& details, const Selection& selection,
              const SelectionKind kind, const bool fused,
              const char* label) {
-    using namespace fk;
     std::vector<float> input(details.width * details.height);
     for (int y = 0; y < details.height; ++y)
         for (int x = 0; x < details.width; ++x)
@@ -153,7 +154,9 @@ bool runCase(const Details& details, const Selection& selection,
 
 } // namespace
 
-int launch() {
+
+
+int launch_impl() {
     using namespace fk;
     const auto median = MedianWindowSelect<float, 49>::build();
     const auto minimum = MinimumWindowSelect<float, 49>::build();
@@ -171,4 +174,10 @@ int launch() {
     if (Details::valid(evenWindow)) ok = false;
     if (ok) std::printf("MedianFilterDPP contracts: PASS\n");
     return ok ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

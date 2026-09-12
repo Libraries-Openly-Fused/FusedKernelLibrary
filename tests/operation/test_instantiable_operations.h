@@ -23,26 +23,27 @@
 #include <fused_kernel/algorithms/basic_ops/set.h>
 #include <fused_kernel/fused_kernel.h>
 
+namespace fk {
+
 // Operation types
 // Read
-using RPerThrFloat = fk::PerThreadRead<fk::ND::_2D, float>;
+using RPerThrFloat = PerThreadRead<ND::_2D, float>;
 // ReadBack
-using RBResize = fk::Resize<fk::InterpolationType::INTER_LINEAR, fk::AspectRatio::IGNORE_AR, fk::Instantiable<RPerThrFloat>>;
+using RBResize = Resize<InterpolationType::INTER_LINEAR, AspectRatio::IGNORE_AR, Instantiable<RPerThrFloat>>;
 // Unary
-using UIntFloat = fk::Cast<int, float>;
-using UFloatInt = fk::Cast<float, int>;
+using UIntFloat = Cast<int, float>;
+using UFloatInt = Cast<float, int>;
 // Binary
-using BAddInt = fk::Add<int>;
-using BAddFloat = fk::Add<float>;
+using BAddInt = Add<int>;
+using BAddFloat = Add<float>;
 // Ternary
-using TInterpFloat = fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::Instantiable<RPerThrFloat>>;
+using TInterpFloat = InterpolateComplete<InterpolationType::INTER_LINEAR, Instantiable<RPerThrFloat>>;
 // Write
-using WPerThrFloat = fk::PerThreadWrite<fk::ND::_2D, float>;
+using WPerThrFloat = PerThreadWrite<ND::_2D, float>;
 // MidWrite
-using MWPerThrFloat = fk::FusedOperation<WPerThrFloat, BAddFloat>;
+using MWPerThrFloat = FusedOperation<WPerThrFloat, BAddFloat>;
 
 constexpr inline bool test_read_then_batch() {
-    using namespace fk;
     constexpr RawPtr<ND::_2D, float> input{ nullptr, { 64,64, 64 * sizeof(float) } };
     constexpr auto readIOp = RPerThrFloat::build(input);
 
@@ -76,8 +77,6 @@ constexpr inline bool test_read_then_batch() {
 }
 
 constexpr inline bool test_readback_then_batch() {
-    using namespace fk;
-
     constexpr RawPtr<ND::_2D, float> input{ nullptr, { 64, 64, 64 * sizeof(float) } };
     constexpr auto readIOp = RPerThrFloat::build(input);
     constexpr auto oneResize = Resize<InterpolationType::INTER_LINEAR>::build(readIOp, Size(32, 32));
@@ -93,7 +92,6 @@ constexpr inline bool test_readback_then_batch() {
 }
 
 constexpr inline bool test_batch_then_readback() {
-    using namespace fk;
     constexpr std::array<RawPtr<ND::_2D, float>, 2> inputs{ RawPtr<ND::_2D, float>{nullptr, {64,64, 64 * sizeof(float)}},
                                                         RawPtr<ND::_2D, float>{nullptr, {128,64, 64 * (sizeof(float))}} };
 
@@ -110,7 +108,6 @@ constexpr inline bool test_batch_then_readback() {
 }
 
 constexpr inline bool test_batch_then_compute() {
-    using namespace fk;
     constexpr std::array<RawPtr<ND::_2D, float>, 2> inputs{ RawPtr<ND::_2D, float>{nullptr, {64,64, 64 * sizeof(float)}},
                                                         RawPtr<ND::_2D, float>{nullptr, {64,64, 64 * (sizeof(float))}} };
 
@@ -124,7 +121,6 @@ constexpr inline bool test_batch_then_compute() {
 }
 
 constexpr inline bool test_read_then_readback() {
-    using namespace fk;
     constexpr RawPtr<ND::_2D, float> input{ nullptr, { 64, 64, 64 * sizeof(float) } };
     constexpr auto readIOp = RPerThrFloat::build(input);
 
@@ -135,8 +131,6 @@ constexpr inline bool test_read_then_readback() {
 }
 
 constexpr inline bool test_batched() {
-    using namespace fk;
-
     constexpr std::array<RawPtr<ND::_2D, float>, 2> inputs{ RawPtr<ND::_2D, float>{nullptr, {64,64, 64*sizeof(float)}},
                                                         RawPtr<ND::_2D, float>{nullptr, {64,64, 64*(sizeof(float))}}};
 
@@ -174,7 +168,9 @@ constexpr inline bool test_batched() {
     return std::is_same_v<decltype(batcheResize), decltype(fusedBatchesOp)>;
 }
 
-int launch() {
+
+
+int launch_impl() {
     using namespace fk;
     constexpr Instantiable<RPerThrFloat> func1{};
     func1.then(UFloatInt::build());
@@ -213,24 +209,24 @@ int launch() {
     static_assert(op.params == 45);
     static_assert(decltype(op)::Operation::exec(10, op.params) == 55);
 
-    Ptr2D<fk::uint3> outputAlt(32, 32);
-    constexpr RawPtr<ND::_2D, fk::uchar3> input{nullptr, PtrDims<ND::_2D>(128, 128)};
+    Ptr2D<uint3> outputAlt(32, 32);
+    constexpr RawPtr<ND::_2D, uchar3> input{nullptr, PtrDims<ND::_2D>(128, 128)};
     constexpr Size dstSize(32, 32);
     Stream stream;
 
     constexpr auto someReadOp =
-        PerThreadRead<ND::_2D, fk::uchar3>::build(input).then(Cast<fk::uchar3, fk::float3>::build()).then(Resize<InterpolationType::INTER_LINEAR>::build(dstSize));
+        PerThreadRead<ND::_2D, uchar3>::build(input).then(Cast<uchar3, float3>::build()).then(Resize<InterpolationType::INTER_LINEAR>::build(dstSize));
     static_assert(opIs<ReadBackType, decltype(someReadOp)>, "Unexpected Operation Type for someReadOp");
-    static_assert(std::is_same_v<decltype(someReadOp.backIOp.backIOp.params), OperationTuple<Read<PerThreadRead<ND::_2D, fk::uchar3>>, Unary<Cast<fk::uchar3, fk::float3>>>>, "Unexpected type for params");
+    static_assert(std::is_same_v<decltype(someReadOp.backIOp.backIOp.params), OperationTuple<Read<PerThreadRead<ND::_2D, uchar3>>, Unary<Cast<uchar3, float3>>>>, "Unexpected type for params");
 
     constexpr bool correct =
-        std::is_same_v<OperationTuple<Read<PerThreadRead<ND::_2D, fk::uchar3>>, Unary<Cast<fk::uchar3, fk::float3>>>, decltype(someReadOp.backIOp.backIOp.params)>;
+        std::is_same_v<OperationTuple<Read<PerThreadRead<ND::_2D, uchar3>>, Unary<Cast<uchar3, float3>>>, decltype(someReadOp.backIOp.backIOp.params)>;
     static_assert(correct, "Unexpected resulting type");
 
-    constexpr auto finalOp = someReadOp.then(Mul<fk::float3>::build(make_<fk::float3>(3.f, 1.f, 32.f)));
+    constexpr auto finalOp = someReadOp.then(Mul<float3>::build(make_<float3>(3.f, 1.f, 32.f)));
     static_assert(!opIs<ReadBackType, std::decay_t<decltype(finalOp)>>, "Unexpected type for finalOp");
 
-    constexpr auto inputAlt = ReadSet<fk::uchar3>::build({ { { 0,0,0 }, {128,128,1} } });
+    constexpr auto inputAlt = ReadSet<uchar3>::build({ { { 0,0,0 }, {128,128,1} } });
 
     constexpr ActiveThreads activeThreads = inputAlt.getActiveThreads();
 
@@ -238,23 +234,23 @@ int launch() {
     static_assert(activeThreads.y == 128, "Incorrect size in y");
     static_assert(activeThreads.z == 1, "Incorrect size in z");
 
-    constexpr fk::uchar3 value = make_<fk::uchar3>(0, 0, 0);
+    constexpr uchar3 value = make_<uchar3>(0, 0, 0);
     constexpr ActiveThreads threads = ActiveThreads(128, 128, 1);
 
-    constexpr fk::float3 addValue = make_<fk::float3>(3.f, 1.f, 32.f);
+    constexpr float3 addValue = make_<float3>(3.f, 1.f, 32.f);
 
     constexpr auto someReadOpAlt =
-        ReadSet<fk::uchar3>::build(value, threads)
-                        .then(Cast<fk::uchar3, fk::float3>::build())
+        ReadSet<uchar3>::build(value, threads)
+                        .then(Cast<uchar3, float3>::build())
                         .then(Resize<InterpolationType::INTER_LINEAR>::build(dstSize))
-                        .then(Add<fk::float3>::build(addValue))
-                        .then(Cast<fk::float3, fk::uint3>::build());
+                        .then(Add<float3>::build(addValue))
+                        .then(Cast<float3, uint3>::build());
 
     static_assert(someReadOpAlt.getActiveThreads().x == 32, "Wrong width");
     static_assert(someReadOpAlt.getActiveThreads().y == 32, "Wrong height");
     static_assert(someReadOpAlt.getActiveThreads().z == 1, "Wrong depth");
 
-    executeOperations<fk::TransformDPP<>>(stream, someReadOpAlt, PerThreadWrite<ND::_2D, fk::uint3>::build(outputAlt));
+    executeOperations<TransformDPP<>>(stream, someReadOpAlt, PerThreadWrite<ND::_2D, uint3>::build(outputAlt));
 
     outputAlt.download(stream);
     stream.sync();
@@ -263,7 +259,7 @@ int launch() {
 
     for (int y = 0; y < 32; ++y) {
         for (int x = 0; x < 32; ++x) {
-            const fk::uint3 temp = *PtrAccessor<ND::_2D>::cr_point({x, y}, outputAlt.ptrPinned());
+            const uint3 temp = *PtrAccessor<ND::_2D>::cr_point({x, y}, outputAlt.ptrPinned());
             correct2 &= (temp.x == 3 && temp.y == 1 && temp.z == 32);
         }
     }
@@ -276,4 +272,10 @@ int launch() {
                                     test_read_then_readback()>;
 
     return (correct && correct2 && correct3) ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

@@ -18,34 +18,43 @@
 #include <fused_kernel/core/execution_model/execution_model.h>
 #include <fused_kernel/algorithms/algorithms.h>
 
+namespace fk {
+
 void testLTS0013() {
-    using namespace fk;
     // Define input and output data
-    Ptr2D<fk::uchar4> input(1920, 1080);
+    Ptr2D<uchar4> input(1920, 1080);
     std::array<Rect, 5> crops{ Rect(0, 0, 120, 40),
                                Rect(100, 200, 60, 40),
                                Rect(400, 20, 30, 50),
                                Rect(1000, 800, 30, 30),
                                Rect(40, 40, 40, 40)}; 
-    Tensor<fk::uchar4> output(64, 64, 5);
+    Tensor<uchar4> output(64, 64, 5);
     Stream stream;
 
     // Define and execute operations over the data
     executeOperations<TransformDPP<>>(input, stream,
                                       Crop<>::build(crops),
                                       Resize<InterpolationType::INTER_LINEAR>::build(Size(64,64)),
-                                      Mul<fk::float4>::build(make_set<fk::float4>(1.f/255.f)),
-                                      Mul<fk::float4>::build(make_set<fk::float4>(0.33f)),
-                                      Add<fk::float4>::build(make_set<fk::float4>(0.5f)),
-                                      Mul<fk::float4>::build(make_set<fk::float4>(255.f)),
-                                      SaturateCast<fk::float4, fk::uchar4>::build(),
-                                      TensorWrite<fk::uchar4>::build(output));
+                                      Mul<float4>::build(make_set<float4>(1.f/255.f)),
+                                      Mul<float4>::build(make_set<float4>(0.33f)),
+                                      Add<float4>::build(make_set<float4>(0.5f)),
+                                      Mul<float4>::build(make_set<float4>(255.f)),
+                                      SaturateCast<float4, uchar4>::build(),
+                                      TensorWrite<uchar4>::build(output));
 
     stream.sync();
 }
 
-int launch() {
+
+
+int launch_impl() {
     testLTS0013();
 
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

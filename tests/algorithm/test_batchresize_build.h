@@ -19,7 +19,11 @@
 #include <fused_kernel/core/data/array.h>
 #include <array>
 
-int launch() {
+namespace fk {
+
+
+
+int launch_impl() {
     using namespace fk;
     constexpr size_t BATCH = 20;
     constexpr RawPtr<ND::_2D, float> data{ nullptr,{16,16,16} };
@@ -41,4 +45,10 @@ int launch() {
     static_assert(decltype(resizeDFArray2)::Operation::BATCH == BATCH, "resizeDFArray2 does not have the correct BATCH size");
 
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

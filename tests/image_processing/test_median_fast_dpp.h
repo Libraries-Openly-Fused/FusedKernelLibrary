@@ -25,6 +25,8 @@
 #include <cstdio>
 #include <vector>
 
+namespace fk {
+
 namespace {
 constexpr unsigned char READ_BIAS = 2;
 constexpr unsigned char WRITE_BIAS = 1;
@@ -59,11 +61,10 @@ struct Result {
     std::vector<unsigned char> output;
 };
 
-template <fk::ParArch PA, int EX, int EY, int KW, int KH>
+template <ParArch PA, int EX, int EY, int KW, int KH>
 Result runCase(const int width, const int height,
                const int runtimeKW, const int runtimeKH,
                const int anchorX, const int anchorY) {
-    using namespace fk;
     constexpr bool GPU = PA == ParArch::GPU_NVIDIA;
     const auto memoryType = GPU ? MemType::DeviceAndPinned : MemType::Host;
     Ptr2D<unsigned char> input(width, height, 0, memoryType);
@@ -122,11 +123,11 @@ bool verifyCase(const int width, const int height,
                 const int runtimeKW, const int runtimeKH,
                 const int anchorX, const int anchorY,
                 const char* name) {
-    const auto cpu = runCase<fk::ParArch::CPU, EX, EY, KW, KH>(
+    const auto cpu = runCase<ParArch::CPU, EX, EY, KW, KH>(
         width, height, runtimeKW, runtimeKH, anchorX, anchorY);
     bool ok = cpu.passed;
 #if defined(__NVCC__)
-    const auto gpu = runCase<fk::ParArch::GPU_NVIDIA, EX, EY, KW, KH>(
+    const auto gpu = runCase<ParArch::GPU_NVIDIA, EX, EY, KW, KH>(
         width, height, runtimeKW, runtimeKH, anchorX, anchorY);
     ok = ok && gpu.passed && gpu.output == cpu.output;
     std::printf("MedianQuad %-16s %dx%d k%dx%d CPU/GPU %s\n",
@@ -143,7 +144,9 @@ bool verifyCase(const int width, const int height,
 }
 } // namespace
 
-int launch() {
+
+
+int launch_impl() {
     bool ok = true;
     ok = verifyCase<4, 4, 3, 3>(
         257, 129, 3, 3, 1, 1, "3x3-odd") && ok;
@@ -156,4 +159,10 @@ int launch() {
     ok = verifyCase<4, 4, 0, 0>(
         73, 41, 3, 5, 0, 3, "runtime-3x5") && ok;
     return ok ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

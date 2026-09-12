@@ -17,23 +17,26 @@
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/image_processing/deinterlace.h>
 
-int launch() {
+namespace fk {
 
-    constexpr auto readIOp = fk::PerThreadRead<fk::ND::_2D, fk::uchar3>::build(
-        fk::RawPtr<fk::ND::_2D, fk::uchar3>{ nullptr, { 128, 128, 128 * sizeof(fk::uchar3) }});
+
+
+int launch_impl() {
+    constexpr auto readIOp = PerThreadRead<ND::_2D, uchar3>::build(
+        RawPtr<ND::_2D, uchar3>{ nullptr, { 128, 128, 128 * sizeof(uchar3) }});
 
     // Test BLEND deinterlacing
-    constexpr auto deinterlaceBlendIOp = fk::Deinterlace<fk::DeinterlaceType::BLEND>::build(readIOp);
+    constexpr auto deinterlaceBlendIOp = Deinterlace<DeinterlaceType::BLEND>::build(readIOp);
 
     static_assert(std::is_same_v<std::decay_t<decltype(deinterlaceBlendIOp)>,
-        fk::ReadBack<fk::Deinterlace<fk::DeinterlaceType::BLEND, fk::Read<fk::PerThreadRead<fk::ND::_2D, fk::uchar3>>>>>,
+        ReadBack<Deinterlace<DeinterlaceType::BLEND, Read<PerThreadRead<ND::_2D, uchar3>>>>>,
         "Unexpected type for deinterlaceBlendIOp");
 
     // Test INTER_LINEAR deinterlacing
-    constexpr auto deinterlaceInterLinearIOp = fk::Deinterlace<fk::DeinterlaceType::INTER_LINEAR>::build(fk::DeinterlaceLinear::USE_EVEN, readIOp);
+    constexpr auto deinterlaceInterLinearIOp = Deinterlace<DeinterlaceType::INTER_LINEAR>::build(DeinterlaceLinear::USE_EVEN, readIOp);
 
     static_assert(std::is_same_v<std::decay_t<decltype(deinterlaceInterLinearIOp)>,
-        fk::ReadBack<fk::Deinterlace<fk::DeinterlaceType::INTER_LINEAR, fk::Read<fk::PerThreadRead<fk::ND::_2D, fk::uchar3>>>>>,
+        ReadBack<Deinterlace<DeinterlaceType::INTER_LINEAR, Read<PerThreadRead<ND::_2D, uchar3>>>>>,
         "Unexpected type for deinterlaceInterLinearIOp");
 
     // Test that both deinterlace types are different template instantiations
@@ -41,8 +44,14 @@ int launch() {
         "BLEND and INTER_LINEAR should be different types");
 
     // Test enum values
-    static_assert(fk::DeinterlaceType::BLEND != fk::DeinterlaceType::INTER_LINEAR,
+    static_assert(DeinterlaceType::BLEND != DeinterlaceType::INTER_LINEAR,
         "DeinterlaceType enum values should be different");
 
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

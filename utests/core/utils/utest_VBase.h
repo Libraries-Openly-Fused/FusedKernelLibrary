@@ -17,31 +17,37 @@
 
 #include <fused_kernel/core/utils/vector_utils.h>
 
-static_assert(std::is_same_v<decltype(fk::uchar3{} + fk::uchar3{}), fk::int3>);
-static_assert(std::is_same_v<decltype(fk::uchar3{} / 255.0f), fk::float3>);
-static_assert(std::is_same_v<decltype(fk::int3{} + fk::float3{}), fk::float3>);
-static_assert(std::is_same_v<decltype(fk::int3{} == fk::int3{}), fk::bool3>);
-static_assert(std::is_same_v<decltype(-fk::short1{}), int>);
-static_assert(std::is_same_v<decltype(std::declval<fk::int3&>() += 1), fk::int3>);
-static_assert((fk::uchar3{250, 1, 2} + fk::uchar3{10, 2, 3}).x == 260);
-static_assert((fk::int3{3, 5, 7} == fk::int3{3, 0, 7}).x);
-static_assert(!(fk::int3{3, 5, 7} == fk::int3{3, 0, 7}).y);
-static_assert(fk::make_set<fk::float3>(2.f).z == 2.f);
-static_assert(std::is_aggregate_v<fk::float3>);
+namespace fk {
+
+static_assert(std::is_same_v<decltype(uchar3{} + uchar3{}), int3>);
+static_assert(std::is_same_v<decltype(uchar3{} / 255.0f), float3>);
+static_assert(std::is_same_v<decltype(int3{} + float3{}), float3>);
+static_assert(std::is_same_v<decltype(int3{} == int3{}), bool3>);
+static_assert(std::is_same_v<decltype(-short1{}), int>);
+static_assert(std::is_same_v<decltype(std::declval<int3&>() += 1), int3>);
+static_assert((uchar3{250, 1, 2} + uchar3{10, 2, 3}).x == 260);
+static_assert((int3{3, 5, 7} == int3{3, 0, 7}).x);
+static_assert(!(int3{3, 5, 7} == int3{3, 0, 7}).y);
+static_assert(make_set<float3>(2.f).z == 2.f);
+static_assert(std::is_aggregate_v<float3>);
 #if defined(__HIPCC__) || defined(__NVCC__)
-static_assert(!std::is_same_v<fk::float3, ::float3>);
-static_assert(!fk::vector_type<::float3>);
+static_assert(!std::is_same_v<float3, ::float3>);
+static_assert(!vector_type<::float3>);
 #endif
 
 template <typename InputTypeList, typename ExpectedTypeList, size_t... Idx>
 constexpr bool validateVBaseFor(const std::index_sequence<Idx...>&) {
-    return (std::is_same_v<fk::EquivalentType_t<fk::TypeAt_t<Idx, InputTypeList>, InputTypeList, ExpectedTypeList>, fk::VBase<fk::TypeAt_t<Idx, InputTypeList>>> && ...);
+    return (std::is_same_v<EquivalentType_t<TypeAt_t<Idx, InputTypeList>, InputTypeList, ExpectedTypeList>, VBase<TypeAt_t<Idx, InputTypeList>>> && ...);
 }
 
 template <size_t First, size_t... Rest>
 constexpr bool allEqual = ((First == Rest) && ...);
 
+
+} // namespace fk
+
 int launch() {
+    using namespace fk;
 
     static_assert(allEqual<fk::VOne::size, fk::VTwo::size, fk::VThree::size, fk::VFour::size, fk::BaseTypes::size>, "Those TypeLists must be all equal.");
     constexpr auto idxSeq = std::make_index_sequence<fk::BaseTypes::size>{};

@@ -29,6 +29,8 @@
 #define __ONLY_CU__ // This file is only generated and compiled with nvcc, not with the host compiler
 #include <tests/main.h>
 
+namespace fk {
+
 #ifdef __NVCC__
 #define NVCC_VERSION_CALCULATED (__CUDACC_VER_MAJOR__ * 10000 + __CUDACC_VER_MINOR__ * 100 + __CUDACC_VER_BUILD__)
 #define NVCC_VERSION_12_4_99 120499 // CUDA version 12.4.0 (nvcc 12.4.99)
@@ -74,6 +76,14 @@ constexpr bool secondFunc() {
     return and_v<true>; 
 }
 #endif
-int launch() {
+
+
+int launch_impl() {
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

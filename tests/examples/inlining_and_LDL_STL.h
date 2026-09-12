@@ -483,21 +483,21 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     }
 
     // initImageValues(inputImage);
-    const fk::float3 backgroundColor{0.f, 0.f, 0.f};
-    const fk::float3 mulValue = make_set<fk::float3>(1.4f);
-    const fk::float3 subValue = make_set<fk::float3>(0.5f);
-    const fk::float3 divValue = make_set<fk::float3>(255.f);
+    const float3 backgroundColor{0.f, 0.f, 0.f};
+    const float3 mulValue = make_set<float3>(1.4f);
+    const float3 subValue = make_set<float3>(0.5f);
+    const float3 divValue = make_set<float3>(255.f);
 
     // Create the operation instances once, and use them multiple times
-    const auto readIOp = PerThreadRead<ND::_2D, fk::uchar3>::build(inputImage);
+    const auto readIOp = PerThreadRead<ND::_2D, uchar3>::build(inputImage);
     const auto cropIOp = Crop<>::build(crops);
     const auto resizeIOp =
         Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>::build(outputSize, backgroundColor);
-    const auto mulIOp = Mul<fk::float3>::build(mulValue);
-    const auto subIOp = Sub<fk::float3>::build(subValue);
-    const auto divIOp = Div<fk::float3>::build(divValue);
-    const auto colorIOp = ColorConversion<ColorConversionCodes::COLOR_RGB2BGR, fk::float3, fk::float3>::build();
-    const auto tensorWriteIOp = TensorWrite<fk::float3>::build(output);
+    const auto mulIOp = Mul<float3>::build(mulValue);
+    const auto subIOp = Sub<float3>::build(subValue);
+    const auto divIOp = Div<float3>::build(divValue);
+    const auto colorIOp = ColorConversion<ColorConversionCodes::COLOR_RGB2BGR, float3, float3>::build();
+    const auto tensorWriteIOp = TensorWrite<float3>::build(output);
 
     // Execute the operations in a single kernel
     // At compile time, the types are used to define the kernel code

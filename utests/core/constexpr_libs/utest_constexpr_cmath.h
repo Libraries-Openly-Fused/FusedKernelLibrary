@@ -27,6 +27,8 @@
 #include <iomanip>
 #include <cstring>
 
+namespace fk {
+
 // Test isnan function compile-time
 template <typename T>
 constexpr bool test_isnan_ct() {
@@ -375,7 +377,7 @@ bool test_signbit_rt() {
     auto check = [&](T value, const char *name) {
         if (cxp::signbit::f(value) != static_cast<bool>(std::signbit(value))) {
             std::cout << "Runtime Fail: cxp::signbit::f(" << name << ") disagrees with std::signbit for T="
-                      << fk::typeToString<T>() << std::endl;
+                      << typeToString<T>() << std::endl;
             allCorrect = false;
         }
     };
@@ -463,11 +465,11 @@ constexpr bool test_sum_ct() {
     static_assert(std::is_same_v<decltype(cxp::sum::f(1, 2)), int>, "sum(int, int) should yield int");
 
     // Vector types, exercising the Exec vector dispatch
-    constexpr fk::int2 v = cxp::sum::f(fk::int2{1, 2}, fk::int2{10, 20});
+    constexpr int2 v = cxp::sum::f(int2{1, 2}, int2{10, 20});
     static_assert(v.x == 11, "sum(int2).x should be 11");
     static_assert(v.y == 22, "sum(int2).y should be 22");
 
-    constexpr fk::float3 fv = cxp::sum::f(fk::float3{1.0f, 2.0f, 3.0f}, fk::float3{0.5f, 0.5f, 0.5f});
+    constexpr float3 fv = cxp::sum::f(float3{1.0f, 2.0f, 3.0f}, float3{0.5f, 0.5f, 0.5f});
     static_assert(fv.x == 1.5f, "sum(float3).x should be 1.5f");
     static_assert(fv.y == 2.5f, "sum(float3).y should be 2.5f");
     static_assert(fv.z == 3.5f, "sum(float3).z should be 3.5f");
@@ -488,11 +490,11 @@ constexpr bool test_cast_ct() {
     static_assert(std::is_same_v<decltype(cxp::cast<float>::f(3)), float>, "cast<float> should yield float");
 
     // Vector to vector of the same channel count, which casts the base type
-    constexpr fk::int2 vi = cxp::cast<fk::int2>::f(fk::float2{3.7f, -3.7f});
+    constexpr int2 vi = cxp::cast<int2>::f(float2{3.7f, -3.7f});
     static_assert(vi.x == 3, "cast<int2>(float2).x should be 3");
     static_assert(vi.y == -3, "cast<int2>(float2).y should be -3");
 
-    constexpr fk::float3 vf = cxp::cast<fk::float3>::f(fk::int3{1, 2, 3});
+    constexpr float3 vf = cxp::cast<float3>::f(int3{1, 2, 3});
     static_assert(vf.x == 1.0f, "cast<float3>(int3).x should be 1.0f");
     static_assert(vf.y == 2.0f, "cast<float3>(int3).y should be 2.0f");
     static_assert(vf.z == 3.0f, "cast<float3>(int3).z should be 3.0f");
@@ -525,7 +527,7 @@ constexpr bool test_clamp_ct() {
     static_assert(cxp::clamp::f(0.5, 0.0, 1.0) == 0.5, "clamp(0.5, 0, 1) should be 0.5");
 
     // Vector types, clamped per channel
-    constexpr fk::int2 v = cxp::clamp::f(fk::int2{-5, 15}, fk::int2{0, 0}, fk::int2{10, 10});
+    constexpr int2 v = cxp::clamp::f(int2{-5, 15}, int2{0, 0}, int2{10, 10});
     static_assert(v.x == 0, "clamp(int2).x should be 0");
     static_assert(v.y == 10, "clamp(int2).y should be 10");
 
@@ -591,9 +593,9 @@ bool test_abs_rt() {
                           "cxp::abs::f(minValue<T>) should have the same type as std::abs(cxp::minValue<T>)");
             std::cout << "Failed: abs(min) should be max for signed types" << std::endl;
             if constexpr (sizeof(T) < 4) {
-                std::cout << "T= " + fk::typeToString<T>() + " Expected: " << std::abs(cxp::minValue<T> + extra) << ", got: " << static_cast<int>(cxp::abs::f(cxp::minValue<T> + extra)) << std::endl;
+                std::cout << "T= " + typeToString<T>() + " Expected: " << std::abs(cxp::minValue<T> + extra) << ", got: " << static_cast<int>(cxp::abs::f(cxp::minValue<T> + extra)) << std::endl;
             } else {
-                std::cout << "T= " + fk::typeToString<T>() + " Expected: " << std::abs(cxp::minValue<T> + extra) << ", got: " << cxp::abs::f(cxp::minValue<T> + extra) << std::endl;
+                std::cout << "T= " + typeToString<T>() + " Expected: " << std::abs(cxp::minValue<T> + extra) << ", got: " << cxp::abs::f(cxp::minValue<T> + extra) << std::endl;
             }
             allCorrect = false;
         }
@@ -1360,13 +1362,13 @@ constexpr bool test_fmaxf_ct() {
                   "fmaxf scalar signed zero failed");
 
     // --- Vector Tests (float3) ---
-    constexpr fk::float3 fmax_v = cxp::fmaxf::f(fk::float3{1.0f, nan_val, neg_zero}, fk::float3{5.0f, 3.0f, pos_zero});
+    constexpr float3 fmax_v = cxp::fmaxf::f(float3{1.0f, nan_val, neg_zero}, float3{5.0f, 3.0f, pos_zero});
     static_assert(fmax_v.x == 5.0f, "fmaxf float3.x failed (Normal)");
     static_assert(fmax_v.y == 3.0f, "fmaxf float3.y failed (NaN propagation)");
     static_assert(cxp::bit_cast<uint>(fmax_v.z) == 0x00000000, "fmaxf float3.z failed (Signed Zero: MUST be +0.0)");
 
     // --- Vector Tests (int2 using standard max) ---
-    constexpr fk::int2 max_i = cxp::max::f(fk::int2{100, -50}, fk::int2{200, -10});
+    constexpr int2 max_i = cxp::max::f(int2{100, -50}, int2{200, -10});
     static_assert(max_i.x == 200, "max int2.x failed");
     static_assert(max_i.y == -10, "max int2.y failed");
 
@@ -1386,9 +1388,9 @@ bool test_fmaxf_rt() {
     }
 
     // --- Vector Tests (float3) ---
-    fk::float3 v1 = fk::make_<fk::float3>(1.0f, nan_val, neg_zero);
-    fk::float3 v2 = fk::make_<fk::float3>(5.0f, 3.0f, pos_zero);
-    fk::float3 v_max = cxp::fmaxf::f(v1, v2);
+    float3 v1 = make_<float3>(1.0f, nan_val, neg_zero);
+    float3 v2 = make_<float3>(5.0f, 3.0f, pos_zero);
+    float3 v_max = cxp::fmaxf::f(v1, v2);
 
     if (v_max.x != 5.0f || v_max.y != 3.0f || cxp::bit_cast<uint>(v_max.z) != 0x00000000) {
         std::cout << "Runtime Fail: cxp::fmaxf::f(float3, float3) component mapping failed\n";
@@ -1396,9 +1398,9 @@ bool test_fmaxf_rt() {
     }
 
     // --- Vector Tests (int2 using standard max) ---
-    fk::int2 i1 = fk::make_<fk::int2>(100, -50);
-    fk::int2 i2 = fk::make_<fk::int2>(200, -10);
-    fk::int2 i_max = cxp::max::f(i1, i2);
+    int2 i1 = make_<int2>(100, -50);
+    int2 i2 = make_<int2>(200, -10);
+    int2 i_max = cxp::max::f(i1, i2);
 
     if (i_max.x != 200 || i_max.y != -10) {
         std::cout << "Runtime Fail: cxp::max::f(int2, int2) integer logic failed\n";
@@ -1420,13 +1422,13 @@ constexpr bool test_fminf_ct() {
                   "fminf scalar signed zero failed");
 
     // --- Vector Tests (float3) ---
-    constexpr fk::float3 fmin_v = cxp::fminf::f(fk::float3{1.0f, nan_val, neg_zero}, fk::float3{5.0f, 3.0f, pos_zero});
+    constexpr float3 fmin_v = cxp::fminf::f(float3{1.0f, nan_val, neg_zero}, float3{5.0f, 3.0f, pos_zero});
     static_assert(fmin_v.x == 1.0f, "fminf float3.x failed (Normal)");
     static_assert(fmin_v.y == 3.0f, "fminf float3.y failed (NaN propagation)");
     static_assert(cxp::bit_cast<uint>(fmin_v.z) == 0x80000000, "fminf float3.z failed (Signed Zero: MUST be -0.0)");
 
     // --- Vector Tests (int2 using standard min) ---
-    constexpr fk::int2 min_i = cxp::min::f(fk::int2{100, -50}, fk::int2{200, -10});
+    constexpr int2 min_i = cxp::min::f(int2{100, -50}, int2{200, -10});
     static_assert(min_i.x == 100, "min int2.x failed");
     static_assert(min_i.y == -50, "min int2.y failed");
 
@@ -1446,9 +1448,9 @@ bool test_fminf_rt() {
     }
 
     // --- Vector Tests (float3) ---
-    fk::float3 v1 = fk::make_<fk::float3>(1.0f, nan_val, neg_zero);
-    fk::float3 v2 = fk::make_<fk::float3>(5.0f, 3.0f, pos_zero);
-    fk::float3 v_min = cxp::fminf::f(v1, v2);
+    float3 v1 = make_<float3>(1.0f, nan_val, neg_zero);
+    float3 v2 = make_<float3>(5.0f, 3.0f, pos_zero);
+    float3 v_min = cxp::fminf::f(v1, v2);
 
     if (v_min.x != 1.0f || v_min.y != 3.0f || cxp::bit_cast<uint>(v_min.z) != 0x80000000) {
         std::cout << "Runtime Fail: cxp::fminf::f(float3, float3) component mapping failed\n";
@@ -1456,9 +1458,9 @@ bool test_fminf_rt() {
     }
 
     // --- Vector Tests (int2 using standard min) ---
-    fk::int2 i1 = fk::make_<fk::int2>(100, -50);
-    fk::int2 i2 = fk::make_<fk::int2>(200, -10);
-    fk::int2 i_min = cxp::min::f(i1, i2);
+    int2 i1 = make_<int2>(100, -50);
+    int2 i2 = make_<int2>(200, -10);
+    int2 i_min = cxp::min::f(i1, i2);
 
     if (i_min.x != 100 || i_min.y != -50) {
         std::cout << "Runtime Fail: cxp::min::f(int2, int2) integer logic failed\n";
@@ -1674,7 +1676,11 @@ bool runtime_tests() {
     return allCorrect;
 }
 
+
+} // namespace fk
+
 int launch() {
+    using namespace fk;
     static_assert(test_round_ct<float>());
     static_assert(test_round_ct<double>());
 

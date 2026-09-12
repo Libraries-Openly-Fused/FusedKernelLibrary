@@ -18,36 +18,37 @@
 #include <fused_kernel/core/core.h>
 #include <fused_kernel/algorithms/algorithms.h>
 
+namespace fk {
+
 using ComplexType =
-fk::Read<fk::FusedOperation<
-    fk::ReadBack<fk::ResizeComplete<fk::AspectRatio::PRESERVE_AR,
-                    fk::Ternary<fk::InterpolateComplete<
-                        fk::InterpolationType::INTER_LINEAR, fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, fk::uchar3>>>>>>>>,
-             fk::Binary<fk::Mul<fk::float3, fk::float3, fk::float3>>>>;
+Read<FusedOperation<
+    ReadBack<ResizeComplete<AspectRatio::PRESERVE_AR,
+                    Ternary<InterpolateComplete<
+                        InterpolationType::INTER_LINEAR, ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>>>>,
+             Binary<Mul<float3, float3, float3>>>>;
 
 // Operation types
 // Read
-using RPerThrFloat = fk::PerThreadRead<fk::ND::_2D, float>;
+using RPerThrFloat = PerThreadRead<ND::_2D, float>;
 // ReadBack
-using RBResize = fk::Resize<fk::InterpolationType::INTER_LINEAR, fk::AspectRatio::IGNORE_AR, fk::Instantiable<RPerThrFloat>>;
+using RBResize = Resize<InterpolationType::INTER_LINEAR, AspectRatio::IGNORE_AR, Instantiable<RPerThrFloat>>;
 // Unary
-using UIntFloat = fk::Cast<int, float>;
-using UFloatInt = fk::Cast<float, int>;
-using Unaries = fk::TypeList<UIntFloat, UFloatInt>;
+using UIntFloat = Cast<int, float>;
+using UFloatInt = Cast<float, int>;
+using Unaries = TypeList<UIntFloat, UFloatInt>;
 // Binary
-using BAddInt = fk::Add<int>;
-using BAddFloat = fk::Add<float>;
-using Binaries = fk::TypeList<BAddInt, BAddFloat>;
+using BAddInt = Add<int>;
+using BAddFloat = Add<float>;
+using Binaries = TypeList<BAddInt, BAddFloat>;
 // Ternary
-using TInterpFloat = fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::Instantiable<RPerThrFloat>>;
+using TInterpFloat = InterpolateComplete<InterpolationType::INTER_LINEAR, Instantiable<RPerThrFloat>>;
 // Write
-using WPerThrFloat = fk::PerThreadWrite<fk::ND::_2D, float>;
+using WPerThrFloat = PerThreadWrite<ND::_2D, float>;
 // MidWrite
-using MWPerThrFloat = fk::FusedOperation<WPerThrFloat, BAddFloat>;
+using MWPerThrFloat = FusedOperation<WPerThrFloat, BAddFloat>;
 
 constexpr bool test_InstantiableFusedOperationToOperationTuple() {
-    using namespace fk;
-    constexpr auto fusedOp = FusedOperation<>::build(ComplexType{}, Add<fk::float3>::build(make_set<fk::float3>(2.f)));
+    constexpr auto fusedOp = FusedOperation<>::build(ComplexType{}, Add<float3>::build(make_set<float3>(2.f)));
 
     constexpr auto opTuple = fusedOp.params;
 
@@ -56,6 +57,14 @@ constexpr bool test_InstantiableFusedOperationToOperationTuple() {
     return true;
 }
 
-int launch() {
+
+
+int launch_impl() {
     return test_InstantiableFusedOperationToOperationTuple() ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

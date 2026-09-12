@@ -44,17 +44,18 @@
 #include <vector>
 #include <cmath>
 
+namespace fk {
+
 // Invoke the fused compute->write IOp the way a DPP epilogue would: pass the
 // whole fused IOp (epilogue.then(D)) and call its Operation::exec(thread, value, iop).
 template <typename FusedW>
 __global__ void epilogueWriteKernel(FusedW out, int W, float val) {
     const int x = threadIdx.x;
-    if (x < W) FusedW::Operation::exec(fk::Point{ x, 0, 0 }, val, out);
+    if (x < W) FusedW::Operation::exec(Point{ x, 0, 0 }, val, out);
 }
 
 template <typename Epi>
 static bool runCase(const char* name, const Epi& epilogue, float in, float expected) {
-    using namespace fk;
     constexpr int W = 8;
     Ptr2D<float> d(W, 1);
     const auto output = epilogue.then(PerThreadWrite<ND::_2D, float>::build(d));
@@ -78,7 +79,9 @@ static bool runCase(const char* name, const Epi& epilogue, float in, float expec
     return true;
 }
 
-int launch() {
+
+
+int launch_impl() {
     using namespace fk;
     bool ok = true;
     // identity epilogue: Cast<float,float> pass-through, fused with the write.
@@ -86,4 +89,10 @@ int launch() {
     // scale+bias IOp chain: (v*2) then (+0.5), fused with the write.
     ok &= runCase("scale+bias", Mul<float>::build(2.f).then(Add<float>::build(0.5f)),     10.0f, 20.5f);
     return ok ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

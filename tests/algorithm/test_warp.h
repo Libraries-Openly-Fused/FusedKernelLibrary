@@ -18,18 +18,28 @@
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/image_processing/warping.h>
 
-int launch() {
-    constexpr auto readIOp = fk::PerThreadRead<fk::ND::_2D, fk::uchar3>::build(
-        fk::RawPtr<fk::ND::_2D, fk::uchar3>{ nullptr, { 128, 128, 128 * sizeof(fk::uchar3) }});
+namespace fk {
+
+
+
+int launch_impl() {
+    constexpr auto readIOp = PerThreadRead<ND::_2D, uchar3>::build(
+        RawPtr<ND::_2D, uchar3>{ nullptr, { 128, 128, 128 * sizeof(uchar3) }});
     constexpr auto warpIOp =
-        fk::Warping<fk::WarpType::Perspective>::build(fk::WarpingParameters<fk::WarpType::Perspective>{});
+        Warping<WarpType::Perspective>::build(WarpingParameters<WarpType::Perspective>{});
     constexpr auto fusedIOp = readIOp.then(warpIOp);
 
     constexpr bool correct =
         std::is_same_v<std::decay_t<decltype(fusedIOp)>,
-        fk::ReadBack<fk::Warping<fk::WarpType::Perspective, fk::Read<fk::PerThreadRead<fk::ND::_2D, fk::uchar3>>>>>;
+        ReadBack<Warping<WarpType::Perspective, Read<PerThreadRead<ND::_2D, uchar3>>>>>;
 
     static_assert(correct, "Unexpected type for fusedIOp");
 
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

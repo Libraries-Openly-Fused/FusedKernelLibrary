@@ -25,6 +25,8 @@
 #include <cstdio>
 #include <vector>
 
+namespace fk {
+
 namespace {
 constexpr unsigned char READ_BIAS = 3;
 constexpr unsigned char WRITE_BIAS = 1;
@@ -61,13 +63,12 @@ struct Result {
     std::vector<unsigned char> output;
 };
 
-template <fk::ParArch PA, typename ReduceIOp,
+template <ParArch PA, typename ReduceIOp,
           int EX, int EY, int KW, int KH>
 Result runCase(const int width, const int height,
                const int runtimeKW, const int runtimeKH,
                const int anchorX, const int anchorY,
                const MorphologyKind kind) {
-    using namespace fk;
     constexpr bool GPU = PA == ParArch::GPU_NVIDIA;
     const auto memoryType = GPU ? MemType::DeviceAndPinned : MemType::Host;
     Ptr2D<unsigned char> input(width, height, 0, memoryType);
@@ -122,11 +123,11 @@ bool verifyCase(const int width, const int height,
                 const int runtimeKW, const int runtimeKH,
                 const int anchorX, const int anchorY,
                 const MorphologyKind kind, const char* name) {
-    const auto cpu = runCase<fk::ParArch::CPU, ReduceIOp, EX, EY, KW, KH>(
+    const auto cpu = runCase<ParArch::CPU, ReduceIOp, EX, EY, KW, KH>(
         width, height, runtimeKW, runtimeKH, anchorX, anchorY, kind);
     bool ok = cpu.passed;
 #if defined(__NVCC__)
-    const auto gpu = runCase<fk::ParArch::GPU_NVIDIA,
+    const auto gpu = runCase<ParArch::GPU_NVIDIA,
                              ReduceIOp, EX, EY, KW, KH>(
         width, height, runtimeKW, runtimeKH, anchorX, anchorY, kind);
     ok = ok && gpu.passed && gpu.output == cpu.output;
@@ -144,7 +145,9 @@ bool verifyCase(const int width, const int height,
 }
 } // namespace
 
-int launch() {
+
+
+int launch_impl() {
     using namespace fk;
     using MinIOp = Min<unsigned char, unsigned char,
                        unsigned char, UnaryType>;
@@ -167,4 +170,10 @@ int launch() {
         73, 41, 5, 3, 1, 0, MorphologyKind::Erode,
         "runtime-5x3") && ok;
     return ok ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

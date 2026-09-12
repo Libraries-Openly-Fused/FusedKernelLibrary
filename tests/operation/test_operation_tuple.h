@@ -23,47 +23,47 @@
 #include <fused_kernel/algorithms/basic_ops/cast.h>
 #include <fused_kernel/algorithms/image_processing/saturate.h>
 
+namespace fk {
+
 bool test_OTInitialization() {
     constexpr uint X = 64;
     constexpr uint Y = 64;
 
-    const fk::Ptr2D<uchar> input(X, Y);
-    using IOp = typename fk::PerThreadRead<fk::ND::_2D, uchar>::InstantiableType;
+    const Ptr2D<uchar> input(X, Y);
+    using IOp = typename PerThreadRead<ND::_2D, uchar>::InstantiableType;
     const IOp read{ {input} };
 
-    [[maybe_unused]] const fk::OperationTuple<IOp> testing{ {read} };
+    [[maybe_unused]] const OperationTuple<IOp> testing{ {read} };
 
-    const auto test2 = fk::make_new_operation_tuple(read);
-    //const fk::Read<fk::FusedOperation<Op>> test3 = fk::fuse(read); //Should not compile
+    const auto test2 = make_new_operation_tuple(read);
+    //const Read<FusedOperation<Op>> test3 = fuse(read); //Should not compile
 
-    using Op2 = fk::SaturateCast<uchar, uint>;
-    constexpr fk::Unary<Op2> cast = {};
+    using Op2 = SaturateCast<uchar, uint>;
+    constexpr Unary<Op2> cast = {};
 
-    const auto ot1 = fk::make_new_operation_tuple(read);
-    constexpr auto ot2 = fk::make_new_operation_tuple(cast);
+    const auto ot1 = make_new_operation_tuple(read);
+    constexpr auto ot2 = make_new_operation_tuple(cast);
 
-    const auto test4 = fk::make_new_operation_tuple(fk::get_opt<0>(ot1));
+    const auto test4 = make_new_operation_tuple(get_opt<0>(ot1));
 
     constexpr auto filtered1 =
-        fk::filtered_integer_sequence_t<int, fk::NotIsUnaryRestriction, fk::TypeList<typename IOp::InstanceType>>{};
+        filtered_integer_sequence_t<int, NotIsUnaryRestriction, TypeList<typename IOp::InstanceType>>{};
     static_assert(filtered1.size() == 1, "Wrong filtered integer sequence size");
 
-    const auto test6 = fk::cat(ot1, ot2);
+    const auto test6 = cat(ot1, ot2);
 
-    const auto test7 = fk::make_new_operation_tuple(read, cast);
+    const auto test7 = make_new_operation_tuple(read, cast);
 
-    const auto test8 = fk::fuse(read, cast);
+    const auto test8 = fuse(read, cast);
 
-    const auto test9 = fk::Instantiable<fk::FusedOperation<std::decay_t<decltype(read)>,
+    const auto test9 = Instantiable<FusedOperation<std::decay_t<decltype(read)>,
                                                            std::decay_t<decltype(cast)>>>
-    { fk::make_new_operation_tuple(read, cast) };
+    { make_new_operation_tuple(read, cast) };
 
     return true;
 }
 
 bool testNewOperationTuple() {
-    using namespace fk;
-
     constexpr auto op1 = Div<uchar>::build(1u);
     constexpr auto op2 = SaturateCast<uchar, uint>::build();
     constexpr auto op3 = Mul<uint>::build(5u);
@@ -104,38 +104,46 @@ bool testNewOperationTuple() {
     return true;
 }
 
-int launch() {
-    constexpr auto opTuple1 = fk::make_new_operation_tuple(fk::Add<int, int, int, fk::UnaryType>::build());
+
+
+int launch_impl() {
+    constexpr auto opTuple1 = make_new_operation_tuple(Add<int, int, int, UnaryType>::build());
 
     using OpTuple1Type = std::decay_t<decltype(opTuple1)>;
 
     static_assert(OpTuple1Type::size == 1, "Wrong operation tuple size");
-    static_assert(fk::opIs<fk::UnaryType, fk::TypeAt_t<0, typename OpTuple1Type::Operations>>, "Wrong Operation Type");
+    static_assert(opIs<UnaryType, TypeAt_t<0, typename OpTuple1Type::Operations>>, "Wrong Operation Type");
 
-    constexpr fk::OperationData<fk::Add<int>> data{ 3 };
+    constexpr OperationData<Add<int>> data{ 3 };
     static_assert(data.params == 3, "Wrong value");
 
     constexpr auto opTuple2 =
-        fk::make_new_operation_tuple(fk::Add<int, int, int, fk::UnaryType>::build(), fk::Add<int>::build(3));
+        make_new_operation_tuple(Add<int, int, int, UnaryType>::build(), Add<int>::build(3));
 
     using OpTuple2Type = decltype(opTuple2);
 
     static_assert(OpTuple2Type::size == 2, "Wrong operation tuple size");
-    static_assert(fk::opIs<fk::BinaryType, fk::TypeAt_t<1, typename OpTuple2Type::Operations>>, "Wrong Operation Type");
-    static_assert(fk::get_opt<1>(opTuple2).params == 3, "Wrong value");
+    static_assert(opIs<BinaryType, TypeAt_t<1, typename OpTuple2Type::Operations>>, "Wrong Operation Type");
+    static_assert(get_opt<1>(opTuple2).params == 3, "Wrong value");
 
-    constexpr auto opTuple3 = fk::make_new_operation_tuple(fk::Add<int, int, int, fk::UnaryType>::build(),
-    fk::Cast<int, float>::build(), fk::Cast<float, int>::build());
+    constexpr auto opTuple3 = make_new_operation_tuple(Add<int, int, int, UnaryType>::build(),
+    Cast<int, float>::build(), Cast<float, int>::build());
 
     using OpTuple3Type = decltype(opTuple3);
 
     static_assert(OpTuple3Type::size == 3, "Wrong operation tuple size");
     //opTuple3.next; must not compile
-    static_assert(fk::opIs<fk::UnaryType, fk::TypeAt_t<0, typename OpTuple3Type::Operations>>, "Wrong Operation Type");
+    static_assert(opIs<UnaryType, TypeAt_t<0, typename OpTuple3Type::Operations>>, "Wrong Operation Type");
    
     if (!test_OTInitialization() || !testNewOperationTuple()) {
         return -1;
     }
 
     return 0;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

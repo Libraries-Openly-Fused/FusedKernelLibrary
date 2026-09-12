@@ -26,6 +26,8 @@
 #include <iostream>
 #include <limits>
 
+namespace fk {
+
 // Forces constant evaluation of cxp::expf for the float whose bit pattern is Bits.
 template <uint Bits>
 struct CtExp {
@@ -59,7 +61,11 @@ CHECK_CT_EXPF(0xC2D20000u, 0x00000000u); // -105.0f      -> 0.0f
 
 #undef CHECK_CT_EXPF
 
+
+} // namespace fk
+
 int launch() {
+    using namespace fk;
     bool allCorrect = true;
 
     // Re-verify the same points at runtime against std::exp, so the constants above

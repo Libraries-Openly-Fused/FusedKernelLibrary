@@ -24,6 +24,8 @@
 #include <random>
 #include <vector>
 
+namespace fk {
+
 // double-precision CPU oracle: O = softmax(scale * Q K^T [causal]) V
 static void cpuAttention(const std::vector<double>& q, const std::vector<double>& k,
                          const std::vector<double>& v, std::vector<double>& o,
@@ -69,7 +71,6 @@ static void report(const char* name, const double maxErr, const double tol) {
 template <int HEAD_DIM>
 static void testDense(const char* name, const int bh, const int seqQ, const int seqK,
                       const bool causal, const double tol, const unsigned seed) {
-    using namespace fk;
     std::mt19937 rng(seed);
     std::uniform_real_distribution<float> dist(-1.f, 1.f);
     const size_t nQ = (size_t)bh * seqQ * HEAD_DIM, nK = (size_t)bh * seqK * HEAD_DIM;
@@ -106,7 +107,6 @@ static void testDense(const char* name, const int bh, const int seqQ, const int 
 template <int HEAD_DIM>
 static void testInt8KV(const char* name, const int bh, const int seqQ, const int seqK,
                        const bool causal, const double tol, const unsigned seed) {
-    using namespace fk;
     std::mt19937 rng(seed);
     std::uniform_real_distribution<float> dist(-1.f, 1.f);
     const size_t nQ = (size_t)bh * seqQ * HEAD_DIM, nK = (size_t)bh * seqK * HEAD_DIM;
@@ -160,7 +160,6 @@ static void testInt8KV(const char* name, const int bh, const int seqQ, const int
 }
 
 static void testFusedEpilogue() {
-    using namespace fk;
     // attention output | Mul(2) | Add(0.5) fused in-register: compare against
     // dense run + host-applied epilogue (proves the chain ran inside).
     constexpr int HEAD_DIM = 32, BH = 2, SQ = 16, SK = 16;
@@ -200,7 +199,6 @@ static void testFusedEpilogue() {
 }
 
 static void testFusedPrologue() {
-    using namespace fk;
     /* PROLOGUE = a Read IOp (possibly fused with .then chains); the DPP
        reads every element through it. Verifiable algebra:
        Q prologue read.then(Mul(2)): compare against oracle on 2*Q.
@@ -272,7 +270,9 @@ static void testFusedPrologue() {
     cudaFree(q); cudaFree(k); cudaFree(v); cudaFree(o);
 }
 
-int launch() {
+
+
+int launch_impl() {
     testDense<64>("FA dense d64 b2 s64 causal", 2, 64, 64, true, 5e-6, 1);
     testDense<64>("FA dense d64 ragged s67/s131", 2, 67, 131, false, 5e-6, 2);
     testDense<32>("FA dense d32 cross s32->s96", 2, 32, 96, false, 5e-6, 3);
@@ -284,4 +284,10 @@ int launch() {
     if (failures == 0) { return 0; }
     std::cout << failures << " attention test(s) FAILED" << std::endl;
     return -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
 }

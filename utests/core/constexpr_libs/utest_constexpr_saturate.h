@@ -19,6 +19,8 @@
 #include <limits>
 #include <iostream>
 
+namespace fk {
+
 // Compile-time tests for cxp::saturate_float
 constexpr bool test_saturate_float_ct() {
     // Values inside [0, 1] are returned unchanged
@@ -98,7 +100,11 @@ inline bool test_saturate_float_rt() {
     return allCorrect;
 }
 
+
+} // namespace fk
+
 int launch() {
+    using namespace fk;
     static_assert(test_saturate_float_ct(), "saturate_float compile-time tests failed");
 
     if (!test_saturate_float_rt()) {
