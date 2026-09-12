@@ -124,12 +124,13 @@ public:
     }
 };
 
-#if defined(__NVCC__)
-template <typename T, int EX, int EY, int KW, int KH>
-struct MorphQuadDPP<ParArch::GPU_NVIDIA, T, EX, EY, KW, KH> {
+#if defined(__NVCC__) || defined(__HIPCC__)
+template <ParArch PA, typename T, int EX, int EY, int KW, int KH>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
+struct MorphQuadDPP<PA, T, EX, EY, KW, KH> {
 private:
     using SelfType = MorphQuadDPP<
-        ParArch::GPU_NVIDIA, T, EX, EY, KW, KH>;
+        PA, T, EX, EY, KW, KH>;
     static constexpr int MAX_RUNTIME_KERNEL_WIDTH = 31;
     static constexpr int MAX_KERNEL_WIDTH =
         KW > 0 ? KW : MAX_RUNTIME_KERNEL_WIDTH;
@@ -137,7 +138,7 @@ private:
 
 public:
     FK_STATIC_STRUCT(MorphQuadDPP, SelfType)
-    static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
+    static constexpr ParArch PAR_ARCH = PA;
     static constexpr int BLOCK_THREADS = 256;
 
     struct LaunchConfig {
@@ -183,7 +184,7 @@ public:
                       "MorphQuadDPP sizes are both static or both runtime");
         static_assert(cn<T> == 1,
                       "MorphQuadDPP currently supports scalar pixel types");
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
         if (!accepts(details)) return;
         const int kernelWidth = KW > 0 ? KW : details.kernelWidth;
         const int kernelHeight = KH > 0 ? KH : details.kernelHeight;
@@ -236,7 +237,7 @@ public:
                 OutIOp::Operation::exec(Point{x, y, 0}, value, output);
             }
         }
-#endif // defined(__CUDA_ARCH__)
+#endif // defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
     }
 };
 
@@ -247,21 +248,29 @@ __global__ void launchMorphQuadDPP_Kernel(
     DPP::exec(details, iOps...);
 }
 
-template <typename DPP, typename... IOps>
+template <typename DPP, typename... IOps, ParArch PA>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
 FK_HOST_FUSE void executeMorphQuad(
-        Stream_<ParArch::GPU_NVIDIA>& stream,
+        Stream_<PA>& stream,
         const MorphQuadDetails& details,
         const IOps&... iOps) {
-    static_assert(DPP::PAR_ARCH == ParArch::GPU_NVIDIA,
-                  "GPU stream requires the NVIDIA MorphQuadDPP specialization");
+    static_assert(DPP::PAR_ARCH == PA,
+                  "GPU stream requires the matching MorphQuadDPP specialization");
     if (!DPP::accepts(details)) return;
     const auto launch = DPP::launchConfig(details);
+#if defined(__HIPCC__)
+    launchMorphQuadDPP_Kernel<DPP, IOps...>
+        <<<launch.blocks, launch.threads, 0, stream.getHIPStream()>>>(
+            details, iOps...);
+    gpuErrchk(hipGetLastError());
+#else
     launchMorphQuadDPP_Kernel<DPP, IOps...>
         <<<launch.blocks, launch.threads, 0, stream.getCUDAStream()>>>(
             details, iOps...);
     gpuErrchk(cudaGetLastError());
+#endif
 }
-#endif // defined(__NVCC__)
+#endif // defined(__NVCC__) || defined(__HIPCC__)
 
 template <typename DPP, typename... IOps>
 FK_HOST_FUSE void executeMorphQuad(

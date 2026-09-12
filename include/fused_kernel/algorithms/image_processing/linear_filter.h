@@ -142,18 +142,19 @@ public:
     }
 };
 
-#if defined(__NVCC__)
-template <typename DPPDetails>
-struct LinearFilterDPP<ParArch::GPU_NVIDIA, DPPDetails> {
+#if defined(__NVCC__) || defined(__HIPCC__)
+template <ParArch PA, typename DPPDetails>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
+struct LinearFilterDPP<PA, DPPDetails> {
 private:
-    using SelfType = LinearFilterDPP<ParArch::GPU_NVIDIA, DPPDetails>;
+    using SelfType = LinearFilterDPP<PA, DPPDetails>;
     using T = typename DPPDetails::ValueType;
     using Stage = NeighborhoodDPPStage<
         typename DPPDetails::NeighborhoodPolicy>;
 
 public:
     FK_STATIC_STRUCT(LinearFilterDPP, SelfType)
-    static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
+    static constexpr ParArch PAR_ARCH = PA;
 
     template <typename ReadIOps, typename MultiplyIOp,
               typename AccumulateIOp, typename WriteIOp>
@@ -224,25 +225,26 @@ public:
     }
 };
 
-template <typename DPPDetails, typename ReadIOps,
+template <ParArch PA, typename DPPDetails, typename ReadIOps,
           typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp>
 __global__ void linearFilterDPPKernel(const DPPDetails details,
                                       const ReadIOps reads,
                                       const MultiplyIOp multiply,
                                       const AccumulateIOp accumulate,
                                       const WriteIOp output) {
-    LinearFilterDPP<ParArch::GPU_NVIDIA, DPPDetails>::exec(
+    LinearFilterDPP<PA, DPPDetails>::exec(
         details, reads, multiply, accumulate, output);
 }
 
 template <typename DPPDetails, typename ReadIOps,
-          typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp>
+          typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp, ParArch PA>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
 inline bool executeLinearFilter(const DPPDetails& details,
                                 const ReadIOps& reads,
                                 const MultiplyIOp& multiply,
                                 const AccumulateIOp& accumulate,
                                 const WriteIOp& output,
-                                Stream_<ParArch::GPU_NVIDIA>& stream) {
+                                Stream_<PA>& stream) {
     if (!DPPDetails::valid(details)) return false;
     const dim3 block(DPPDetails::TILE_WIDTH,
                      DPPDetails::TILE_HEIGHT, 1);
@@ -251,18 +253,25 @@ inline bool executeLinearFilter(const DPPDetails& details,
                     (details.height + DPPDetails::TILE_HEIGHT - 1) /
                         DPPDetails::TILE_HEIGHT,
                     1);
-    linearFilterDPPKernel<<<grid, block, 0, stream.getCUDAStream()>>>(
+#if defined(__HIPCC__)
+    linearFilterDPPKernel<PA><<<grid, block, 0, stream.getHIPStream()>>>(
+        details, reads, multiply, accumulate, output);
+    gpuErrchk(hipGetLastError());
+#else
+    linearFilterDPPKernel<PA><<<grid, block, 0, stream.getCUDAStream()>>>(
         details, reads, multiply, accumulate, output);
     gpuErrchk(cudaGetLastError());
+#endif
     return true;
 }
 
-template <typename DPPDetails, typename ImageRead, typename WriteIOp>
+template <typename DPPDetails, typename ImageRead, typename WriteIOp, ParArch PA>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
 inline bool executeBoxFilter(const DPPDetails& details,
                              const ImageRead& image,
                              const WriteIOp& output,
                              const typename DPPDetails::ValueType scale,
-                             Stream_<ParArch::GPU_NVIDIA>& stream) {
+                             Stream_<PA>& stream) {
     using T = typename DPPDetails::ValueType;
     if (!DPPDetails::valid(details)) return false;
     const T coefficient = scale /
@@ -274,7 +283,7 @@ inline bool executeBoxFilter(const DPPDetails& details,
         details, make_tuple(image, coefficientRead),
         multiply, accumulate, output, stream);
 }
-#endif // defined(__NVCC__)
+#endif // defined(__NVCC__) || defined(__HIPCC__)
 
 } // namespace fk
 

@@ -8,6 +8,24 @@ This is the Main branch of the repository, where the FKL API can be modified, th
 
 If you are looking for a more stable branch, where new features can be added, but the FKL API is frozen to ensure your user code will continue to work with newer versions, check the LTS-C++17 branch (ROCM is not supported there).
 
+## ROCm image-processing support
+
+HIP builds use `ParArch::GPU_AMD` and an AMD `Stream` by default. Composable image operations such as crop, resize, warping, color conversion and deinterlacing support this backend through `executeOperations<TransformDPP<>>`.
+
+The specialized filter DPPs below also support AMD GPU execution through HIP:
+
+| DPP | CUDA/HIP launchers |
+| --- | --- |
+| `BoxFilterQuadDPP` | `executeBoxFilterQuad` |
+| `MorphQuadDPP` | `executeMorphQuad` |
+| `ConvQuadDPP` | `executeConvQuad` |
+| `MedianQuadDPP` | `executeMedianQuad` |
+| `LinearFilterDPP` | `executeLinearFilter`, `executeBoxFilter` |
+| `MedianFilterDPP` | `executeMedianFilter` |
+| `MorphologyDPP` | `executeMorphology`, `executeErode`, `executeDilate`, `executeOpen`, `executeClose` |
+
+The [image-processing umbrella](include/fused_kernel/algorithms/image_processing/image_processing.h) exposes these filters on all backends. For quad launchers, select the DPP with `defaultParArch` (or explicitly `ParArch::GPU_AMD` in HIP builds) and pass a matching `Stream`. Tiled launchers infer their details and accept the default GPU stream directly. GPU launchers execute on the supplied CUDA/HIP stream and report launch errors; they do not fall back to CPU execution. Existing CPU specializations remain available for explicit CPU execution with host-accessible data.
+
 ## Reference paper and other publications
 This repository provides the official implementation of a kernel fusion methodology for GPU libraries, providing the mechanisms to perform automatic Vertical Fusion, Horizontal Fusion, Backwards Vertical Fusion and Divergent Horizontal Fusion.
 

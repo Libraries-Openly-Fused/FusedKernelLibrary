@@ -166,7 +166,7 @@ bool runCase(const int width, const int height,
     }
     if (!compare(cpuOutput, expected, label)) return false;
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
     Ptr2D<float> gpuInput(width, height);
     Ptr2D<float> gpuKernel(kernelWidth, kernelHeight);
     Ptr2D<float> gpuOutput(width, height);

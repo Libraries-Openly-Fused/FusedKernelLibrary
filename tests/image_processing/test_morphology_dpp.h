@@ -124,7 +124,7 @@ bool runCpuCase(const char* name, const Details& details,
     return true;
 }
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
 template <typename Reducers>
 bool runGpuCase(const char* name, const Details& details,
                 const Reducers& reducers,
@@ -192,7 +192,7 @@ bool runCase(const char* name, const Details& details,
              const Reducers& reducers,
              const std::vector<bool>& erodePasses) {
     bool ok = runCpuCase(name, details, reducers, erodePasses);
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
     ok = runGpuCase(name, details, reducers, erodePasses) && ok;
 #endif
     return ok;

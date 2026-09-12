@@ -17,7 +17,7 @@
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/basic_ops/cast.h>
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
-#include <fused_kernel/algorithms/image_processing/box_filter_fast.h>
+#include <fused_kernel/algorithms/image_processing/image_processing.h>
 #include <fused_kernel/core/data/ptr_nd.h>
 
 #include <cstdio>
@@ -63,7 +63,7 @@ CaseResult runCase(const int width, const int height,
                    const int runtimeKW, const int runtimeKH,
                    const int anchorX, const int anchorY) {
     using DPP = BoxFilterQuadDPP<PA, unsigned char, EX, EY, KW, KH>;
-    constexpr bool GPU = PA == ParArch::GPU_NVIDIA;
+    constexpr bool GPU = PA != ParArch::CPU;
     const MemType memoryType = GPU ? MemType::DeviceAndPinned : MemType::Host;
 
     Ptr2D<unsigned char> input(width, height, 0, memoryType);
@@ -76,7 +76,7 @@ CaseResult runCase(const int width, const int height,
     }
 
     Stream_<PA> stream;
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
     if constexpr (GPU) {
         input.upload(stream);
         output.upload(stream);
@@ -98,7 +98,7 @@ CaseResult runCase(const int width, const int height,
     const BoxFilterQuadDetails details{
         width, height, runtimeKW, runtimeKH, anchorX, anchorY};
     executeBoxFilterQuad<DPP>(stream, details, read, compute, write);
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
     if constexpr (GPU) output.download(stream);
 #endif
     stream.sync();
@@ -126,8 +126,8 @@ bool verifyCase(const int width, const int height,
     const auto cpu = runCase<ParArch::CPU, EX, EY, KW, KH>(
         width, height, runtimeKW, runtimeKH, anchorX, anchorY);
     bool ok = cpu.passed;
-#if defined(__NVCC__)
-    const auto gpu = runCase<ParArch::GPU_NVIDIA, EX, EY, KW, KH>(
+#if defined(__NVCC__) || defined(__HIPCC__)
+    const auto gpu = runCase<defaultParArch, EX, EY, KW, KH>(
         width, height, runtimeKW, runtimeKH, anchorX, anchorY);
     ok = gpu.passed && gpu.output == cpu.output && ok;
     std::printf("BoxFilterQuad %-14s %dx%d k%dx%d CPU/GPU %s\n",
