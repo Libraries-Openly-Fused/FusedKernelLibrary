@@ -12,6 +12,8 @@
 
 ## 💡 What is FKL?
 
+**Built for speed.** The number one purpose of the Fused Kernel Library is to deliver uncompromising, programmer-friendly fast code.
+
 The **Fused Kernel Library (FKL)** is a C++20 header-only framework designed to perform automatic GPU kernel fusion. Instead of relying on custom external compilers or domain-specific languages, FKL leverages modern C++ capabilities to fuse sequential and parallel operations into a single, highly optimized kernel at compile time. 
 
 Currently supporting **CPU**, **CUDA**, and **ROCm** backends (with an architecture designed to easily adopt other GPU languages), FKL transforms memory-bound operations into compute-bound powerhouses by keeping data in registers and eliminating redundant global VRAM reads and writes.
@@ -23,6 +25,9 @@ Currently supporting **CPU**, **CUDA**, and **ROCm** backends (with an architect
 - **⚡ Horizontal Fusion:** Process multiple data planes in parallel within the same GPU kernel using `blockIdx.z`, maximizing memory bandwidth for small data payloads.
 - **🔀 Divergent Horizontal Fusion:** A novel approach that executes completely different kernels in parallel across the same grid. This allows different Streaming Multiprocessor (SM) components to be saturated simultaneously.
 - **🤝 Closed-Source Friendly:** Integrate FKL into proprietary codebases easily. Wrap your custom CUDA or HIP kernels in FKL's `InstantiableOperation` interface to fuse them without exposing your internal source code.
+- **🧼 Pure Imperative Ergonomics:** Despite relying on compile-time metaprogramming under the hood, consuming FKL requires **zero template gymnastics**. Pipelines are declared as clean, flat, sequential arguments (`Operation::build(params)`).
+- **🔬 Non-Invasive Inline Probing:** Debug intermediate register data effortlessly. Drop a `MidWrite` at any point in the pipeline to capture in-flight values to memory for CPU inspection without breaking fusion.
+- **🖥️ Trivial CPU Debugging:** Because operations are hardware-agnostic, you can seamlessly switch to the CPU backend to step through your pipeline logic using standard C++ debuggers (like GDB or Visual Studio) before deploying to the GPU.
 
 ## 🧬 Vector Types and HIP/CUDA Interoperability
 
@@ -95,6 +100,15 @@ void preprocess() {
 4. **`TensorWrite`**: Finally writes the optimized, contiguous data to global memory. 
 
 *Result: A highly efficient, variadic template kernel that compiles down to a single optimized footprint.*
+
+## 🧘 Developer Experience: Common Myths vs. Reality
+
+| Myth | Reality in FKL |
+|---|---|
+| **"It's a template metaprogramming library, so the user API must be complex."** | **False.** All complexity is hidden behind static `.build()` factories. Chaining operations is as simple as: `executeOperations(stream, Op1::build(...), Op2::build(...));`. You write standard imperative-looking C++. |
+| **"Fused kernels are a black box and impossible to debug."** | **False.** You can tap intermediate register values at any point by dropping a `MidWrite` or custom probe operation directly into the operation list without breaking the pipeline. |
+| **"GPU kernels are impossible to step through line-by-line."** | **False.** Since operations work across all backends, you can simply compile with the CPU backend to step through your pipeline using standard debuggers (GDB, MSVC) to verify logic before deploying to the GPU. |
+| **"Template errors will be unreadable."** | **True and False.** While C++ template errors are notoriously verbose, modern AI tools can instantly translate them and explain exactly where the issue lies. Furthermore, because FKL constructs arguments via modular `.build()` calls, type mismatches are often caught early and localized to your specific operation rather than buried deep inside internal instantiation trees. |
 
 ---
 
