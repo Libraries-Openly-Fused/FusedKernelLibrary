@@ -14,6 +14,6 @@ function(add_hip_to_target TARGET_NAME COMPONENTS)
     if (ENABLE_HIP_LINE_INFO)
         add_hip_lineinfo_to_target(${TARGET_NAME})
     endif()
-   # target_link_libraries(${TARGET_NAME} PRIVATE hip::device)
+    target_link_libraries(${TARGET_NAME} PRIVATE hip::device)
 
 endfunction()
