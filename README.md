@@ -38,7 +38,7 @@ FKL owns its vector types and operators in the `fk` namespace on every backend.
 * **Do NOT put `using namespace fk;` at global scope** in CUDA translation units or headers. `nvcc` appends host-registration code that uses unqualified CUDA types (like `uint3`), making names ambiguous. Keep using-directives inside functions or qualify FKL names explicitly.
 * **Native HIP/CUDA vector types are NOT FKL vector types.** Convert values explicitly by component at APIs requiring a native vector (e.g., `::float3 native{value.x, value.y, value.z}`). Do not reinterpret vector pointers, as layouts differ (e.g., `fk::double3` has size/alignment 32/16, while AMD Clang's `::double3` is 24/8).
 
-Internal FKL expressions do not need backend-specific casts. Arithmetic follows scalar C++ promotions per component.
+Internal FKL expressions do not need backend-specific casts. **FKL implements almost all standard C++ operators for its vector types**, strictly following scalar C++ type promotion conventions per component. Furthermore, it seamlessly supports **mixing scalar and vector types in binary operators** where it logically makes sense (e.g., multiplying a vector by a scalar).
 
 ## 💻 Show Me The Code
 
