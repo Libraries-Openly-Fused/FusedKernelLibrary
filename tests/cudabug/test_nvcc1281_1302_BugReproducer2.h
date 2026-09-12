@@ -18,7 +18,7 @@
 
 #include <array>
 
-/* This code does not compile with gcc 13.4.0 with:
+/* This code does not compile with gcc 13.3.0 and 13.4.0 with:
 *   - CUDA SDK 12.8.1 (nvcc 12.8.93)
 *   - TO
 *   - CUDA SDK 13.0.2 (nvcc 13.0.88)
