@@ -225,8 +225,6 @@ bool runCase(const int width, const int height,
 
 } // namespace
 
-
-
 int launch_impl() {
     using namespace fk;
     const auto mul = Mul<float, float, float, UnaryType>::build();

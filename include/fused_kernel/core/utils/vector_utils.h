@@ -115,7 +115,7 @@ namespace fk {
     concept vector_type2 = one_of_v<T, VTwo>;
 
     template <typename T>
-    concept vector_type3 = one_of_v<T, VThree>; 
+    concept vector_type3 = one_of_v<T, VThree>;
 
     template <typename T>
     concept vector_type4 = one_of_v<T, VFour>;
@@ -612,7 +612,6 @@ VEC_BINARY_BITWISE(|)
 VEC_BINARY_BITWISE(^)
 
 #undef VEC_BINARY_BITWISE
-
 
 template <typename I1, typename I2>
 FK_HOST_DEVICE_CNST auto operator<<(const I1& a, const I2& b)

@@ -1,4 +1,4 @@
-﻿/* Copyright 2024-2026 Oscar Amoros Huguet
+/* Copyright 2024-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -11,7 +11,6 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License. */
-
 
 #include <tests/main.h>
 
@@ -104,8 +103,6 @@ bool testNewOperationTuple() {
     return true;
 }
 
-
-
 int launch_impl() {
     constexpr auto opTuple1 = make_new_operation_tuple(Add<int, int, int, UnaryType>::build());
 
@@ -134,7 +131,7 @@ int launch_impl() {
     static_assert(OpTuple3Type::size == 3, "Wrong operation tuple size");
     //opTuple3.next; must not compile
     static_assert(opIs<UnaryType, TypeAt_t<0, typename OpTuple3Type::Operations>>, "Wrong Operation Type");
-   
+
     if (!test_OTInitialization() || !testNewOperationTuple()) {
         return -1;
     }

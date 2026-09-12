@@ -1,4 +1,4 @@
-﻿/* Copyright 2024-2026 Oscar Amoros Huguet
+/* Copyright 2024-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -11,7 +11,6 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License. */
-
 
 #include <tests/main.h>
 
@@ -167,8 +166,6 @@ constexpr inline bool test_batched() {
 
     return std::is_same_v<decltype(batcheResize), decltype(fusedBatchesOp)>;
 }
-
-
 
 int launch_impl() {
     using namespace fk;

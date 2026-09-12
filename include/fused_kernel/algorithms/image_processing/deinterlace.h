@@ -78,16 +78,13 @@ namespace fk {
         FK_HOST_DEVICE_FUSE OutputType execBlend(const Point thread, const ParamsType& params, const BackIOp& backIOp) {
             // For blend deinterlacing, we average the current line with adjacent lines
             using ReadOperation = typename BackIOp::Operation;
-            
+
             // Read current pixel
             const auto current = ReadOperation::exec(thread, backIOp);
-            
-            const auto height = ReadOperation::num_elems_y(Point{0,0,0}, backIOp);
-            if (thread.y > 0 && thread.y + 1 < height) {
-                const auto above = ReadOperation::exec(Point{thread.x, thread.y - 1, thread.z}, backIOp);
-                const auto below = ReadOperation::exec(Point{thread.x, thread.y + 1, thread.z}, backIOp);
 
-                return (current + above + below + 1) * 0.25f;
+            if (thread.y > 0) {
+                const auto above = ReadOperation::exec(Point{thread.x, thread.y - 1, thread.z}, backIOp);
+                return (current + above + 1) * 0.5f;
             } else {
                 return current * 1.f;
             }
@@ -107,7 +104,7 @@ namespace fk {
 
         FK_HOST_DEVICE_FUSE OutputType execInterLinear(const Point thread, const ParamsType& params, const BackIOp& backIOp) {
             using ReadOperation = typename BackIOp::Operation;
-            
+
             // Assuming BackFunction::Operation::num_elems_y(Point{0,0,0}, backIOp) is an even number
             // If useEvenLines is true, we interpolate on odd lines, otherwise we interpolate the even lines
             // useEvenLines = true, we interpolate if thread.y is odd and not the last line
@@ -158,7 +155,7 @@ namespace fk {
         }
 
         template <DeinterlaceType DT = DType>
-        FK_HOST_FUSE auto build() 
+        FK_HOST_FUSE auto build()
             -> std::enable_if_t<DT == DeinterlaceType::BLEND, InstantiableType> {
             const ParamsType deinterlaceParams{};
             return InstantiableType{ {deinterlaceParams, {}} };

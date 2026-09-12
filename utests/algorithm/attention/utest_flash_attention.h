@@ -203,7 +203,7 @@ static void testFusedPrologue() {
        reads every element through it. Verifiable algebra:
        Q prologue read.then(Mul(2)): compare against oracle on 2*Q.
        V prologue read.then(Mul(3)).then(Add(1)): out = 3*(sum p_j v_j) + 1
-       since sum p_j = 1 — compare against 3*oracle + 1. */
+         since sum p_j = 1 - compare against 3*oracle + 1. */
     constexpr int HEAD_DIM = 32, BH = 2, SQ = 24, SK = 48;
     std::mt19937 rng(123);
     std::uniform_real_distribution<float> dist(-1.f, 1.f);
@@ -269,8 +269,6 @@ static void testFusedPrologue() {
 
     cudaFree(q); cudaFree(k); cudaFree(v); cudaFree(o);
 }
-
-
 
 int launch_impl() {
     testDense<64>("FA dense d64 b2 s64 causal", 2, 64, 64, true, 5e-6, 1);

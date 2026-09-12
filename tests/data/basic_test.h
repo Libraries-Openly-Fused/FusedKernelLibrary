@@ -1,4 +1,4 @@
-﻿/* Copyright 2023-2026 Oscar Amoros Huguet
+/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -82,8 +82,6 @@ bool testPtr_2D() {
 
     return true;
 }
-
-
 
 int launch_impl() {
     bool test2Dpassed = true;

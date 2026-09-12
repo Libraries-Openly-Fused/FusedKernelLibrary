@@ -87,8 +87,6 @@ bool testBack() {
     return true;
 }
 
-
-
 int launch_impl() {
     using namespace fk;
     Stream stream;

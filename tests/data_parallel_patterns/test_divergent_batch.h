@@ -93,8 +93,6 @@ bool testDivergentBatch() {
     return correct;
 }
 
-
-
 int launch_impl() {
     int returnValue = 0;
     if (testDivergentBatch()) {

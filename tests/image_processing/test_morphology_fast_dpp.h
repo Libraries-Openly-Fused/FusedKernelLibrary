@@ -145,8 +145,6 @@ bool verifyCase(const int width, const int height,
 }
 } // namespace
 
-
-
 int launch_impl() {
     using namespace fk;
     using MinIOp = Min<unsigned char, unsigned char,

@@ -16,8 +16,6 @@
 
 namespace fk {
 
-
-
 int launch_impl() {
     return 0;
 }

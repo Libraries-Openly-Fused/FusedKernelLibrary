@@ -69,8 +69,6 @@ void test2() {
 }
 #endif
 
-
-
 int launch_impl() {
     return 0;
 }

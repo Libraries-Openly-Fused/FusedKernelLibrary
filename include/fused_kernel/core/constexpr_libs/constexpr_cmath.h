@@ -54,7 +54,7 @@ using cuda::std::min;
 #else
 // Polyfill for CUDA < 13.4 where <cuda/std/algorithm> is missing
 template <typename T>
-FK_HOST_DEVICE_CNST T max(const T a, const T b) { 
+FK_HOST_DEVICE_CNST T max(const T a, const T b) {
     return (a < b) ? b : a;
 }
 
@@ -120,7 +120,7 @@ namespace cxp {
                         return (bits & 0x7F800000u) == 0x7F800000u && (bits & 0x007FFFFFu) != 0;
                     } else {
                         ulonglong bits = bit_cast<ulonglong>(s);
-                        return (bits & 0x7FF0000000000000ull) == 0x7FF0000000000000ull && 
+                        return (bits & 0x7FF0000000000000ull) == 0x7FF0000000000000ull &&
                                (bits & 0x000FFFFFFFFFFFFFull) != 0;
                     }
                 } else {
@@ -394,7 +394,7 @@ namespace cxp {
     struct floor {
         struct BaseFunc {
             using InstanceType = fk::UnaryType;
-            template <std::floating_point ST> 
+            template <std::floating_point ST>
             FK_HOST_DEVICE_FUSE ST exec(const ST s) {
                 if (base::is_constant_evaluated()) {
                     // 1. Handle special cases
@@ -486,7 +486,7 @@ namespace cxp {
         CXP_F_FUNC
         template <typename ST>
         FK_HOST_DEVICE_FUSE ST f(const ST& s) {
-            return s; 
+            return s;
         }
     };
 
@@ -558,7 +558,7 @@ namespace cxp {
         CXP_F_FUNC
         template <typename ST>
         FK_HOST_DEVICE_FUSE ST f(const ST value) {
-            return value; 
+            return value;
         }
     };
 
@@ -671,7 +671,7 @@ namespace cxp {
         struct BaseFunc {
             using InstanceType = fk::BinaryType;
             FK_HOST_DEVICE_FUSE
-            float exec(const float x, const int exp) 
+            float exec(const float x, const int exp)
             {
                 if (base::is_constant_evaluated()) {
                     // Replace union with standard C++20 bit_cast

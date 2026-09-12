@@ -197,7 +197,7 @@ This is an Apache 2.0 OpenSource project, currently with no funding. The 3 main 
 As per Apache 2.0 we provide no guaratees, or free support. Nevertheless, the software has some testing on the following OS and compiler versions:
 
 For CUDA builds (x86_64 and arm64)
-- Ubuntu 24.04 g++ 13 + CUDA 13.4 
+- Ubuntu 24.04 g++ 13 + CUDA 13.4
 - Windows 11 Visual Studio 2026 (14.44 toolset) + CUDA 13.0
 - Windows Visual Studio 2026 (14.51 toolset) + CUDA 13.4
 

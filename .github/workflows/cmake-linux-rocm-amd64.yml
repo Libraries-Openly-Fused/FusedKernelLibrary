@@ -14,9 +14,9 @@ jobs:
       # Set fail-fast to false to ensure that feedback is delivered for all matrix combinations.
       # Consider changing this to true when your workflow is stable.
       fail-fast: false
-    
-      matrix: 
-        include:                        
+
+      matrix:
+        include:
             - rocm_version: "10.0"
 
     steps:
@@ -25,17 +25,17 @@ jobs:
         # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
         id: strings
         run: |
-          echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"                             
-          echo "PATH=$HOME/cmake-4.4.2-linux-x86_64/bin/:$PATH" >> "$GITHUB_ENV"                 
+          echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"
+          echo "PATH=$HOME/cmake-4.4.2-linux-x86_64/bin/:$PATH" >> "$GITHUB_ENV"
           echo "ROCM_PATH=/opt/rocm/core-${{matrix.rocm_version}}" >> "$GITHUB_ENV"
-          echo "HIP_PATH=/opt/rocm/core-${{matrix.rocm_version}}" >> "$GITHUB_ENV"  
-          echo "LD_LIBRARY_PATH=/opt/rocm/core-${{matrix.rocm_version}}/lib:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"        
+          echo "HIP_PATH=/opt/rocm/core-${{matrix.rocm_version}}" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=/opt/rocm/core-${{matrix.rocm_version}}/lib:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
       - name: Configure CMake
         run: |
           cmake -G "Ninja" -DENABLE_HIP=ON -DENABLE_CUDA=OFF -DENABLE_CPU=OFF \
           -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
 
-      - name: Build        
+      - name: Build
         run: |
           cmake --build ${{ steps.strings.outputs.build-output-dir }} --config Release
 

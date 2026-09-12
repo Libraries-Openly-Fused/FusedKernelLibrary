@@ -15,8 +15,8 @@
 /* Regression test for the compute->write fused-IOp path (PR #287, review
  * r3473806517 / fix r3473994080).
  *
- * Chaining a COMPUTE op onto a Write IOp — the `epilogue.then(D)` shape DPP
- * epilogues use — must both COMPOSE into a write-type IOp and INSTANTIATE its
+ * Chaining a COMPUTE op onto a Write IOp - the `epilogue.then(D)` shape DPP
+ * epilogues use - must both COMPOSE into a write-type IOp and INSTANTIATE its
  * exec(). This previously failed to compile in the WriteType (and ClosedType)
  * FusedOperation_ specialisations:
  *
@@ -78,8 +78,6 @@ static bool runCase(const char* name, const Epi& epilogue, float in, float expec
     printf("fused epilogue.then(D) %-12s: PASS (in=%.1f -> %.4f)\n", name, in, expected);
     return true;
 }
-
-
 
 int launch_impl() {
     using namespace fk;

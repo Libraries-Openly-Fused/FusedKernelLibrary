@@ -1,4 +1,4 @@
-﻿/* Copyright 2024-2026 Oscar Amoros Huguet
+/* Copyright 2024-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -133,8 +133,6 @@ constexpr bool test_allUnaryTypes() {
     return mustTrue && !or_v<mustFalse1, mustFalse2, mustFalse3, mustFalse4, mustFalse5, mustFalse6, mustFalse7>;
 }
 
-
-
 int launch_impl() {
     // isReadType
     constexpr bool noneRead = !ContainsReadType<NoRead>::value;
@@ -153,7 +151,7 @@ int launch_impl() {
     // allUnaryTypes
     constexpr bool allUnaryTypes_v = test_allUnaryTypes();
     static_assert(allUnaryTypes_v, "Something wrong with allUnaryTypes");
-    
+
     return 0;
 }
 

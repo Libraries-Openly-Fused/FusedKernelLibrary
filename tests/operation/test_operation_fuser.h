@@ -57,8 +57,6 @@ constexpr bool test_InstantiableFusedOperationToOperationTuple() {
     return true;
 }
 
-
-
 int launch_impl() {
     return test_InstantiableFusedOperationToOperationTuple() ? 0 : -1;
 }

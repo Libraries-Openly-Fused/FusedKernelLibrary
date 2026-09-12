@@ -200,8 +200,6 @@ bool runCase(const char* name, const Details& details,
 
 } // namespace
 
-
-
 int launch_impl() {
     using namespace fk;
     const auto minOp = MinReducer::build();

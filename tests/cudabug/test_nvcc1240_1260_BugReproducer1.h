@@ -1,4 +1,4 @@
-﻿/* Copyright 2024-2026 Oscar Amoros Huguet
+/* Copyright 2024-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -48,8 +48,6 @@ constexpr bool function1() {
 /*constexpr bool function2() {
     return variable<true>;
 }*/
-
-
 
 int launch_impl() {
     return 0;

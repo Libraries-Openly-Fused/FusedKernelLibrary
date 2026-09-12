@@ -27,7 +27,7 @@ void testUYVYPixelFormatTraits() {
     constexpr ColorSpace expectedSpace = ColorSpace::YUV422;
     constexpr ColorDepth expectedDepth = ColorDepth::p8bit;
     constexpr size_t expectedCn = 3;
-    
+
     static_assert(PixelFormatTraits<PixelFormat::UYVY>::space == expectedSpace, "UYVY space should be YUV422");
     static_assert(PixelFormatTraits<PixelFormat::UYVY>::depth == expectedDepth, "UYVY depth should be p8bit");
     static_assert(PixelFormatTraits<PixelFormat::UYVY>::cn == expectedCn, "UYVY cn should be 3");
@@ -51,9 +51,9 @@ void testRGB2GrayConversion() {
     };
 
     constexpr std::array<uchar, 3> expectedVals{
-        76,    // 0.299*255 ≈ 76.245 -> 76
-        150,   // 0.587*255 ≈ 149.685 -> 150 (rounded)
-        29     // 0.114*255 ≈ 29.07 -> 29
+        76,    // 0.299*255 ~= 76.245 -> 76
+        150,   // 0.587*255 ~= 149.685 -> 150 (rounded)
+        29     // 0.114*255 ~= 29.07 -> 29
     };
 
     TestCaseBuilder<RGB2Gray<uchar3, uchar>>::addTest(testCases, inputVals, expectedVals);
@@ -89,7 +89,7 @@ void testColorConversionOperations() {
 
     TestCaseBuilder<ColorConversion<ColorConversionCodes::COLOR_BGR2BGRA, uchar3, uchar4>>::addTest(testCases, inputVals1, expectedVals1);
 
-    // Test BGR2RGB conversion (channel reorder)  
+    // Test BGR2RGB conversion (channel reorder)
     constexpr std::array<uchar3, 2> inputVals2{
         uchar3{100, 150, 200},  // BGR
         uchar3{50, 75, 125}     // BGR
@@ -170,7 +170,7 @@ void testColorConversionAffectedCodes() {
 }
 
 void testBGR2Gray() {
-    // Test BGR2Gray with CCIR_601 formula  
+    // Test BGR2Gray with CCIR_601 formula
     // Formula uses input.x * 0.299 + input.y * 0.587 + input.z * 0.114
     using BGR2GrayTest = RGB2Gray<uchar3, uchar, GrayFormula::CCIR_601>;
 
@@ -250,51 +250,51 @@ void testAddOpaqueAlphaStruct() {
 void testDenormalizePixel() {
     // Test DenormalizePixel with 8-bit depth
     using DenormalizePixelTest = DenormalizePixel<float3, ColorDepth::p8bit>;
-    
+
     std::array<float3, 2> inputVals = {
         float3{0.0f, 0.5f, 1.0f},      // Normalized values [0, 1]
         float3{0.25f, 0.75f, 0.9f}
     };
-    
+
     std::array<float3, 2> expectedVals = {
         float3{0.0f, 127.5f, 255.0f},     // Denormalized to [0, 255]
         float3{63.75f, 191.25f, 229.5f}
     };
-    
+
     TestCaseBuilder<DenormalizePixelTest>::addTest(testCases, inputVals, expectedVals);
 }
 
 void testNormalizePixel() {
     // Test NormalizePixel with 8-bit depth
     using NormalizePixelTest = NormalizePixel<uchar3, ColorDepth::p8bit>;
-    
+
     std::array<uchar3, 2> inputVals = {
         uchar3{0, 128, 255},
         uchar3{64, 192, 32}
     };
-    
+
     std::array<float3, 2> expectedVals = {
         float3{0.0f, 128.0f/255.0f, 1.0f},        // Normalized to [0, 1]
         float3{64.0f/255.0f, 192.0f/255.0f, 32.0f/255.0f}
     };
-    
+
     TestCaseBuilder<NormalizePixelTest>::addTest(testCases, inputVals, expectedVals);
 }
 
 void testSaturateDenormalizePixel() {
     // Test SaturateDenormalizePixel with 8-bit depth
     using SaturateDenormalizePixelTest = SaturateDenormalizePixel<float3, uchar3, ColorDepth::p8bit>;
-    
+
     std::array<float3, 2> inputVals = {
         float3{-0.5f, 0.5f, 1.5f},     // Values that need saturation and denormalization
         float3{0.25f, 0.75f, 0.9f}
     };
-    
+
     std::array<uchar3, 2> expectedVals = {
         uchar3{0, 127, 255},            // Saturated to [0,1] then denormalized to [0,255]; 0.5*255=127.5 truncates to 127
-        uchar3{63, 191, 229}            // 0.25*255=63.75≈63, 0.75*255=191.25≈191, 0.9*255=229.5≈229
+        uchar3{63, 191, 229}            // 0.25*255=63.75 -> 63, 0.75*255=191.25 -> 191, 0.9*255=229.5 -> 229
     };
-    
+
     TestCaseBuilder<SaturateDenormalizePixelTest>::addTest(testCases, inputVals, expectedVals);
 }
 
@@ -311,16 +311,16 @@ void testReadYUV() {
     constexpr uchar ptr1[] =
     { 128, 254, 129, 255, 128, 254, 129, 255,
       128, 254, 129, 255, 128, 254, 129, 255 }; // UYVY pixel data
-    
+
     constexpr uchar3 ptr1Expected[] =
     { {254, 128, 129}, {255, 128, 129}, {254, 128, 129}, {255, 128, 129},
       {254, 128, 129}, {255, 128, 129}, {254, 128, 129}, {255, 128, 129} }; // Expected YUV values
-    
+
     // Test 2
     constexpr uchar ptr2[] =
     { 0,  2, 1,  3,  4,  6,  5,  7,
       8, 10, 9, 11, 12, 14, 13, 15 }; // UYVY pixel data
-    
+
     constexpr uchar3 ptr2Expected[] =
     { { 2, 0, 1}, { 3, 0, 1}, { 6,  4,  5}, { 7,  4,  5},
       {10, 8, 9}, {11, 8, 9}, {14, 12, 13}, {15, 12, 13}  }; // Expected YUV values
@@ -599,7 +599,7 @@ constexpr bool testTransformationMatrixValues() {
     constexpr bool res_p8_601 = testTransformationMatrixValues_helper<ColorPrimitives::bt601, ColorDepth::p8bit>();
     constexpr bool res_p8_709 = testTransformationMatrixValues_helper<ColorPrimitives::bt709, ColorDepth::p8bit>();
     constexpr bool res_p8_2020 = testTransformationMatrixValues_helper<ColorPrimitives::bt2020, ColorDepth::p8bit>();
-    
+
     // --- 10-bit Integer ---
     constexpr bool res_p10_601 = testTransformationMatrixValues_helper<ColorPrimitives::bt601, ColorDepth::p10bit>();
     constexpr bool res_p10_709 = testTransformationMatrixValues_helper<ColorPrimitives::bt709, ColorDepth::p10bit>();
@@ -798,8 +798,6 @@ testReadYUV();
 testTransformationMatrixValues();
 testConvertRGBToYUV();
 STOP_ADDING_TESTS
-
-
 
 int launch_impl() {
     RUN_ALL_TESTS

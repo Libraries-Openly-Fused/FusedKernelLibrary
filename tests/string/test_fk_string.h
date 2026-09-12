@@ -19,8 +19,6 @@
 
 namespace fk {
 
-
-
 int launch_impl() {
     bool result{ true };
     {

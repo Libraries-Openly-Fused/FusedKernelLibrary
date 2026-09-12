@@ -74,8 +74,6 @@ void testCompareReferenceVSValueVSInstantiableDPP() {
     stream.sync();
 }
 
-
-
 int launch_impl() {
     testCompareReferenceVSValueVSInstantiableDPP();
 

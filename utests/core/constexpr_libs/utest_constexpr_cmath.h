@@ -170,7 +170,7 @@ constexpr bool test_cmp_equal() {
     // Same type comparisons
     static_assert(cxp::cmp_equal::f(5, 5), "5 == 5 should be true");
     static_assert(!cxp::cmp_equal::f(5, 4), "5 == 4 should be false");
-    
+
     // Mixed signed/unsigned comparisons
     static_assert(cxp::cmp_equal::f(5, 5u), "5 == 5u should be true");
     static_assert(!cxp::cmp_equal::f(-1, 5u), "-1 == 5u should be false");
@@ -195,13 +195,13 @@ constexpr bool test_cmp_less() {
     static_assert(cxp::cmp_less::f(4, 5), "4 < 5 should be true");
     static_assert(!cxp::cmp_less::f(5, 4), "5 < 4 should be false");
     static_assert(!cxp::cmp_less::f(5, 5), "5 < 5 should be false");
-    
+
     // Mixed signed/unsigned comparisons
     static_assert(cxp::cmp_less::f(-1, 5u), "-1 < 5u should be true");
     static_assert(!cxp::cmp_less::f(5u, -1), "5u < -1 should be false");
     static_assert(cxp::cmp_less::f(4u, 5), "4u < 5 should be true");
     static_assert(!cxp::cmp_less::f(5u, 4), "5u < 4 should be false");
-    
+
     return true;
 }
 
@@ -212,7 +212,7 @@ constexpr bool test_cmp_greater() {
     static_assert(!cxp::cmp_greater::f(5, 5), "5 > 5 should be false");
     static_assert(cxp::cmp_greater::f(5u, -1), "5u > -1 should be true");
     static_assert(!cxp::cmp_greater::f(-1, 5u), "-1 > 5u should be false");
-    
+
     return true;
 }
 
@@ -223,7 +223,7 @@ constexpr bool test_cmp_less_equal() {
     static_assert(!cxp::cmp_less_equal_u::f(5, 4), "5 <= 4 should be false");
     static_assert(cxp::cmp_less_equal_u::f(-1, 5u), "-1 <= 5u should be true");
     static_assert(cxp::cmp_less_equal_u::f(0, 0u), "0 <= 0u should be true");
-    
+
     return true;
 }
 
@@ -234,7 +234,7 @@ constexpr bool test_cmp_greater_equal() {
     static_assert(!cxp::cmp_greater_equal::f(4, 5), "4 >= 5 should be false");
     static_assert(cxp::cmp_greater_equal::f(5u, -1), "5u >= -1 should be true");
     static_assert(cxp::cmp_greater_equal::f(0u, 0), "0u >= 0 should be true");
-    
+
     return true;
 }
 
@@ -277,7 +277,7 @@ bool test_round_rt() {
         std::cout << "cxp::round::f(2.0) failed" << std::endl;
         allCorrect = false;
     }
-    
+
     // Special values runtime
     if (!std::isnan(cxp::round::f(std::numeric_limits<T>::quiet_NaN()))) {
         std::cout << "Failed: cxp::round::f(NaN) should be NaN" << std::endl;
@@ -291,7 +291,7 @@ bool test_round_rt() {
         std::cout << "Failed: cxp::round::f(-inf) should be -inf" << std::endl;
         allCorrect = false;
     }
-    
+
     return allCorrect;
 }
 
@@ -537,14 +537,14 @@ constexpr bool test_clamp_ct() {
 template <typename T>
 constexpr bool test_abs_ct() {
     static_assert(std::is_fundamental_v<T>, "abs test only for fundamental types");
-    
+
     if constexpr (std::is_signed_v<T> && sizeof(T) >= 4) {
         static_assert(cxp::abs::f(static_cast<T>(5)) == static_cast<T>(5), "abs(5) should be 5");
         static_assert(cxp::abs::f(static_cast<T>(-5)) == static_cast<T>(5), "abs(-5) should be 5");
         static_assert(cxp::abs::f(static_cast<T>(0)) == static_cast<T>(0), "abs(0) should be 0");
 
         // Test edge case: most negative value
-        static_assert(cxp::abs::f(cxp::minValue<T> + 1) == -(cxp::minValue<T> + 1), 
+        static_assert(cxp::abs::f(cxp::minValue<T> + 1) == -(cxp::minValue<T> + 1),
                       "abs(min) should be max for signed types");
     } else if constexpr (std::is_signed_v<T> && sizeof(T) < 4) {
         static_assert(cxp::abs::f(static_cast<T>(5)) == static_cast<int>(5), "abs(5) should be 5");
@@ -552,14 +552,14 @@ constexpr bool test_abs_ct() {
         static_assert(cxp::abs::f(static_cast<T>(0)) == static_cast<int>(0), "abs(0) should be 0");
 
         // Test edge case: most negative value
-        static_assert(cxp::abs::f(cxp::minValue<T>) == -static_cast<int>(cxp::minValue<T>), 
+        static_assert(cxp::abs::f(cxp::minValue<T>) == -static_cast<int>(cxp::minValue<T>),
                       "abs(min) should be max for signed types");
     } else {
         // Unsigned types
         static_assert(cxp::abs::f(static_cast<T>(5)) == static_cast<T>(5), "abs(5) should be 5 for unsigned");
         static_assert(cxp::abs::f(static_cast<T>(0)) == static_cast<T>(0), "abs(0) should be 0 for unsigned");
     }
-    
+
     return true;
 }
 
@@ -588,7 +588,7 @@ bool test_abs_rt() {
         if (cxp::abs::f(cxp::minValue<T> + extra) != std::abs(cxp::minValue<T> + extra)) {
             using CxpType = std::decay_t<decltype(cxp::abs::f(cxp::minValue<T>))>;
             using StdType = std::decay_t<decltype(std::abs(cxp::minValue<T>))>;
-            static_assert(std::is_same_v<CxpType, StdType>, 
+            static_assert(std::is_same_v<CxpType, StdType>,
                           "cxp::abs::f(minValue<T>) should have the same type as std::abs(cxp::minValue<T>)");
             std::cout << "Failed: abs(min) should be max for signed types" << std::endl;
             if constexpr (sizeof(T) < 4) {
@@ -655,7 +655,7 @@ bool test_max_rt() {
 // Test min function at compile-time
 constexpr bool test_min_ct() {
     static_assert(cxp::min::f(5) == 5, "min(5) should be 5");
-    
+
     // Test with two arguments to see if the bug manifests
     // The bug in min_helper calls max_helper instead of min_helper recursively
     static_assert(cxp::min::f(3, 5) == 3, "min(3, 5) should be 3");
@@ -663,7 +663,7 @@ constexpr bool test_min_ct() {
     static_assert(cxp::min::f(1, 3, 5, 2) == 1, "min(1, 3, 5, 2) should be 1");
     static_assert(cxp::min::f(-1, -3, -5, -2) == -5, "min(-1, -3, -5, -2) should be -5");
     static_assert(cxp::min::f(1.0, 3.0, 5.0, 2.0) == 1.0, "min(1.0, 3.0, 5.0, 2.0) should be 1.0");
-    
+
     return true;
 }
 // Test min function at runtime
@@ -705,28 +705,28 @@ constexpr bool test_floor_ct() {
     static_assert(cxp::floor::f(static_cast<T>(3.0)) == static_cast<T>(3.0), "floor(3.0) should be 3.0");
     static_assert(cxp::floor::f(static_cast<T>(0.9)) == static_cast<T>(0.0), "floor(0.9) should be 0.0");
     static_assert(cxp::floor::f(static_cast<T>(0.1)) == static_cast<T>(0.0), "floor(0.1) should be 0.0");
-    
+
     // Basic negative values
     static_assert(cxp::floor::f(static_cast<T>(-3.2)) == static_cast<T>(-4.0), "floor(-3.2) should be -4.0");
     static_assert(cxp::floor::f(static_cast<T>(-3.7)) == static_cast<T>(-4.0), "floor(-3.7) should be -4.0");
     static_assert(cxp::floor::f(static_cast<T>(-3.0)) == static_cast<T>(-3.0), "floor(-3.0) should be -3.0");
     static_assert(cxp::floor::f(static_cast<T>(-0.1)) == static_cast<T>(-1.0), "floor(-0.1) should be -1.0");
     static_assert(cxp::floor::f(static_cast<T>(-0.9)) == static_cast<T>(-1.0), "floor(-0.9) should be -1.0");
-    
+
     // Zero values
     static_assert(cxp::floor::f(static_cast<T>(0.0)) == static_cast<T>(0.0), "floor(0.0) should be 0.0");
     static_assert(cxp::floor::f(static_cast<T>(-0.0)) == static_cast<T>(-0.0), "floor(-0.0) should be -0.0");
-    
+
     // Values near integer boundaries
     static_assert(cxp::floor::f(static_cast<T>(1.0)) == static_cast<T>(1.0), "floor(1.0) should be 1.0");
     static_assert(cxp::floor::f(static_cast<T>(-1.0)) == static_cast<T>(-1.0), "floor(-1.0) should be -1.0");
     static_assert(cxp::floor::f(static_cast<T>(1.9999)) == static_cast<T>(1.0), "floor(1.9999) should be 1.0");
     static_assert(cxp::floor::f(static_cast<T>(-1.0001)) == static_cast<T>(-2.0), "floor(-1.0001) should be -2.0");
-    
+
     // Large values
     static_assert(cxp::floor::f(static_cast<T>(1000.7)) == static_cast<T>(1000.0), "floor(1000.7) should be 1000.0");
     static_assert(cxp::floor::f(static_cast<T>(-1000.3)) == static_cast<T>(-1001.0), "floor(-1000.3) should be -1001.0");
-    
+
     // Special values compile-time
     static_assert(cxp::isnan::f(cxp::floor::f(std::numeric_limits<T>::quiet_NaN())), "floor(NaN) should be NaN");
     static_assert(cxp::isinf::f(cxp::floor::f(std::numeric_limits<T>::infinity())), "floor(inf) should be inf");
@@ -742,7 +742,7 @@ constexpr bool test_floor_ct() {
         static_assert(cxp::floor::f(9007199254740991.9) == 9007199254740992.0, "floor(9007199254740991.9) should be 9007199254740992.0");
         static_assert(cxp::floor::f(-9007199254740991.1) == -9007199254740991.0, "floor(-9007199254740991.1) should be -9007199254740991.0");
     }
-    
+
     return true;
 }
 
@@ -750,9 +750,9 @@ constexpr bool test_floor_ct() {
 template <typename T>
 bool test_floor_rt() {
     static_assert(std::is_floating_point_v<T>, "floor test only for floating point types");
-    
+
     bool allCorrect{true};
-    
+
     // Basic positive values
     if (cxp::floor::f(static_cast<T>(3.7)) != std::floor(static_cast<T>(3.7))) {
         std::cout << "Failed: cxp::floor::f(3.7) should match std::floor(3.7)" << std::endl;
@@ -774,7 +774,7 @@ bool test_floor_rt() {
         std::cout << "Failed: cxp::floor::f(0.1) should match std::floor(0.1)" << std::endl;
         allCorrect = false;
     }
-    
+
     // Basic negative values
     if (cxp::floor::f(static_cast<T>(-3.2)) != std::floor(static_cast<T>(-3.2))) {
         std::cout << "Failed: cxp::floor::f(-3.2) should match std::floor(-3.2)" << std::endl;
@@ -796,7 +796,7 @@ bool test_floor_rt() {
         std::cout << "Failed: cxp::floor::f(-0.9) should match std::floor(-0.9)" << std::endl;
         allCorrect = false;
     }
-    
+
     // Zero values
     if (cxp::floor::f(static_cast<T>(0.0)) != std::floor(static_cast<T>(0.0))) {
         std::cout << "Failed: cxp::floor::f(0.0) should match std::floor(0.0)" << std::endl;
@@ -806,7 +806,7 @@ bool test_floor_rt() {
         std::cout << "Failed: cxp::floor::f(-0.0) should match std::floor(-0.0)" << std::endl;
         allCorrect = false;
     }
-    
+
     // Values near integer boundaries
     if (cxp::floor::f(static_cast<T>(1.0)) != std::floor(static_cast<T>(1.0))) {
         std::cout << "Failed: cxp::floor::f(1.0) should match std::floor(1.0)" << std::endl;
@@ -824,7 +824,7 @@ bool test_floor_rt() {
         std::cout << "Failed: cxp::floor::f(-1.0001) should match std::floor(-1.0001)" << std::endl;
         allCorrect = false;
     }
-    
+
     // Large values
     if (cxp::floor::f(static_cast<T>(1000.7)) != std::floor(static_cast<T>(1000.7))) {
         std::cout << "Failed: cxp::floor::f(1000.7) should match std::floor(1000.7)" << std::endl;
@@ -834,7 +834,7 @@ bool test_floor_rt() {
         std::cout << "Failed: cxp::floor::f(-1000.3) should match std::floor(-1000.3)" << std::endl;
         allCorrect = false;
     }
-    
+
     // Special values runtime
     if (!std::isnan(cxp::floor::f(std::numeric_limits<T>::quiet_NaN()))) {
         std::cout << "Failed: cxp::floor::f(NaN) should be NaN" << std::endl;
@@ -848,7 +848,7 @@ bool test_floor_rt() {
         std::cout << "Failed: cxp::floor::f(-inf) should be -inf" << std::endl;
         allCorrect = false;
     }
-    
+
     // Verify special value signs are preserved
     T result_pos_inf = cxp::floor::f(std::numeric_limits<T>::infinity());
     T result_neg_inf = cxp::floor::f(-std::numeric_limits<T>::infinity());
@@ -860,7 +860,7 @@ bool test_floor_rt() {
         std::cout << "Failed: cxp::floor::f(-inf) should be negative infinity" << std::endl;
         allCorrect = false;
     }
-    
+
     // Edge cases for different floating point precisions
     if constexpr (std::is_same_v<T, float>) {
         // Float-specific runtime tests
@@ -875,7 +875,7 @@ bool test_floor_rt() {
             allCorrect = false;
         }
     }
-    
+
     // Stress test with many small values
     for (int i = -100; i <= 100; ++i) {
         T val = static_cast<T>(i) + static_cast<T>(0.1);
@@ -884,7 +884,7 @@ bool test_floor_rt() {
             allCorrect = false;
             break;
         }
-        
+
         val = static_cast<T>(i) + static_cast<T>(0.9);
         if (cxp::floor::f(val) != std::floor(val)) {
             std::cout << "Failed: cxp::floor::f(" << val << ") should match std::floor(" << val << ")" << std::endl;
@@ -892,7 +892,7 @@ bool test_floor_rt() {
             break;
         }
     }
-    
+
     return allCorrect;
 }
 
@@ -1594,11 +1594,11 @@ bool runtime_tests() {
     // Test isinf with runtime values
     allCorrect &= test_isinf_rt<float>();
     allCorrect &= test_isinf_rt<double>();
-    
+
     // Test isnan with runtime values
     allCorrect &= test_isnan_rt<float>();
     allCorrect &= test_isnan_rt<double>();
-    
+
     // Test nearbyint with runtime values
     allCorrect &= test_nearbyint_rt<float>();
     allCorrect &= test_nearbyint_rt<double>();
@@ -1647,10 +1647,10 @@ bool runtime_tests() {
     allCorrect &= test_abs_rt<int>();
     allCorrect &= test_abs_rt<float>();
     allCorrect &= test_abs_rt<double>();
-    
+
     // Test max with runtime values
     allCorrect &= test_max_rt();
-    
+
     // Test min with runtime values
     allCorrect &= test_min_rt();
 
@@ -1675,17 +1675,16 @@ bool runtime_tests() {
     return allCorrect;
 }
 
-
 int launch_impl() {
     static_assert(test_round_ct<float>());
     static_assert(test_round_ct<double>());
 
     static_assert(test_isnan_ct<float>(), "isnan test failed for float");
     static_assert(test_isnan_ct<double>(), "isnan test failed for double");
-    
+
     static_assert(test_isinf_ct<float>(), "isinf test failed for float");
     static_assert(test_isinf_ct<double>(), "isinf test failed for double");
-    
+
     static_assert(test_cmp_equal(), "cmp_equal test failed");
     static_assert(test_cmp_not_equal(), "cmp_not_equal test failed");
     static_assert(test_cmp_less(), "cmp_less test failed");

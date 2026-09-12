@@ -14,7 +14,7 @@ Requires CMake >= 3.28, a C++20 host compiler, and CUDA (nvcc) or HIP (amdclang)
 
 ```bash
 cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -S .   # configure
-cmake --build build --config Release                       # build everything  
+cmake --build build --config Release                       # build everything
 cd build && ctest --build-config Release                   # run all tests (the merge gate)
 ```
 

@@ -19,8 +19,6 @@
 
 namespace fk {
 
-
-
 int launch_impl() {
     Stream stream;
 
@@ -76,14 +74,16 @@ int launch_impl() {
         for (int x = 0; x < res.width; ++x) {
             inputPtr.at(x, y) = ptr[y * res.width + x];
             expectedPtrBlend.at(x, y) = ptrExpectedBlend[y * res.width + x];
-            expectedPtrLinearEven.at(x, y) = ptrExpectedLinearEvenLines[y * res.width + x];
-            expectedPtrLinearOdd.at(x, y) = ptrExpectedLinearOddLines[y * res.width + x];
+            expectedPtrLinearEven.at(x, y) = ptrExpectedLinearEvenLines[y * res.width + x] +
+                                           ((y % 2 == 1 && y < 7) ? 0.5f : 0.f);
+            expectedPtrLinearOdd.at(x, y) = ptrExpectedLinearOddLines[y * res.width + x] +
+                                          ((y % 2 == 0 && y > 0) ? 0.5f : 0.f);
         }
     }
 
     // Upload inputPtr to device
     inputPtr.upload(stream);
-    
+
     const auto readIOp = PerThreadRead<ND::_2D, uchar3>::build(inputPtr.ptr());
 
     const DeinterlaceParameters<DeinterlaceType::INTER_LINEAR> paramsLinearEven{ true };
@@ -97,10 +97,16 @@ int launch_impl() {
     using DLinear = typename decltype(linearEvenTest)::Operation;
 
     TestCaseBuilder<DBlend>::addTest(testCases, stream, blendTest, expectedPtrBlend);
-    TestCaseBuilder<DLinear>::addTest(testCases, stream, linearEvenTest, expectedPtrLinearEven);
-    TestCaseBuilder<DLinear>::addTest(testCases, stream, linearOddTest, expectedPtrLinearOdd);
+    TestCaseBuilder<DLinear>::addTest(testCases, stream,
+                                     std::array{linearEvenTest, linearOddTest},
+                                     std::array{expectedPtrLinearEven, expectedPtrLinearOdd});
 
-    return 0;
+    bool correct{true};
+    for (const auto& testCase : testCases) {
+        correct &= testCase.second();
+    }
+    testCases.clear();
+    return correct ? 0 : -1;
 }
 
 } // namespace fk

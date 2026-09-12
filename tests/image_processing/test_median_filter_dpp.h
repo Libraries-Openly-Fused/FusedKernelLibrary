@@ -154,8 +154,6 @@ bool runCase(const Details& details, const Selection& selection,
 
 } // namespace
 
-
-
 int launch_impl() {
     using namespace fk;
     const auto median = MedianWindowSelect<float, 49>::build();

@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
-      
+
       - name: Set up Copilot Environment
         # The agent will need the same paths you define in your CI
         run: |

@@ -276,7 +276,7 @@ namespace fk {
                         break;
                     }
                 case MemType::Host:
-                    { 
+                    {
                         free(ref->ptr);
                         break;
                     }
@@ -423,7 +423,7 @@ namespace fk {
                 ref->cnt.fetch_add(1);  // Increment reference count
             }
         }
-        
+
         template <fk::ND DN = D, std::enable_if_t<DN == ND::_1D, int> = 0>
         inline constexpr Ptr(const uint& num_elems, const uint& size_in_bytes = 0,
                              const MemType& type_ = defaultMemType, const int& deviceID_ = 0) {

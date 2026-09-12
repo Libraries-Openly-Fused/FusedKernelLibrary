@@ -20,8 +20,6 @@
 
 namespace fk {
 
-
-
 int launch_impl() {
     constexpr auto readIOp = PerThreadRead<ND::_2D, uchar3>::build(
         RawPtr<ND::_2D, uchar3>{ nullptr, { 128, 128, 128 * sizeof(uchar3) }});

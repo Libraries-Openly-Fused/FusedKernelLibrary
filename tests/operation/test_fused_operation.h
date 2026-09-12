@@ -1,4 +1,4 @@
-﻿/* Copyright 2024-2026 Oscar Amoros Huguet
+/* Copyright 2024-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -11,7 +11,6 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License. */
-
 
 #include <tests/main.h>
 
@@ -75,8 +74,6 @@ constexpr bool test_fuseFusedOperations() {
 
     return true;
 }
-
-
 
 int launch_impl() {
     using namespace fk;
@@ -310,7 +307,7 @@ int launch_impl() {
             .then(Cast<float, double>::build())
             .then(Cast<double, float>::build())
             .then(Cast<float, int>::build());
-        
+
         using ChainType = std::decay_t<decltype(chain1)>;
         static_assert(ChainType::Operation::Operations::size == 5,
             "Deep .then() chain should have 5 operations");

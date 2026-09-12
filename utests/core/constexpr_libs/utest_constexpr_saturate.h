@@ -99,7 +99,6 @@ inline bool test_saturate_float_rt() {
     return allCorrect;
 }
 
-
 int launch_impl() {
     static_assert(test_saturate_float_ct(), "saturate_float compile-time tests failed");
 

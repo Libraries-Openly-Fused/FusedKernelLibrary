@@ -1,4 +1,4 @@
-﻿// Track compilation results
+// Track compilation results
 #ifndef FK_UTEST_CUDA_VECTOR_UTILS_COMMON_H
 #define FK_UTEST_CUDA_VECTOR_UTILS_COMMON_H
 

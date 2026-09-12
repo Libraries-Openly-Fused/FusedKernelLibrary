@@ -20,14 +20,12 @@
 
 namespace fk {
 
-
-
 int launch_impl() {
     Ptr2D<float> input(10, 10);
     auto readOp = PerThreadRead<ND::_2D, float>::build(input);
 
     std::cout << "Read Operation typeToString: " << typeToString<decltype(readOp)>() << std::endl;
-    
+
     return 0;
 }
 

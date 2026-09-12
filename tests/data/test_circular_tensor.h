@@ -73,8 +73,6 @@ bool launchTest() {
     }
 }
 
-
-
 int launch_impl() {
     bool correct = true;
     correct &= launchTest<2, 128, 128, 100, uchar3, float3>();

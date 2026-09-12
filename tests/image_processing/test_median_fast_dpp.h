@@ -144,8 +144,6 @@ bool verifyCase(const int width, const int height,
 }
 } // namespace
 
-
-
 int launch_impl() {
     bool ok = true;
     ok = verifyCase<4, 4, 3, 3>(

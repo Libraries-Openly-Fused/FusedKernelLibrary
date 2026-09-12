@@ -1,4 +1,4 @@
-﻿/* Copyright 2023-2026 Oscar Amoros Huguet
+/* Copyright 2023-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -20,8 +20,6 @@
 #include <array>
 
 namespace fk {
-
-
 
 int launch_impl() {
     using namespace fk;

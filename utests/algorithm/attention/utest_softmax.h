@@ -125,8 +125,6 @@ static void runPrologueCase(const char* name, const int width, const int height,
     }
 }
 
-
-
 int launch_impl() {
     runCase("Softmax f32 7x3", 7, 3, -4.f, 4.f, 1e-6, 1);
     runCase("Softmax f32 256x16 (block-sized)", 256, 16, -8.f, 8.f, 1e-6, 2);

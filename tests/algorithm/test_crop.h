@@ -1,4 +1,4 @@
-﻿/* Copyright 2025-2026 Oscar Amoros Huguet
+/* Copyright 2025-2026 Oscar Amoros Huguet
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -20,8 +20,6 @@
 
 namespace fk {
 
-
-
 int launch_impl() {
     using namespace fk;
 
@@ -40,7 +38,7 @@ int launch_impl() {
     constexpr auto batchCrop = readIOp.then(Crop<>::build(rects));
     using BatchedCrop = decltype(batchCrop);
 
-    constexpr auto batchCropResize = 
+    constexpr auto batchCropResize =
         readIOp.then(Crop<>::build(rects))
                .then(Resize<InterpolationType::INTER_LINEAR>::build(Size(100, 100)));
 

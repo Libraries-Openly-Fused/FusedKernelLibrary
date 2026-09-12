@@ -89,8 +89,6 @@ bool launchTestCircularBatchRead() {
     }
 }
 
-
-
 int launch_impl() {
     bool correct = true;
     correct &= launchTestCircularBatchRead<32, 32, 2, 0>();
