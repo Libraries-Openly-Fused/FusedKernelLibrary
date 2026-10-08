@@ -16,7 +16,7 @@ jobs:
       matrix:
         include:
           - msvc_env_version: "14.44"  #HIP on windows is vs2022 only
-            rocm_version: "10.0.0"
+            rocm_version: "10.1.0"
 
     steps:
       - uses: actions/checkout@v6
