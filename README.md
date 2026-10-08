@@ -143,8 +143,8 @@ While we provide no formal guarantees or free support, we actively test against:
 - **Windows:** Visual Studio 2026 (14.51 toolset) + CUDA 13.4
 
 **ROCm Builds (x86_64 only)**
-- **Ubuntu 24.04:** ROCm 10.0.0
-- **Windows 11 25H2:** ROCm 10.0.0
+- **Ubuntu 24.04:** ROCm 10.1.0
+- **Windows 11 25H2:** ROCm 10.1.0
 
 **CPU Backend**
 - **Linux:** `g++ 13` or `clang++-23`
