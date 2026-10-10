@@ -27,7 +27,8 @@ Ptr<ND::_2D, T> referenceAddBorder(const Ptr<ND::_2D, T>& input, const int top, 
                                    const int right, const T& value) {
     const int width = static_cast<int>(input.dims().width);
     const int height = static_cast<int>(input.dims().height);
-    Ptr<ND::_2D, T> output(width + left + right, height + top + bottom, 0, MemType::Host);
+    Ptr<ND::_2D, T> output(static_cast<uint>(width + left + right), static_cast<uint>(height + top + bottom), 0,
+                           MemType::Host);
     for (int y = 0; y < height + top + bottom; ++y) {
         for (int x = 0; x < width + left + right; ++x) {
             const int srcX = x - left;
@@ -72,7 +73,7 @@ int launch_impl() {
     Ptr2D<float> inputFloat(2, 2);
     for (int y = 0; y < 2; ++y) {
         for (int x = 0; x < 2; ++x) {
-            inputFloat.at(x, y) = 0.5f + x + 2 * y;
+            inputFloat.at(x, y) = 0.5f + static_cast<float>(x + 2 * y);
         }
     }
     inputFloat.upload(stream);
@@ -101,18 +102,19 @@ int launch_impl() {
 
     const auto expected3D = [&](const std::array<AddBorderParams<uchar3>, 3>& params) {
         Ptr<ND::_3D, uchar3> expected(5, 4, 3, 1, 0, MemType::Host);
-        for (int z = 0; z < 3; ++z) {
-            Ptr<ND::_2D, uchar3> crop(rects[z].width, rects[z].height, 0, MemType::Host);
-            for (int y = 0; y < rects[z].height; ++y) {
-                for (int x = 0; x < rects[z].width; ++x) {
-                    crop.at(x, y) = inputBig.at(rects[z].x + x, rects[z].y + y);
+        for (size_t z = 0; z < 3; ++z) {
+            const Rect& rect = rects[z];
+            Ptr<ND::_2D, uchar3> crop(static_cast<uint>(rect.width), static_cast<uint>(rect.height), 0, MemType::Host);
+            for (int y = 0; y < rect.height; ++y) {
+                for (int x = 0; x < rect.width; ++x) {
+                    crop.at(x, y) = inputBig.at(static_cast<int>(rect.x) + x, static_cast<int>(rect.y) + y);
                 }
             }
             const auto& p = params[z];
             const auto plane = referenceAddBorder(crop, p.top, p.bottom, p.left, p.right, p.value);
             for (int y = 0; y < 4; ++y) {
                 for (int x = 0; x < 5; ++x) {
-                    expected.at(x, y, z) = plane.at(x, y);
+                    expected.at(x, y, static_cast<int>(z)) = plane.at(x, y);
                 }
             }
         }

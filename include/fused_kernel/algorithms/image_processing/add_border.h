@@ -55,11 +55,13 @@ namespace fk {
         }
 
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
-            return BackIOp::Operation::num_elems_x(thread, opData.backIOp) + opData.params.left + opData.params.right;
+            return BackIOp::Operation::num_elems_x(thread, opData.backIOp) +
+                   static_cast<uint>(opData.params.left + opData.params.right);
         }
 
         FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
-            return BackIOp::Operation::num_elems_y(thread, opData.backIOp) + opData.params.top + opData.params.bottom;
+            return BackIOp::Operation::num_elems_y(thread, opData.backIOp) +
+                   static_cast<uint>(opData.params.top + opData.params.bottom);
         }
 
         FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
@@ -82,11 +84,11 @@ namespace fk {
 
         // The size of the BackIOp is not known yet, only the border it adds
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
-            return opData.params.left + opData.params.right;
+            return static_cast<uint>(opData.params.left + opData.params.right);
         }
 
         FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
-            return opData.params.top + opData.params.bottom;
+            return static_cast<uint>(opData.params.top + opData.params.bottom);
         }
 
         FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
