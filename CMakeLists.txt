@@ -31,6 +31,13 @@ if (ENABLE_HIP)
     include(cmake/libs/hip/hip_init.cmake)
 endif()
 
+# Multithreaded CPU backend (ParArch::CPU_MULTITHREAD), which uses the thread pool of the thread-pool submodule
+if (EXISTS ${CMAKE_SOURCE_DIR}/thread-pool/include/ThreadPool.h)
+    option(ENABLE_CPU_MULTITHREAD "Enable the multithreaded CPU backend (ParArch::CPU_MULTITHREAD)" ON)
+else()
+    option(ENABLE_CPU_MULTITHREAD "Enable the multithreaded CPU backend (ParArch::CPU_MULTITHREAD)" OFF)
+endif()
+
 add_subdirectory(include)
 add_subdirectory(lib)
 

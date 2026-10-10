@@ -7,6 +7,12 @@ add_library(${LIB_NAME}::${LIB_NAME} ALIAS ${LIB_NAME})
     ${LIB_NAME}
     INTERFACE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
               $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+
+if (ENABLE_CPU_MULTITHREAD)
+    find_package(Threads REQUIRED)
+    target_include_directories(${LIB_NAME} INTERFACE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/thread-pool/include>)
+    target_link_libraries(${LIB_NAME} INTERFACE $<BUILD_INTERFACE:Threads::Threads>)
+endif()
 # locations are provided by GNUInstallDirs
 install(
     TARGETS ${LIB_NAME}

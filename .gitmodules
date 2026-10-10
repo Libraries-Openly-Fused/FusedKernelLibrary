@@ -1,0 +1,4 @@
+[submodule "thread-pool"]
+	path = thread-pool
+	url = https://github.com/Libraries-Openly-Fused/thread-pool.git
+	branch = refined-pool
