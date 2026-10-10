@@ -104,12 +104,12 @@ namespace fk {
             return AddBorder<V>::build(params);
         }
 
-        FK_HOST_FUSE auto build(const int& top, const int& bottom, const int& left, const int& right) {
-            return AddBorder<NullType>::build(AddBorderParams<NullType>{ top, bottom, left, right, NullType{} });
-        }
-
-        template <typename V>
-        FK_HOST_FUSE auto build(const int& top, const int& bottom, const int& left, const int& right, const V& value) {
+        // Without a value (V = NullType) the border is zero. AddBorder<V> has to depend on V: MSVC would
+        // instantiate a non-dependent AddBorder<NullType> here, before this partial specialization is
+        // complete, and so with the primary template.
+        template <typename V = NullType>
+        FK_HOST_FUSE auto build(const int& top, const int& bottom, const int& left, const int& right,
+                                const V& value = V{}) {
             return AddBorder<V>::build(AddBorderParams<V>{ top, bottom, left, right, value });
         }
 
