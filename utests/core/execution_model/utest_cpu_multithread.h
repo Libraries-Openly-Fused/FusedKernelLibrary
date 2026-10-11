@@ -63,8 +63,8 @@ bool testSameResultAsCPU() {
     std::array<Rect, N> crops{};
     std::uniform_int_distribution<int> distX(0, W - 20), distY(0, H - 10);
     for (auto& crop : crops) {
-        const int x = distX(gen);
-        const int y = distY(gen);
+        const uint x = static_cast<uint>(distX(gen));
+        const uint y = static_cast<uint>(distY(gen));
         crop = Rect(x, y, 20, 10);
     }
     Tensor<float3> single(64, 64, N, 1, MemType::Host);
@@ -123,20 +123,21 @@ bool testStreamOrder() {
 // Several streams in flight at the same time on the shared pool, a copied stream sharing its queue, and a stream
 // destroyed with work still enqueued (its destructor waits for it)
 bool testConcurrentStreams() {
-    constexpr int W = 512, H = 256, STREAMS = 4, STEPS = 50;
+    constexpr int W = 512, H = 256, STEPS = 50;
+    constexpr size_t STREAMS = 4;
     std::vector<Ptr2D<int>> data;
-    for (int s = 0; s < STREAMS; ++s) {
+    for (size_t s = 0; s < STREAMS; ++s) {
         data.emplace_back(W, H, 0, MemType::Host);
         for (int y = 0; y < H; ++y) {
             for (int x = 0; x < W; ++x) {
-                data[s].at(x, y) = s;
+                data[s].at(x, y) = static_cast<int>(s);
             }
         }
     }
     {
         std::vector<MTStream> streams(STREAMS);
         for (int i = 0; i < STEPS; ++i) {
-            for (int s = 0; s < STREAMS; ++s) {
+            for (size_t s = 0; s < STREAMS; ++s) {
                 MTStream copy = streams[s];
                 executeOperations<MTDPP>(copy, PerThreadRead<ND::_2D, int>::build(data[s].ptr()), Add<int>::build(1),
                                          PerThreadWrite<ND::_2D, int>::build(data[s].ptr()));
@@ -144,10 +145,10 @@ bool testConcurrentStreams() {
         }
         // No sync: the streams are destroyed here and their destructors wait for the enqueued executions
     }
-    for (int s = 0; s < STREAMS; ++s) {
+    for (size_t s = 0; s < STREAMS; ++s) {
         for (int y = 0; y < H; ++y) {
             for (int x = 0; x < W; ++x) {
-                if (data[s].at(x, y) != s + STEPS) {
+                if (data[s].at(x, y) != static_cast<int>(s) + STEPS) {
                     return false;
                 }
             }
@@ -167,7 +168,7 @@ bool readyInTime(std::future<T>& future, const char* what) {
 }
 
 Ptr2D<float> filled(const int width, const int height, const float value) {
-    Ptr2D<float> ptr(width, height, 0, MemType::Host);
+    Ptr2D<float> ptr(static_cast<uint>(width), static_cast<uint>(height), 0, MemType::Host);
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             ptr.at(x, y) = value + static_cast<float>(x);
