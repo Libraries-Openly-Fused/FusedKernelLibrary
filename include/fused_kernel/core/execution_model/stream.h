@@ -20,6 +20,8 @@
 
 #if defined(__NVCC__) || defined(__HIPCC__)
 #include <fused_kernel/core/utils/utils.h>
+#include <memory>
+#include <type_traits>
 #endif
 #include <fused_kernel/core/execution_model/cpu_thread_pool.h>
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
@@ -32,6 +34,7 @@
 #include <mutex>
 #include <thread>
 #include <type_traits>
+#include <utility>
 #include <vector>
 #endif
 
@@ -62,54 +65,43 @@ namespace fk {
 #if defined(__NVCC__)
     template <>
     class Stream_<ParArch::GPU_NVIDIA> final : public BaseStream {
-        cudaStream_t m_stream;
-        bool m_isMine{ false };
-
-        inline void initFromOther(const Stream_<ParArch::GPU_NVIDIA>& other) {
-            m_stream = other.m_stream;
-            m_isMine = other.m_isMine;
-        }
+        // The cudaStream_t, shared by the copies of this Stream_. One created here is destroyed with the last copy:
+        // cudaStreamDestroy returns at once and releases the stream when its pending work has finished (no
+        // synchronization, which would invalidate CUDA graph captures running in other threads; errors can not be
+        // reported from a destructor). One given by the user is never destroyed.
+        std::shared_ptr<std::remove_pointer_t<cudaStream_t>> m_stream;
 
     public:
         Stream_() : BaseStream() {
-            gpuErrchk(cudaStreamCreate(&m_stream));
-            m_isMine = true;
+            cudaStream_t stream;
+            gpuErrchk(cudaStreamCreate(&stream));
+            m_stream = std::shared_ptr<std::remove_pointer_t<cudaStream_t>>(stream, [](const cudaStream_t owned) {
+                (void)cudaStreamDestroy(owned);
+            });
         }
-        Stream_(const Stream_<ParArch::GPU_NVIDIA>& other) : BaseStream(other) {
-            initFromOther(other);
-        }
-        explicit Stream_<ParArch::GPU_NVIDIA>(const cudaStream_t& stream) : m_stream(stream), BaseStream() {}
+        Stream_(const Stream_<ParArch::GPU_NVIDIA>& other) = default;
+        explicit Stream_(const cudaStream_t& stream)
+            : BaseStream(), m_stream(stream, [](const cudaStream_t) {}) {}
 
         cudaStream_t operator()() const {
-            return m_stream;
+            return m_stream.get();
         }
 
-        Stream_<ParArch::GPU_NVIDIA>& operator=(const Stream_<ParArch::GPU_NVIDIA>& other) {
-            if (this != &other) {
-                BaseStream::operator=(other);
-                initFromOther(other);
-            }
-            return *this;
-        }
+        Stream_<ParArch::GPU_NVIDIA>& operator=(const Stream_<ParArch::GPU_NVIDIA>& other) = default;
 
         Stream_(Stream_<ParArch::GPU_NVIDIA>&&) = delete;
         Stream_<ParArch::GPU_NVIDIA>& operator=(Stream_<ParArch::GPU_NVIDIA>&&) = delete;
 
-        ~Stream_() {
-            if ( this->getRefCount() == 0 && m_stream != 0 && m_isMine) {
-                sync();
-                gpuErrchk(cudaStreamDestroy(m_stream));
-            }
-        }
+        ~Stream_() = default;
 
         operator cudaStream_t() const {
-            return m_stream;
+            return m_stream.get();
         }
         inline cudaStream_t getCUDAStream() const {
-            return m_stream;
+            return m_stream.get();
         }
         inline void sync() final {
-            gpuErrchk(cudaStreamSynchronize(m_stream));
+            gpuErrchk(cudaStreamSynchronize(m_stream.get()));
         }
         constexpr inline enum ParArch getParArch() const {
             return ParArch::GPU_NVIDIA;
@@ -123,54 +115,42 @@ namespace fk {
 #if defined(__HIPCC__)
     template <>
     class Stream_<ParArch::GPU_AMD> final : public BaseStream {
-        hipStream_t m_stream;
-        bool m_isMine{ false };
-
-        inline void initFromOther(const Stream_<ParArch::GPU_AMD>& other) {
-            m_stream = other.m_stream;
-            m_isMine = other.m_isMine;
-        }
+        // The hipStream_t, shared by the copies of this Stream_. One created here is destroyed with the last copy:
+        // hipStreamDestroy releases the stream when its pending work has finished (errors can not be reported from a
+        // destructor). One given by the user is never destroyed.
+        std::shared_ptr<std::remove_pointer_t<hipStream_t>> m_stream;
 
     public:
         Stream_() : BaseStream() {
-            gpuErrchk(hipStreamCreate(&m_stream));
-            m_isMine = true;
+            hipStream_t stream;
+            gpuErrchk(hipStreamCreate(&stream));
+            m_stream = std::shared_ptr<std::remove_pointer_t<hipStream_t>>(stream, [](const hipStream_t owned) {
+                (void)hipStreamDestroy(owned);
+            });
         }
-        Stream_(const Stream_<ParArch::GPU_AMD>& other) : BaseStream(other) {
-            initFromOther(other);
-        }
-        explicit Stream_<ParArch::GPU_AMD>(const hipStream_t& stream) : m_stream(stream), BaseStream() {}
+        Stream_(const Stream_<ParArch::GPU_AMD>& other) = default;
+        explicit Stream_(const hipStream_t& stream)
+            : BaseStream(), m_stream(stream, [](const hipStream_t) {}) {}
 
         hipStream_t operator()() const {
-            return m_stream;
+            return m_stream.get();
         }
 
-        Stream_<ParArch::GPU_AMD>& operator=(const Stream_<ParArch::GPU_AMD>& other) {
-            if (this != &other) {
-                BaseStream::operator=(other);
-                initFromOther(other);
-            }
-            return *this;
-        }
+        Stream_<ParArch::GPU_AMD>& operator=(const Stream_<ParArch::GPU_AMD>& other) = default;
 
         Stream_(Stream_<ParArch::GPU_AMD>&&) = delete;
         Stream_<ParArch::GPU_AMD>& operator=(Stream_<ParArch::GPU_AMD>&&) = delete;
 
-        ~Stream_() {
-            if (this->getRefCount() == 0 && m_stream != 0 && m_isMine) {
-                sync();
-                gpuErrchk(hipStreamDestroy(m_stream));
-            }
-        }
+        ~Stream_() = default;
 
         operator hipStream_t() const {
-            return m_stream;
+            return m_stream.get();
         }
         inline hipStream_t getHIPStream() const {
-            return m_stream;
+            return m_stream.get();
         }
         inline void sync() final {
-            gpuErrchk(hipStreamSynchronize(m_stream));
+            gpuErrchk(hipStreamSynchronize(m_stream.get()));
         }
         constexpr inline enum ParArch getParArch() const {
             return ParArch::GPU_AMD;
@@ -215,6 +195,9 @@ namespace fk {
                 virtual ~Execution() = default;
                 virtual void start(const Completion& done) = 0;
 
+                // Position of the execution in its stream (1 for the first one), set when it is enqueued
+                std::uint64_t number{0};
+
             private:
                 std::vector<std::any> m_keepAlive;
             };
@@ -255,6 +238,8 @@ namespace fk {
                     Execution* start = nullptr;
                     {
                         std::lock_guard<std::mutex> lock(m_mutex);
+                        // Counted only once it is queued: push_back may throw, and then nothing changes
+                        execution->number = m_enqueued + 1;
                         m_executions.push_back(std::move(execution));
                         ++m_enqueued;
                         if (m_executions.size() == 1) {
@@ -277,8 +262,8 @@ namespace fk {
                         done = std::move(m_executions.front());
                         m_executions.pop_front();
                         ++m_finished;
-                        if (error && !m_error) {
-                            m_error = error;
+                        if (error) {
+                            m_errors.emplace_back(done->number, error);
                         }
                         m_finishedAtomic.store(m_finished, std::memory_order_release);
                         // Notify while holding the lock: the queue may be destroyed as soon as a waiter sees that its
@@ -295,8 +280,9 @@ namespace fk {
                     }
                 }
 
-                // Waits for the executions enqueued before the call. Rethrows the first exception thrown by the
-                // work of an execution since the previous sync().
+                // Waits for the executions enqueued before the call. Rethrows the first exception, not reported yet,
+                // thrown by the work of one of those executions (or by starting it); errors of executions enqueued
+                // after the call are left for a later sync().
                 void sync() {
                     std::uint64_t target;
                     {
@@ -325,9 +311,13 @@ namespace fk {
                     // sync() returns
                     std::unique_lock<std::mutex> lock(m_mutex);
                     m_condition.wait(lock, [this, target] { return m_finished >= target; });
-                    if (m_error) {
-                        const std::exception_ptr error = m_error;
-                        m_error = nullptr;
+                    // m_errors is ordered by execution number: report the first error up to target, and forget the
+                    // others up to target
+                    if (!m_errors.empty() && m_errors.front().first <= target) {
+                        const std::exception_ptr error = m_errors.front().second;
+                        while (!m_errors.empty() && m_errors.front().first <= target) {
+                            m_errors.pop_front();
+                        }
                         std::rethrow_exception(error);
                     }
                 }
@@ -366,9 +356,11 @@ namespace fk {
 
                 // Starts the execution. If that fails (no memory, or the pool has been shut down at program exit),
                 // the executions of this stream are dropped, so that nobody waits for them forever, and the error is
-                // returned. It is also recorded for sync(), under the same lock that publishes the drop, unless it is
-                // reported to the enqueuing thread only (fromEnqueue) and no other thread's execution was dropped.
-                // Nothing uses the queue after that lock: a thread in sync() may destroy it right away.
+                // returned. It is also recorded for sync(), under the same lock that publishes the drop, as the error
+                // of the execution that failed to start; when that execution was just enqueued (fromEnqueue), the
+                // enqueuing thread gets the exception, and it is recorded only if executions enqueued after it were
+                // dropped too, as the error of the first of them. Nothing uses the queue after that lock: a thread
+                // in sync() may destroy it right away.
                 std::exception_ptr startOrDrop(Execution& execution, const bool fromEnqueue) noexcept {
                     try {
                         execution.start(Completion(*this));
@@ -380,8 +372,10 @@ namespace fk {
                             std::lock_guard<std::mutex> lock(m_mutex);
                             dropped.swap(m_executions);
                             m_finished = m_enqueued;
-                            if (!m_error && (!fromEnqueue || dropped.size() > 1)) {
-                                m_error = error;
+                            if (!fromEnqueue) {
+                                m_errors.emplace_back(execution.number, error);
+                            } else if (dropped.size() > 1) {
+                                m_errors.emplace_back(dropped[1]->number, error);
                             }
                             m_finishedAtomic.store(m_finished, std::memory_order_release);
                             m_condition.notify_all();
@@ -396,7 +390,8 @@ namespace fk {
                 std::uint64_t m_enqueued{0};
                 std::uint64_t m_finished{0};
                 std::atomic<std::uint64_t> m_finishedAtomic{0};
-                std::exception_ptr m_error;
+                // Errors not reported yet, with the number of their execution, in increasing order
+                std::deque<std::pair<std::uint64_t, std::exception_ptr>> m_errors;
             };
         } // namespace detail
 

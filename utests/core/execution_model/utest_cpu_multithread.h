@@ -639,6 +639,48 @@ bool testStartFailureReachesSync() {
     return reported == ITERATIONS;
 }
 
+// sync() reports only errors of executions enqueued before it: an execution enqueued after the call, which fails as
+// soon as the earlier one finishes, is left for the next sync()
+bool testSyncIgnoresLaterErrors() {
+    constexpr int ITERATIONS = 100;
+    bool correct = true;
+    for (int i = 0; i < ITERATIONS && correct; ++i) {
+        gate(0).store(false);
+        Ptr2D<float> data = filled(16, 1, 0.f);
+        MTStream stream;
+        executeOperations<MTDPP>(data, data, stream, WaitGate<0>::build(), Add<float>::build(1.f));
+        std::atomic<bool> aboutToSync{false};
+        auto first = std::async(std::launch::async, [&] {
+            aboutToSync.store(true);
+            try {
+                stream.sync();
+                return true;
+            } catch (...) {
+                return false;
+            }
+        });
+        while (!aboutToSync.load()) {
+            std::this_thread::yield();
+        }
+        // Let the first sync() take its target before the failing execution is enqueued
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        stream.enqueue([](const cpu_multithread::Completion&) { throw std::runtime_error("later execution"); });
+        gate(0).store(true);
+        if (!first.get()) {
+            std::cout << "CPU_MULTITHREAD: sync() reported the error of an execution enqueued after it" << std::endl;
+            correct = false;
+        }
+        bool laterReported = false;
+        try {
+            stream.sync();
+        } catch (const std::runtime_error&) {
+            laterReported = true;
+        }
+        correct &= laterReported;
+    }
+    return correct;
+}
+
 int launch_impl() {
     const bool same = testSameResultAsCPU();
     const bool order = testStreamOrder();
@@ -651,15 +693,18 @@ int launch_impl() {
     const bool errors = testErrorsReachSync();
     const bool copies = testStreamCopiesAcrossThreads();
     const bool startFailure = testStartFailureReachesSync();
+    const bool laterErrors = testSyncIgnoresLaterErrors();
     const bool memoryHelpers = testMemoryHelpers();
     std::cout << "CPU_MULTITHREAD (" << cpuThreadPool().size() << " threads): same result as CPU " << same
               << ", stream order " << order << ", concurrent streams " << concurrent << ", sync on workers "
               << workers << ", sync waits only for earlier work " << earlier << ", entry points and buffer lifetime "
               << entryPoints << ", enqueue throttled " << throttled << ", thread fusion " << threadFusion
               << ", errors reach sync " << errors << ", stream copies across threads " << copies << ", start failure reaches sync " << startFailure
+              << ", sync ignores later errors " << laterErrors
               << ", setTo upload download " << memoryHelpers << std::endl;
     return same && order && concurrent && workers && earlier && entryPoints && throttled && threadFusion &&
-                   errors && copies && memoryHelpers && startFailure ? 0 : -1;
+                   errors && copies && memoryHelpers && startFailure &&
+                   laterErrors ? 0 : -1;
 }
 
 } // namespace fk
