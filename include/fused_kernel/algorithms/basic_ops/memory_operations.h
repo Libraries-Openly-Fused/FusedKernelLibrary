@@ -37,6 +37,13 @@ namespace fk {
             return *PtrAccessor<D>::template cr_point<T, ThreadFusionType<ReadDataType, ELEMS_PER_THREAD, OutputType>>(thread, params);
         }
 
+        // Host side check done before running the thread fused version: whether exec<ELEMS_PER_THREAD> makes aligned
+        // accesses at every row and plane of params
+        template <uint ELEMS_PER_THREAD>
+        FK_HOST_STATIC bool isThreadFusionAligned(const OperationDataType& opData) {
+            return isAlignedFor<ThreadFusionType<ReadDataType, ELEMS_PER_THREAD, OutputType>>(opData.params);
+        }
+
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return opData.params.dims.width;
         }
@@ -95,6 +102,13 @@ namespace fk {
                                       const ParamsType& params) {
             *PtrAccessor<D>::template point<T, ThreadFusionType<T, ELEMS_PER_THREAD, T>>(thread, params) = input;
         }
+
+        // Host side check done before running the thread fused version: whether exec<ELEMS_PER_THREAD> makes aligned
+        // accesses at every row and plane of params
+        template <uint ELEMS_PER_THREAD>
+        FK_HOST_STATIC bool isThreadFusionAligned(const OperationDataType& opData) {
+            return isAlignedFor<ThreadFusionType<InputType, ELEMS_PER_THREAD, InputType>>(opData.params);
+        }
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return opData.params.dims.width;
         }
@@ -135,6 +149,13 @@ namespace fk {
             -> ThreadFusionType<ReadDataType, ELEMS_PER_THREAD, OutputType> {
             return *PtrAccessor<ND::_3D>::template cr_point<T, ThreadFusionType<ReadDataType, ELEMS_PER_THREAD, OutputType>>(thread, params);
         }
+
+        // Host side check done before running the thread fused version: whether exec<ELEMS_PER_THREAD> makes aligned
+        // accesses at every row and plane of params
+        template <uint ELEMS_PER_THREAD>
+        FK_HOST_STATIC bool isThreadFusionAligned(const OperationDataType& opData) {
+            return isAlignedFor<ThreadFusionType<ReadDataType, ELEMS_PER_THREAD, OutputType>>(opData.params);
+        }
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return opData.params.dims.width;
         }
@@ -167,6 +188,13 @@ namespace fk {
         template <uint ELEMS_PER_THREAD = 1>
         FK_HOST_DEVICE_FUSE void exec(const Point thread, const ThreadFusionType<InputType, ELEMS_PER_THREAD, InputType> input, const ParamsType& params) {
             *PtrAccessor<ND::_3D>::template point<T, ThreadFusionType<InputType, ELEMS_PER_THREAD, InputType>>(thread, params) = input;
+        }
+
+        // Host side check done before running the thread fused version: whether exec<ELEMS_PER_THREAD> makes aligned
+        // accesses at every row and plane of params
+        template <uint ELEMS_PER_THREAD>
+        FK_HOST_STATIC bool isThreadFusionAligned(const OperationDataType& opData) {
+            return isAlignedFor<ThreadFusionType<InputType, ELEMS_PER_THREAD, InputType>>(opData.params);
         }
 
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
@@ -452,6 +480,16 @@ namespace fk {
                 return Operation::exec(newThreadIdx, params.opData[newThreadIdx.z]);
             }
         }
+
+        template <uint ELEMS_PER_THREAD>
+        FK_HOST_STATIC bool isThreadFusionAligned(const OperationDataType& opData) {
+            for (size_t i = 0; i < BATCH; ++i) {
+                if (!isOperationThreadFusionAligned<Operation, ELEMS_PER_THREAD>(opData.params.opData[i])) {
+                    return false;
+                }
+            }
+            return true;
+        }
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData[thread.z]);
         }
@@ -494,6 +532,16 @@ namespace fk {
                 Operation::exec(newThreadIdx, input, params.opData[newThreadIdx.z]);
             }
         }
+
+        template <uint ELEMS_PER_THREAD>
+        FK_HOST_STATIC bool isThreadFusionAligned(const OperationDataType& opData) {
+            for (size_t i = 0; i < BATCH; ++i) {
+                if (!isOperationThreadFusionAligned<Operation, ELEMS_PER_THREAD>(opData.params.opData[i])) {
+                    return false;
+                }
+            }
+            return true;
+        }
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opBatch) {
             return Operation::num_elems_x(thread, opBatch.params.opData[thread.z]);
         }
@@ -522,6 +570,11 @@ namespace fk {
             } else {
                 return Operation::exec(newThreadIdx, params.opData);
             }
+        }
+
+        template <uint ELEMS_PER_THREAD>
+        FK_HOST_STATIC bool isThreadFusionAligned(const OperationDataType& opData) {
+            return isOperationThreadFusionAligned<Operation, ELEMS_PER_THREAD>(opData.params.opData);
         }
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData);
@@ -573,6 +626,11 @@ namespace fk {
             } else {
                 Operation::exec(newThreadIdx, input, params.opData);
             }
+        }
+
+        template <uint ELEMS_PER_THREAD>
+        FK_HOST_STATIC bool isThreadFusionAligned(const OperationDataType& opData) {
+            return isOperationThreadFusionAligned<Operation, ELEMS_PER_THREAD>(opData.params.opData);
         }
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData);

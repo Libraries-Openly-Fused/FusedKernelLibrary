@@ -48,6 +48,9 @@ namespace fk { // namespace FusedKernel
                                THREAD_FUSION, IOps...> {
         ActiveThreads activeThreads;
         bool threadDivisible;
+        // Whether the buffers of the first read and the last write are aligned for the vector accesses of thread
+        // fusion. When they are not, the executors run the version without thread fusion.
+        bool threadAligned;
         using TFI = typename BuildTFI<THREAD_FUSION, IOps...>::TFI;
     };
 
@@ -196,7 +199,8 @@ namespace fk { // namespace FusedKernel
                 const ActiveThreads gridActiveThreads(static_cast<uint>(ceil(initAT.x / static_cast<float>(TFI::elems_per_thread))),
                     initAT.y, initAT.z);
                 const bool threadDivisible = isThreadDivisible<TFI::ENABLED>(TFI::elems_per_thread, firstIOp, iOps...);
-                const Details details{ gridActiveThreads, threadDivisible };
+                const bool threadAligned = isThreadFusionAligned<TFI>(firstIOp, iOps...);
+                const Details details{ gridActiveThreads, threadDivisible, threadAligned };
 
                 return details;
             } else {

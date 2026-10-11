@@ -193,6 +193,16 @@ namespace fk {
             return opData.params.activeThreads;
         }
 
+        template <uint ELEMS_PER_THREAD>
+        FK_HOST_STATIC bool isThreadFusionAligned(const OperationDataType& opData) {
+            for (size_t i = 0; i < BATCH; ++i) {
+                if (!isOperationThreadFusionAligned<Operation, ELEMS_PER_THREAD>(opData.params.opData[i])) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         template <uint ELEMS_PER_THREAD = 1>
         FK_HOST_DEVICE_FUSE auto exec(const Point thread, const ParamsType& params) {
             if constexpr (THREAD_FUSION) {
@@ -233,6 +243,15 @@ namespace fk {
         }
         FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
             return opData.params.activeThreads;
+        }
+        template <uint ELEMS_PER_THREAD>
+        FK_HOST_STATIC bool isThreadFusionAligned(const OperationDataType& opData) {
+            for (size_t i = 0; i < BATCH; ++i) {
+                if (!isOperationThreadFusionAligned<Operation, ELEMS_PER_THREAD>(opData.params.opData[i])) {
+                    return false;
+                }
+            }
+            return true;
         }
         template <uint ELEMS_PER_THREAD = 1>
         FK_HOST_DEVICE_FUSE auto exec(const Point thread, const ParamsType& params) {
@@ -434,6 +453,16 @@ namespace fk {
             } else {
                 Operation::exec(thread, input, params[thread.z]);
             }
+        }
+
+        template <uint ELEMS_PER_THREAD>
+        FK_HOST_STATIC bool isThreadFusionAligned(const OperationDataType& opData) {
+            for (size_t i = 0; i < BATCH; ++i) {
+                if (!isOperationThreadFusionAligned<Operation, ELEMS_PER_THREAD>({ opData.params[i] })) {
+                    return false;
+                }
+            }
+            return true;
         }
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params[thread.z]);

@@ -176,7 +176,11 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             const auto tDetails = TransformDPP<PA, TFEN>::build_details(iOps...);
             using TDPPDetails = std::decay_t<decltype(tDetails)>;
             if constexpr (TDPPDetails::TFI::ENABLED) {
-                if (!tDetails.threadDivisible) {
+                if (!tDetails.threadAligned) {
+                    // The buffers are not aligned for the vector accesses of thread fusion: run without it
+                    const auto details = TransformDPP<PA, TF::DISABLED>::build_details(iOps...);
+                    TransformDPP<PA, TF::DISABLED, std::decay_t<decltype(details)>, true>::exec(details, iOps...);
+                } else if (!tDetails.threadDivisible) {
                     TransformDPP<PA, TFEN, TDPPDetails, false>::exec(tDetails, iOps...);
                 } else {
                     TransformDPP<PA, TFEN, TDPPDetails, true>::exec(tDetails, iOps...);
@@ -217,7 +221,14 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                 });
             };
             if constexpr (TDPPDetails::TFI::ENABLED) {
-                if (!tDetails.threadDivisible) {
+                if (!tDetails.threadAligned) {
+                    // The buffers are not aligned for the vector accesses of thread fusion: run without it
+                    const auto details = TransformDPP<PA, TF::DISABLED>::build_details(iOps...);
+                    using DPP = TransformDPP<PA, TF::DISABLED, std::decay_t<decltype(details)>, true>;
+                    stream.enqueue([details, iOps...](const cpu_multithread::Completion& done) {
+                        DPP::exec(done, details, iOps...);
+                    });
+                } else if (!tDetails.threadDivisible) {
                     enqueue(std::false_type{});
                 } else {
                     enqueue(std::true_type{});
@@ -470,6 +481,11 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
 #endif
             const auto tDetails = TransformDPP<ARCH, TFEN>::build_details(iOps...);
             if constexpr (decltype(tDetails)::TFI::ENABLED) {
+                if (!tDetails.threadAligned) {
+                    // The buffers are not aligned for the vector accesses of thread fusion: run without it
+                    launchWithoutThreadFusion(stream, iOps...);
+                    return;
+                }
                 const ActiveThreads activeThreads = tDetails.activeThreads;
 
                 const CtxDim3 ctx_block = getDefaultBlockSize(activeThreads.x, activeThreads.y);
@@ -482,16 +498,26 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                     launchTransformDPP_Kernel<ARCH, TFEN, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
                 }
             } else {
-                const auto readOp = get_arg<0>(iOps...);
-
-                const ActiveThreads activeThreads = readOp.getActiveThreads();
-
-                const CtxDim3 ctx_block = getDefaultBlockSize(activeThreads.x, activeThreads.y);
-
-                const dim3 block{ ctx_block.x, ctx_block.y, 1 };
-                const dim3 grid = getDefaultGrid(activeThreads, block);
-                launchTransformDPP_Kernel<ARCH, TFEN, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
+                launchWithoutThreadFusion(stream, iOps...);
+                return;
             }
+#if defined(__NVCC__)
+            gpuErrchk(cudaGetLastError());
+#else
+            gpuErrchk(hipGetLastError());
+#endif
+        }
+
+        template <typename StreamType, typename... IOps>
+        FK_HOST_FUSE void launchWithoutThreadFusion(const StreamType stream, const IOps&... iOps) {
+            const auto details = TransformDPP<ARCH, TF::DISABLED>::build_details(iOps...);
+            const ActiveThreads activeThreads = get_arg<0>(iOps...).getActiveThreads();
+
+            const CtxDim3 ctx_block = getDefaultBlockSize(activeThreads.x, activeThreads.y);
+
+            const dim3 block{ ctx_block.x, ctx_block.y, 1 };
+            const dim3 grid = getDefaultGrid(activeThreads, block);
+            launchTransformDPP_Kernel<ARCH, TF::DISABLED, true><<<grid, block, 0, stream>>>(details, iOps...);
 #if defined(__NVCC__)
             gpuErrchk(cudaGetLastError());
 #else
