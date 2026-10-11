@@ -139,6 +139,58 @@ void test_download(Stream& stream) {
     stream.sync();
 }
 
+// Crops and planes share their parent's allocation: each adds exactly one reference, and whichever is destroyed last,
+// the parent or not, frees it
+bool test_shared_allocation_ref_counts() {
+    bool correct = true;
+    PtrToTest parent(WIDTH, HEIGHT);
+    const PtrDims<ND::_2D> cropDims{ WIDTH / 2, HEIGHT / 2, parent.dims().pitch };
+    {
+        const PtrToTest cropped = parent.crop(Point{ 1, 2, 0 }, cropDims);
+        correct &= parent.getRefCount() == 2 && cropped.getRefCount() == 2;
+        {
+            const PtrToTest secondCrop = parent.crop2D(Point{ 3, 4, 0 }, PtrDims<ND::_2D>{ 4, 4, cropDims.pitch });
+            correct &= parent.getRefCount() == 3;
+        }
+        correct &= parent.getRefCount() == 2;
+    }
+    correct &= parent.getRefCount() == 1;
+
+    // A crop that outlives its parent holds the last reference
+    PtrToTest survivor;
+    {
+        PtrToTest shortLived(WIDTH, HEIGHT);
+        survivor = shortLived.crop(Point{ 0, 0, 0 }, cropDims);
+    }
+    correct &= survivor.getRefCount() == 1;
+
+    Ptr3D<uchar3> volume(WIDTH, HEIGHT, 3);
+    Tensor<uchar3> tensor(WIDTH, HEIGHT, 3);
+    {
+        const Ptr2D<uchar3> plane = volume.getPlane(1);
+        const Ptr2D<uchar3> tensorPlane = tensor.getPlane(2);
+        correct &= volume.getRefCount() == 2 && tensor.getRefCount() == 2;
+    }
+    correct &= volume.getRefCount() == 1 && tensor.getRefCount() == 1;
+
+    // Allocating again in a Ptr that shares an allocation releases only its own reference
+    try {
+        PtrToTest sharer = parent;
+        sharer.Alloc(Size(WIDTH / 4, HEIGHT / 4));
+        correct &= parent.getRefCount() == 1 && sharer.getRefCount() == 1;
+        Tensor<uchar3> tensorSharer = tensor;
+        tensorSharer.allocTensor(WIDTH / 4, HEIGHT / 4, 2);
+        correct &= tensor.getRefCount() == 1 && tensorSharer.getRefCount() == 1;
+    } catch (const std::exception& e) {
+        std::cout << "Allocating in a Ptr that shares an allocation threw: " << e.what() << std::endl;
+        return false;
+    }
+    correct &= parent.getRefCount() == 1 && tensor.getRefCount() == 1;
+
+    std::cout << "Shared allocations: " << (correct ? "reference counts OK" : "WRONG reference counts") << std::endl;
+    return correct;
+}
+
 int launch_impl() {
     using namespace fk;
     Stream stream;
@@ -191,8 +243,9 @@ int launch_impl() {
     test_downloadTo(stream);
     test_upload(stream);
     test_download(stream);
+    const bool shared = test_shared_allocation_ref_counts();
 
-    return result && h_correct && h_correct2 ? 0 : -1;
+    return result && h_correct && h_correct2 && shared ? 0 : -1;
 }
 
 } // namespace fk
