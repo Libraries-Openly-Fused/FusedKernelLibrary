@@ -144,6 +144,35 @@ namespace fk {
         return ReadOperation::THREAD_FUSION && WriteOperation::THREAD_FUSION && THREAD_FUSION_ENABLED;
     }
 
+    // Whether exec<ELEMS_PER_THREAD> of Operation makes aligned accesses at every row and plane of opData. Operations
+    // with THREAD_FUSION provide isThreadFusionAligned<ELEMS_PER_THREAD>(opData); one that does not is considered not
+    // aligned, so that the version without thread fusion is used.
+    template <typename Operation, uint ELEMS_PER_THREAD>
+    FK_HOST_INLINE bool isOperationThreadFusionAligned(const typename Operation::OperationDataType& opData) {
+        if constexpr (!Operation::THREAD_FUSION || ELEMS_PER_THREAD == 1) {
+            return true;
+        } else if constexpr (requires { Operation::template isThreadFusionAligned<ELEMS_PER_THREAD>(opData); }) {
+            return Operation::template isThreadFusionAligned<ELEMS_PER_THREAD>(opData);
+        } else {
+            return false;
+        }
+    }
+
+    // Whether the first read and the last write access aligned memory with the vector types of thread fusion, at every
+    // row and plane. The base addresses and the row and plane strides of their buffers have to be multiples of the
+    // alignment of those types; otherwise the thread fused version would make misaligned accesses.
+    template <typename TFI, typename... IOpTypes>
+    FK_HOST_INLINE bool isThreadFusionAligned(const IOpTypes&... iOps) {
+        if constexpr (TFI::ENABLED) {
+            using ReadOperation = typename FirstType_t<IOpTypes...>::Operation;
+            using WriteOperation = typename LastType_t<IOpTypes...>::Operation;
+            return isOperationThreadFusionAligned<ReadOperation, TFI::elems_per_thread>({ ppFirst(iOps...).params }) &&
+                   isOperationThreadFusionAligned<WriteOperation, TFI::elems_per_thread>({ ppLast(iOps...).params });
+        } else {
+            return true;
+        }
+    }
+
     template <bool THREAD_FUSION_ENABLED, typename... IOpTypes>
     FK_HOST_INLINE bool isThreadDivisible(const uint& elems_per_thread, const IOpTypes&... iOps) {
         if constexpr (THREAD_FUSION_ENABLED) {

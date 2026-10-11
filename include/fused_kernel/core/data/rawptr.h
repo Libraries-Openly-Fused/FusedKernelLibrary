@@ -238,6 +238,30 @@ namespace fk {
         }
     };
 
+    // Whether PtrAccessor<D> can access ptr as elements of type V (for instance a vector of several T, as thread fusion
+    // does) at every row and plane with aligned accesses: the base address and the row and plane strides of ptr have to
+    // be multiples of alignof(V)
+    template <typename V, enum ND D, typename T>
+    FK_HOST_INLINE bool isAlignedFor(const RawPtr<D, T>& ptr) {
+        constexpr unsigned long long A = alignof(V);
+        if constexpr (A <= alignof(T)) {
+            return true;
+        } else {
+            const bool base = reinterpret_cast<unsigned long long>(ptr.data) % A == 0;
+            if constexpr (D == ND::_1D) {
+                return base;
+            } else if constexpr (D == ND::_2D) {
+                return base && ptr.dims.pitch % A == 0;
+            } else if constexpr (D == ND::_3D) {
+                return base && ptr.dims.pitch % A == 0 &&
+                       (static_cast<unsigned long long>(ptr.dims.plane_pitch) * ptr.dims.color_planes) % A == 0;
+            } else {
+                return base && ptr.dims.pitch % A == 0 && ptr.dims.plane_pitch % A == 0 &&
+                       ptr.dims.color_planes_pitch % A == 0;
+            }
+        }
+    }
+
     template<enum ND D>
     struct StaticPtrAccessor;
 
