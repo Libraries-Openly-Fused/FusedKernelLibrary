@@ -23,14 +23,15 @@
 #include <random>
 
 // WriteYUV for the 4:2:0 semi-planar formats: every pixel writes its luma, and the chroma of each 2x2 block comes from
-// its top left pixel (even x and y). NV12 stores it as U, V and NV21 as V, U.
+// its top left pixel (even x and y). NV12 stores it as U, V and NV21 as V, U. NV21 used to write the chroma from the
+// four pixels of the block: a data race on the GPU and on the multithreaded CPU backend, whose rows run concurrently.
 namespace fk {
 
-template <PixelFormat PF>
-bool testWriteYUV420(Stream& stream, const Ptr2D<uchar3>& input, const int width, const int height) {
-    Image<PF> image(static_cast<uint>(width), static_cast<uint>(height));
-    executeOperations<TransformDPP<>>(stream, PerThreadRead<ND::_2D, uchar3>::build(input.ptr()),
-                                      WriteYUV<PF>::build(image.ptr()));
+template <PixelFormat PF, typename DPP, typename StreamType>
+bool testWriteYUV420(StreamType& stream, const Ptr2D<uchar3>& input, const int width, const int height,
+                     const MemType memType, const char* backend) {
+    Image<PF> image(static_cast<uint>(width), static_cast<uint>(height), memType);
+    executeOperations<DPP>(stream, PerThreadRead<ND::_2D, uchar3>::build(input.ptr()), WriteYUV<PF>::build(image.ptr()));
     image.download(stream);
     stream.sync();
 
@@ -49,26 +50,40 @@ bool testWriteYUV420(Stream& stream, const Ptr2D<uchar3>& input, const int width
             }
         }
     }
-    std::cout << (PF == PixelFormat::NV21 ? "NV21" : "NV12") << ": " << mismatches << " mismatches" << std::endl;
+    std::cout << (PF == PixelFormat::NV21 ? "NV21" : "NV12") << " (" << backend << "): " << mismatches << " mismatches"
+              << std::endl;
     return mismatches == 0;
+}
+
+Ptr2D<uchar3> randomYUV(const int width, const int height, const MemType memType) {
+    Ptr2D<uchar3> input(static_cast<uint>(width), static_cast<uint>(height), 0, memType);
+    std::mt19937 gen(3);
+    std::uniform_int_distribution<int> byte(0, 255);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            input.at(x, y) = uchar3{static_cast<uchar>(byte(gen)), static_cast<uchar>(byte(gen)),
+                                    static_cast<uchar>(byte(gen))};
+        }
+    }
+    return input;
 }
 
 int launch_impl() {
     constexpr int W = 64, H = 32;
     Stream stream;
-    Ptr2D<uchar3> input(W, H);
-    std::mt19937 gen(3);
-    std::uniform_int_distribution<int> byte(0, 255);
-    for (int y = 0; y < H; ++y) {
-        for (int x = 0; x < W; ++x) {
-            input.at(x, y) = uchar3{static_cast<uchar>(byte(gen)), static_cast<uchar>(byte(gen)),
-                                    static_cast<uchar>(byte(gen))};
-        }
-    }
+    Ptr2D<uchar3> input = randomYUV(W, H, defaultMemType);
     input.upload(stream);
-    const bool nv12 = testWriteYUV420<PixelFormat::NV12>(stream, input, W, H);
-    const bool nv21 = testWriteYUV420<PixelFormat::NV21>(stream, input, W, H);
-    return nv12 && nv21 ? 0 : -1;
+    bool correct = testWriteYUV420<PixelFormat::NV12, TransformDPP<>>(stream, input, W, H, defaultMemType, "default");
+    correct &= testWriteYUV420<PixelFormat::NV21, TransformDPP<>>(stream, input, W, H, defaultMemType, "default");
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    // The multithreaded CPU backend reads host memory
+    using MTDPP = TransformDPP<ParArch::CPU_MULTITHREAD>;
+    Stream_<ParArch::CPU_MULTITHREAD> mtStream;
+    const Ptr2D<uchar3> hostInput = randomYUV(W, H, MemType::Host);
+    correct &= testWriteYUV420<PixelFormat::NV12, MTDPP>(mtStream, hostInput, W, H, MemType::Host, "CPU_MULTITHREAD");
+    correct &= testWriteYUV420<PixelFormat::NV21, MTDPP>(mtStream, hostInput, W, H, MemType::Host, "CPU_MULTITHREAD");
+#endif
+    return correct ? 0 : -1;
 }
 
 } // namespace fk
