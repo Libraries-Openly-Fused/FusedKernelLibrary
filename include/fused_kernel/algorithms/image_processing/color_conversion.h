@@ -343,7 +343,10 @@ namespace fk {
                     reinterpret_cast<uchar2*>(reinterpret_cast<uchar*>(rawPtr.data) + (dims.pitch * params.height)),
                     { dims.width >> 1, params.height >> 1, dims.pitch }
                 };
-                *PtrAccessor<ND::_2D>::point({ thread.x >> 1, thread.y >> 1, thread.z }, chromaPlane) = make_<uchar2>(input.z, input.y);
+                // Chroma subsampling 4:2:0: only one thread of each 2x2 block writes it, as for NV12
+                if (cxp::is_even::f(thread.x) && cxp::is_even::f(thread.y)) {
+                    *PtrAccessor<ND::_2D>::point({ thread.x >> 1, thread.y >> 1, thread.z }, chromaPlane) = make_<uchar2>(input.z, input.y);
+                }
             } else if constexpr (PF == PixelFormat::Y216 || PF == PixelFormat::Y210 || PF == PixelFormat::UYVY) {
                 const PtrDims<ND::_2D> dims = rawPtr.dims;
                 using VectorType2 = VectorType_t<PixelBaseType, 2>;
