@@ -15,6 +15,7 @@
 #ifndef FK_IMAGE_PROCESSING
 #define FK_IMAGE_PROCESSING
 
+#include <fused_kernel/algorithms/image_processing/add_border.h>
 #include <fused_kernel/algorithms/image_processing/border_reader.h>
 #include <fused_kernel/algorithms/image_processing/color_conversion.h>
 #include <fused_kernel/algorithms/image_processing/crop.h>
