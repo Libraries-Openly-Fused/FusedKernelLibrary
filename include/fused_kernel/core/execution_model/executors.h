@@ -221,7 +221,14 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                 });
             };
             if constexpr (TDPPDetails::TFI::ENABLED) {
-                if (!tDetails.threadDivisible) {
+                if (!tDetails.threadAligned) {
+                    // The buffers are not aligned for the vector accesses of thread fusion: run without it
+                    const auto details = TransformDPP<PA, TF::DISABLED>::build_details(iOps...);
+                    using DPP = TransformDPP<PA, TF::DISABLED, std::decay_t<decltype(details)>, true>;
+                    stream.enqueue([details, iOps...](const cpu_multithread::Completion& done) {
+                        DPP::exec(done, details, iOps...);
+                    });
+                } else if (!tDetails.threadDivisible) {
                     enqueue(std::false_type{});
                 } else {
                     enqueue(std::true_type{});

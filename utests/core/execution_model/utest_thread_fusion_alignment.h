@@ -251,6 +251,43 @@ bool testBatchWithOneMisalignedPlane(Stream& stream) {
     return correct;
 }
 
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+// The multithreaded CPU backend falls back the same way: rows that are not padded, and crops of the input and the
+// output, in host memory
+bool testCpuMultithread() {
+    constexpr int W = 1001;
+    using MTDPP = TransformDPP<ParArch::CPU_MULTITHREAD, TF::ENABLED>;
+    Ptr2D<uchar> input(W + 4, H, 0, MemType::Host);
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W + 4; ++x) {
+            input.at(x, y) = inputValue(x, y);
+        }
+    }
+    Ptr2D<float> output(W + 4, H, 0, MemType::Host);
+    const Ptr2D<uchar> inputCrop = input.crop(Point{ 1, 0, 0 }, PtrDims<ND::_2D>{ W, H, input.dims().pitch });
+    const Ptr2D<float> outputCrop = output.crop(Point{ 2, 0, 0 }, PtrDims<ND::_2D>{ W, H, output.dims().pitch });
+    Stream_<ParArch::CPU_MULTITHREAD> stream;
+    executeOperations<MTDPP>(stream, PerThreadRead<ND::_2D, uchar>::build(input.ptr()), Cast<uchar, float>::build(),
+                             PerThreadWrite<ND::_2D, float>::build(output.ptr()));
+    stream.sync();
+    bool correct = true;
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W + 4; ++x) {
+            correct &= output.at(x, y) == static_cast<float>(inputValue(x, y));
+        }
+    }
+    executeOperations<MTDPP>(stream, PerThreadRead<ND::_2D, uchar>::build(inputCrop.ptr()), Cast<uchar, float>::build(),
+                             PerThreadWrite<ND::_2D, float>::build(outputCrop.ptr()));
+    stream.sync();
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
+            correct &= output.at(x + 2, y) == static_cast<float>(inputValue(x + 1, y));
+        }
+    }
+    return correct;
+}
+#endif
+
 int launch_impl() {
     Stream stream;
     const bool decision = testAlignmentDecision();
@@ -258,9 +295,15 @@ int launch_impl() {
     const bool crops = testCrops(stream);
     const bool tensor = testTensor(stream);
     const bool batch = testBatchWithOneMisalignedPlane(stream);
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    const bool multithread = testCpuMultithread();
+#else
+    const bool multithread = true;
+#endif
     std::cout << "Thread fusion alignment: decision " << decision << ", unpadded rows " << unpadded << ", crops "
-              << crops << ", tensor " << tensor << ", batch with a misaligned plane " << batch << std::endl;
-    return decision && unpadded && crops && tensor && batch ? 0 : -1;
+              << crops << ", tensor " << tensor << ", batch with a misaligned plane " << batch << ", CPU_MULTITHREAD "
+              << multithread << std::endl;
+    return decision && unpadded && crops && tensor && batch && multithread ? 0 : -1;
 }
 
 } // namespace fk
