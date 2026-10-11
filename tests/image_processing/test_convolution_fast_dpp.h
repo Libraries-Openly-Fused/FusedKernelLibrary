@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <vector>
 
 namespace fk {
@@ -76,10 +77,12 @@ template <ParArch PA, int EX, int EY, int KW, int KH>
 Result runCase(const int width, const int height,
                const int runtimeKW, const int runtimeKH,
                const int anchorX, const int anchorY) {
-    constexpr bool GPU = PA != ParArch::CPU;
+    constexpr bool GPU = PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD;
     const auto memoryType = GPU ? MemType::DeviceAndPinned : MemType::Host;
-    Ptr2D<float> input(width, height, 0, memoryType);
-    Ptr2D<float> output(width, height, 0, memoryType);
+    Ptr2D<float> input(static_cast<uint>(width),
+                       static_cast<uint>(height), 0, memoryType);
+    Ptr2D<float> output(static_cast<uint>(width),
+                        static_cast<uint>(height), 0, memoryType);
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             input.at(Point{x, y, 0}) = sourceValue(x, y);
@@ -154,6 +157,24 @@ bool verifyCase(const int width, const int height,
                 name, width, height,
                 KW > 0 ? KW : runtimeKW, KH > 0 ? KH : runtimeKH,
                 ok ? "PASS" : "FAIL");
+#endif
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    // The rows run concurrently on the pool, with the per row code of the
+    // single thread CPU backend. The results may differ in the last bits only:
+    // the compiler can contract a * b + c into a fused multiply-add
+    // differently where that code is inlined.
+    const auto multithread = runCase<ParArch::CPU_MULTITHREAD, EX, EY, KW, KH>(
+        width, height, runtimeKW, runtimeKH, anchorX, anchorY);
+    bool multithreadOk = multithread.passed &&
+        multithread.output.size() == cpu.output.size();
+    for (std::size_t i = 0; i < cpu.output.size() && multithreadOk; ++i) {
+        multithreadOk = std::fabs(multithread.output[i] - cpu.output[i]) <= 2e-5f;
+    }
+    std::printf("ConvQuad %-18s %dx%d k%dx%d CPU/CPU_MULTITHREAD %s\n",
+                name, width, height,
+                KW > 0 ? KW : runtimeKW, KH > 0 ? KH : runtimeKH,
+                multithreadOk ? "PASS" : "FAIL");
+    ok = multithreadOk && ok;
 #endif
     return ok;
 }

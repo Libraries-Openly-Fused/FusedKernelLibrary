@@ -23,6 +23,11 @@
 #include <fused_kernel/core/utils/utils.h>
 
 #include <type_traits>
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+#include <fused_kernel/core/execution_model/cpu_thread_pool.h>
+
+#include <cstddef>
+#endif
 
 namespace fk {
 
@@ -135,11 +140,14 @@ public:
     FK_STATIC_STRUCT(MedianFilterDPP, SelfType)
     static constexpr ParArch PAR_ARCH = ParArch::CPU;
 
+    // Computes output row oy. Used by exec() and by the CPU_MULTITHREAD
+    // version; the caller checks DPPDetails::valid(details).
     template <typename ReadIOp, typename WriteIOp, typename SelectionIOp>
-    FK_HOST_STATIC void exec(const DPPDetails& details,
-                             const ReadIOp& input,
-                             const WriteIOp& output,
-                             const SelectionIOp& selection) {
+    FK_HOST_STATIC void exec_row(const int oy,
+                                 const DPPDetails& details,
+                                 const ReadIOp& input,
+                                 const WriteIOp& output,
+                                 const SelectionIOp& selection) {
         static_assert(isAnyCompleteReadType<ReadIOp>,
                       "MedianFilterDPP needs a complete Read IOp");
         static_assert(isAnyWriteType<WriteIOp>,
@@ -152,26 +160,69 @@ public:
         static_assert(std::is_same_v<typename SelectionIOp::Operation::OutputType,
                                      T>,
                       "Selection output must match the image value type");
+        for (int ox = 0; ox < details.width; ++ox) {
+            Window window{};
+            for (int wy = 0; wy < details.windowHeight; ++wy) {
+                for (int wx = 0; wx < details.windowWidth; ++wx) {
+                    window.values[window.count++] = Stage::readReplicate(
+                        details.width, details.height, input,
+                        ox + wx - details.anchorX,
+                        oy + wy - details.anchorY);
+                }
+            }
+            const T selected = window | selection;
+            WriteIOp::Operation::exec(
+                Point{ox, oy, 0}, selected, output);
+        }
+    }
+
+    template <typename ReadIOp, typename WriteIOp, typename SelectionIOp>
+    FK_HOST_STATIC void exec(const DPPDetails& details,
+                             const ReadIOp& input,
+                             const WriteIOp& output,
+                             const SelectionIOp& selection) {
         if (!DPPDetails::valid(details)) return;
 
         for (int oy = 0; oy < details.height; ++oy) {
-            for (int ox = 0; ox < details.width; ++ox) {
-                Window window{};
-                for (int wy = 0; wy < details.windowHeight; ++wy) {
-                    for (int wx = 0; wx < details.windowWidth; ++wx) {
-                        window.values[window.count++] = Stage::readReplicate(
-                            details.width, details.height, input,
-                            ox + wx - details.anchorX,
-                            oy + wy - details.anchorY);
-                    }
-                }
-                const T selected = window | selection;
-                WriteIOp::Operation::exec(
-                    Point{ox, oy, 0}, selected, output);
-            }
+            exec_row(oy, details, input, output, selection);
         }
     }
 };
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+// Runs the per row code of MedianFilterDPP<ParArch::CPU> on cpuThreadPool(),
+// one chunk per output row, so both give the same results. As in the GPU
+// version, the output must not alias the input: rows run concurrently, and
+// a row reads the input rows around it.
+template <typename DPPDetails>
+struct MedianFilterDPP<ParArch::CPU_MULTITHREAD, DPPDetails> {
+private:
+    using SelfType = MedianFilterDPP<ParArch::CPU_MULTITHREAD, DPPDetails>;
+    using CPUDPP = MedianFilterDPP<ParArch::CPU, DPPDetails>;
+
+public:
+    FK_STATIC_STRUCT(MedianFilterDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::CPU_MULTITHREAD;
+
+    // Enqueues the rows in the pool and returns; done is called when all of
+    // them have finished. Invalid details enqueue no rows (nothing is
+    // written), as the CPU version.
+    template <typename ReadIOp, typename WriteIOp, typename SelectionIOp>
+    FK_HOST_STATIC void exec(const cpu_multithread::Completion& done,
+                             const DPPDetails& details,
+                             const ReadIOp& input,
+                             const WriteIOp& output,
+                             const SelectionIOp& selection) {
+        const std::size_t rows = DPPDetails::valid(details)
+            ? static_cast<std::size_t>(details.height) : 0;
+        cpu_multithread::enqueueChunks(rows,
+            [details, input, output, selection](const std::size_t row) {
+                CPUDPP::exec_row(static_cast<int>(row), details, input,
+                                 output, selection);
+            }, done);
+    }
+};
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 
 #if defined(__NVCC__) || defined(__HIPCC__)
 template <ParArch PA, typename DPPDetails>
@@ -274,6 +325,28 @@ inline bool executeMedianFilter(const DPPDetails& details,
     return true;
 }
 #endif // defined(__NVCC__) || defined(__HIPCC__)
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+// Enqueues MedianFilterDPP<ParArch::CPU_MULTITHREAD> on the stream and
+// returns; returns false, enqueueing nothing, if the details are not valid.
+// The execution keeps copies of the IOps. As with a GPU stream, the buffers
+// they read and write must stay valid until it has finished (sync()), and
+// the output must not alias the input.
+template <typename DPPDetails, typename ReadIOp,
+          typename WriteIOp, typename SelectionIOp>
+inline bool executeMedianFilter(const DPPDetails& details,
+                                const ReadIOp& input,
+                                const WriteIOp& output,
+                                const SelectionIOp& selection,
+                                Stream_<ParArch::CPU_MULTITHREAD>& stream) {
+    if (!DPPDetails::valid(details)) return false;
+    stream.enqueue([=](const cpu_multithread::Completion& done) {
+        MedianFilterDPP<ParArch::CPU_MULTITHREAD, DPPDetails>::exec(
+            done, details, input, output, selection);
+    });
+    return true;
+}
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 
 } // namespace fk
 

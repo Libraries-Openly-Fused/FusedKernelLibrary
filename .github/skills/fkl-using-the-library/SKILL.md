@@ -90,6 +90,8 @@ SaturateCast<float3, uchar3>::build()        // clamp + convert
 - `Stream stream;` creates an owning CUDA stream; `stream.sync()` waits.
 - Wrap an external stream zero-cost: `Stream s(existingCudaStream);` (FKL will NOT destroy it). Use this to interop with torch/cupy streams.
 - All `executeOperations` overloads are async on the given stream.
+- `Stream` is the stream of the default backend (`ParArch::GPU_NVIDIA` under nvcc, `GPU_AMD` under hipcc, `CPU`
+  otherwise). The multithreaded CPU stream is always explicit: `Stream_<ParArch::CPU_MULTITHREAD>` (see below).
 
 ## Out-of-bounds reads
 
@@ -107,9 +109,34 @@ Policies: CONSTANT, REPLICATE, REFLECT, WRAP, REFLECT_101.
 
 `CircularTensor<T, COLOR_PLANES, BATCH, CircularTensorOrder, ColorPlanes>` keeps the last BATCH frames on the GPU; `update(stream, readIOp, ops..., writeIOp)` preprocesses + inserts + rotates in one Divergent-HF kernel.
 
-## CPU backend
+## CPU backends
 
-The same pipelines run on CPU: `executeOperations<TransformDPP<ParArch::CPU>>` with `Stream_<ParArch::CPU>`. Useful for tests without a GPU.
+The same pipelines run on CPU: `executeOperations<TransformDPP<ParArch::CPU>>` with `Stream_<ParArch::CPU>` (single thread, runs before returning). Useful for tests without a GPU.
+
+### Multithreaded CPU: ParArch::CPU_MULTITHREAD
+
+Available when `FK_CPU_MULTITHREAD_ENABLED` is defined (CMake option `ENABLE_CPU_MULTITHREAD`, ON when the `thread-pool` submodule is checked out: clone with `--recursive`). The work runs on `fk::cpuThreadPool()`, shared by all streams (one worker per hardware thread), with the same results as `ParArch::CPU`. Every DPP has it except the GPU-only attention DPPs; the filter entry points (`executeLinearFilter`, `executeMorphology`, `executeBoxFilterQuad`, ...) have `Stream_<ParArch::CPU_MULTITHREAD>&` overloads.
+
+```cpp
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+Stream_<ParArch::CPU_MULTITHREAD> stream;
+Ptr2D<float> input(width, height, 0, MemType::Host);   // explicit: CUDA/HIP builds default to DeviceAndPinned
+Ptr2D<float> output(width, height, 0, MemType::Host);
+executeOperations<TransformDPP<ParArch::CPU_MULTITHREAD>>(input, output, stream,   // keeps input/output alive
+    Mul<float>::build(2.f), Add<float>::build(1.f));
+stream.sync();   // waits, and rethrows the first exception the work threw
+#endif
+```
+
+Stream rules (as with a CUDA stream):
+- Entry points enqueue and return. The executions of a stream run in order; different streams run concurrently.
+- `sync()` waits for the executions enqueued before it, and rethrows the first exception their work threw since the previous `sync()`. Called on a pool worker (e.g. inside `cpuThreadPool().submit(...)`), it runs queued work instead of blocking.
+- A stream holds at most 1024 pending executions; past that, enqueueing waits.
+- Copies of a stream share its queue; the last copy to be destroyed waits for the executions (errors nobody synced are lost).
+
+Memory rules:
+- Everything an execution reads or writes must stay valid until it has finished (`sync()`). The `executeOperations` overloads that take `Ptr`/`Tensor`/`std::array<Ptr2D>` arguments, and `setTo`, keep those buffers alive. IOps only hold a `RawPtr`, even when `build()` got a `Ptr` or an `Image`, so those buffers (and a `CircularTensor` being updated) are NOT kept alive: do not release them, or access them from the host, before `sync()`.
+- Memory must be `Host` or `HostPinned`. On this stream `Ptr`/`Image` `upload`/`download` are ordered no-ops (there is a single buffer), and they and `setTo` throw `std::runtime_error` for `Device`/`DeviceAndPinned` memory.
 
 ## Pitfalls (each cost real debugging time)
 

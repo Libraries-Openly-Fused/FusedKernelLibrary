@@ -262,7 +262,7 @@ namespace fk {
                         }
                     }
                     if (start != nullptr) {
-                        if (const std::exception_ptr error = startOrDrop(*start)) {
+                        if (const std::exception_ptr error = startOrDrop(*start, true)) {
                             std::rethrow_exception(error);
                         }
                     }
@@ -289,12 +289,9 @@ namespace fk {
                         }
                     }
                     if (next != nullptr) {
-                        if (const std::exception_ptr startError = startOrDrop(*next)) {
-                            std::lock_guard<std::mutex> lock(m_mutex);
-                            if (!m_error) {
-                                m_error = startError;
-                            }
-                        }
+                        // On failure, startOrDrop records the error for sync(); the queue may be destroyed as soon
+                        // as it returns, so nothing here uses it afterwards
+                        (void)startOrDrop(*next, false);
                     }
                 }
 
@@ -369,21 +366,27 @@ namespace fk {
 
                 // Starts the execution. If that fails (no memory, or the pool has been shut down at program exit),
                 // the executions of this stream are dropped, so that nobody waits for them forever, and the error is
-                // returned.
-                std::exception_ptr startOrDrop(Execution& execution) noexcept {
+                // returned. It is also recorded for sync(), under the same lock that publishes the drop, unless it is
+                // reported to the enqueuing thread only (fromEnqueue) and no other thread's execution was dropped.
+                // Nothing uses the queue after that lock: a thread in sync() may destroy it right away.
+                std::exception_ptr startOrDrop(Execution& execution, const bool fromEnqueue) noexcept {
                     try {
                         execution.start(Completion(*this));
                         return nullptr;
                     } catch (...) {
+                        const std::exception_ptr error = std::current_exception();
                         std::deque<std::unique_ptr<Execution>> dropped;
                         {
                             std::lock_guard<std::mutex> lock(m_mutex);
                             dropped.swap(m_executions);
                             m_finished = m_enqueued;
+                            if (!m_error && (!fromEnqueue || dropped.size() > 1)) {
+                                m_error = error;
+                            }
                             m_finishedAtomic.store(m_finished, std::memory_order_release);
                             m_condition.notify_all();
                         }
-                        return std::current_exception();
+                        return error;
                     }
                 }
 

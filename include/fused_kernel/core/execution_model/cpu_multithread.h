@@ -26,7 +26,8 @@
 //   enqueued before it. The stream only orders executions; it starts each one, and the DPP of the execution enqueues
 //   the work in the pool and calls the cpu_multithread::Completion it was given when the work has finished.
 // - data_parallel_patterns.h, executors.h and the DPPs of algorithms/: the CPU_MULTITHREAD DPPs run the per row code
-//   of their ParArch::CPU version, so both give the same results.
+//   of their ParArch::CPU version, so both give the same results (float results up to the last bits, where the
+//   compiler contracts a * b + c into a fused multiply-add differently). The attention DPPs are GPU only.
 //
 // Memory: as with the host buffers of cudaMemcpyAsync, the buffers an execution reads or writes must stay valid until
 // it has finished (sync()). The executeOperations overloads that take Ptr or Tensor objects keep a reference to them in

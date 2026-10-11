@@ -326,6 +326,56 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         }
     };
 
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+    // Enqueues the execution on the stream, which starts it (DivergentBatchTransformDPP<ParArch::CPU_MULTITHREAD>::exec)
+    // after the previous executions of the stream. The sequences are copied, but the buffers their IOps use (given to
+    // build() as RawPtr) must stay valid until sync().
+    template <typename SequenceSelector>
+    struct Executor<DivergentBatchTransformDPP<ParArch::CPU_MULTITHREAD, SequenceSelector>> {
+      private:
+        using DPPType = DivergentBatchTransformDPP<ParArch::CPU_MULTITHREAD, SequenceSelector>;
+        using DPPDetails = typename DPPType::DPPDetails;
+        using SelfType = Executor<DPPType>;
+        using MTStream = Stream_<ParArch::CPU_MULTITHREAD>;
+
+        template <typename... IOpSequenceTypes>
+        FK_HOST_FUSE ActiveThreads getActiveThreads(const IOpSequenceTypes &...iOpSequences) {
+            const uint x = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().x...);
+            const uint y = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().y...);
+            const uint z = cxp::sum::f(get<0>(iOpSequences.iOps).getActiveThreads().z...);
+            return ActiveThreads{x, y, z};
+        }
+
+        template <typename... IOps>
+        FK_HOST_FUSE auto fuseBackSequence(const IOpSequence<IOps...> &iOpSeq) {
+            return buildOperationSequence_tup(apply(
+                [](auto &&...args) {
+                    // Now fuse_back deduces the types naturally and preserves value categories via perfect forwarding
+                    return BackFuser::fuse_back(std::forward<decltype(args)>(args)...);
+                },
+                iOpSeq.iOps));
+        }
+
+        template <typename... IOpSequenceTypes>
+        FK_HOST_STATIC void executeOperationsFused(MTStream &stream, const IOpSequenceTypes &...iOpSequences) {
+            const ActiveThreads activeThreads = getActiveThreads(iOpSequences...);
+            const DPPDetails details{ .numPlanes = activeThreads.z, .numRows = activeThreads.y };
+
+            stream.enqueue([details, iOpSequences...](const cpu_multithread::Completion &done) {
+                DPPType::exec(done, details, iOpSequences...);
+            });
+        }
+
+      public:
+        FK_STATIC_STRUCT(Executor, SelfType)
+        FK_HOST_FUSE ParArch parArch() { return ParArch::CPU_MULTITHREAD; }
+        template <typename... IOpSequenceTypes>
+        FK_HOST_STATIC void executeOperations(MTStream &stream, const IOpSequenceTypes &...iOpSequences) {
+            executeOperationsFused(stream, fuseBackSequence(iOpSequences)...);
+        }
+    };
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+
 #if defined(__NVCC__) || defined(__HIPCC__)
     struct ComputeBestSolutionBase {
         FK_HOST_FUSE uint computeDiscardedThreads(const uint width, const uint height, const uint blockDimx, const uint blockDimy) {

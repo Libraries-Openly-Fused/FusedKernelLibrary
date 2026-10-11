@@ -8,7 +8,7 @@
 - **Backwards Vertical Fusion**: Read-backwards through a pipeline (like OpenCV Filters), computing only required pixels.
 - **Divergent Horizontal Fusion**: Execute different kernels simultaneously using different SM components.
 
-The library has CPU and CUDA backends. HIP support is architecturally possible but not yet implemented.
+The library has CPU (single-thread `ParArch::CPU` and multithreaded `ParArch::CPU_MULTITHREAD`), CUDA and HIP backends.
 
 **License**: Apache 2.0  
 **Version**: 0.2.0 (main branch — API may break due to new features)
@@ -39,6 +39,7 @@ FusedKernelLibrary/
 │       ├── data/                 # Ptr, Ptr2D, Tensor, RawPtr types
 │       └── utils/                # Macros (utils.h), compiler detection (compiler_macros.h)
 ├── lib/                          # CMake library target definition and version config
+├── thread-pool/                  # git submodule: thread pool of the CPU_MULTITHREAD backend
 ├── tests/                        # Integration tests (header .h files, auto-discovered)
 ├── utests/                       # Unit tests (header .h files, auto-discovered)
 └── benchmarks/                   # Benchmarks (disabled by default, ENABLE_BENCHMARK=ON)
@@ -52,6 +53,7 @@ FusedKernelLibrary/
 - **C++ compiler** with C++20 support
 - **CUDA** (required): requires NVCC. **Only nvcc is supported as the CUDA compiler**; clang-as-CUDA-compiler is not supported despite `CLANG_HOST_DEVICE` macro existing.
 - **MSVC**: Visual Studio 2022 or Visual Studio 2026 (MSVC_VERSION >= 1930) required;
+- **thread-pool submodule** (for `ParArch::CPU_MULTITHREAD`): clone with `git clone --recursive`, or run `git submodule update --init`. Without it the backend is silently disabled (CMake prints only a STATUS line) and `utest_cpu_multithread_cpp` passes without testing anything. CI checks out submodules.
 
 ### Configure and Build (typical)
 # Linux (Ninja)
@@ -66,6 +68,7 @@ cmake --build build --config Release --parallel 32
 | Option | Default | Description |
 |--------|---------|-------------|
 | `ENABLE_CPU` | `ON` | Build CPU backend (auto-disabled for MSVC < 2019) |
+| `ENABLE_CPU_MULTITHREAD` | `ON` (if the thread-pool submodule is checked out) | Multithreaded CPU backend; defines `FK_CPU_MULTITHREAD_ENABLED` on the FKL target. Forcing it `ON` without the submodule is a `FATAL_ERROR` |
 | `ENABLE_CUDA` | `ON` (if NVCC found) | Build CUDA backend |
 | `BUILD_TEST` | `ON` | Build integration tests |
 | `BUILD_UTEST` | `ON` | Build unit tests |
@@ -210,16 +213,24 @@ Each operation type exposes a `static build(...)` factory method returning an in
 - `Ptr2D<T>`: 2D GPU pointer with width/height/pitch
 - `Tensor<T>`: Contiguous 3D GPU tensor (width × height × batch)
 - `Ptr<ND, T>`: Generic N-dimensional GPU pointer
-- `Stream` / `Stream_<PAR_ARCH>`: CUDA stream wrapper
+- `Stream` / `Stream_<PAR_ARCH>`: CUDA stream wrapper (`Stream_<ParArch::CPU_MULTITHREAD>`: see below)
 
 ### Data Parallel Patterns (DPP)
 `TransformDPP<>` is the standard choice. It drives the kernel grid/block dimensions based on the operations in the pipeline.
+
+Every DPP has a single-thread `ParArch::CPU` implementation and a `ParArch::CPU_MULTITHREAD` one that reuses its per-row code (`exec_row`, or one row function per phase for multi-phase DPPs such as MorphologyDPP). The exception are the attention DPPs (`algorithms/attention/`: softmax, flash_attention, flash_attention_mma, flash_decode), which remain GPU-only by the repo owner's decision. See `.github/skills/fkl-implementing-data-parallel-patterns/SKILL.md`.
+
+### Multithreaded CPU backend (ParArch::CPU_MULTITHREAD)
+Enabled by `FK_CPU_MULTITHREAD_ENABLED` (CMake `ENABLE_CPU_MULTITHREAD`); all its code is guarded by `#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)`. `core/execution_model/cpu_multithread.h` is an umbrella for `cpu_thread_pool.h`, `stream.h`, `data_parallel_patterns.h` and `executors.h`.
+- `Stream_<ParArch::CPU_MULTITHREAD>` behaves like a CUDA stream: entry points enqueue and return, a stream's executions run in order, and `sync()` waits for the ones enqueued before it and rethrows the first exception their work threw. At most 1024 executions are pending per stream; copies share the queue and the last copy waits; `sync()` on a pool worker helps instead of blocking.
+- The stream only orders executions and never touches the pool. A DPP never sees a stream: it receives a `cpu_multithread::Completion`, enqueues its chunks in `fk::cpuThreadPool()` with `cpu_multithread::enqueueChunks`, and calls the `Completion` when done.
+- Memory must be `Host` or `HostPinned` (CUDA/HIP builds default to `DeviceAndPinned`) and stay valid until `sync()`. The `executeOperations` overloads taking `Ptr`/`Tensor` arguments keep those buffers alive; buffers passed to `build()` (as `RawPtr`, `Ptr` or `Image`) are not kept alive.
 
 ---
 
 ## CI / Workflow Details
 
-All three workflow files trigger on **pull requests to `main`** (push triggers are commented out). All runners are **self-hosted**.
+All the workflow files trigger on **pull requests to `main`** (push triggers are commented out). All runners are **self-hosted**. Every workflow checks out submodules (`actions/checkout` with `submodules: true`), so the CPU_MULTITHREAD backend is built and tested.
 
 ### Linux (cmake-linux-amd64.yml, cmake-linux-arm64.yml)
 - **Compilers**: `g++-13`, `clang++-23`

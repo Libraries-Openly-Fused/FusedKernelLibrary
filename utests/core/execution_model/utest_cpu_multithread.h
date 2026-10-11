@@ -21,6 +21,7 @@
 
 #ifdef FK_CPU_MULTITHREAD_ENABLED
 #include <fused_kernel/core/execution_model/cpu_multithread.h>
+#include <fused_kernel/core/data/ptr_utils.h>
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/basic_ops/cast.h>
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
@@ -34,8 +35,11 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <future>
+#include <memory>
 #include <iostream>
 #include <random>
 #include <stdexcept>
@@ -44,12 +48,26 @@
 
 namespace fk {
 
+// The CPU_MULTITHREAD DPPs run the per row code of the CPU ones, but the results of float arithmetic may differ in the
+// last bits: the compiler can contract a * b + c into a fused multiply-add differently where that code is inlined
+inline bool closeFloats(const void* a, const void* b, const size_t bytes) {
+    const float* x = static_cast<const float*>(a);
+    const float* y = static_cast<const float*>(b);
+    for (size_t i = 0; i < bytes / sizeof(float); ++i) {
+        const float scale = std::max(1.f, std::fabs(x[i]));
+        if (!(std::fabs(x[i] - y[i]) <= 1e-5f * scale)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 using MTStream = Stream_<ParArch::CPU_MULTITHREAD>;
 using MTDPP = TransformDPP<ParArch::CPU_MULTITHREAD>;
 using CPUDPP = TransformDPP<ParArch::CPU>;
 
-// The Figure 1 chain of the BVF paper (NV12 crops resized, padded and normalized) gives exactly the same result on
-// the single and the multithreaded CPU backends, since both run the same per thread code
+// The Figure 1 chain of the BVF paper (NV12 crops resized, padded and normalized) gives the same result on the single
+// and the multithreaded CPU backends, since both run the same per thread code (up to fused multiply-add rounding)
 bool testSameResultAsCPU() {
     constexpr int W = 640, H = 360;
     constexpr size_t N = 16;
@@ -89,7 +107,7 @@ bool testSameResultAsCPU() {
     run(CPUDPP{}, cpuStream, single);
     run(MTDPP{}, mtStream, multi);
     const size_t bytes = N * 64 * 64 * sizeof(float3);
-    return std::memcmp(single.ptr().data, multi.ptr().data, bytes) == 0;
+    return closeFloats(single.ptr().data, multi.ptr().data, bytes);
 }
 
 // Executions on one stream run in the order they were enqueued: a chain of dependent executions, enqueued without
@@ -452,6 +470,175 @@ bool testStreamCopiesAcrossThreads() {
     return countRight && finished.load() == TASKS && allEqual(data, static_cast<float>(TASKS));
 }
 
+// setTo, upload and download on a CPU_MULTITHREAD stream. setTo keeps its Ptr alive until the fill has run, so the
+// caller can release it before sync(). upload and download of a Ptr or an Image are no-ops ordered with the executions
+// of the stream. All of them need host memory: with Device or DeviceAndPinned memory they throw and enqueue nothing.
+bool testMemoryHelpers() {
+    constexpr int W = 333, H = 77;
+    const auto allValue = [](const Ptr2D<float>& ptr, const float value) {
+        for (int y = 0; y < static_cast<int>(ptr.dims().height); ++y) {
+            for (int x = 0; x < static_cast<int>(ptr.dims().width); ++x) {
+                if (ptr.at(x, y) != value) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+    MTStream stream;
+    Stream_<ParArch::CPU> cpuStream;
+    bool correct = true;
+
+    // setTo on buffers the caller releases before the fills have run: the stream is held busy by an execution that
+    // waits for gate 0, so the fills are still pending when the buffers are released
+    gate(0).store(false);
+    Ptr2D<float> busy = filled(16, 1, 0.f);
+    executeOperations<MTDPP>(busy, busy, stream, WaitGate<0>::build());
+    Ptr2D<float> output(W, H, 0, MemType::Host);
+    int refsWhilePending = 0;
+    {
+        Ptr2D<float> tmp(W, H, 0, MemType::Host);
+        setTo(5.f, tmp, stream);
+        refsWhilePending = tmp.getRefCount(); // the caller and the pending fill
+        executeOperations<MTDPP>(tmp, output, stream, Add<float>::build(1.f));
+    }
+    {
+        // Once released, the pending fill is the only owner of this one
+        Ptr2D<float> released(W, H, 0, MemType::Host);
+        setTo(7.f, released, stream);
+    }
+    // The same with the ParArch given explicitly
+    Ptr2D<float> outputExplicit(W, H, 0, MemType::Host);
+    int refsWhilePendingExplicit = 0;
+    {
+        Ptr2D<float> tmp(W, H, 0, MemType::Host);
+        setTo<ParArch::CPU_MULTITHREAD>(9.f, tmp, stream);
+        refsWhilePendingExplicit = tmp.getRefCount();
+        executeOperations<MTDPP>(tmp, outputExplicit, stream, Add<float>::build(1.f));
+    }
+    {
+        Ptr2D<float> released(W, H, 0, MemType::Host);
+        setTo<ParArch::CPU_MULTITHREAD>(11.f, released, stream);
+    }
+    gate(0).store(true);
+    stream.sync();
+    correct &= refsWhilePending == 2 && allValue(output, 6.f) && allEqual(busy, 0.f);
+    correct &= refsWhilePendingExplicit == 2 && allValue(outputExplicit, 10.f);
+
+    // setTo gives the same result as on ParArch::CPU
+    Tensor<float> singleFill(W, H, 4, 1, MemType::Host);
+    Tensor<float> multiFill(W, H, 4, 1, MemType::Host);
+    setTo(-2.5f, singleFill, cpuStream);
+    setTo(-2.5f, multiFill, stream);
+    stream.sync();
+    correct &= std::memcmp(singleFill.ptr().data, multiFill.ptr().data, singleFill.sizeInBytes()) == 0;
+
+    // upload and download of a Ptr around an execution that uses it
+    Ptr2D<float> input = filled(W, H, 1.f);
+    Ptr2D<float> result(W, H, 0, MemType::Host);
+    input.upload(stream);
+    executeOperations<MTDPP>(input, result, stream, Mul<float>::build(2.f));
+    result.download(stream);
+    stream.sync();
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
+            correct &= result.at(x, y) == (1.f + static_cast<float>(x)) * 2.f;
+        }
+    }
+
+    // upload and download of Images: NV12 to RGB gives the same result as on ParArch::CPU, and the image data copied
+    // into another image is downloaded intact
+    constexpr int IW = 64, IH = 32;
+    Image<PixelFormat::NV12> image(IW, IH, MemType::Host);
+    Image<PixelFormat::NV12> imageCopy(IW, IH, MemType::Host);
+    auto imageData = image.getData();
+    for (int y = 0; y < IH * 3 / 2; ++y) {
+        for (int x = 0; x < IW; ++x) {
+            imageData.at(x, y) = static_cast<uchar>((x * 7 + y * 13) & 0xFF);
+        }
+    }
+    Tensor<float3> rgbSingle(IW, IH, 1, 1, MemType::Host);
+    Tensor<float3> rgbMulti(IW, IH, 1, 1, MemType::Host);
+    const auto toRGB = [&](auto dpp, auto& anyStream, Tensor<float3>& rgb) {
+        executeOperations<decltype(dpp)>(anyStream, ReadYUV<PixelFormat::NV12>::build(image),
+            ConvertYUVToRGB<ColorDepth::p8bit, ColorRange::Full, ColorPrimitives::bt709>::build(),
+            TensorWrite<float3>::build(rgb.ptr()));
+    };
+    image.upload(stream);
+    toRGB(MTDPP{}, stream, rgbMulti);
+    executeOperations<MTDPP>(image.getData(), imageCopy.getData(), stream);
+    imageCopy.download(stream);
+    stream.sync();
+    toRGB(CPUDPP{}, cpuStream, rgbSingle);
+    const auto copyData = imageCopy.getData();
+    for (int y = 0; y < IH * 3 / 2; ++y) {
+        for (int x = 0; x < IW; ++x) {
+            correct &= copyData.at(x, y) == imageData.at(x, y);
+        }
+    }
+    correct &= closeFloats(rgbSingle.ptr().data, rgbMulti.ptr().data, rgbSingle.sizeInBytes());
+
+    // Device and DeviceAndPinned memory (wrapping host vectors, which they never touch)
+    const auto throwsRuntimeError = [](const auto& function) {
+        try {
+            function();
+        } catch (const std::runtime_error&) {
+            return true;
+        }
+        return false;
+    };
+    std::vector<float> fakeDevice(W * H, 0.f);
+    std::vector<float> fakePinned(W * H, 0.f);
+    const PtrDims<ND::_2D> dims(W, H, static_cast<uint>(W * sizeof(float)));
+    Ptr<ND::_2D, float> device(fakeDevice.data(), dims, MemType::Device, 0);
+    Ptr<ND::_2D, float> deviceAndPinned(fakeDevice.data(), fakePinned.data(), dims, MemType::DeviceAndPinned, 0);
+    for (Ptr<ND::_2D, float>* ptr : {&device, &deviceAndPinned}) {
+        correct &= throwsRuntimeError([&] { ptr->upload(stream); });
+        correct &= throwsRuntimeError([&] { ptr->download(stream); });
+        correct &= throwsRuntimeError([&] { setTo(1.f, *ptr, stream); });
+        correct &= throwsRuntimeError([&] { setTo<ParArch::CPU_MULTITHREAD>(1.f, *ptr, stream); });
+    }
+    std::vector<uchar> fakeImage(IW * IH * 3 / 2, 0);
+    Image<PixelFormat::NV12> deviceImage(
+        Ptr<ND::_2D, uchar>(fakeImage.data(), PtrDims<ND::_2D>(IW, IH * 3 / 2, IW), MemType::Device, 0), IW, IH);
+    correct &= throwsRuntimeError([&] { deviceImage.upload(stream); });
+    correct &= throwsRuntimeError([&] { deviceImage.download(stream); });
+    // The stream keeps working, and nothing wrote the "device" memory
+    executeOperations<MTDPP>(input, result, stream, Add<float>::build(1.f));
+    stream.sync();
+    correct &= allEqual(result, 2.f);
+    for (const float value : fakeDevice) {
+        correct &= value == 0.f;
+    }
+    for (const float value : fakePinned) {
+        correct &= value == 0.f;
+    }
+    return correct;
+}
+
+// An execution that fails to start (as a DPP's exec does when it can not allocate) while an earlier one is running:
+// the stream drops the pending executions and the next sync() reports the error every time, also when the stream is
+// destroyed right after it (the worker that started it must not use the stream any more)
+bool testStartFailureReachesSync() {
+    constexpr int ITERATIONS = 2000;
+    int reported = 0;
+    for (int i = 0; i < ITERATIONS; ++i) {
+        gate(0).store(false);
+        Ptr2D<float> data = filled(16, 1, 0.f);
+        auto stream = std::make_unique<MTStream>();
+        executeOperations<MTDPP>(data, data, *stream, WaitGate<0>::build(), Add<float>::build(1.f));
+        stream->enqueue([](const cpu_multithread::Completion&) { throw std::runtime_error("start failed"); });
+        gate(0).store(true);
+        try {
+            stream->sync();
+        } catch (const std::runtime_error&) {
+            ++reported;
+        }
+        stream.reset();
+    }
+    return reported == ITERATIONS;
+}
+
 int launch_impl() {
     const bool same = testSameResultAsCPU();
     const bool order = testStreamOrder();
@@ -463,13 +650,16 @@ int launch_impl() {
     const bool threadFusion = testThreadFusion();
     const bool errors = testErrorsReachSync();
     const bool copies = testStreamCopiesAcrossThreads();
+    const bool startFailure = testStartFailureReachesSync();
+    const bool memoryHelpers = testMemoryHelpers();
     std::cout << "CPU_MULTITHREAD (" << cpuThreadPool().size() << " threads): same result as CPU " << same
               << ", stream order " << order << ", concurrent streams " << concurrent << ", sync on workers "
               << workers << ", sync waits only for earlier work " << earlier << ", entry points and buffer lifetime "
               << entryPoints << ", enqueue throttled " << throttled << ", thread fusion " << threadFusion
-              << ", errors reach sync " << errors << ", stream copies across threads " << copies << std::endl;
+              << ", errors reach sync " << errors << ", stream copies across threads " << copies << ", start failure reaches sync " << startFailure
+              << ", setTo upload download " << memoryHelpers << std::endl;
     return same && order && concurrent && workers && earlier && entryPoints && throttled && threadFusion &&
-                   errors && copies ? 0 : -1;
+                   errors && copies && memoryHelpers && startFailure ? 0 : -1;
 }
 
 } // namespace fk

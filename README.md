@@ -16,7 +16,7 @@
 
 The **Fused Kernel Library (FKL)** is a C++20 header-only framework designed to perform automatic GPU kernel fusion. Instead of relying on custom external compilers or domain-specific languages, FKL leverages modern C++ capabilities to fuse sequential and parallel operations into a single, highly optimized kernel at compile time. 
 
-Currently supporting **CPU**, **CUDA**, and **ROCm** backends (with an architecture designed to easily adopt other GPU languages), FKL transforms memory-bound operations into compute-bound powerhouses by keeping data in registers and eliminating redundant global VRAM reads and writes.
+Currently supporting **CPU** (single-thread and multithreaded), **CUDA**, and **ROCm** backends (with an architecture designed to easily adopt other GPU languages), FKL transforms memory-bound operations into compute-bound powerhouses by keeping data in registers and eliminating redundant global VRAM reads and writes.
 
 ## ✨ Key Features
 
@@ -27,7 +27,7 @@ Currently supporting **CPU**, **CUDA**, and **ROCm** backends (with an architect
 - **🤝 Closed-Source Friendly:** Integrate FKL into proprietary codebases easily. Wrap your custom CUDA or HIP kernels in FKL's `InstantiableOperation` interface to fuse them without exposing your internal source code.
 - **🧼 Pure Imperative Ergonomics:** Despite relying on compile-time metaprogramming under the hood, consuming FKL requires **zero template gymnastics**. Pipelines are declared as clean, flat, sequential arguments (`Operation::build(params)`).
 - **🔬 Non-Invasive Inline Probing:** Debug intermediate register data effortlessly. Drop a `MidWrite` at any point in the pipeline to capture in-flight values to memory for CPU inspection without breaking fusion.
-- **🖥️ Trivial CPU Debugging:** Because operations are hardware-agnostic, you can seamlessly switch to the CPU backend to step through your pipeline logic using standard C++ debuggers (like GDB or Visual Studio) before deploying to the GPU.
+- **🖥️ Trivial CPU Debugging:** Because operations are hardware-agnostic, you can seamlessly switch to the CPU backend to step through your pipeline logic using standard C++ debuggers (like GDB or Visual Studio) before deploying to the GPU. The multithreaded CPU backend (`ParArch::CPU_MULTITHREAD`) then runs the same pipelines on all the CPU cores, with the same results as the single-thread one.
 
 ## 🧬 Vector Types and HIP/CUDA Interoperability
 
@@ -101,6 +101,8 @@ void preprocess() {
 
 *Result: A highly efficient, variadic template kernel that compiles down to a single optimized footprint.*
 
+**On all CPU cores:** the same pipeline runs multithreaded with `executeOperations<TransformDPP<ParArch::CPU_MULTITHREAD>>` on a `Stream_<ParArch::CPU_MULTITHREAD>`, which behaves like a CUDA stream: calls are asynchronous, and `stream.sync()` waits for the work and rethrows its errors. Its data must be in host memory (`MemType::Host`) and stay valid until `sync()`. This backend uses the `thread-pool` git submodule: clone with `git clone --recursive` (or run `git submodule update --init`), otherwise CMake silently disables it (option `ENABLE_CPU_MULTITHREAD`). The attention DPPs are the exception: they remain GPU-only.
+
 ## 🧘 Developer Experience: Common Myths vs. Reality
 
 | Myth | Reality in FKL |
@@ -146,7 +148,7 @@ While we provide no formal guarantees or free support, we actively test against:
 - **Ubuntu 24.04:** ROCm 10.1.0
 - **Windows 11 25H2:** ROCm 10.1.0
 
-**CPU Backend**
+**CPU Backend** (single-thread and multithreaded)
 - **Linux:** `g++ 13` or `clang++-23`
 - **Windows:** Visual Studio 2026 (14.51 toolset)
 

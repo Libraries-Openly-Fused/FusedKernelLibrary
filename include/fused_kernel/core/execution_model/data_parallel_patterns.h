@@ -332,22 +332,12 @@ namespace fk { // namespace FusedKernel
         friend struct DivergentBatchTransformDPP<ParArch::GPU_AMD, SequenceSelector>; // Allow DivergentBatchTransformDPP to access private members
         friend struct DivergentBatchTransformDPP<ParArch::CPU, SequenceSelector>; // Allow DivergentBatchTransformDPPBase to access private members
     private:
+        // GPU: each thread of the grid executes its own point of the sequence
         template <typename... IOps>
         FK_HOST_DEVICE_FUSE void launchTransformDPP(const Point& thread, const IOps&... iOps) {
             using Details = TransformDPPDetails<false, IOps...>;
             using TDPP = TransformDPP<PA, TF::DISABLED, Details, true>;
-            if constexpr (PA == ParArch::CPU) {
-                // On CPU there is no thread grid: the x and y indices are generated here,
-                // from the geometry of this sequence, while the plane index comes from the caller.
-                const ActiveThreads activeThreads = TDPP::getActiveThreads(Details{}, get_arg<0>(iOps...));
-                for (int y = 0; y < static_cast<int>(activeThreads.y); ++y) {
-                    for (int x = 0; x < static_cast<int>(activeThreads.x); ++x) {
-                        TDPP::exec_thread(Point{ x, y, thread.z }, Details{}, iOps...);
-                    }
-                }
-            } else {
-                TDPP::exec_thread(thread, Details{}, iOps...);
-            }
+            TDPP::exec_thread(thread, Details{}, iOps...);
         }
 
         // Functor used to expand the IOp tuple of an operation sequence while carrying
@@ -370,6 +360,30 @@ namespace fk { // namespace FusedKernel
                 divergent_operate<OpSequenceNumber + 1>(thread, iOpSequences...);
             }
         }
+
+        // CPU: there is no thread grid, and the code is host only. Executes row thread.y of the global plane
+        // thread.z with this sequence; TransformDPP<ParArch::CPU>::exec_row generates the x indices from the
+        // geometry of the sequence. Does nothing if the sequence has fewer rows.
+        template <typename... IOps>
+        FK_HOST_FUSE void launchTransformDPPRow(const Point& thread, const IOps&... iOps) {
+            using Details = TransformDPPDetails<false, IOps...>;
+            using TDPP = TransformDPP<ParArch::CPU, TF::DISABLED, Details, true>;
+            const ActiveThreads activeThreads = TDPP::getActiveThreads(Details{}, get_arg<0>(iOps...));
+            if (thread.y < static_cast<int>(activeThreads.y)) {
+                TDPP::exec_row(thread.y, thread.z, Details{}, iOps...);
+            }
+        }
+
+        template <int OpSequenceNumber, typename... IOps, typename... IOpSequenceTypes>
+        FK_HOST_FUSE void divergent_operate_row(const Point& thread,
+                                                const InstantiableOperationSequence<IOps...>& iOpSequence,
+                                                const IOpSequenceTypes&... iOpSequences) {
+            if (static_cast<uint>(OpSequenceNumber) == SequenceSelector::at(static_cast<uint>(thread.z))) {
+                apply([&thread](const IOps&... iOps) { launchTransformDPPRow(thread, iOps...); }, iOpSequence.iOps);
+            } else if constexpr (sizeof...(iOpSequences) > 0) {
+                divergent_operate_row<OpSequenceNumber + 1>(thread, iOpSequences...);
+            }
+        }
     };
 
     template <ParArch PA>
@@ -385,6 +399,14 @@ namespace fk { // namespace FusedKernel
     struct DivergentBatchTransformDPPDetails<ParArch::CPU> {
         uint numPlanes;
     };
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+    template <>
+    struct DivergentBatchTransformDPPDetails<ParArch::CPU_MULTITHREAD> {
+        uint numPlanes;
+        uint numRows; // The largest number of rows of the sequences
+    };
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 
 #if defined(__NVCC__) || defined(__HIPCC__)
     template <ParArch PA, typename SequenceSelector>
@@ -413,14 +435,56 @@ namespace fk { // namespace FusedKernel
     public:
         using DPPDetails = DivergentBatchTransformDPPDetails<ParArch::CPU>;
         static constexpr ParArch PAR_ARCH = ParArch::CPU;
+
+        // Executes row y of the global plane z, with the sequence SequenceSelector chooses for z. Does nothing if
+        // that sequence has fewer rows.
         template <typename... IOpSequenceTypes>
-        FK_DEVICE_FUSE void exec(const DPPDetails& details, const IOpSequenceTypes&... iOpSequences) {
+        FK_HOST_FUSE void exec_row(const int y, const int z, const DPPDetails&, const IOpSequenceTypes&... iOpSequences) {
+            Parent::template divergent_operate_row<0>(Point{ 0, y, z }, iOpSequences...);
+        }
+
+        template <typename... IOpSequenceTypes>
+        FK_HOST_FUSE void exec(const DPPDetails& details, const IOpSequenceTypes&... iOpSequences) {
+            // Every plane goes through the rows of the tallest sequence: the ones its sequence does not have do nothing
+            const int numRows = static_cast<int>(cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().y...));
             for (int z = 0; z < static_cast<int>(details.numPlanes); ++z) {
-                const Point thread{ 0, 0, z };
-                Parent::template divergent_operate<0>(thread, iOpSequences...);
+                for (int y = 0; y < numRows; ++y) {
+                    exec_row(y, z, details, iOpSequences...);
+                }
             }
         }
     };
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+    // Runs the code of DivergentBatchTransformDPP<ParArch::CPU> on cpuThreadPool(), split in one chunk per row of
+    // every global plane: numPlanes * numRows chunks, numRows being the largest number of rows of the sequences (the
+    // rows a sequence does not have do nothing). As on the GPU, all the planes and rows run concurrently, so no plane
+    // or row may read data that another one writes in the same execution (for instance, the output must not alias
+    // the input of another plane).
+    template <typename SequenceSelector>
+    struct DivergentBatchTransformDPP<ParArch::CPU_MULTITHREAD, SequenceSelector> {
+    private:
+        using SelfType = DivergentBatchTransformDPP<ParArch::CPU_MULTITHREAD, SequenceSelector>;
+        using CPUDPP = DivergentBatchTransformDPP<ParArch::CPU, SequenceSelector>;
+    public:
+        FK_STATIC_STRUCT(DivergentBatchTransformDPP, SelfType)
+        using DPPDetails = DivergentBatchTransformDPPDetails<ParArch::CPU_MULTITHREAD>;
+        static constexpr ParArch PAR_ARCH = ParArch::CPU_MULTITHREAD;
+
+        // Enqueues the rows in the pool and returns; done is called when all of them have finished
+        template <typename... IOpSequenceTypes>
+        FK_HOST_STATIC void exec(const cpu_multithread::Completion& done, const DPPDetails& details,
+                                 const IOpSequenceTypes&... iOpSequences) {
+            const typename CPUDPP::DPPDetails cpuDetails{ details.numPlanes };
+            const auto rows = static_cast<std::size_t>(details.numRows);
+            cpu_multithread::enqueueChunks(rows * details.numPlanes,
+                [cpuDetails, rows, iOpSequences...](const std::size_t chunk) {
+                    CPUDPP::exec_row(static_cast<int>(chunk % rows), static_cast<int>(chunk / rows), cpuDetails,
+                                     iOpSequences...);
+                }, done);
+        }
+    };
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 } // namespace fk
 
 #endif
