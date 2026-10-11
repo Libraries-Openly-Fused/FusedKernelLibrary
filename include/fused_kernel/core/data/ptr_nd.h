@@ -328,8 +328,9 @@ namespace fk {
                 }
 
                 delete ref;
-                ref = nullptr;
             }
+            // This Ptr no longer holds a reference, also when others still share the allocation
+            ref = nullptr;
         }
 
 #if defined(__NVCC__) || defined(__HIPCC__)
@@ -512,11 +513,9 @@ namespace fk {
 
         inline constexpr operator RawPtr<D, T>() const { return ptr_a; }
 
+        // The crop shares the allocation: the constructor adds its reference
         inline constexpr Ptr<D, T> crop(const Point p, const PtrDims<D>& newDims) {
             T* ptr = At::point(p, ptr_a);
-            if (ref) {
-                ref->cnt.fetch_add(1);
-            }
             const RawPtr<D, T> newRawPtr = { ptr, newDims };
             if (type == MemType::DeviceAndPinned) {
                 T* pinnedPtr = At::point(p, ptr_pinned);
@@ -762,9 +761,7 @@ namespace fk {
             }
             const PtrDims<ND::_2D> dims_a{ ptr_a.dims.width, ptr_a.dims.height, ptr_a.dims.pitch };
             const PtrDims<ND::_2D> dims_pinned{ ptr_pinned.dims.width, ptr_pinned.dims.height, ptr_pinned.dims.pitch };
-            if (ref) {
-                ref->cnt.fetch_add(1);
-            }
+            // The plane shares the allocation: the constructor adds its reference
             const Point p{ 0, 0, static_cast<int>(plane) };
             return { ref, RawPtr<ND::_2D, T>{At::point(p, ptr_a), dims_a}, RawPtr<ND::_2D, T>{At::point(p, ptr_pinned), dims_pinned}, type, deviceID };
         }
