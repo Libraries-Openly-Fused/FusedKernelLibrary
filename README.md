@@ -122,6 +122,33 @@ You can explore how FKL generates highly optimized assembly without installing a
 
 ---
 
+## 📦 Using FKL in Your CMake Project
+
+FKL is header-only. Clone it with `git clone --recursive` (the `thread-pool` submodule enables the multithreaded CPU backend), then either add it to your project:
+
+```cmake
+set(BUILD_TEST OFF)   # FKL's tests are not needed
+set(BUILD_UTEST OFF)
+add_subdirectory(FusedKernelLibrary)
+target_link_libraries(my_app PRIVATE FKL::FKL)
+```
+
+or install it and find it:
+
+```bash
+cmake -B build -S FusedKernelLibrary -DBUILD_TEST=OFF -DBUILD_UTEST=OFF
+cmake --install build --prefix /path/to/install
+```
+
+```cmake
+find_package(FKL 0.2 REQUIRED)   # configure with -DCMAKE_PREFIX_PATH=/path/to/install
+target_link_libraries(my_app PRIVATE FKL::FKL)
+```
+
+`FKL::FKL` provides the include directories and requires C++20: your project has to enable CXX (e.g. `project(my_app LANGUAGES CXX CUDA)`), and CMake then compiles your C++, CUDA and HIP sources as C++20, unless you set `CUDA_STANDARD`/`HIP_STANDARD`, which must then be 20 or higher. When FKL was configured with the multithreaded CPU backend (`ENABLE_CPU_MULTITHREAD`, ON when the submodule is checked out), it also adds `FK_CPU_MULTITHREAD_ENABLED` and the threads library. Before 1.0, `find_package(FKL 0.2)` only accepts 0.2.x versions, because a minor version can break the API.
+
+---
+
 ## 📚 Research & Publications
 
 FKL is built on rigorously tested academic methodology. If you use FKL in your research, please refer to our publications:

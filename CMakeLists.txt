@@ -14,6 +14,12 @@ include (cmake/deploy/deploy_dependencies.cmake)
 include (cmake/archflags.cmake)
 include (cmake/generators/version_header.cmake)
 include (cmake/generators/export_header.cmake)
+# FKL::FKL requires the cxx_std_20 compile feature, which CMake resolves in the directory of each target that links it:
+# a project that adds FKL with add_subdirectory has to enable CXX itself (its CUDA and HIP sources then also compile as
+# C++20). Without it, the error would only come at generation, as "No known features for CXX compiler"
+if (NOT CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR AND NOT CMAKE_CXX_COMPILER_LOADED)
+    message(FATAL_ERROR "FKL needs the CXX language in the project that adds it, e.g. project(<name> LANGUAGES CXX CUDA)")
+endif()
 project(FusedKernelLibrary VERSION ${PROJECT_VERSION} LANGUAGES CXX  
 DESCRIPTION "Implementation of a methodology that allows all sorts of user defined GPU kernel fusion, for non CUDA programmers." 
 HOMEPAGE_URL "https://github.com/morousg/FusedKernelLibrary" )
