@@ -271,6 +271,29 @@ bool testSyncWaitsOnlyForEarlierWork() {
     return returned && waiterCorrect && allEqual(b, 1.f);
 }
 
+// A thread that enqueues as fast as it can is throttled, like with a CUDA launch queue: the stream never holds more
+// than about MAX_PENDING executions, so the work left when it stops finishes quickly
+bool testEnqueueIsThrottled() {
+    constexpr int W = 256, H = 256;
+    Ptr2D<float> data = filled(W, H, 0.f);
+    MTStream stream;
+    long enqueued = 0;
+    const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+    while (std::chrono::steady_clock::now() < end) {
+        executeOperations<MTDPP>(data, data, stream, Add<float>::build(1.f));
+        ++enqueued;
+    }
+    const auto drainStart = std::chrono::steady_clock::now();
+    stream.sync();
+    const double drainSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - drainStart).count();
+    const bool quick = drainSeconds < 10.;
+    if (!quick) {
+        std::cout << "CPU_MULTITHREAD: " << enqueued << " executions enqueued in 300 ms took " << drainSeconds
+                  << " s to finish after the producer stopped" << std::endl;
+    }
+    return quick && allEqual(data, static_cast<float>(enqueued));
+}
+
 // The Ptr / Tensor entry points keep their buffers alive until the execution has finished, even if the caller drops
 // them before sync(); and every executeOperations entry point works on this backend
 void addThenDouble(MTStream& stream, const Ptr2D<float>& input, const Ptr2D<float>& output) {
@@ -338,11 +361,12 @@ int launch_impl() {
     const bool workers = testSyncOnWorkers();
     const bool earlier = testSyncWaitsOnlyForEarlierWork();
     const bool entryPoints = testEntryPointsAndBufferLifetime();
+    const bool throttled = testEnqueueIsThrottled();
     std::cout << "CPU_MULTITHREAD (" << cpuThreadPool().size() << " threads): same result as CPU " << same
               << ", stream order " << order << ", concurrent streams " << concurrent << ", sync on workers "
               << workers << ", sync waits only for earlier work " << earlier << ", entry points and buffer lifetime "
-              << entryPoints << std::endl;
-    return same && order && concurrent && workers && earlier && entryPoints ? 0 : -1;
+              << entryPoints << ", enqueue throttled " << throttled << std::endl;
+    return same && order && concurrent && workers && earlier && entryPoints && throttled ? 0 : -1;
 }
 
 } // namespace fk

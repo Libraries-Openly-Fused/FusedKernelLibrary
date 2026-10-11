@@ -23,7 +23,9 @@
 // - Stream_<ParArch::CPU_MULTITHREAD> behaves like a CUDA stream: executeOperations enqueues the execution of a DPP
 //   and returns, the executions of one stream run one after the other in the order they were enqueued, and sync()
 //   waits for the executions enqueued before it. Executions of different streams can run concurrently in the shared
-//   pool. Copies of a stream share its queue, and the last copy to be destroyed waits for all its executions.
+//   pool. Copies of a stream share its queue, and the last copy to be destroyed waits for all its executions. Like a
+//   CUDA launch queue, a stream holds a limited number of pending executions (MAX_PENDING): past it, executeOperations
+//   waits until one of them finishes.
 // - TransformDPP<ParArch::CPU_MULTITHREAD> runs the per thread code of TransformDPP<ParArch::CPU>. Its work is split
 //   in chunks of one row of one plane of the output, which the workers of the pool consume.
 //
@@ -92,6 +94,8 @@ namespace fk {
         // The executions of one stream. The front one is running in the pool, the rest wait for it.
         class LaunchQueue {
         public:
+            static constexpr std::uint64_t MAX_PENDING = 1024;
+
             LaunchQueue() = default;
             LaunchQueue(const LaunchQueue&) = delete;
             LaunchQueue& operator=(const LaunchQueue&) = delete;
@@ -103,6 +107,7 @@ namespace fk {
             void enqueue(std::unique_ptr<Launch> launch) {
                 // Starts the workers, if they are not running yet, before anything is queued: this may throw
                 thread_pool::ThreadPool& pool = cpuThreadPool();
+                waitForRoom(pool);
                 Launch* start = nullptr;
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
@@ -174,6 +179,28 @@ namespace fk {
             }
 
         private:
+            // Waits until fewer than MAX_PENDING executions are pending, running queued chunks meanwhile on a worker.
+            // Several threads may enqueue at the same time, so the limit can be exceeded by a few executions.
+            void waitForRoom(thread_pool::ThreadPool& pool) {
+                const auto full = [this] { return m_enqueued - m_finishedAtomic.load(std::memory_order_acquire) >=
+                                                  MAX_PENDING; };
+                if (pool.isWorkerThread()) {
+                    while (true) {
+                        {
+                            std::lock_guard<std::mutex> lock(m_mutex);
+                            if (!full()) {
+                                return;
+                            }
+                        }
+                        if (!pool.runOneChunk()) {
+                            std::this_thread::yield();
+                        }
+                    }
+                }
+                std::unique_lock<std::mutex> lock(m_mutex);
+                m_condition.wait(lock, [&] { return !full(); });
+            }
+
             // Enqueues the launch in the pool. If that fails (the pool has been shut down, at program exit), the
             // executions of this stream can never run: they are dropped, so that nobody waits for them forever.
             std::exception_ptr startOrDrop(thread_pool::ThreadPool& pool, Launch& launch) noexcept {
