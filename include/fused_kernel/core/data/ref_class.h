@@ -16,59 +16,56 @@
 #define FK_REF_CLASS_H
 
 #ifndef NVRTC_COMPILER
+#include <atomic>
 #include <stdexcept>
 
 namespace fk {
 
+    // Reference counted handle. Copies share the counter, which is atomic: copies may be made and destroyed
+    // concurrently from different threads.
     class Ref {
         struct RefPtr {
-            int cnt{ 0 };
+            std::atomic<int> cnt{ 1 };
         };
         RefPtr* ref{ nullptr };
-        inline void initFromOther(const Ref& other) {
-            if (other.ref) {
-                ref = other.ref;
-                ref->cnt++;
+        inline void acquire(const Ref& other) {
+            ref = other.ref;
+            if (ref) {
+                ref->cnt.fetch_add(1, std::memory_order_relaxed);
             }
+        }
+        inline void release() {
+            if (ref && ref->cnt.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+                delete ref;
+            }
+            ref = nullptr;
         }
     public:
-        inline Ref() {
-            ref = new RefPtr;
-            if (ref != nullptr) {
-                ref->cnt = 1;
-            } else {
-                throw std::runtime_error("Failed to allocate memory for reference counter.");
-            }
-        }
+        inline Ref() : ref(new RefPtr) {}
 
         inline Ref(const Ref& other) {
-            initFromOther(other);
+            acquire(other);
         }
 
         Ref(Ref&&) = delete;
         Ref& operator=(Ref&&) = delete;
-        
+
         Ref& operator=(const Ref& other) {
-            if (this != &other) {
-                initFromOther(other);
+            if (this != &other && ref != other.ref) {
+                release();
+                acquire(other);
             }
             return *this;
         }
 
         virtual inline ~Ref() {
-            if (ref) {
-                ref->cnt--;
-                if (ref->cnt == 0) {
-                    delete ref;
-                }
-            }
+            release();
         }
         inline int getRefCount() const {
-            return ref ? ref->cnt : 0;
+            return ref ? ref->cnt.load(std::memory_order_relaxed) : 0;
         }
 
     };
-
 } // namespace fk
 #endif // NVRTC_COMPILER
 #endif // !FK_REF_CLASS_H

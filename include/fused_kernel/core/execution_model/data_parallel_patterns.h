@@ -26,6 +26,7 @@ namespace cg = cooperative_groups;
 #include <fused_kernel/core/execution_model/thread_fusion.h>
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 #include <fused_kernel/core/execution_model/active_threads.h>
+#include <fused_kernel/core/execution_model/cpu_thread_pool.h>
 #include <cmath>
 
 namespace fk { // namespace FusedKernel
@@ -270,20 +271,57 @@ namespace fk { // namespace FusedKernel
             }
         }
 
+        // Executes the work of the threads of row y of plane z
+        template <typename... IOps>
+        FK_HOST_FUSE void exec_row(const int y, const int z, const Details& details, const IOps&... iOps) {
+            const ActiveThreads activeThreads = getActiveThreads(details, get_arg<0>(iOps...));
+            for (int x = 0; x < static_cast<int>(activeThreads.x); ++x) {
+                exec_thread(Point{ x, y, z }, details, iOps...);
+            }
+        }
+
         template <typename... IOps>
         FK_HOST_FUSE void exec(const Details& details, const IOps&... iOps) {
             const ActiveThreads activeThreads = getActiveThreads(details, get_arg<0>(iOps...));
 
             for (int z = 0; z < activeThreads.z; ++z) {
                 for (int y = 0; y < activeThreads.y; ++y) {
-                    for (int x = 0; x < activeThreads.x; ++x) {
-                        const Point thread{ x, y, z };
-                        exec_thread(thread, details, iOps...);
-                    }
+                    exec_row(y, z, details, iOps...);
                 }
             }
         }
     };
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+    // Runs the per thread code of TransformDPP<ParArch::CPU>, split in one chunk per row of every plane of the output,
+    // on cpuThreadPool()
+    template <enum TF TFEN, typename DPPDetails, bool THREAD_DIVISIBLE>
+    struct TransformDPP<ParArch::CPU_MULTITHREAD, TFEN, DPPDetails, THREAD_DIVISIBLE,
+                        std::enable_if_t<!std::is_same_v<DPPDetails, void>, void>> {
+    private:
+        using SelfType = TransformDPP<ParArch::CPU_MULTITHREAD, TFEN, DPPDetails, THREAD_DIVISIBLE>;
+        using CPUDPP = TransformDPP<ParArch::CPU, TFEN, DPPDetails, THREAD_DIVISIBLE>;
+        using Details = DPPDetails;
+    public:
+        FK_STATIC_STRUCT(TransformDPP, SelfType)
+        static constexpr ParArch PAR_ARCH = ParArch::CPU_MULTITHREAD;
+        template <typename FirstIOp>
+        FK_HOST_FUSE ActiveThreads getActiveThreads(const Details& details, const FirstIOp& iOp) {
+            return CPUDPP::getActiveThreads(details, iOp);
+        }
+
+        // Enqueues the rows in the pool and returns; done is called when all of them have finished
+        template <typename... IOps>
+        FK_HOST_STATIC void exec(const cpu_multithread::Completion& done, const Details& details, const IOps&... iOps) {
+            const ActiveThreads activeThreads = getActiveThreads(details, get_arg<0>(iOps...));
+            const auto rows = static_cast<std::size_t>(activeThreads.y);
+            cpu_multithread::enqueueChunks(rows * activeThreads.z,
+                [details, rows, iOps...](const std::size_t chunk) {
+                    CPUDPP::exec_row(static_cast<int>(chunk % rows), static_cast<int>(chunk / rows), details, iOps...);
+                }, done);
+        }
+    };
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 
     template <enum ParArch PA, typename SequenceSelector>
     struct DivergentBatchTransformDPP;

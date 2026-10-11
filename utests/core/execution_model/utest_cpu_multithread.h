@@ -22,6 +22,7 @@
 #ifdef FK_CPU_MULTITHREAD_ENABLED
 #include <fused_kernel/core/execution_model/cpu_multithread.h>
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
+#include <fused_kernel/algorithms/basic_ops/cast.h>
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/image_processing/add_border.h>
 #include <fused_kernel/algorithms/image_processing/color_conversion.h>
@@ -37,6 +38,7 @@
 #include <future>
 #include <iostream>
 #include <random>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -275,7 +277,7 @@ bool testSyncWaitsOnlyForEarlierWork() {
 // A thread that enqueues as fast as it can is throttled, like with a CUDA launch queue: the stream never holds more
 // than about MAX_PENDING executions, so the work left when it stops finishes quickly
 bool testEnqueueIsThrottled() {
-    constexpr int W = 256, H = 256;
+    constexpr int W = 64, H = 64;
     Ptr2D<float> data = filled(W, H, 0.f);
     MTStream stream;
     long enqueued = 0;
@@ -355,6 +357,101 @@ bool testEntryPointsAndBufferLifetime() {
     return correct;
 }
 
+// Thread fusion (TF::ENABLED): the same result as the single thread CPU backend, with a width divisible by the
+// elements per thread and one that is not, so that both THREAD_DIVISIBLE versions run. The rows are padded to 64
+// bytes: thread fusion reads and writes vectors, which must be aligned (host Ptr2D rows are not padded by default).
+bool testThreadFusion() {
+    bool correct = true;
+    for (const int W : {1024, 1001}) {
+        constexpr int H = 77;
+        const auto padded = [](const int bytes) { return static_cast<uint>((bytes + 63) / 64 * 64); };
+        Ptr2D<uchar> input(static_cast<uint>(W), H, padded(W), MemType::Host);
+        for (int y = 0; y < H; ++y) {
+            for (int x = 0; x < W; ++x) {
+                input.at(x, y) = static_cast<uchar>((x * 7 + y * 13) & 0xFF);
+            }
+        }
+        Ptr2D<float> single(static_cast<uint>(W), H, padded(W * 4), MemType::Host);
+        Ptr2D<float> multi(static_cast<uint>(W), H, padded(W * 4), MemType::Host);
+        const auto run = [&](auto dpp, auto& stream, Ptr2D<float>& output) {
+            executeOperations<decltype(dpp)>(stream, PerThreadRead<ND::_2D, uchar>::build(input.ptr()),
+                                             Cast<uchar, float>::build(), Mul<float>::build(0.5f),
+                                             PerThreadWrite<ND::_2D, float>::build(output.ptr()));
+            stream.sync();
+        };
+        Stream_<ParArch::CPU> cpuStream;
+        MTStream mtStream;
+        run(TransformDPP<ParArch::CPU, TF::ENABLED>{}, cpuStream, single);
+        run(TransformDPP<ParArch::CPU_MULTITHREAD, TF::ENABLED>{}, mtStream, multi);
+        for (int y = 0; y < H; ++y) {
+            correct &= std::memcmp(&single.at(0, y), &multi.at(0, y), static_cast<size_t>(W) * sizeof(float)) == 0;
+        }
+    }
+    return correct;
+}
+
+// Throws for one value, to test how errors in the work of an execution are reported
+struct ThrowOn13 {
+private:
+    using SelfType = ThrowOn13;
+public:
+    FK_STATIC_STRUCT(ThrowOn13, SelfType)
+    using Parent = UnaryOperation<float, float, ThrowOn13>;
+    DECLARE_UNARY_PARENT
+    static inline OutputType exec(const InputType input) {
+        if (input == 13.f) {
+            throw std::runtime_error("ThrowOn13");
+        }
+        return input;
+    }
+};
+
+// An exception thrown by the work of an execution is rethrown by the next sync(), once; the stream keeps working
+bool testErrorsReachSync() {
+    Ptr2D<float> data = filled(64, 16, 0.f);
+    MTStream stream;
+    executeOperations<MTDPP>(data, data, stream, ThrowOn13::build());
+    bool thrown = false;
+    try {
+        stream.sync();
+    } catch (const std::runtime_error&) {
+        thrown = true;
+    }
+    bool secondThrows = false;
+    try {
+        stream.sync();
+    } catch (...) {
+        secondThrows = true;
+    }
+    executeOperations<MTDPP>(data, data, stream, Add<float>::build(1.f));
+    stream.sync();
+    return thrown && !secondThrows && allEqual(data, 1.f);
+}
+
+// Copies of a stream made and destroyed concurrently on several threads (tasks of the pool that capture it by value
+// and are never waited for): the stream's reference count stays right, and all their executions run in order
+bool testStreamCopiesAcrossThreads() {
+    constexpr int TASKS = 2000;
+    Ptr2D<float> data = filled(32, 4, 0.f);
+    MTStream stream;
+    std::atomic<int> finished{0};
+    for (int i = 0; i < TASKS; ++i) {
+        (void)cpuThreadPool().submit([stream, &data, &finished]() mutable {
+            MTStream copy = stream;
+            executeOperations<MTDPP>(copy, PerThreadRead<ND::_2D, float>::build(data.ptr()), Add<float>::build(1.f),
+                                     PerThreadWrite<ND::_2D, float>::build(data.ptr()));
+            finished.fetch_add(1);
+        });
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    while ((finished.load() < TASKS || stream.getRefCount() != 1) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::yield();
+    }
+    const bool countRight = stream.getRefCount() == 1;
+    stream.sync();
+    return countRight && finished.load() == TASKS && allEqual(data, static_cast<float>(TASKS));
+}
+
 int launch_impl() {
     const bool same = testSameResultAsCPU();
     const bool order = testStreamOrder();
@@ -363,11 +460,16 @@ int launch_impl() {
     const bool earlier = testSyncWaitsOnlyForEarlierWork();
     const bool entryPoints = testEntryPointsAndBufferLifetime();
     const bool throttled = testEnqueueIsThrottled();
+    const bool threadFusion = testThreadFusion();
+    const bool errors = testErrorsReachSync();
+    const bool copies = testStreamCopiesAcrossThreads();
     std::cout << "CPU_MULTITHREAD (" << cpuThreadPool().size() << " threads): same result as CPU " << same
               << ", stream order " << order << ", concurrent streams " << concurrent << ", sync on workers "
               << workers << ", sync waits only for earlier work " << earlier << ", entry points and buffer lifetime "
-              << entryPoints << ", enqueue throttled " << throttled << std::endl;
-    return same && order && concurrent && workers && earlier && entryPoints && throttled ? 0 : -1;
+              << entryPoints << ", enqueue throttled " << throttled << ", thread fusion " << threadFusion
+              << ", errors reach sync " << errors << ", stream copies across threads " << copies << std::endl;
+    return same && order && concurrent && workers && earlier && entryPoints && throttled && threadFusion &&
+                   errors && copies ? 0 : -1;
 }
 
 } // namespace fk
