@@ -34,7 +34,7 @@ jobs:
       - name: Configure CMake
         run: |
           cmake -G "Ninja" -DCMAKE_CXX_COMPILER="${{matrix.host_compiler}}" \
-          -B ${{steps.strings.outputs.build-output-dir}}  -DENABLE_HIP=OFF  -DENABLE_CUDA=OFF -DENABLE_CPU=ON \
+          -B ${{steps.strings.outputs.build-output-dir}}  -DENABLE_HIP=OFF  -DENABLE_CUDA=OFF -DENABLE_CPU=ON -DENABLE_CPU_MULTITHREAD=ON \
           -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
       - name: Build
         run: |

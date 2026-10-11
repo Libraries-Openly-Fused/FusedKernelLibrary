@@ -12,7 +12,7 @@ Deep per-topic docs live in `.github/skills/*/SKILL.md` (implementing operations
 
 Requires CMake >= 3.28, a C++20 host compiler, and CUDA (nvcc) or HIP (amdclang). Project policy and CI treat CUDA or HIP as required, but CMake degrades gracefully: without nvcc or amdclang it configures CPU-only and generates only `*_cpp` targets.
 
-Clone with `git clone --recursive` (or run `git submodule update --init` in an existing clone): the multithreaded CPU backend needs the `thread-pool` submodule. Without it the backend is **silently off** (a STATUS line only) and `utest_cpu_multithread_cpp` still passes, printing that it tested nothing; check the configure output for `CPU_MULTITHREAD backend (ENABLE_CPU_MULTITHREAD): ON`. CI checks out submodules.
+Clone with `git clone --recursive` (or run `git submodule update --init` in an existing clone): the multithreaded CPU backend needs the `thread-pool` submodule. Without it the backend is **silently off** (a STATUS line only) and `utest_cpu_multithread_cpp` still passes, printing that it tested nothing; check the configure output for `CPU_MULTITHREAD backend (ENABLE_CPU_MULTITHREAD): ON`. CI checks out submodules and configures with `-DENABLE_CPU_MULTITHREAD=ON`, so a missing submodule fails the configure instead of silently skipping the backend's tests.
 
 ```bash
 cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -S .   # configure
