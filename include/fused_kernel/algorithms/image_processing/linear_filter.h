@@ -25,6 +25,11 @@
 #include <fused_kernel/core/utils/utils.h>
 
 #include <type_traits>
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+#include <fused_kernel/core/execution_model/cpu_thread_pool.h>
+
+#include <cstddef>
+#endif
 
 namespace fk {
 
@@ -99,13 +104,16 @@ public:
     FK_STATIC_STRUCT(LinearFilterDPP, SelfType)
     static constexpr ParArch PAR_ARCH = ParArch::CPU;
 
+    // Computes output row oy. Used by exec() and by the CPU_MULTITHREAD
+    // version; the caller checks DPPDetails::valid(details).
     template <typename ReadIOps, typename MultiplyIOp,
               typename AccumulateIOp, typename WriteIOp>
-    FK_HOST_STATIC void exec(const DPPDetails& details,
-                             const ReadIOps& reads,
-                             const MultiplyIOp& multiply,
-                             const AccumulateIOp& accumulate,
-                             const WriteIOp& output) {
+    FK_HOST_STATIC void exec_row(const int oy,
+                                 const DPPDetails& details,
+                                 const ReadIOps& reads,
+                                 const MultiplyIOp& multiply,
+                                 const AccumulateIOp& accumulate,
+                                 const WriteIOp& output) {
         static_assert(isTuple_v<ReadIOps> &&
                       std::decay_t<ReadIOps>::size == 2,
                       "LinearFilterDPP needs image/coefficient Read IOps");
@@ -114,33 +122,81 @@ public:
                       "Multiply and accumulation must be Unary IOps");
         static_assert(isAnyWriteType<WriteIOp>,
                       "LinearFilterDPP needs a Write IOp");
-        if (!DPPDetails::valid(details)) return;
         const auto& image = get<0>(reads);
         const auto& coefficients = get<1>(reads);
-        for (int oy = 0; oy < details.height; ++oy) {
-            for (int ox = 0; ox < details.width; ++ox) {
-                T accumulator{};
-                for (int ky = 0; ky < details.kernelHeight; ++ky) {
-                    for (int kx = 0; kx < details.kernelWidth; ++kx) {
-                        const T value = Stage::readReplicate(
-                            details.width, details.height, image,
-                            ox + kx - details.anchorX,
-                            oy + ky - details.anchorY);
-                        const T coefficient =
-                            std::decay_t<decltype(coefficients)>::Operation::exec(
-                                Point{kx, ky, 0}, coefficients);
-                        const T product =
-                            make_tuple(value, coefficient) | multiply;
-                        accumulator =
-                            make_tuple(accumulator, product) | accumulate;
-                    }
+        for (int ox = 0; ox < details.width; ++ox) {
+            T accumulator{};
+            for (int ky = 0; ky < details.kernelHeight; ++ky) {
+                for (int kx = 0; kx < details.kernelWidth; ++kx) {
+                    const T value = Stage::readReplicate(
+                        details.width, details.height, image,
+                        ox + kx - details.anchorX,
+                        oy + ky - details.anchorY);
+                    const T coefficient =
+                        std::decay_t<decltype(coefficients)>::Operation::exec(
+                            Point{kx, ky, 0}, coefficients);
+                    const T product =
+                        make_tuple(value, coefficient) | multiply;
+                    accumulator =
+                        make_tuple(accumulator, product) | accumulate;
                 }
-                WriteIOp::Operation::exec(Point{ox, oy, 0},
-                                          accumulator, output);
             }
+            WriteIOp::Operation::exec(Point{ox, oy, 0},
+                                      accumulator, output);
+        }
+    }
+
+    template <typename ReadIOps, typename MultiplyIOp,
+              typename AccumulateIOp, typename WriteIOp>
+    FK_HOST_STATIC void exec(const DPPDetails& details,
+                             const ReadIOps& reads,
+                             const MultiplyIOp& multiply,
+                             const AccumulateIOp& accumulate,
+                             const WriteIOp& output) {
+        if (!DPPDetails::valid(details)) return;
+        for (int oy = 0; oy < details.height; ++oy) {
+            exec_row(oy, details, reads, multiply, accumulate, output);
         }
     }
 };
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+// Runs the per row code of LinearFilterDPP<ParArch::CPU> on cpuThreadPool(),
+// one chunk per output row, so both give the same results. As in the GPU
+// version, the output must not alias the image or the coefficients: rows
+// run concurrently, and a row reads the input rows around it.
+template <typename DPPDetails>
+struct LinearFilterDPP<ParArch::CPU_MULTITHREAD, DPPDetails> {
+private:
+    using SelfType = LinearFilterDPP<ParArch::CPU_MULTITHREAD, DPPDetails>;
+    using CPUDPP = LinearFilterDPP<ParArch::CPU, DPPDetails>;
+
+public:
+    FK_STATIC_STRUCT(LinearFilterDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::CPU_MULTITHREAD;
+
+    // Enqueues the rows in the pool and returns; done is called when all of
+    // them have finished. Invalid details enqueue no rows (nothing is
+    // written), as the CPU version.
+    template <typename ReadIOps, typename MultiplyIOp,
+              typename AccumulateIOp, typename WriteIOp>
+    FK_HOST_STATIC void exec(const cpu_multithread::Completion& done,
+                             const DPPDetails& details,
+                             const ReadIOps& reads,
+                             const MultiplyIOp& multiply,
+                             const AccumulateIOp& accumulate,
+                             const WriteIOp& output) {
+        const std::size_t rows = DPPDetails::valid(details)
+            ? static_cast<std::size_t>(details.height) : 0;
+        cpu_multithread::enqueueChunks(rows,
+            [details, reads, multiply, accumulate, output](
+                const std::size_t row) {
+                CPUDPP::exec_row(static_cast<int>(row), details, reads,
+                                 multiply, accumulate, output);
+            }, done);
+    }
+};
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 
 #if defined(__NVCC__) || defined(__HIPCC__)
 template <ParArch PA, typename DPPDetails>
@@ -284,6 +340,48 @@ inline bool executeBoxFilter(const DPPDetails& details,
         multiply, accumulate, output, stream);
 }
 #endif // defined(__NVCC__) || defined(__HIPCC__)
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+// Enqueues LinearFilterDPP<ParArch::CPU_MULTITHREAD> on the stream and
+// returns; returns false, enqueueing nothing, if the details are not valid.
+// The execution keeps copies of the IOps. As with a GPU stream, the buffers
+// they read and write must stay valid until it has finished (sync()), and
+// the output must not alias the image or the coefficients.
+template <typename DPPDetails, typename ReadIOps,
+          typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp>
+inline bool executeLinearFilter(const DPPDetails& details,
+                                const ReadIOps& reads,
+                                const MultiplyIOp& multiply,
+                                const AccumulateIOp& accumulate,
+                                const WriteIOp& output,
+                                Stream_<ParArch::CPU_MULTITHREAD>& stream) {
+    if (!DPPDetails::valid(details)) return false;
+    stream.enqueue([=](const cpu_multithread::Completion& done) {
+        LinearFilterDPP<ParArch::CPU_MULTITHREAD, DPPDetails>::exec(
+            done, details, reads, multiply, accumulate, output);
+    });
+    return true;
+}
+
+template <typename DPPDetails, typename ImageRead, typename WriteIOp>
+inline bool executeBoxFilter(const DPPDetails& details,
+                             const ImageRead& image,
+                             const WriteIOp& output,
+                             const typename DPPDetails::ValueType scale,
+                             Stream_<ParArch::CPU_MULTITHREAD>& stream) {
+    using T = typename DPPDetails::ValueType;
+    if (!DPPDetails::valid(details)) return false;
+    const T coefficient = scale /
+        static_cast<T>(details.kernelWidth * details.kernelHeight);
+    const auto coefficientRead = ConstantFilterRead<T>::build(coefficient);
+    const auto multiply = Mul<T, T, T, UnaryType>::build();
+    const auto accumulate = Add<T, T, T, UnaryType>::build();
+    // executeLinearFilter copies these locals into the execution
+    return executeLinearFilter(
+        details, make_tuple(image, coefficientRead),
+        multiply, accumulate, output, stream);
+}
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 
 } // namespace fk
 

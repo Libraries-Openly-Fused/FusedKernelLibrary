@@ -33,6 +33,21 @@ namespace fk {
     constexpr MemType defaultMemType = MemType::Host;
 #endif
 
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+    namespace cpu_multithread {
+        // ParArch::CPU_MULTITHREAD executions read and write ptr() from the CPU, so it must be host memory (Host or
+        // HostPinned). With Device and DeviceAndPinned memory (defaultMemType in CUDA and HIP builds) ptr() is a device
+        // pointer: the CPU_MULTITHREAD helpers that take a Ptr (upload, download, setTo) throw std::runtime_error.
+        inline void requireHostMemory(const MemType memType, const char* const what) {
+            if (memType != MemType::Host && memType != MemType::HostPinned) {
+                throw std::runtime_error(std::string(what) +
+                                         ": ParArch::CPU_MULTITHREAD needs Host or HostPinned memory (ptr() of Device "
+                                         "and DeviceAndPinned memory is a device pointer)");
+            }
+        }
+    } // namespace cpu_multithread
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+
     template <enum ND D, typename T>
     struct PtrImpl;
 
@@ -670,6 +685,22 @@ namespace fk {
         inline void upload(Stream& stream) {}
         inline void download(Stream& stream) {}
 #endif // defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED)
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+        // ParArch::CPU_MULTITHREAD executions use ptr() directly from the CPU, so there is nothing to copy and these
+        // are no-ops. They are ordered with the executions of the stream as the GPU ones are: the executions enqueued
+        // after upload() see what the host wrote before it, and after download() and sync() the host sees what the
+        // executions enqueued before download() wrote. Unlike DeviceAndPinned memory there is a single buffer: the host
+        // must not access it while executions that use it are pending, and after sync() it also sees what executions
+        // enqueued after download() wrote. The memory must be Host or HostPinned: with Device or DeviceAndPinned memory
+        // (defaultMemType in CUDA and HIP builds) ptr() is a device pointer, and they throw std::runtime_error.
+        inline void upload(Stream_<ParArch::CPU_MULTITHREAD>&) {
+            cpu_multithread::requireHostMemory(type, "Ptr::upload");
+        }
+        inline void download(Stream_<ParArch::CPU_MULTITHREAD>&) {
+            cpu_multithread::requireHostMemory(type, "Ptr::download");
+        }
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 
         inline T at(const Point p) const {
             if (type != MemType::Device) {

@@ -23,6 +23,8 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <stdexcept>
 #include <type_traits>
 #include <vector>
 
@@ -44,9 +46,54 @@ static_assert(!MorphologyDPP<ParArch::CPU, Details>::
               template validReducerCount<
                   Tuple<MinIOp, MaxIOp, MinIOp, MaxIOp, MinIOp>>);
 static_assert(Details::MAX_MASK_WIDTH == 7 && Details::MAX_MASK_HEIGHT == 7);
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+static_assert(MorphologyDPP<ParArch::CPU_MULTITHREAD, Details>::PAR_ARCH ==
+              ParArch::CPU_MULTITHREAD);
+static_assert(MorphologyDPP<ParArch::CPU_MULTITHREAD, Details>::
+              template validReducerCount<Tuple<MinIOp, MaxIOp, MinIOp, MaxIOp>>);
+static_assert(!MorphologyDPP<ParArch::CPU_MULTITHREAD, Details>::
+              template validReducerCount<Tuple<>>);
+#endif
+
+size_t pixelIndex(const int x, const int y, const int width) {
+    return static_cast<size_t>(y * width + x);
+}
 
 float inputValue(const int x, const int y) {
     return static_cast<float>((x * 17 + y * 29) % 101 - 50) * 0.125f;
+}
+
+std::vector<float> makeInput(const Details& details) {
+    std::vector<float> input(
+        static_cast<size_t>(details.width * details.height));
+    for (int y = 0; y < details.height; ++y)
+        for (int x = 0; x < details.width; ++x)
+            input[pixelIndex(x, y, details.width)] = inputValue(x, y);
+    return input;
+}
+
+// A host image of details' size, read and written through RawPtr
+RawPtr<ND::_2D, float> hostPtr(std::vector<float>& data,
+                               const Details& details) {
+    const auto width = static_cast<uint>(details.width);
+    return RawPtr<ND::_2D, float>{
+        data.data(), PtrDims<ND::_2D>(width,
+                                      static_cast<uint>(details.height),
+                                      width * static_cast<uint>(
+                                                  sizeof(float)))};
+}
+
+template <typename InputPtr>
+auto makeRead(const InputPtr& input) {
+    return PerThreadRead<ND::_2D, float>::build(input)
+        .then(Mul<float>::build(2.f))
+        .then(Add<float>::build(1.f));
+}
+
+template <typename OutputPtr>
+auto makeWrite(const OutputPtr& output) {
+    return Mul<float>::build(0.5f)
+        .then(PerThreadWrite<ND::_2D, float>::build(output));
 }
 
 std::vector<float> oracle(const std::vector<float>& original,
@@ -67,7 +114,7 @@ std::vector<float> oracle(const std::vector<float>& original,
                     const int sy = std::clamp(y + my - anchorY, 0, height - 1);
                     for (int mx = 0; mx < maskW; ++mx) {
                         const int sx = std::clamp(x + mx - anchorX, 0, width - 1);
-                        const float sample = current[sy * width + sx];
+                        const float sample = current[pixelIndex(sx, sy, width)];
                         if (first) {
                             value = sample;
                             first = false;
@@ -77,7 +124,7 @@ std::vector<float> oracle(const std::vector<float>& original,
                         }
                     }
                 }
-                next[y * width + x] = value;
+                next[pixelIndex(x, y, width)] = value;
             }
         }
         current.swap(next);
@@ -86,81 +133,297 @@ std::vector<float> oracle(const std::vector<float>& original,
     return current;
 }
 
-template <typename Reducers>
-bool runCpuCase(const char* name, const Details& details,
-                const Reducers& reducers,
-                const std::vector<bool>& erodePasses) {
-    std::vector<float> input(details.width * details.height);
-    std::vector<float> output(input.size(), -777.f);
-    for (int y = 0; y < details.height; ++y)
-        for (int x = 0; x < details.width; ++x)
-            input[y * details.width + x] = inputValue(x, y);
+std::vector<float> oracle(const std::vector<float>& original,
+                          const Details& details,
+                          const std::vector<bool>& erodePasses) {
+    return oracle(original, details.width, details.height,
+                  details.maskW, details.maskH,
+                  details.anchorX, details.anchorY, erodePasses);
+}
 
-    const RawPtr<ND::_2D, float> inputPtr{
-        input.data(), PtrDims<ND::_2D>(details.width, details.height,
-                                      details.width * sizeof(float))};
-    const RawPtr<ND::_2D, float> outputPtr{
-        output.data(), PtrDims<ND::_2D>(details.width, details.height,
-                                       details.width * sizeof(float))};
-    const auto read = PerThreadRead<ND::_2D, float>::build(inputPtr)
-        .then(Mul<float>::build(2.f))
-        .then(Add<float>::build(1.f));
-    const auto write = Mul<float>::build(0.5f)
-        .then(PerThreadWrite<ND::_2D, float>::build(outputPtr));
-
-    MorphologyDPP<ParArch::CPU, Details>::exec(
-        details, read, write, reducers);
-    const auto expected = oracle(
-        input, details.width, details.height,
-        details.maskW, details.maskH, details.anchorX, details.anchorY,
-        erodePasses);
-    for (size_t i = 0; i < output.size(); ++i) {
-        if (std::fabs(output[i] - expected[i]) > 1e-6f) {
-            std::printf("CPU %s index=%zu got=%g expected=%g\n",
-                        name, i, output[i], expected[i]);
+bool matchesOracle(const char* backend, const char* name,
+                   const std::vector<float>& got,
+                   const std::vector<float>& expected) {
+    for (size_t i = 0; i < got.size(); ++i) {
+        if (std::fabs(got[i] - expected[i]) > 1e-6f) {
+            std::printf("%s %s index=%zu got=%g expected=%g\n",
+                        backend, name, i, got[i], expected[i]);
             return false;
         }
     }
     return true;
 }
 
+// Runs the case with MorphologyDPP<ParArch::CPU> and returns its output in
+// result. With inPlace, the output is written over the input.
+template <typename Reducers>
+bool runCpuCase(const char* name, const Details& details,
+                const Reducers& reducers,
+                const std::vector<bool>& erodePasses, const bool inPlace,
+                std::vector<float>& result) {
+    const std::vector<float> original = makeInput(details);
+    std::vector<float> input = original;
+    std::vector<float> output(input.size(), -777.f);
+    std::vector<float>& target = inPlace ? input : output;
+
+    MorphologyDPP<ParArch::CPU, Details>::exec(
+        details, makeRead(hostPtr(input, details)),
+        makeWrite(hostPtr(target, details)), reducers);
+    result = target;
+    return matchesOracle("CPU", name, target,
+                         oracle(original, details, erodePasses));
+}
+
+#if defined(__NVCC__) || defined(__HIPCC__) || \
+    defined(FK_CPU_MULTITHREAD_ENABLED)
+// Launches the case on stream through the entry point a user would call for
+// these reducers
+template <typename Reducers, typename ReadIOp, typename WriteIOp,
+          ParArch PA>
+bool executeCase(const Details& details, const ReadIOp& read,
+                 const WriteIOp& write, const Reducers& reducers,
+                 Stream_<PA>& stream) {
+    if constexpr (std::is_same_v<Reducers, Tuple<MinIOp>>) {
+        return executeErode(details, read, write, stream);
+    } else if constexpr (std::is_same_v<Reducers, Tuple<MaxIOp>>) {
+        return executeDilate(details, read, write, stream);
+    } else if constexpr (std::is_same_v<Reducers,
+                                        Tuple<MinIOp, MaxIOp>>) {
+        return executeOpen(details, read, write, stream);
+    } else if constexpr (std::is_same_v<Reducers,
+                                        Tuple<MaxIOp, MinIOp>>) {
+        return executeClose(details, read, write, stream);
+    } else {
+        return executeMorphology(details, read, write, reducers, stream);
+    }
+}
+#endif
+
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+using MTStream = Stream_<ParArch::CPU_MULTITHREAD>;
+
+bool sameBytes(const char* name, const std::vector<float>& got,
+               const std::vector<float>& cpuResult) {
+    if (got.size() != cpuResult.size()) {
+        std::printf("CPU_MULTITHREAD %s size differs from ParArch::CPU\n",
+                    name);
+        return false;
+    }
+    for (size_t i = 0; i < got.size(); ++i) {
+        if (std::memcmp(&got[i], &cpuResult[i], sizeof(float)) != 0) {
+            std::printf("CPU_MULTITHREAD %s index=%zu got=%g, ParArch::CPU "
+                        "got=%g\n", name, i, got[i], cpuResult[i]);
+            return false;
+        }
+    }
+    return true;
+}
+
+// Runs the case on a CPU_MULTITHREAD stream, whose output must be
+// bit-identical to the ParArch::CPU one
+template <typename Reducers>
+bool runMtCase(const char* name, const Details& details,
+               const Reducers& reducers,
+               const std::vector<bool>& erodePasses, const bool inPlace,
+               const std::vector<float>& cpuResult) {
+    const std::vector<float> original = makeInput(details);
+    std::vector<float> input = original;
+    std::vector<float> output(input.size(), -777.f);
+    std::vector<float>& target = inPlace ? input : output;
+
+    MTStream stream;
+    const bool launched = executeCase(
+        details, makeRead(hostPtr(input, details)),
+        makeWrite(hostPtr(target, details)), reducers, stream);
+    stream.sync();
+    if (!launched) {
+        std::printf("CPU_MULTITHREAD %s launcher rejected valid details\n",
+                    name);
+        return false;
+    }
+    return sameBytes(name, target, cpuResult) &&
+           matchesOracle("CPU_MULTITHREAD", name, target,
+                         oracle(original, details, erodePasses));
+}
+
+// Three executions on one stream, each one reading what the previous one
+// wrote (the last one in place), enqueued without waiting: each one must
+// start only after the last pass of the previous one has written its output
+bool runMtChained() {
+    const Details details{97, 61, 5, 3, 2, 1};
+    const Details closeDetails{97, 61, 3, 5, 1, 2};
+    const std::vector<float> original = makeInput(details);
+    const auto minOp = MinReducer::build();
+    const auto maxOp = MaxReducer::build();
+
+    std::vector<float> cpuA = original;
+    std::vector<float> cpuB(original.size(), -777.f);
+    std::vector<float> cpuC(original.size(), -777.f);
+    using CPUDPP = MorphologyDPP<ParArch::CPU, Details>;
+    CPUDPP::exec(details, makeRead(hostPtr(cpuA, details)),
+                 makeWrite(hostPtr(cpuB, details)), make_tuple(minOp));
+    CPUDPP::exec(details, makeRead(hostPtr(cpuB, details)),
+                 makeWrite(hostPtr(cpuC, details)), make_tuple(maxOp));
+    CPUDPP::exec(closeDetails, makeRead(hostPtr(cpuC, details)),
+                 makeWrite(hostPtr(cpuC, details)),
+                 make_tuple(maxOp, minOp));
+
+    std::vector<float> a = original;
+    std::vector<float> b(original.size(), -777.f);
+    std::vector<float> c(original.size(), -777.f);
+    MTStream stream;
+    bool launched = executeErode(details, makeRead(hostPtr(a, details)),
+                                 makeWrite(hostPtr(b, details)), stream);
+    launched = executeDilate(details, makeRead(hostPtr(b, details)),
+                             makeWrite(hostPtr(c, details)), stream) &&
+               launched;
+    launched = executeClose(closeDetails, makeRead(hostPtr(c, details)),
+                            makeWrite(hostPtr(c, details)), stream) &&
+               launched;
+    stream.sync();
+    if (!launched) {
+        std::printf("CPU_MULTITHREAD chained launcher rejected valid "
+                    "details\n");
+        return false;
+    }
+    const auto expectedB = oracle(original, details, {true});
+    const auto expectedC = oracle(oracle(expectedB, details, {false}),
+                                  closeDetails, {false, true});
+    return sameBytes("chained-erode", b, cpuB) &&
+           sameBytes("chained-dilate-close", c, cpuC) &&
+           matchesOracle("CPU_MULTITHREAD", "chained-erode", b, expectedB) &&
+           matchesOracle("CPU_MULTITHREAD", "chained-dilate-close", c,
+                         expectedC);
+}
+
+// Invalid details are rejected by every entry point, enqueueing nothing
+bool runMtInvalid() {
+    const Details invalid{10, 10, 9, 3, 4, 1};
+    std::vector<float> input(100, 1.f);
+    std::vector<float> output(100, -777.f);
+    const auto read = makeRead(hostPtr(input, invalid));
+    const auto write = makeWrite(hostPtr(output, invalid));
+    MTStream stream;
+    bool launched = executeErode(invalid, read, write, stream);
+    launched = executeDilate(invalid, read, write, stream) || launched;
+    launched = executeOpen(invalid, read, write, stream) || launched;
+    launched = executeClose(invalid, read, write, stream) || launched;
+    launched = executeMorphology(
+                   invalid, read, write,
+                   make_tuple(MinReducer::build(), MaxReducer::build(),
+                              MinReducer::build()), stream) || launched;
+    stream.sync();
+    const bool untouched = std::all_of(
+        output.begin(), output.end(),
+        [](const float value) { return value == -777.f; });
+    if (launched || !untouched) {
+        std::printf("CPU_MULTITHREAD invalid morphology details accepted\n");
+        return false;
+    }
+    return true;
+}
+
+// Throws for one value, to test the errors of the work of an execution. Host
+// and device, as the IOp folds that call it, but it only throws on the host.
+struct ThrowOn13 {
+private:
+    using SelfType = ThrowOn13;
+public:
+    FK_STATIC_STRUCT(ThrowOn13, SelfType)
+    using Parent = UnaryOperation<float, float, ThrowOn13>;
+    DECLARE_UNARY_PARENT
+    FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
+#if !defined(__CUDA_ARCH__) && !defined(__HIP_DEVICE_COMPILE__)
+        if (input == 13.f) {
+            throw std::runtime_error("ThrowOn13");
+        }
+#endif
+        return input;
+    }
+};
+
+bool syncThrowsOnce(MTStream& stream) {
+    bool thrown = false;
+    try {
+        stream.sync();
+    } catch (const std::runtime_error&) {
+        thrown = true;
+    }
+    bool thrownAgain = false;
+    try {
+        stream.sync();
+    } catch (...) {
+        thrownAgain = true;
+    }
+    return thrown && !thrownAgain;
+}
+
+// An exception thrown in the load phase skips the passes (nothing is
+// written), one thrown in the last pass ends the execution, both reach
+// sync(), and the stream keeps working
+bool runMtErrors() {
+    const Details details{41, 23, 3, 3, 1, 1};
+    MTStream stream;
+
+    std::vector<float> input = makeInput(details);
+    input[pixelIndex(20, 11, details.width)] = 13.f;
+    std::vector<float> output(input.size(), -777.f);
+    executeOpen(details,
+                PerThreadRead<ND::_2D, float>::build(hostPtr(input, details))
+                    .then(ThrowOn13::build()),
+                makeWrite(hostPtr(output, details)), stream);
+    const bool loadThrew = syncThrowsOnce(stream);
+    const bool untouched = std::all_of(
+        output.begin(), output.end(),
+        [](const float value) { return value == -777.f; });
+
+    std::vector<float> thirteens(input.size(), 13.f);
+    executeErode(details,
+                 PerThreadRead<ND::_2D, float>::build(
+                     hostPtr(thirteens, details)),
+                 ThrowOn13::build().then(PerThreadWrite<ND::_2D, float>::build(
+                     hostPtr(output, details))),
+                 stream);
+    const bool writeThrew = syncThrowsOnce(stream);
+
+    std::vector<float> cpuResult;
+    const bool cpuOk = runCpuCase("after-errors", details,
+                                  make_tuple(MaxReducer::build()), {false},
+                                  false, cpuResult);
+    const std::vector<float> original = makeInput(details);
+    std::vector<float> source = original;
+    std::fill(output.begin(), output.end(), -777.f);
+    executeDilate(details, makeRead(hostPtr(source, details)),
+                  makeWrite(hostPtr(output, details)), stream);
+    stream.sync();
+    if (!loadThrew || !untouched || !writeThrew) {
+        std::printf("CPU_MULTITHREAD morphology errors: load threw=%d, "
+                    "output untouched=%d, write threw=%d\n",
+                    loadThrew, untouched, writeThrew);
+        return false;
+    }
+    return cpuOk && sameBytes("after-errors", output, cpuResult);
+}
+#endif // FK_CPU_MULTITHREAD_ENABLED
+
 #if defined(__NVCC__) || defined(__HIPCC__)
 template <typename Reducers>
 bool runGpuCase(const char* name, const Details& details,
                 const Reducers& reducers,
                 const std::vector<bool>& erodePasses) {
-    std::vector<float> hostInput(details.width * details.height);
-    for (int y = 0; y < details.height; ++y)
-        for (int x = 0; x < details.width; ++x)
-            hostInput[y * details.width + x] = inputValue(x, y);
+    const std::vector<float> hostInput = makeInput(details);
 
     Ptr2D<float> input(details.width, details.height);
     Ptr2D<float> output(details.width, details.height);
     for (int y = 0; y < details.height; ++y)
         for (int x = 0; x < details.width; ++x)
-            input.at(Point{x, y, 0}) = hostInput[y * details.width + x];
+            input.at(Point{x, y, 0}) =
+                hostInput[pixelIndex(x, y, details.width)];
 
     Stream stream;
     input.upload(stream);
-    const auto read = PerThreadRead<ND::_2D, float>::build(input)
-        .then(Mul<float>::build(2.f))
-        .then(Add<float>::build(1.f));
-    const auto write = Mul<float>::build(0.5f)
-        .then(PerThreadWrite<ND::_2D, float>::build(output));
-    bool launched = false;
-    if constexpr (std::is_same_v<Reducers, Tuple<MinIOp>>) {
-        launched = executeErode(details, read, write, stream);
-    } else if constexpr (std::is_same_v<Reducers, Tuple<MaxIOp>>) {
-        launched = executeDilate(details, read, write, stream);
-    } else if constexpr (std::is_same_v<Reducers,
-                                        Tuple<MinIOp, MaxIOp>>) {
-        launched = executeOpen(details, read, write, stream);
-    } else if constexpr (std::is_same_v<Reducers,
-                                        Tuple<MaxIOp, MinIOp>>) {
-        launched = executeClose(details, read, write, stream);
-    } else {
-        launched = executeMorphology(details, read, write, reducers, stream);
-    }
+    const bool launched = executeCase(details, makeRead(input),
+                                      makeWrite(output), reducers, stream);
     if (!launched) {
         std::printf("GPU %s launcher rejected valid details\n", name);
         return false;
@@ -168,13 +431,10 @@ bool runGpuCase(const char* name, const Details& details,
     output.download(stream);
     stream.sync();
 
-    const auto expected = oracle(
-        hostInput, details.width, details.height,
-        details.maskW, details.maskH, details.anchorX, details.anchorY,
-        erodePasses);
+    const auto expected = oracle(hostInput, details, erodePasses);
     for (int y = 0; y < details.height; ++y) {
         for (int x = 0; x < details.width; ++x) {
-            const size_t i = static_cast<size_t>(y * details.width + x);
+            const size_t i = pixelIndex(x, y, details.width);
             const float got = output.at(Point{x, y, 0});
             if (std::fabs(got - expected[i]) > 1e-6f) {
                 std::printf("GPU %s (%d,%d) got=%g expected=%g\n",
@@ -187,13 +447,24 @@ bool runGpuCase(const char* name, const Details& details,
 }
 #endif
 
+// Runs the case on ParArch::CPU, then on CPU_MULTITHREAD (bit-identical to
+// CPU) if enabled, and on the GPU if compiled for it. With inPlace the
+// output is written over the input, which the GPU version does not support.
 template <typename Reducers>
 bool runCase(const char* name, const Details& details,
              const Reducers& reducers,
-             const std::vector<bool>& erodePasses) {
-    bool ok = runCpuCase(name, details, reducers, erodePasses);
+             const std::vector<bool>& erodePasses,
+             const bool inPlace = false) {
+    std::vector<float> cpuResult;
+    bool ok = runCpuCase(name, details, reducers, erodePasses, inPlace,
+                         cpuResult);
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    ok = runMtCase(name, details, reducers, erodePasses, inPlace,
+                   cpuResult) && ok;
+#endif
 #if defined(__NVCC__) || defined(__HIPCC__)
-    ok = runGpuCase(name, details, reducers, erodePasses) && ok;
+    if (!inPlace)
+        ok = runGpuCase(name, details, reducers, erodePasses) && ok;
 #endif
     return ok;
 }
@@ -221,6 +492,21 @@ int launch_impl() {
     ok = runCase("four-pass", Details{27, 13, 3, 3, 1, 1},
                  make_tuple(maxOp, minOp, minOp, maxOp),
                  {false, true, true, false}) && ok;
+    ok = runCase("four-pass-large", Details{301, 203, 7, 5, 3, 2},
+                 make_tuple(maxOp, minOp, maxOp, minOp),
+                 {false, true, false, true}) && ok;
+    ok = runCase("erode-3x3-in-place", Details{37, 19, 3, 3, 1, 1},
+                 make_tuple(minOp), {true}, true) && ok;
+    ok = runCase("close-in-place", Details{33, 15, 5, 3, 2, 1},
+                 make_tuple(maxOp, minOp), {false, true}, true) && ok;
+    ok = runCase("four-pass-large-in-place", Details{301, 203, 7, 5, 3, 2},
+                 make_tuple(maxOp, minOp, maxOp, minOp),
+                 {false, true, false, true}, true) && ok;
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    ok = runMtChained() && ok;
+    ok = runMtInvalid() && ok;
+    ok = runMtErrors() && ok;
+#endif
 
     if (Details::valid(Details{10, 10, 9, 3, 4, 1}) ||
         Details::valid(Details{10, 10, 3, 3, 3, 1}) ||

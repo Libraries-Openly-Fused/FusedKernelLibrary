@@ -1,6 +1,6 @@
 ---
 name: fkl-implementing-data-parallel-patterns
-description: Implement a new Data Parallel Pattern (DPP) for the Fused Kernel Library. Covers the anatomy of a DPP struct, device-side invocation of IOps (the IOp-form table, reading inputs, fusing epilogues into the write), compile-time vs runtime types, vector types, and testing. Use when adding an algorithm to FKL that requires thread coordination, or when debugging a DPP's internal device execution.
+description: Implement a new Data Parallel Pattern (DPP) for the Fused Kernel Library. Covers the anatomy of a DPP struct, device-side invocation of IOps (the IOp-form table, reading inputs, fusing epilogues into the write), compile-time vs runtime types, vector types, the ParArch::CPU and ParArch::CPU_MULTITHREAD (thread pool) implementations, and testing. Use when adding an algorithm to FKL that requires thread coordination, or when debugging a DPP's internal device execution.
 ---
 
 # Implementing FKL Data Parallel Patterns
@@ -10,11 +10,17 @@ description: Implement a new Data Parallel Pattern (DPP) for the Fused Kernel Li
 A DPP is composed of three parts:
 
 - Executor implementation: as in include/fused_kernel/core/execution_model/executors.h
-- For GPU implementations, a kernel function that gets the DPP parameters and internally calls the DPP (for CPU, nothing).
+- For GPU implementations, a kernel function that gets the DPP parameters and internally calls the DPP (for CPU, nothing;
+  for CPU_MULTITHREAD, the executor/entry function enqueues the DPP on the stream, see below).
 - The DPP implementation.
 
-Every DPP must always have a single thread CPU implementation using the ParArch::CPU and then it can have implementations
-for other ParArchs, as in include/fused_kernel/core/execution_model/parallel_architectures.h
+Every DPP must always have a single thread CPU implementation using the ParArch::CPU, and a ParArch::CPU_MULTITHREAD
+implementation that reuses it (see "The ParArch::CPU_MULTITHREAD implementation" below), and then it can have
+implementations for other ParArchs, as in include/fused_kernel/core/execution_model/parallel_architectures.h
+
+The only exception are the attention DPPs in include/fused_kernel/algorithms/attention/ (softmax, flash_attention,
+flash_attention_mma, flash_decode): the repo owner decided that they remain GPU-only, with no ParArch::CPU nor
+ParArch::CPU_MULTITHREAD implementation. Do not take them as a precedent for new DPPs.
 
 Every DPP is a STATELESS struct: static `exec()`. The exec function will get as parameters, DPP details which are external parameters
 not directly related to the data being processed, and IOps (Instantiable Operations) which will contain the implementation
@@ -132,6 +138,115 @@ struct MyDPP {
 
 - **Passing `iop.params` instead of `iop`:** If you are writing a DPP and pass `iop.params` to an operation's `exec()`, it will route through the wrong template fold path and fail to compile. Always pass the whole IOp wrapper.
 
+## The ParArch::CPU_MULTITHREAD implementation
+
+The multithreaded CPU backend runs DPP work on `fk::cpuThreadPool()`, one pool shared by all streams, with one
+worker per hardware thread. It exists when `FK_CPU_MULTITHREAD_ENABLED` is defined (CMake option
+`ENABLE_CPU_MULTITHREAD`, which needs the `thread-pool` submodule). Reference implementation:
+`TransformDPP<ParArch::CPU>::exec_row` and `TransformDPP<ParArch::CPU_MULTITHREAD>` in
+`core/execution_model/data_parallel_patterns.h`, and `Executor<TransformDPP<ParArch::CPU_MULTITHREAD, TFEN, void>>`
+in `core/execution_model/executors.h`.
+
+The layering rule (mandatory, decided by the repo owner), the same as with a GPU:
+
+- **The stream only orders executions.** `Stream_<ParArch::CPU_MULTITHREAD>::enqueue(start)` queues an execution;
+  when the previous executions of the stream have finished, it calls `start(const cpu_multithread::Completion& done)`
+  on some thread. The stream never touches the pool.
+- **The DPP never sees a stream.** Like a GPU kernel, when its execution starts the DPP splits its work into chunks,
+  enqueues them with `cpu_multithread::enqueueChunks(numChunks, chunkFunction, onComplete)`, returns, and calls the
+  `Completion` exactly once when all its work has finished (passing `done` as `onComplete` does that, forwarding the
+  first exception a chunk threw).
+- **Only executors and entry functions use the stream**: they validate synchronously, then
+  `stream.enqueue(...)` a lambda that calls `DPP::exec(done, ...)`.
+- **The CPU version exposes `exec_row`**: the body of its outer row loop, as a public static function used by both
+  its own `exec()` and the CPU_MULTITHREAD `exec()` (a multi-phase DPP exposes one per phase instead, like
+  MorphologyDPP's `load_row`/`reduce_row`/`reduce_write_row`). Both run the same per-row code, so their results match:
+  integer results bit for bit; float results can differ in the last bits only, because the compiler may contract
+  `a * b + c` into a fused multiply-add differently where the shared code is inlined.
+
+```cpp
+template <typename DPPDetails>
+struct MyDPP<ParArch::CPU, DPPDetails> {
+    // ... SelfType, FK_STATIC_STRUCT, PAR_ARCH = ParArch::CPU, validity helpers ...
+    template <typename InputIOp, typename OutputIOp>
+    FK_HOST_FUSE void exec_row(const int y, const DPPDetails& details,
+                               const InputIOp& input, const OutputIOp& output) {
+        for (int x = 0; x < details.width; ++x) { /* the per-thread code of point (x, y) */ }
+    }
+    template <typename InputIOp, typename OutputIOp>
+    FK_HOST_FUSE void exec(const DPPDetails& details, const InputIOp& input, const OutputIOp& output) {
+        for (int y = 0; y < details.height; ++y) {
+            exec_row(y, details, input, output);
+        }
+    }
+};
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)  // outside any __NVCC__/__HIPCC__ block
+template <typename DPPDetails>
+struct MyDPP<ParArch::CPU_MULTITHREAD, DPPDetails> {
+private:
+    using SelfType = MyDPP<ParArch::CPU_MULTITHREAD, DPPDetails>;
+    using CPUDPP = MyDPP<ParArch::CPU, DPPDetails>;
+public:
+    FK_STATIC_STRUCT(MyDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::CPU_MULTITHREAD;
+    // + forwarders to CPUDPP's validity helpers (accepts/valid/...), if it has them
+
+    // Enqueues one chunk per row and returns; done is called when all of them have finished
+    template <typename InputIOp, typename OutputIOp>
+    FK_HOST_STATIC void exec(const cpu_multithread::Completion& done, const DPPDetails& details,
+                             const InputIOp& input, const OutputIOp& output) {
+        cpu_multithread::enqueueChunks(static_cast<std::size_t>(details.height),
+            [details, input, output](const std::size_t row) {  // BY VALUE: exec returns before the rows run
+                CPUDPP::exec_row(static_cast<int>(row), details, input, output);
+            }, done);
+    }
+};
+
+// Entry function overload, next to the GPU/CPU ones (same name and argument order)
+template <typename DPPDetails, typename InputIOp, typename OutputIOp>
+inline bool executeMyDPP(const DPPDetails& details, const InputIOp& input, const OutputIOp& output,
+                         Stream_<ParArch::CPU_MULTITHREAD>& stream) {
+    if (!DPPDetails::valid(details)) return false;  // same validity behaviour as the other overloads
+    stream.enqueue([=](const cpu_multithread::Completion& done) {
+        MyDPP<ParArch::CPU_MULTITHREAD, DPPDetails>::exec(done, details, input, output);
+    });
+    return true;
+}
+#endif
+```
+
+Multi-phase DPPs (a phase must finish before the next one starts) chain `enqueueChunks` in `onComplete`, which runs
+on the worker that finished the last chunk and must not throw. Scratch memory shared by the phases goes in a
+`std::shared_ptr` captured by value. See `MorphologyDPP<ParArch::CPU_MULTITHREAD>` in
+`algorithms/image_processing/morphology.h`:
+
+```cpp
+cpu_multithread::enqueueChunks(rows, firstPhaseRow,
+    [=](const std::exception_ptr error) noexcept {
+        if (error) { done(error); return; }
+        try {
+            cpu_multithread::enqueueChunks(rows, lastPhaseRow, done);  // the last phase ends the execution
+        } catch (...) {
+            done(std::current_exception());
+        }
+    });
+```
+
+Rules:
+- Capture everything BY VALUE (IOps, details, shared scratch); never references to the caller's locals. Both
+  callables of `enqueueChunks` and the lambda given to `stream.enqueue` are stored by value.
+- Call `done` exactly once (right away if there is nothing to do). If `exec` throws, it must not have enqueued
+  anything nor call `done`: the stream reports the error.
+- Chunks run concurrently and in any order, as GPU threads do. Document the preconditions in a comment (for instance,
+  the output must not alias the input) as the GPU versions already require.
+- Capture an `fk::Tuple` parameter of one element with an init-capture (`t = t`): a plain copy of a `const Tuple&`
+  is a const member, and moving it (the pool and the stream move the callables) selects Tuple's forwarding
+  constructor, which does not compile.
+- Entry points that take owning objects (`Ptr`, `Tensor`) may call `cpu_multithread::keepAlive(objects...)` before
+  enqueueing, so the next execution enqueued from this thread keeps copies of them until it has finished; IOps only
+  hold a `RawPtr`, so otherwise the buffers must stay valid until `sync()`.
+
 ## Runtime values vs compile-time types (the golden rule)
 
 Anything users may change per call (factors, rects, matrices, sizes) goes
@@ -163,11 +278,24 @@ apply([](const auto&... iOps) { return BackFuser::fuse_back(iOps...); }, tup);
 
 1. Add a utest header under `utests/<area>/`.
 2. Register it in the test list before `STOP_ADDING_TESTS`.
-3. Build and run: see the fkl-build-and-test skill.
+3. Under `#ifdef FK_CPU_MULTITHREAD_ENABLED`, run every case also through the `Stream_<ParArch::CPU_MULTITHREAD>&`
+   entry point (host memory, then `stream.sync()`) and require the output to match the `ParArch::CPU` output, plus the
+   oracle checks: exactly (`memcmp` or `==`) for integer outputs and float pipelines without multiply-add, within a
+   tight tolerance (e.g. 1e-5 relative) when floats are multiplied and added (fused multiply-add contraction). The same header is compiled by nvcc for the `_cu` target, so
+   that code must compile there too. A test that means "GPU" must check
+   `PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD`, not `PA != ParArch::CPU`.
+4. Build and run: see the fkl-build-and-test skill (also with the backend OFF, and under ThreadSanitizer).
 
 ## Checklist before opening a PR
 
 - [ ] `FK_STATIC_STRUCT`
-- [ ] CPU exec() is `FK_HOST_FUSE`; GPU exec() is `FK_DEVICE_FUSE`
-- [ ] utest instantiating every public alias/build path
+- [ ] CPU exec() is `FK_HOST_FUSE`; GPU exec() is `FK_DEVICE_FUSE`; CPU_MULTITHREAD exec(done, ...) is `FK_HOST_STATIC`
+- [ ] ParArch::CPU implementation with a public per-row function (`exec_row`, or one per phase), AND a ParArch::CPU_MULTITHREAD implementation that
+      enqueues its chunks with `cpu_multithread::enqueueChunks` and calls the `Completion` (no stream in the DPP);
+      only the attention DPPs are exempt
+- [ ] CPU_MULTITHREAD code under `#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)`, outside any
+      `__NVCC__`/`__HIPCC__` block; builds with the backend OFF
+- [ ] entry function overload taking `Stream_<ParArch::CPU_MULTITHREAD>&`, not ambiguous with the GPU `requires` ones
+- [ ] preconditions (aliasing, buffer lifetime until `sync()`) documented in a comment
+- [ ] utest instantiating every public alias/build path, with the CPU_MULTITHREAD path compared to ParArch::CPU
 - [ ] compiles warning-clean on nvcc AND clang (CUDA 12.x and 13.x)

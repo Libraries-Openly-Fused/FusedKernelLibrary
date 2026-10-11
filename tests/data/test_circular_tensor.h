@@ -20,7 +20,10 @@
 #include <fused_kernel/core/data/ptr_utils.h>
 #include <fused_kernel/fused_kernel.h>
 
+#include <algorithm>
+#include <cstring>
 #include <iostream>
+#include <vector>
 
 namespace fk {
 
@@ -48,7 +51,7 @@ bool testCircularTensor() {
 
     bool correct = true;
     for (int z = 0; z < BATCH; z++) {
-        const TensorOT value = (TensorOT)(ITERS - z);
+        const TensorOT value = (TensorOT)(ITERS - static_cast<uint>(z));
         for (int y = 0; y < HEIGHT; y++) {
             for (int x = 0; x < WIDTH; x++) {
                 const Point p{x, y, z};
@@ -61,16 +64,88 @@ bool testCircularTensor() {
     return correct;
 }
 
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+template <uint BATCH, typename IT, typename OT>
+using HostCircularTensor = CircularTensor<typename VectorTraits<OT>::base, cn<IT>, BATCH,
+                                          CircularTensorOrder::NewestFirst, ColorPlanes::Standard>;
+
+// The updates of testCircularTensor, on host memory and the CPU or CPU_MULTITHREAD backend. Every update has its own
+// input, so all of them are enqueued without synchronizing in between: the stream runs each one after the previous
+// one. The CircularTensor and the inputs are used until sync().
+template <ParArch PA, uint BATCH, typename IT, typename OT>
+void updateOnHost(HostCircularTensor<BATCH, IT, OT>& myTensor, const std::vector<Ptr2D<IT>>& inputs) {
+    using TensorOT = typename VectorTraits<OT>::base;
+    std::fill_n(myTensor.ptr().data, myTensor.getNumElements(), static_cast<TensorOT>(10));
+    Stream_<PA> stream;
+    for (const Ptr2D<IT>& input : inputs) {
+        myTensor.update(stream, Read<PerThreadRead<ND::_2D, IT>>{input.ptr()}, Unary<SaturateCast<IT, OT>>{},
+                        Write<TensorSplit<OT>>{myTensor.ptr()});
+    }
+    stream.sync();
+}
+
+// testCircularTensor on the CPU_MULTITHREAD backend: the result is exactly the one of the CPU backend, and the expected
+// one
+template <uint BATCH, uint WIDTH, uint HEIGHT, uint ITERS, typename IT, typename OT>
+bool testCircularTensorMultithread() {
+    using TensorOT = typename VectorTraits<OT>::base;
+    constexpr uint COLOR_PLANES = cn<IT>;
+
+    std::vector<Ptr2D<IT>> inputs;
+    for (uint i = 0; i < ITERS; i++) {
+        inputs.push_back(Ptr2D<IT>(WIDTH, HEIGHT, 0, MemType::Host));
+        const IT value = make_set<IT>(static_cast<VBase<IT>>(i + 1));
+        for (int y = 0; y < static_cast<int>(HEIGHT); y++) {
+            for (int x = 0; x < static_cast<int>(WIDTH); x++) {
+                inputs.back().at(x, y) = value;
+            }
+        }
+    }
+
+    HostCircularTensor<BATCH, IT, OT> cpuTensor(WIDTH, HEIGHT, MemType::Host);
+    HostCircularTensor<BATCH, IT, OT> multithreadTensor(WIDTH, HEIGHT, MemType::Host);
+    updateOnHost<ParArch::CPU, BATCH, IT, OT>(cpuTensor, inputs);
+    updateOnHost<ParArch::CPU_MULTITHREAD, BATCH, IT, OT>(multithreadTensor, inputs);
+
+    bool correct = std::memcmp(cpuTensor.ptr().data, multithreadTensor.ptr().data, cpuTensor.sizeInBytes()) == 0;
+    // Every color plane of plane z holds the input of the z-th last update. The planes are contiguous, and each one
+    // stores its color planes one after the other.
+    const TensorOT* const data = multithreadTensor.ptr().data;
+    for (uint z = 0; z < BATCH; z++) {
+        const TensorOT value = static_cast<TensorOT>(ITERS - z);
+        for (uint c = 0; c < COLOR_PLANES; c++) {
+            for (uint y = 0; y < HEIGHT; y++) {
+                for (uint x = 0; x < WIDTH; x++) {
+                    correct &= data[((z * COLOR_PLANES + c) * HEIGHT + y) * WIDTH + x] == value;
+                }
+            }
+        }
+    }
+
+    return correct;
+}
+#endif // FK_CPU_MULTITHREAD_ENABLED
+
 template <uint BATCH, uint WIDTH, uint HEIGHT, uint ITERS, typename IT, typename OT>
 bool launchTest() {
+    bool correct = true;
     if (testCircularTensor<BATCH, WIDTH, HEIGHT, ITERS, IT, OT>()) {
         std::cout << "testCircularTensor<" << BATCH << ", " << WIDTH << ", " << HEIGHT << ", " << ITERS << ", " << typeid(IT).name() << ", " << typeid(OT).name() << "> OK" << std::endl;
-        return true;
     } else {
         std::cout << "testCircularTensor<" << BATCH << ", " << WIDTH << ", " << HEIGHT << ", " << ITERS << ", " << typeid(IT).name() << ", " << typeid(OT).name() << "> Failed!"
                   << std::endl;
-        return false;
+        correct = false;
     }
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    if (testCircularTensorMultithread<BATCH, WIDTH, HEIGHT, ITERS, IT, OT>()) {
+        std::cout << "testCircularTensorMultithread<" << BATCH << ", " << WIDTH << ", " << HEIGHT << ", " << ITERS << ", " << typeid(IT).name() << ", " << typeid(OT).name() << "> OK" << std::endl;
+    } else {
+        std::cout << "testCircularTensorMultithread<" << BATCH << ", " << WIDTH << ", " << HEIGHT << ", " << ITERS << ", " << typeid(IT).name() << ", " << typeid(OT).name() << "> Failed!"
+                  << std::endl;
+        correct = false;
+    }
+#endif // FK_CPU_MULTITHREAD_ENABLED
+    return correct;
 }
 
 int launch_impl() {

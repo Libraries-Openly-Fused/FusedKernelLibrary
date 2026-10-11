@@ -108,6 +108,10 @@ namespace fk {
             m_tempTensor.allocTensor(width_, height_, BATCH, COLOR_PLANES, type_, deviceID_);
         }
 
+        // As on a GPU stream, on a Stream_<ParArch::CPU_MULTITHREAD> the update is only enqueued, and runs later on
+        // other threads. It uses this CircularTensor's own buffers (and the ones of the IOps) through RawPtr, so the
+        // CircularTensor must not be destroyed or reallocated, nor its contents accessed from the host, until
+        // stream.sync() has returned.
         template <ParArch PA, typename... IOpTypes>
         FK_HOST_CNST void update(Stream_<PA>& stream,
             const IOpTypes&... instantiableOperationInstances) {

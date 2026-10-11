@@ -1,7 +1,7 @@
 ---
 name: fkl-build-and-test
-description: Build the FusedKernelLibrary tests and run them. Covers CMake configuration for Linux
-and Windows using out-of-source builds, the utests/tests structure, TestCaseBuilder, adding tests for
+description: Build the FusedKernelLibrary tests and run them. Covers cloning with the thread-pool submodule
+(ParArch::CPU_MULTITHREAD), CMake configuration for Linux and Windows using out-of-source builds, the utests/tests structure, TestCaseBuilder, adding tests for
 new operations, running the full binary suite with ctest, and what CI expects. Use when building FKL tests,
 running or adding tests, or debugging a compile failure in the test tree on any OS.
 ---
@@ -12,15 +12,27 @@ running or adding tests, or debugging a compile failure in the test tree on any 
 - Requires CMake >= 3.28, a C++20 host compiler, and CUDA.
 - **Only nvcc is supported as the CUDA compiler**; clang-as-CUDA-compiler is not supported despite the
   `CLANG_HOST_DEVICE` macro.
-- Options: `ENABLE_CUDA` (default ON if found), `ENABLE_CPU` (ON), `ENABLE_BENCHMARK` (OFF).
+- Options: `ENABLE_CUDA` (default ON if found), `ENABLE_CPU` (ON), `ENABLE_CPU_MULTITHREAD` (see below),
+  `ENABLE_BENCHMARK` (OFF).
 - Binaries land in the out-of-source build folder at `../build` — one executable per test unit,
   suffixed `_cu` (CUDA) / `_cpp` (CPU).
+
+## The thread-pool submodule (ParArch::CPU_MULTITHREAD)
+- The multithreaded CPU backend, `ParArch::CPU_MULTITHREAD`, uses the `thread-pool` git submodule. ALWAYS clone
+  with `--recursive`, or run `git submodule update --init` in an existing clone.
+- `ENABLE_CPU_MULTITHREAD` defaults to ON when `thread-pool/include/ThreadPool.h` exists and to OFF otherwise. Forcing
+  it ON without the submodule is a `FATAL_ERROR`. When ON, the FKL target defines `FK_CPU_MULTITHREAD_ENABLED` (every
+  test target gets it), adds `thread-pool/include` and links `Threads::Threads`.
+- Without the submodule the backend is **silently off**: CMake only prints a STATUS line, the CPU_MULTITHREAD code of
+  the tests is compiled out, and `utest_cpu_multithread_cpp` passes while printing that it tested nothing. Check the
+  configure output for `CPU_MULTITHREAD backend (ENABLE_CPU_MULTITHREAD): ON`.
+- CI checks out submodules (`actions/checkout` with `submodules: true`).
 
 ## Build (Linux & WSL2)
 
 ```bash
 mkdir build
-git clone https://github.com/Libraries-Openly-Fused/FusedKernelLibrary.git
+git clone --recursive https://github.com/Libraries-Openly-Fused/FusedKernelLibrary.git
 cd FusedKernelLibrary
 # By default using native CUDA architecture
 cmake -G "Ninja" -B ../build -DCMAKE_BUILD_TYPE=Release -S .
@@ -28,15 +40,15 @@ cmake --build ../build --config Release
 ```
 
 - Requires CMake >= 3.28, a C++ host compiler, and CUDA.
-- Options: `ENABLE_CUDA` (default ON if found), `ENABLE_CPU` (ON),
-  `ENABLE_BENCHMARK` (OFF) for the benchmark targets.
+- Options: `ENABLE_CUDA` (default ON if found), `ENABLE_CPU` (ON), `ENABLE_CPU_MULTITHREAD` (ON if the
+  thread-pool submodule is checked out), `ENABLE_BENCHMARK` (OFF) for the benchmark targets.
 - Binaries land in `../build` — one executable per test unit,
   suffixed `_cu` (CUDA) / `_cpp` (CPU).
 
 ## Build (Windows)
 ```powershell
 mkdir build
-git clone https://github.com/Libraries-Openly-Fused/FusedKernelLibrary.git
+git clone --recursive https://github.com/Libraries-Openly-Fused/FusedKernelLibrary.git
 cd FusedKernelLibrary
 
 # IMPORTANT: You MUST activate the VS Developer Shell before running CMake (Enter-VsDevShell)
@@ -99,9 +111,25 @@ int launch() { RUN_ALL_TESTS }
 - Test EVERY public alias and `build()` overload: template code only breaks on instantiation
   (the ColorConversion alias bug shipped because no test instantiated `COLOR_BGR2GRAY` — see issue #244).
 
+## Testing ParArch::CPU_MULTITHREAD code
+- Extend the EXISTING test of the DPP family under `#ifdef FK_CPU_MULTITHREAD_ENABLED`: run every case also through
+  the `Stream_<ParArch::CPU_MULTITHREAD>&` entry point, `stream.sync()`, and require the output to match the
+  `ParArch::CPU` output, plus the existing oracle checks: exactly (`memcmp` or `==`) for integer outputs and float
+  pipelines without multiply-add; within a tight tolerance (e.g. 1e-5 relative) for float pipelines that multiply and
+  add, since g++ with FMA (`-march=native`, arm64) may contract `a * b + c` differently in the two versions.
+- Use host memory (`MemType::Host`): the `_cu` target compiles the same header, and there `defaultMemType` is
+  `DeviceAndPinned`. The CPU_MULTITHREAD code must compile under nvcc too.
+- A check that means "GPU" must be `PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD`, not `PA != ParArch::CPU`.
+- The backend itself (stream order, sync, errors, buffer lifetime) is tested by
+  `utests/core/execution_model/utest_cpu_multithread.h`, which is `_cpp` only.
+- Also check that the code compiles with the backend OFF (`-DENABLE_CPU_MULTITHREAD=OFF`), and run the affected
+  `_cpp` tests under ThreadSanitizer. There is no CMake option for sanitizers; compile the generated launcher directly:
+  `g++ -O1 -g -fsanitize=thread -std=c++20 -ftemplate-depth=1000 -DFK_CPU_MULTITHREAD_ENABLED -I<repo> -I<repo>/include -I<repo>/thread-pool/include <build>/{tests,utests}/<name>_cpp/launcher.cpp <repo>/tests/main.cpp -pthread`.
+
 ## CI Matrix
 
 GitHub workflows build on `linux-amd64`, `linux-arm64` and `windows-amd64` using self-hosted runners.
+- Every workflow checks out submodules, so `ParArch::CPU_MULTITHREAD` is built and tested in CI.
 - Linux builds against `g++-13` and `clang++-23`.
 - Windows builds against MSVC (`cl` versions 14.44 and 14.51) and `clang-cl`.
 - Keep changes warning-clean on BOTH compilers: clang is a first-class compiler for FKL (single-step host+device compiles matter for downstream packaging).

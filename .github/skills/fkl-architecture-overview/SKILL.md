@@ -35,7 +35,9 @@ a kernel reads, computes, and writes, using IOps.
   static `exec()`. Single-thread.
 - **DPP** — code that defined thread behavior. Anything needing >1 thread to cooperate: shared memory,
   `__syncthreads`, `__shfl`, warp-collective `mma.sync`, cp.async tile staging,
-  CPU threads in case of CPU multithreaded implementations of the DPP.
+  CPU threads in case of CPU multithreaded implementations of the DPP
+  (`ParArch::CPU_MULTITHREAD`: the DPP splits its work into chunks on the shared
+  thread pool and never sees the stream; see `fkl-implementing-data-parallel-patterns`).
   A DPP routes data through IOps and never modifies the data directly, it always
   does it using IOps, except when using tensor cores and specialized hardware that
   determines both thread behavior and modifications over data.  
@@ -61,9 +63,14 @@ OpenType, ClosedType`.
    passed as IOp instances to the DPPs. Never as template parameters.
 3. DPP shape: `exec(details, readIOp, computeIOp, writeIOp)` — IOps are separate
    exec parameters, not packed into a struct; a `*Details` struct carries only
-   external scalars (dims, identity, mask). Provide both `ParArch::GPU_NVIDIA`
-   and `ParArch::CPU` specialisations; keep `*Details` and the CPU spec outside
-   any `#if defined(__NVCC__)` guard.
+   external scalars (dims, identity, mask). Provide `ParArch::GPU_NVIDIA`,
+   `ParArch::CPU` (with a public `exec_row`, or one row function per phase)
+   and `ParArch::CPU_MULTITHREAD` (reusing it, under `#if defined(FK_CPU_MULTITHREAD_ENABLED) &&
+   !defined(NVRTC_COMPILER)`) specialisations; keep `*Details` and the CPU and
+   CPU_MULTITHREAD specs outside any `#if defined(__NVCC__)` guard. The only
+   exception are the attention DPPs (softmax, flash_attention,
+   flash_attention_mma, flash_decode), which remain GPU-only by the repo
+   owner's decision.
 4. For an output written through a fused epilogue, fuse the epilogue chain with
    the destination write (`epilogue.then(D)`) and invoke the whole fused IOp:
    `Output::Operation::exec(thread, value, output)`. The first link of the

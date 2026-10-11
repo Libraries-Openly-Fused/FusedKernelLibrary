@@ -18,8 +18,10 @@
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/image_processing/linear_filter.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <vector>
 
 namespace fk {
@@ -95,14 +97,55 @@ std::vector<float> oracle(const std::vector<float>& input,
     return output;
 }
 
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+// Runs launch(stream) on a CPU_MULTITHREAD stream, with IOps that write to
+// output, and requires its result to be bit-identical to the ParArch::CPU
+// result that output holds before the call
+template <typename Launch>
+bool sameAsCpu(std::vector<float>& output, const Launch& launch,
+               const char* label) {
+    const std::vector<float> cpuResult = output;
+    std::fill(output.begin(), output.end(), -999.f);
+    Stream_<ParArch::CPU_MULTITHREAD> stream;
+    const bool launched = launch(stream);
+    stream.sync();
+    // The per row code is the CPU one; the results may differ in the last bits
+    // only, where the compiler contracts a * b + c into a fused multiply-add
+    // differently
+    bool same = launched;
+    for (std::size_t i = 0; i < output.size() && same; ++i) {
+        const float scale = std::max(1.f, std::fabs(cpuResult[i]));
+        same = std::fabs(output[i] - cpuResult[i]) <= 1e-5f * scale;
+    }
+    if (!same) {
+        std::printf("%s CPU_MULTITHREAD output differs from ParArch::CPU\n",
+                    label);
+        return false;
+    }
+    return true;
+}
+#endif
+
+// Runs the filter on ParArch::CPU, writing to output, and then the same IOps
+// through executeLinearFilter on a CPU_MULTITHREAD stream, if enabled
 template <typename ImageRead, typename KernelRead,
           typename Multiply, typename Accumulate, typename Write>
 bool runCpu(const Details& details, const ImageRead& image,
             const KernelRead& kernel, const Multiply& multiply,
-            const Accumulate& accumulate, const Write& write) {
+            const Accumulate& accumulate, const Write& write,
+            std::vector<float>& output, const char* label) {
     LinearFilterDPP<ParArch::CPU, Details>::exec(
         details, make_tuple(image, kernel), multiply, accumulate, write);
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    return sameAsCpu(output, [&](Stream_<ParArch::CPU_MULTITHREAD>& stream) {
+        return executeLinearFilter(details, make_tuple(image, kernel),
+                                   multiply, accumulate, write, stream);
+    }, label);
+#else
+    (void)output;
+    (void)label;
     return true;
+#endif
 }
 
 bool compare(const std::vector<float>& output,
@@ -149,22 +192,37 @@ bool runCase(const int width, const int height,
     const auto kernelBase = PerThreadRead<ND::_2D, float>::build(kernelPtr);
     const auto writeBase = PerThreadWrite<ND::_2D, float>::build(outputPtr);
 
+    bool ran = false;
     if (fused) {
         const auto imageRead = imageBase.then(Mul<float>::build(2.f))
                                         .then(Add<float>::build(1.f));
         const auto kernelRead =
             kernelBase.then(Mul<float>::build(0.5f));
         const auto write = Mul<float>::build(0.25f).then(writeBase);
-        runCpu(details, imageRead, kernelRead, multiply, accumulate, write);
+        ran = runCpu(details, imageRead, kernelRead, multiply, accumulate,
+                     write, cpuOutput, label);
     } else if (fusedKernel) {
         const auto kernelRead = kernelBase.then(Mul<float>::build(0.5f));
-        runCpu(details, imageBase, kernelRead, multiply, accumulate,
-               writeBase);
+        ran = runCpu(details, imageBase, kernelRead, multiply, accumulate,
+                     writeBase, cpuOutput, label);
     } else {
-        runCpu(details, imageBase, kernelBase, multiply, accumulate,
-               writeBase);
+        ran = runCpu(details, imageBase, kernelBase, multiply, accumulate,
+                     writeBase, cpuOutput, label);
     }
-    if (!compare(cpuOutput, expected, label)) return false;
+    if (!ran || !compare(cpuOutput, expected, label)) return false;
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    if (box && !fused && !fusedKernel &&
+        arithmetic == Arithmetic::NORMAL) {
+        // executeBoxFilter builds a constant coefficient Read with the value
+        // of the box kernel buffer, so it must give the same bits too
+        const auto launchBox =
+            [&](Stream_<ParArch::CPU_MULTITHREAD>& stream) {
+                return executeBoxFilter(details, imageBase, writeBase,
+                                        1.f, stream);
+            };
+        if (!sameAsCpu(cpuOutput, launchBox, label)) return false;
+    }
+#endif
 
 #if defined(__NVCC__) || defined(__HIPCC__)
     Ptr2D<float> gpuInput(width, height);
@@ -246,6 +304,37 @@ int launch_impl() {
 
     const Details invalid{16, 16, 8, 3, 1, 1};
     if (Details::valid(invalid)) ok = false;
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    {
+        // With invalid details the CPU_MULTITHREAD entry points enqueue
+        // nothing and return false, and the DPP writes nothing
+        std::vector<float> image(16 * 16, 1.f);
+        std::vector<float> output(16 * 16, -999.f);
+        const PtrDims<ND::_2D> dims(16, 16, 16 * sizeof(float));
+        const auto imageRead = PerThreadRead<ND::_2D, float>::build(
+            RawPtr<ND::_2D, float>{image.data(), dims});
+        const auto write = PerThreadWrite<ND::_2D, float>::build(
+            RawPtr<ND::_2D, float>{output.data(), dims});
+        const auto reads =
+            make_tuple(imageRead, ConstantFilterRead<float>::build(1.f));
+        Stream_<ParArch::CPU_MULTITHREAD> stream;
+        if (executeLinearFilter(invalid, reads, mul, add, write, stream) ||
+            executeBoxFilter(invalid, imageRead, write, 1.f, stream)) {
+            std::printf("CPU_MULTITHREAD accepted invalid details\n");
+            ok = false;
+        }
+        stream.enqueue([=](const cpu_multithread::Completion& done) {
+            LinearFilterDPP<ParArch::CPU_MULTITHREAD, Details>::exec(
+                done, invalid, reads, mul, add, write);
+        });
+        stream.sync();
+        if (std::any_of(output.begin(), output.end(),
+                        [](const float value) { return value != -999.f; })) {
+            std::printf("CPU_MULTITHREAD wrote with invalid details\n");
+            ok = false;
+        }
+    }
+#endif
     if (ok) std::printf("LinearFilterDPP contracts: PASS\n");
     return ok ? 0 : -1;
 }

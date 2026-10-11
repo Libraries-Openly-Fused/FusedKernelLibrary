@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <vector>
 
 namespace fk {
@@ -84,6 +85,54 @@ bool compare(const std::vector<float>& output,
     return true;
 }
 
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+// Runs launch(stream) on a CPU_MULTITHREAD stream, with IOps that write to
+// output, and requires its result to be bit-identical to the ParArch::CPU
+// result that output holds before the call
+template <typename Launch>
+bool sameAsCpu(std::vector<float>& output, const Launch& launch,
+               const char* label) {
+    const std::vector<float> cpuResult = output;
+    std::fill(output.begin(), output.end(), -999.f);
+    Stream_<ParArch::CPU_MULTITHREAD> stream;
+    const bool launched = launch(stream);
+    stream.sync();
+    // The per row code is the CPU one; the results may differ in the last bits
+    // only, where the compiler contracts a * b + c into a fused multiply-add
+    // differently
+    bool same = launched;
+    for (std::size_t i = 0; i < output.size() && same; ++i) {
+        const float scale = std::max(1.f, std::fabs(cpuResult[i]));
+        same = std::fabs(output[i] - cpuResult[i]) <= 1e-5f * scale;
+    }
+    if (!same) {
+        std::printf("%s CPU_MULTITHREAD output differs from ParArch::CPU\n",
+                    label);
+        return false;
+    }
+    return true;
+}
+#endif
+
+// Runs the filter on ParArch::CPU, writing to output, and then the same IOps
+// through executeMedianFilter on a CPU_MULTITHREAD stream, if enabled
+template <typename Read, typename Write, typename Selection>
+bool runCpu(const Details& details, const Read& read, const Write& write,
+            const Selection& selection, std::vector<float>& output,
+            const char* label) {
+    MedianFilterDPP<ParArch::CPU, Details>::exec(
+        details, read, write, selection);
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    return sameAsCpu(output, [&](Stream_<ParArch::CPU_MULTITHREAD>& stream) {
+        return executeMedianFilter(details, read, write, selection, stream);
+    }, label);
+#else
+    (void)output;
+    (void)label;
+    return true;
+#endif
+}
+
 template <typename Selection>
 bool runCase(const Details& details, const Selection& selection,
              const SelectionKind kind, const bool fused,
@@ -104,17 +153,17 @@ bool runCase(const Details& details, const Selection& selection,
             details.width * sizeof(float))};
     const auto readBase = PerThreadRead<ND::_2D, float>::build(inputPtr);
     const auto writeBase = PerThreadWrite<ND::_2D, float>::build(outputPtr);
+    bool ran = false;
     if (fused) {
         const auto read = readBase.then(Mul<float>::build(2.f))
                                   .then(Add<float>::build(1.f));
         const auto write = Mul<float>::build(0.5f).then(writeBase);
-        MedianFilterDPP<ParArch::CPU, Details>::exec(
-            details, read, write, selection);
+        ran = runCpu(details, read, write, selection, cpuOutput, label);
     } else {
-        MedianFilterDPP<ParArch::CPU, Details>::exec(
-            details, readBase, writeBase, selection);
+        ran = runCpu(details, readBase, writeBase, selection, cpuOutput,
+                     label);
     }
-    if (!compare(cpuOutput, expected, label)) return false;
+    if (!ran || !compare(cpuOutput, expected, label)) return false;
 
 #if defined(__NVCC__) || defined(__HIPCC__)
     Ptr2D<float> gpuInput(details.width, details.height);
@@ -170,6 +219,34 @@ int launch_impl() {
 
     const Details evenWindow{16, 16, 4, 3, 1, 1};
     if (Details::valid(evenWindow)) ok = false;
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    {
+        // With invalid details the CPU_MULTITHREAD entry point enqueues
+        // nothing and returns false, and the DPP writes nothing
+        std::vector<float> image(16 * 16, 1.f);
+        std::vector<float> output(16 * 16, -999.f);
+        const PtrDims<ND::_2D> dims(16, 16, 16 * sizeof(float));
+        const auto read = PerThreadRead<ND::_2D, float>::build(
+            RawPtr<ND::_2D, float>{image.data(), dims});
+        const auto write = PerThreadWrite<ND::_2D, float>::build(
+            RawPtr<ND::_2D, float>{output.data(), dims});
+        Stream_<ParArch::CPU_MULTITHREAD> stream;
+        if (executeMedianFilter(evenWindow, read, write, median, stream)) {
+            std::printf("CPU_MULTITHREAD accepted invalid details\n");
+            ok = false;
+        }
+        stream.enqueue([=](const cpu_multithread::Completion& done) {
+            MedianFilterDPP<ParArch::CPU_MULTITHREAD, Details>::exec(
+                done, evenWindow, read, write, median);
+        });
+        stream.sync();
+        if (std::any_of(output.begin(), output.end(),
+                        [](const float value) { return value != -999.f; })) {
+            std::printf("CPU_MULTITHREAD wrote with invalid details\n");
+            ok = false;
+        }
+    }
+#endif
     if (ok) std::printf("MedianFilterDPP contracts: PASS\n");
     return ok ? 0 : -1;
 }
