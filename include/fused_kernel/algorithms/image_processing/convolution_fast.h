@@ -20,6 +20,11 @@
 #include <fused_kernel/core/execution_model/stream.h>
 
 #include <type_traits>
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+#include <fused_kernel/core/execution_model/cpu_thread_pool.h>
+
+#include <cstddef>
+#endif
 
 namespace fk {
 
@@ -72,11 +77,15 @@ public:
         return details.template validFor<KW, KH>();
     }
 
+    // Computes the output pixels of row y. Used by exec() and by the
+    // CPU_MULTITHREAD specialization (one row per chunk). Expects
+    // accepts(details) and 0 <= y < details.height.
     template <typename InIOp, typename ComputeIOps, typename OutIOp>
-    FK_HOST_FUSE void exec(const ConvQuadDetails& details,
-                           const InIOp& input,
-                           const ComputeIOps& compute,
-                           const OutIOp& output) {
+    FK_HOST_FUSE void exec_row(const int y,
+                               const ConvQuadDetails& details,
+                               const InIOp& input,
+                               const ComputeIOps& compute,
+                               const OutIOp& output) {
         static_assert(isAnyCompleteReadType<InIOp>,
                       "ConvQuadDPP requires a complete Read IOp");
         static_assert(isAnyWriteType<OutIOp>,
@@ -95,7 +104,6 @@ public:
                       "ConvQuadDPP static kernel sizes cannot be negative");
         static_assert((KW == 0) == (KH == 0),
                       "ConvQuadDPP sizes are both static or both runtime");
-        if (!accepts(details)) return;
 
         const int kernelWidth = KW > 0 ? KW : details.kernelWidth;
         const int kernelHeight = KH > 0 ? KH : details.kernelHeight;
@@ -107,23 +115,73 @@ public:
                       clamp(y, details.height), 0}, input);
         };
 
-        for (int y = 0; y < details.height; ++y) {
-            for (int x = 0; x < details.width; ++x) {
-                float value = 0.f;
-                for (int ky = 0; ky < kernelHeight; ++ky) {
-                    for (int kx = 0; kx < kernelWidth; ++kx) {
-                        const float product = make_tuple(
-                            details.coefficients[ky * kernelWidth + kx],
-                            source(x + kx - details.anchorX,
-                                   y + ky - details.anchorY)) | multiply;
-                        value = make_tuple(value, product) | combine;
-                    }
+        for (int x = 0; x < details.width; ++x) {
+            float value = 0.f;
+            for (int ky = 0; ky < kernelHeight; ++ky) {
+                for (int kx = 0; kx < kernelWidth; ++kx) {
+                    const float product = make_tuple(
+                        details.coefficients[ky * kernelWidth + kx],
+                        source(x + kx - details.anchorX,
+                               y + ky - details.anchorY)) | multiply;
+                    value = make_tuple(value, product) | combine;
                 }
-                OutIOp::Operation::exec(Point{x, y, 0}, value, output);
             }
+            OutIOp::Operation::exec(Point{x, y, 0}, value, output);
+        }
+    }
+
+    template <typename InIOp, typename ComputeIOps, typename OutIOp>
+    FK_HOST_FUSE void exec(const ConvQuadDetails& details,
+                           const InIOp& input,
+                           const ComputeIOps& compute,
+                           const OutIOp& output) {
+        if (!accepts(details)) return;
+
+        for (int y = 0; y < details.height; ++y) {
+            exec_row(y, details, input, compute, output);
         }
     }
 };
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+// Runs the rows of ConvQuadDPP<ParArch::CPU> on cpuThreadPool(), one chunk per
+// output row. As on the GPU, the output must not alias the input: a row reads
+// the input rows around it, which other chunks may be writing.
+template <typename T, int EX, int EY, int KW, int KH>
+struct ConvQuadDPP<ParArch::CPU_MULTITHREAD, T, EX, EY, KW, KH> {
+private:
+    using SelfType = ConvQuadDPP<
+        ParArch::CPU_MULTITHREAD, T, EX, EY, KW, KH>;
+    using CPUDPP = ConvQuadDPP<ParArch::CPU, T, EX, EY, KW, KH>;
+
+public:
+    FK_STATIC_STRUCT(ConvQuadDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::CPU_MULTITHREAD;
+
+    FK_HOST_DEVICE_FUSE bool accepts(const ConvQuadDetails& details) {
+        return CPUDPP::accepts(details);
+    }
+
+    // Enqueues the rows in the pool and returns; done is called when all of
+    // them have finished. Rejected details enqueue no rows, like exec() of
+    // the CPU specialization, which returns without writing. The chunks share
+    // one copy of details (with its coefficients).
+    template <typename InIOp, typename ComputeIOps, typename OutIOp>
+    FK_HOST_STATIC void exec(const cpu_multithread::Completion& done,
+                             const ConvQuadDetails& details,
+                             const InIOp& input,
+                             const ComputeIOps& compute,
+                             const OutIOp& output) {
+        const std::size_t rows = accepts(details)
+            ? static_cast<std::size_t>(details.height) : 0;
+        cpu_multithread::enqueueChunks(rows,
+            [details, input, compute, output](const std::size_t row) {
+                CPUDPP::exec_row(static_cast<int>(row), details,
+                                 input, compute, output);
+            }, done);
+    }
+};
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 
 #if defined(__NVCC__) || defined(__HIPCC__)
 template <ParArch PA, typename T, int EX, int EY, int KW, int KH>
@@ -303,6 +361,25 @@ FK_HOST_FUSE void executeConvQuad(
                   "CPU stream requires the CPU ConvQuadDPP specialization");
     DPP::exec(details, iOps...);
 }
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+// Enqueues the execution on the stream and returns. details (with its
+// coefficients) is copied; the buffers the IOps use must stay valid until the
+// execution has finished (for instance, until stream.sync()), and the output
+// must not alias the input.
+template <typename DPP, typename... IOps>
+FK_HOST_STATIC void executeConvQuad(
+        Stream_<ParArch::CPU_MULTITHREAD>& stream,
+        const ConvQuadDetails& details,
+        const IOps&... iOps) {
+    static_assert(DPP::PAR_ARCH == ParArch::CPU_MULTITHREAD,
+                  "CPU_MULTITHREAD stream requires the CPU_MULTITHREAD ConvQuadDPP specialization");
+    if (!DPP::accepts(details)) return;
+    stream.enqueue([details, iOps...](const cpu_multithread::Completion& done) {
+        DPP::exec(done, details, iOps...);
+    });
+}
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 
 } // namespace fk
 

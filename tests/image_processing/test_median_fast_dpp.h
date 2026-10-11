@@ -65,10 +65,12 @@ template <ParArch PA, int EX, int EY, int KW, int KH>
 Result runCase(const int width, const int height,
                const int runtimeKW, const int runtimeKH,
                const int anchorX, const int anchorY) {
-    constexpr bool GPU = PA != ParArch::CPU;
+    constexpr bool GPU = PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD;
     const auto memoryType = GPU ? MemType::DeviceAndPinned : MemType::Host;
-    Ptr2D<unsigned char> input(width, height, 0, memoryType);
-    Ptr2D<unsigned char> output(width, height, 0, memoryType);
+    Ptr2D<unsigned char> input(static_cast<uint>(width),
+                               static_cast<uint>(height), 0, memoryType);
+    Ptr2D<unsigned char> output(static_cast<uint>(width),
+                                static_cast<uint>(height), 0, memoryType);
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             input.at(Point{x, y, 0}) = sourceValue(x, y);
@@ -140,12 +142,84 @@ bool verifyCase(const int width, const int height,
                 KW > 0 ? KW : runtimeKW, KH > 0 ? KH : runtimeKH,
                 ok ? "PASS" : "FAIL");
 #endif
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    const auto mt = runCase<ParArch::CPU_MULTITHREAD, EX, EY, KW, KH>(
+        width, height, runtimeKW, runtimeKH, anchorX, anchorY);
+    const bool mtOk = cpu.passed && mt.passed && mt.output == cpu.output;
+    std::printf("MedianQuad %-16s %dx%d k%dx%d CPU/CPU_MULTITHREAD %s\n",
+                name, width, height,
+                KW > 0 ? KW : runtimeKW, KH > 0 ? KH : runtimeKH,
+                mtOk ? "PASS" : "FAIL");
+    ok = ok && mtOk;
+#endif
     return ok;
 }
+
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+// Details the DPP does not accept (a 9x9 kernel has more than 64 elements)
+// must leave the output untouched, both through the entry point and when the
+// DPP is started with them, and the stream must go on with the next execution
+bool verifyRejectedMultithread() {
+    constexpr int width = 23;
+    constexpr int height = 11;
+    Ptr2D<unsigned char> input(width, height, 0, MemType::Host);
+    Ptr2D<unsigned char> output(width, height, 0, MemType::Host);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            input.at(Point{x, y, 0}) = sourceValue(x, y);
+            output.at(Point{x, y, 0}) = 0xA5;
+        }
+    }
+    const auto read = PerThreadRead<ND::_2D, unsigned char>::build(input)
+        .then(Add<unsigned char>::build(READ_BIAS));
+    const auto compare = make_tuple(
+        Min<unsigned char, unsigned char,
+            unsigned char, UnaryType>::build(),
+        Max<unsigned char, unsigned char,
+            unsigned char, UnaryType>::build());
+    const auto write = Add<unsigned char>::build(WRITE_BIAS)
+        .then(PerThreadWrite<ND::_2D, unsigned char>::build(output));
+    using DPP = MedianQuadDPP<ParArch::CPU_MULTITHREAD, unsigned char>;
+    const MedianQuadDetails rejected{width, height, 9, 9, 4, 4};
+    Stream_<ParArch::CPU_MULTITHREAD> stream;
+    executeMedianQuad<DPP>(stream, rejected, read, compare, write);
+    stream.enqueue([=](const cpu_multithread::Completion& done) {
+        DPP::exec(done, rejected, read, compare, write);
+    });
+    stream.sync();
+    bool untouched = !DPP::accepts(rejected);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            untouched = output.at(Point{x, y, 0}) == 0xA5 && untouched;
+        }
+    }
+
+    const MedianQuadDetails accepted{width, height, 3, 3, 1, 1};
+    stream.enqueue([=](const cpu_multithread::Completion& done) {
+        DPP::exec(done, rejected, read, compare, write);
+    });
+    executeMedianQuad<DPP>(stream, accepted, read, compare, write);
+    stream.sync();
+    bool computed = true;
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            computed = output.at(Point{x, y, 0}) == oracleAt(
+                width, height, 3, 3, 1, 1, x, y) && computed;
+        }
+    }
+    const bool ok = untouched && computed;
+    std::printf("MedianQuad CPU_MULTITHREAD rejected details %s\n",
+                ok ? "PASS" : "FAIL");
+    return ok;
+}
+#endif
 } // namespace
 
 int launch_impl() {
     bool ok = true;
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    ok = verifyRejectedMultithread() && ok;
+#endif
     ok = verifyCase<4, 4, 3, 3>(
         257, 129, 3, 3, 1, 1, "3x3-odd") && ok;
     ok = verifyCase<4, 4, 5, 5>(

@@ -25,6 +25,14 @@
 #include <utility>
 #include <vector>
 
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+#include <fused_kernel/core/execution_model/cpu_thread_pool.h>
+#include <array>
+#include <cstddef>
+#include <exception>
+#include <memory>
+#endif
+
 namespace fk {
 
 template <typename T, int TILE_W = 16, int TILE_H = 8,
@@ -108,6 +116,34 @@ private:
     using SelfType = MorphologyDPP<ParArch::CPU, DPPDetails>;
     using T = typename DPPDetails::ValueType;
 
+    // Value of pixel (x, y) after pass `pass`, reduced from source, the
+    // whole image (width * height) the previous phase produced
+    template <typename Reducers>
+    FK_HOST_STATIC T reduce_pixel(const int x, const int y, const int pass,
+                                  const DPPDetails& details, const T* source,
+                                  const Reducers& reducers) {
+        bool first = true;
+        T accumulator{};
+        for (int my = 0; my < details.maskH; ++my) {
+            const int sy = morphology_detail::clamp(
+                y + my - details.anchorY, 0, details.height - 1);
+            for (int mx = 0; mx < details.maskW; ++mx) {
+                const int sx = morphology_detail::clamp(
+                    x + mx - details.anchorX, 0, details.width - 1);
+                const T value =
+                    source[static_cast<size_t>(sy * details.width + sx)];
+                if (first) {
+                    accumulator = value;
+                    first = false;
+                } else {
+                    accumulator = morphology_detail::applyReducer(
+                        pass, accumulator, value, reducers);
+                }
+            }
+        }
+        return accumulator;
+    }
+
 public:
     FK_STATIC_STRUCT(MorphologyDPP, SelfType)
     static constexpr ParArch PAR_ARCH = ParArch::CPU;
@@ -116,6 +152,51 @@ public:
     static constexpr bool validReducerCount =
         isTuple_v<Reducers> && std::decay_t<Reducers>::size >= 1 &&
         std::decay_t<Reducers>::size <= DPPDetails::MAX_PASSES;
+
+    // The work runs in phases, each one over every row of the image and
+    // each one reading only what the previous phases wrote: load_row
+    // (input -> image), reduce_row for every pass but the last (image ->
+    // image of the next pass) and reduce_write_row for the last pass
+    // (image -> output). The images are whole width * height buffers, so a
+    // row of a pass may read any row of the previous one. Since the whole
+    // input is loaded before anything is written, the output may be the
+    // input. ParArch::CPU_MULTITHREAD runs each phase as one chunk per row.
+
+    // Loads row y of the input into row y of image
+    template <typename InputReadIOp>
+    FK_HOST_STATIC void load_row(const int y, const DPPDetails& details,
+                                 const InputReadIOp& input, T* image) {
+        for (int x = 0; x < details.width; ++x)
+            image[static_cast<size_t>(y * details.width + x)] =
+                static_cast<T>(InputReadIOp::Operation::exec(
+                    Point{x, y, 0}, input));
+    }
+
+    // Computes row y of pass `pass` from source into target
+    template <typename Reducers>
+    FK_HOST_STATIC void reduce_row(const int y, const int pass,
+                                   const DPPDetails& details,
+                                   const T* source, T* target,
+                                   const Reducers& reducers) {
+        for (int x = 0; x < details.width; ++x)
+            target[static_cast<size_t>(y * details.width + x)] =
+                reduce_pixel(x, y, pass, details, source, reducers);
+    }
+
+    // Computes row y of pass `pass` (the last one) from source, and writes
+    // it with output
+    template <typename OutputWriteIOp, typename Reducers>
+    FK_HOST_STATIC void reduce_write_row(const int y, const int pass,
+                                         const DPPDetails& details,
+                                         const T* source,
+                                         const OutputWriteIOp& output,
+                                         const Reducers& reducers) {
+        for (int x = 0; x < details.width; ++x)
+            OutputWriteIOp::Operation::exec(
+                Point{x, y, 0},
+                reduce_pixel(x, y, pass, details, source, reducers),
+                output);
+    }
 
     template <typename InputReadIOp, typename OutputWriteIOp,
               typename Reducers>
@@ -133,55 +214,166 @@ public:
                       "Morphology output must be a Write IOp");
         if (!DPPDetails::valid(details)) return;
 
+        constexpr int PASSES =
+            static_cast<int>(std::decay_t<Reducers>::size);
         const int elements = details.width * details.height;
         std::vector<T> current(static_cast<size_t>(elements));
         std::vector<T> next(static_cast<size_t>(elements));
         for (int y = 0; y < details.height; ++y)
-            for (int x = 0; x < details.width; ++x)
-                current[static_cast<size_t>(y * details.width + x)] =
-                    static_cast<T>(InputReadIOp::Operation::exec(
-                        Point{x, y, 0}, input));
+            load_row(y, details, input, current.data());
 
-        for (int pass = 0; pass < std::decay_t<Reducers>::size; ++pass) {
-            for (int y = 0; y < details.height; ++y) {
-                for (int x = 0; x < details.width; ++x) {
-                    bool first = true;
-                    T accumulator{};
-                    for (int my = 0; my < details.maskH; ++my) {
-                        const int sy = morphology_detail::clamp(
-                            y + my - details.anchorY, 0,
-                            details.height - 1);
-                        for (int mx = 0; mx < details.maskW; ++mx) {
-                            const int sx = morphology_detail::clamp(
-                                x + mx - details.anchorX, 0,
-                                details.width - 1);
-                            const T value = current[static_cast<size_t>(
-                                sy * details.width + sx)];
-                            if (first) {
-                                accumulator = value;
-                                first = false;
-                            } else {
-                                accumulator =
-                                    morphology_detail::applyReducer(
-                                        pass, accumulator, value, reducers);
-                            }
-                        }
-                    }
-                    next[static_cast<size_t>(y * details.width + x)] =
-                        accumulator;
-                }
-            }
+        for (int pass = 0; pass < PASSES - 1; ++pass) {
+            for (int y = 0; y < details.height; ++y)
+                reduce_row(y, pass, details, current.data(), next.data(),
+                           reducers);
             current.swap(next);
         }
 
         for (int y = 0; y < details.height; ++y)
-            for (int x = 0; x < details.width; ++x)
-                OutputWriteIOp::Operation::exec(
-                    Point{x, y, 0},
-                    current[static_cast<size_t>(y * details.width + x)],
-                    output);
+            reduce_write_row(y, PASSES - 1, details, current.data(), output,
+                             reducers);
     }
 };
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+// Runs the phases of MorphologyDPP<ParArch::CPU> (load, then one per pass,
+// the last one writing the output) on cpuThreadPool(), each phase as one
+// chunk per row, enqueued when the previous phase has finished. So the
+// results are the same as with ParArch::CPU, and as there, the output may
+// be the input. The buffers the IOps use must stay valid until done is
+// called.
+// The lambdas capture reducers as `reducers = reducers`, a copy that is not
+// const: the pool and the stream move them, and moving a const fk::Tuple of
+// one element selects Tuple's forwarding constructor instead of its copy
+// constructor, which does not compile.
+template <typename DPPDetails>
+struct MorphologyDPP<ParArch::CPU_MULTITHREAD, DPPDetails> {
+private:
+    using SelfType = MorphologyDPP<ParArch::CPU_MULTITHREAD, DPPDetails>;
+    using CPUDPP = MorphologyDPP<ParArch::CPU, DPPDetails>;
+    using T = typename DPPDetails::ValueType;
+    // The image the load phase writes ([0]) and the one of the next pass
+    // ([1]); pass p reads [p % 2] and writes [(p + 1) % 2]. Shared by the
+    // chunks of all the phases of one execution.
+    using Images = std::array<std::vector<T>, 2>;
+
+    template <typename Reducers>
+    static constexpr int PASSES =
+        static_cast<int>(std::decay_t<Reducers>::size);
+
+    // Enqueues the chunks of pass `pass`. The last pass writes the output
+    // and then calls done; the others start the next pass when they finish.
+    template <typename OutputWriteIOp, typename Reducers>
+    FK_HOST_STATIC void enqueuePass(const int pass,
+                                    const cpu_multithread::Completion& done,
+                                    const DPPDetails& details,
+                                    const OutputWriteIOp& output,
+                                    const Reducers& reducers,
+                                    const std::shared_ptr<Images>& images) {
+        const auto rows = static_cast<std::size_t>(details.height);
+        const auto source = static_cast<std::size_t>(pass % 2);
+        if (pass == PASSES<Reducers> - 1) {
+            cpu_multithread::enqueueChunks(rows,
+                [pass, source, details, output, reducers = reducers,
+                 images](const std::size_t row) {
+                    CPUDPP::reduce_write_row(static_cast<int>(row), pass,
+                                             details,
+                                             (*images)[source].data(),
+                                             output, reducers);
+                }, done);
+        } else {
+            cpu_multithread::enqueueChunks(rows,
+                [pass, source, details, reducers = reducers,
+                 images](const std::size_t row) {
+                    CPUDPP::reduce_row(static_cast<int>(row), pass, details,
+                                       (*images)[source].data(),
+                                       (*images)[1 - source].data(),
+                                       reducers);
+                },
+                [pass, done, details, output, reducers = reducers,
+                 images](const std::exception_ptr error) noexcept {
+                    startPass(pass + 1, done, error, details, output,
+                              reducers, images);
+                });
+        }
+    }
+
+    // Called when the previous phase has finished: enqueues pass `pass`,
+    // or ends the execution if that phase, or enqueueing, failed
+    template <typename OutputWriteIOp, typename Reducers>
+    FK_HOST_STATIC void startPass(const int pass,
+                                  const cpu_multithread::Completion& done,
+                                  const std::exception_ptr& error,
+                                  const DPPDetails& details,
+                                  const OutputWriteIOp& output,
+                                  const Reducers& reducers,
+                                  const std::shared_ptr<Images>& images)
+        noexcept {
+        if (error) {
+            done(error);
+            return;
+        }
+        try {
+            enqueuePass(pass, done, details, output, reducers, images);
+        } catch (...) {
+            done(std::current_exception());
+        }
+    }
+
+public:
+    FK_STATIC_STRUCT(MorphologyDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::CPU_MULTITHREAD;
+
+    template <typename Reducers>
+    static constexpr bool validReducerCount =
+        CPUDPP::template validReducerCount<Reducers>;
+
+    // Allocates the images, enqueues the load phase and returns; done is
+    // called when the last pass has written the output (right away if the
+    // details are not valid, doing nothing). If this throws (allocating, or
+    // enqueueing the load phase), nothing was enqueued and done is not
+    // called.
+    template <typename InputReadIOp, typename OutputWriteIOp,
+              typename Reducers>
+    FK_HOST_STATIC void exec(const cpu_multithread::Completion& done,
+                             const DPPDetails& details,
+                             const InputReadIOp& input,
+                             const OutputWriteIOp& output,
+                             const Reducers& reducers) {
+        static_assert(validReducerCount<Reducers>,
+                      "MorphologyDPP requires 1 through 4 reducers");
+        static_assert(morphology_detail::reducersAreUnary<0, Reducers>(),
+                      "Morphology reducers must be Unary IOps");
+        static_assert(isAnyCompleteReadType<InputReadIOp>,
+                      "Morphology input must be a complete Read IOp");
+        static_assert(isAnyWriteType<OutputWriteIOp>,
+                      "Morphology output must be a Write IOp");
+        if (!DPPDetails::valid(details)) {
+            done();
+            return;
+        }
+
+        const auto rows = static_cast<std::size_t>(details.height);
+        const auto elements =
+            static_cast<std::size_t>(details.width) * rows;
+        const auto images = std::make_shared<Images>();
+        (*images)[0].resize(elements);
+        if constexpr (PASSES<Reducers> > 1) {
+            (*images)[1].resize(elements);
+        }
+        cpu_multithread::enqueueChunks(rows,
+            [details, input, images](const std::size_t row) {
+                CPUDPP::load_row(static_cast<int>(row), details, input,
+                                 (*images)[0].data());
+            },
+            [done, details, output, reducers = reducers,
+             images](const std::exception_ptr error) noexcept {
+                startPass(0, done, error, details, output, reducers,
+                          images);
+            });
+    }
+};
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 
 #if defined(__NVCC__) || defined(__HIPCC__)
 template <ParArch PA, typename DPPDetails>
@@ -427,6 +619,83 @@ inline bool executeClose(const DPPDetails& details,
                    Min<T, T, T, UnaryType>::build()), stream);
 }
 #endif // defined(__NVCC__) || defined(__HIPCC__)
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+// Enqueues the morphology on the stream and returns; it runs
+// (MorphologyDPP<ParArch::CPU_MULTITHREAD>::exec) after the previous
+// executions of the stream. Invalid details are rejected here, returning
+// false without enqueueing anything. The buffers the IOps read and write
+// must stay valid until the execution has finished (sync()). The output may
+// be the input, as with ParArch::CPU.
+template <typename DPPDetails, typename InputReadIOp,
+          typename OutputWriteIOp, typename Reducers>
+inline bool executeMorphology(const DPPDetails& details,
+                              const InputReadIOp& input,
+                              const OutputWriteIOp& output,
+                              const Reducers& reducers,
+                              Stream_<ParArch::CPU_MULTITHREAD>& stream) {
+    using DPP = MorphologyDPP<ParArch::CPU_MULTITHREAD, DPPDetails>;
+    if (!DPPDetails::valid(details)) return false;
+    static_assert(DPP::template validReducerCount<Reducers>,
+                  "MorphologyDPP requires 1 through 4 reducers");
+    // reducers = reducers: see MorphologyDPP<ParArch::CPU_MULTITHREAD>
+    stream.enqueue([details, input, output, reducers = reducers](
+                       const cpu_multithread::Completion& done) {
+        DPP::exec(done, details, input, output, reducers);
+    });
+    return true;
+}
+
+template <typename DPPDetails, typename InputReadIOp,
+          typename OutputWriteIOp>
+inline bool executeErode(const DPPDetails& details,
+                         const InputReadIOp& input,
+                         const OutputWriteIOp& output,
+                         Stream_<ParArch::CPU_MULTITHREAD>& stream) {
+    using T = typename DPPDetails::ValueType;
+    return executeMorphology(
+        details, input, output,
+        make_tuple(Min<T, T, T, UnaryType>::build()), stream);
+}
+
+template <typename DPPDetails, typename InputReadIOp,
+          typename OutputWriteIOp>
+inline bool executeDilate(const DPPDetails& details,
+                          const InputReadIOp& input,
+                          const OutputWriteIOp& output,
+                          Stream_<ParArch::CPU_MULTITHREAD>& stream) {
+    using T = typename DPPDetails::ValueType;
+    return executeMorphology(
+        details, input, output,
+        make_tuple(Max<T, T, T, UnaryType>::build()), stream);
+}
+
+template <typename DPPDetails, typename InputReadIOp,
+          typename OutputWriteIOp>
+inline bool executeOpen(const DPPDetails& details,
+                        const InputReadIOp& input,
+                        const OutputWriteIOp& output,
+                        Stream_<ParArch::CPU_MULTITHREAD>& stream) {
+    using T = typename DPPDetails::ValueType;
+    return executeMorphology(
+        details, input, output,
+        make_tuple(Min<T, T, T, UnaryType>::build(),
+                   Max<T, T, T, UnaryType>::build()), stream);
+}
+
+template <typename DPPDetails, typename InputReadIOp,
+          typename OutputWriteIOp>
+inline bool executeClose(const DPPDetails& details,
+                         const InputReadIOp& input,
+                         const OutputWriteIOp& output,
+                         Stream_<ParArch::CPU_MULTITHREAD>& stream) {
+    using T = typename DPPDetails::ValueType;
+    return executeMorphology(
+        details, input, output,
+        make_tuple(Max<T, T, T, UnaryType>::build(),
+                   Min<T, T, T, UnaryType>::build()), stream);
+}
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 
 } // namespace fk
 

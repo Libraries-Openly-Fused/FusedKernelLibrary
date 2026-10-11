@@ -19,6 +19,11 @@
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 #include <fused_kernel/core/execution_model/stream.h>
 #include <fused_kernel/core/utils/vector_utils.h>
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+#include <fused_kernel/core/execution_model/cpu_thread_pool.h>
+
+#include <cstddef>
+#endif
 
 #include <type_traits>
 
@@ -72,11 +77,15 @@ public:
             MAX_RUNTIME_KERNEL_WIDTH);
     }
 
+    // Computes the output row y, with 0 <= y < details.height. Does nothing
+    // unless accepts(details). Also used by
+    // MorphQuadDPP<ParArch::CPU_MULTITHREAD>.
     template <typename InIOp, typename ReduceIOp, typename OutIOp>
-    FK_HOST_FUSE void exec(const MorphQuadDetails& details,
-                           const InIOp& input,
-                           const ReduceIOp& reduce,
-                           const OutIOp& output) {
+    FK_HOST_FUSE void exec_row(const int y,
+                               const MorphQuadDetails& details,
+                               const InIOp& input,
+                               const ReduceIOp& reduce,
+                               const OutIOp& output) {
         static_assert(isAnyCompleteReadType<InIOp>,
                       "MorphQuadDPP requires a complete Read IOp");
         static_assert(isAnyWriteType<OutIOp>,
@@ -105,24 +114,77 @@ public:
                       clamp(y, details.height), 0}, input);
         };
 
-        for (int y = 0; y < details.height; ++y) {
-            for (int x = 0; x < details.width; ++x) {
-                T value = source(x - details.anchorX,
-                                 y - details.anchorY);
-                for (int ky = 0; ky < kernelHeight; ++ky) {
-                    for (int kx = 0; kx < kernelWidth; ++kx) {
-                        if (kx == 0 && ky == 0) continue;
-                        value = make_tuple(
-                            value,
-                            source(x + kx - details.anchorX,
-                                   y + ky - details.anchorY)) | reduce;
-                    }
+        for (int x = 0; x < details.width; ++x) {
+            T value = source(x - details.anchorX,
+                             y - details.anchorY);
+            for (int ky = 0; ky < kernelHeight; ++ky) {
+                for (int kx = 0; kx < kernelWidth; ++kx) {
+                    if (kx == 0 && ky == 0) continue;
+                    value = make_tuple(
+                        value,
+                        source(x + kx - details.anchorX,
+                               y + ky - details.anchorY)) | reduce;
                 }
-                OutIOp::Operation::exec(Point{x, y, 0}, value, output);
             }
+            OutIOp::Operation::exec(Point{x, y, 0}, value, output);
+        }
+    }
+
+    template <typename InIOp, typename ReduceIOp, typename OutIOp>
+    FK_HOST_FUSE void exec(const MorphQuadDetails& details,
+                           const InIOp& input,
+                           const ReduceIOp& reduce,
+                           const OutIOp& output) {
+        if (!accepts(details)) return;
+
+        for (int y = 0; y < details.height; ++y) {
+            exec_row(y, details, input, reduce, output);
         }
     }
 };
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+// Runs the per row code of MorphQuadDPP<ParArch::CPU>, one chunk per output
+// row, on cpuThreadPool(). As with the GPU version, the output must not alias
+// the input: rows are written while other rows still read their neighbours.
+template <typename T, int EX, int EY, int KW, int KH>
+struct MorphQuadDPP<ParArch::CPU_MULTITHREAD, T, EX, EY, KW, KH> {
+private:
+    using SelfType = MorphQuadDPP<
+        ParArch::CPU_MULTITHREAD, T, EX, EY, KW, KH>;
+    using CPUDPP = MorphQuadDPP<ParArch::CPU, T, EX, EY, KW, KH>;
+
+public:
+    FK_STATIC_STRUCT(MorphQuadDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::CPU_MULTITHREAD;
+    static constexpr int MAX_RUNTIME_KERNEL_WIDTH =
+        CPUDPP::MAX_RUNTIME_KERNEL_WIDTH;
+
+    FK_HOST_FUSE bool accepts(const MorphQuadDetails& details) {
+        return CPUDPP::accepts(details);
+    }
+
+    // Enqueues the rows in the pool and returns; done is called when all of
+    // them have finished (right away, with no work, unless accepts(details))
+    template <typename InIOp, typename ReduceIOp, typename OutIOp>
+    FK_HOST_STATIC void exec(const cpu_multithread::Completion& done,
+                             const MorphQuadDetails& details,
+                             const InIOp& input,
+                             const ReduceIOp& reduce,
+                             const OutIOp& output) {
+        if (!accepts(details)) {
+            done();
+            return;
+        }
+        cpu_multithread::enqueueChunks(
+            static_cast<std::size_t>(details.height),
+            [details, input, reduce, output](const std::size_t row) {
+                CPUDPP::exec_row(static_cast<int>(row), details,
+                                 input, reduce, output);
+            }, done);
+    }
+};
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 
 #if defined(__NVCC__) || defined(__HIPCC__)
 template <ParArch PA, typename T, int EX, int EY, int KW, int KH>
@@ -281,6 +343,26 @@ FK_HOST_FUSE void executeMorphQuad(
                   "CPU stream requires the CPU MorphQuadDPP specialization");
     DPP::exec(details, iOps...);
 }
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+// Enqueues the execution on the stream, which starts it after the previous
+// executions of the stream, and returns. The buffers of the IOps must stay
+// valid until stream.sync(), and the output must not alias the input.
+template <typename DPP, typename... IOps>
+FK_HOST_STATIC void executeMorphQuad(
+        Stream_<ParArch::CPU_MULTITHREAD>& stream,
+        const MorphQuadDetails& details,
+        const IOps&... iOps) {
+    static_assert(DPP::PAR_ARCH == ParArch::CPU_MULTITHREAD,
+                  "CPU_MULTITHREAD stream requires the CPU_MULTITHREAD "
+                  "MorphQuadDPP specialization");
+    if (!DPP::accepts(details)) return;
+    stream.enqueue([details, iOps...](
+                       const cpu_multithread::Completion& done) {
+        DPP::exec(done, details, iOps...);
+    });
+}
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 
 } // namespace fk
 

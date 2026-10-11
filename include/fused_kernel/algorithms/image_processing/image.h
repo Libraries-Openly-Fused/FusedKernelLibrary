@@ -101,6 +101,16 @@ namespace fk {
         inline void upload(Stream& stream) {}
         inline void download(Stream& stream) {}
 #endif // defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED)
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+        // No-ops ordered with the executions of the stream, like Ptr::upload / Ptr::download on a CPU_MULTITHREAD
+        // stream: the image must be in Host or HostPinned memory, otherwise they throw std::runtime_error
+        inline void upload(Stream_<ParArch::CPU_MULTITHREAD>& stream) {
+            data.upload(stream);
+        }
+        inline void download(Stream_<ParArch::CPU_MULTITHREAD>& stream) {
+            data.download(stream);
+        }
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 #endif // defined(NVRTC_COMPILER)
 
         FK_HOST_CNST VectorType_t<BaseType, PixelFormatTraits<PF>::cn> readAt(const Point p) const {

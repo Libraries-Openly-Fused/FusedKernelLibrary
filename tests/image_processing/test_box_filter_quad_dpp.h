@@ -63,11 +63,13 @@ CaseResult runCase(const int width, const int height,
                    const int runtimeKW, const int runtimeKH,
                    const int anchorX, const int anchorY) {
     using DPP = BoxFilterQuadDPP<PA, unsigned char, EX, EY, KW, KH>;
-    constexpr bool GPU = PA != ParArch::CPU;
+    constexpr bool GPU = PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD;
     const MemType memoryType = GPU ? MemType::DeviceAndPinned : MemType::Host;
 
-    Ptr2D<unsigned char> input(width, height, 0, memoryType);
-    Ptr2D<unsigned char> output(width, height, 0, memoryType);
+    Ptr2D<unsigned char> input(static_cast<uint>(width),
+                               static_cast<uint>(height), 0, memoryType);
+    Ptr2D<unsigned char> output(static_cast<uint>(width),
+                                static_cast<uint>(height), 0, memoryType);
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             input.at(Point{x, y, 0}) = sourceValue(x, y);
@@ -141,6 +143,20 @@ bool verifyCase(const int width, const int height,
                 KW > 0 ? KW : runtimeKW,
                 KH > 0 ? KH : runtimeKH,
                 ok ? "PASS" : "FAIL");
+#endif
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    // The rows run concurrently on the pool: the bytes must be the same as
+    // with the single thread CPU backend
+    const auto multithread = runCase<ParArch::CPU_MULTITHREAD, EX, EY, KW, KH>(
+        width, height, runtimeKW, runtimeKH, anchorX, anchorY);
+    const bool multithreadOk =
+        multithread.passed && multithread.output == cpu.output;
+    std::printf("BoxFilterQuad %-14s %dx%d k%dx%d CPU/CPU_MULTITHREAD %s\n",
+                name, width, height,
+                KW > 0 ? KW : runtimeKW,
+                KH > 0 ? KH : runtimeKH,
+                multithreadOk ? "PASS" : "FAIL");
+    ok = multithreadOk && ok;
 #endif
     return ok;
 }
