@@ -19,7 +19,7 @@
 
 #include <fused_kernel/fused_kernel.h>
 
-#if __has_include(<ThreadPool.h>)
+#ifdef FK_CPU_MULTITHREAD_ENABLED
 #include <fused_kernel/core/execution_model/cpu_multithread.h>
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
@@ -30,9 +30,14 @@
 #include <fused_kernel/algorithms/image_processing/resize.h>
 
 #include <array>
+#include <atomic>
+#include <chrono>
+#include <cstdlib>
 #include <cstring>
+#include <future>
 #include <iostream>
 #include <random>
+#include <thread>
 #include <vector>
 
 namespace fk {
@@ -151,13 +156,193 @@ bool testConcurrentStreams() {
     return true;
 }
 
+// Fails the test instead of hanging it when a future is not ready in time (a deadlock)
+template <typename T>
+bool readyInTime(std::future<T>& future, const char* what) {
+    if (future.wait_for(std::chrono::seconds(60)) == std::future_status::ready) {
+        return true;
+    }
+    std::cout << "CPU_MULTITHREAD: " << what << " did not finish in 60 s (deadlock)" << std::endl;
+    std::_Exit(1);
+}
+
+Ptr2D<float> filled(const int width, const int height, const float value) {
+    Ptr2D<float> ptr(width, height, 0, MemType::Host);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            ptr.at(x, y) = value + static_cast<float>(x);
+        }
+    }
+    return ptr;
+}
+
+bool allEqual(const Ptr2D<float>& ptr, const float value) {
+    for (int y = 0; y < static_cast<int>(ptr.dims().height); ++y) {
+        for (int x = 0; x < static_cast<int>(ptr.dims().width); ++x) {
+            if (ptr.at(x, y) != value + static_cast<float>(x)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+// Streams used and synchronized (explicitly and by their destructors) from inside workers of the pool, more of them
+// than there are workers: the waiting workers run queued chunks instead of blocking
+bool testSyncOnWorkers() {
+    constexpr int W = 300, H = 200;
+    const size_t tasks = 2 * cpuThreadPool().size();
+    std::vector<Ptr2D<float>> data;
+    for (size_t i = 0; i < tasks; ++i) {
+        data.push_back(filled(W, H, 0.f));
+    }
+    std::vector<std::future<bool>> futures;
+    for (size_t i = 0; i < tasks; ++i) {
+        futures.push_back(cpuThreadPool().submit([&data, i] {
+            MTStream stream;
+            for (int step = 0; step < 3; ++step) {
+                executeOperations<MTDPP>(data[i], data[i], stream, Add<float>::build(1.f));
+            }
+            stream.sync();
+            const bool synced = allEqual(data[i], 3.f);
+            executeOperations<MTDPP>(data[i], data[i], stream, Add<float>::build(1.f));
+            return synced; // the stream's destructor waits for the last execution, on this worker
+        }));
+    }
+    bool correct = true;
+    for (size_t i = 0; i < tasks; ++i) {
+        correct &= readyInTime(futures[i], "sync on pool workers") && futures[i].get() && allEqual(data[i], 4.f);
+    }
+    return correct;
+}
+
+// Holds its value until gate GATE is opened, so that a test can keep an execution in flight
+inline std::atomic<bool>& gate(const int id) {
+    static std::atomic<bool> gates[2]{};
+    return gates[id];
+}
+
+template <int GATE>
+struct WaitGate {
+private:
+    using SelfType = WaitGate<GATE>;
+public:
+    FK_STATIC_STRUCT(WaitGate, SelfType)
+    using Parent = UnaryOperation<float, float, WaitGate<GATE>>;
+    DECLARE_UNARY_PARENT
+    static inline OutputType exec(const InputType input) {
+        while (!gate(GATE).load()) {
+            std::this_thread::yield();
+        }
+        return input;
+    }
+};
+
+// sync() waits for the executions enqueued before it, not for those enqueued later by other threads: A is enqueued
+// and synced, then B is enqueued while the sync waits; sync must return once A finishes, with B still blocked
+bool testSyncWaitsOnlyForEarlierWork() {
+    gate(0).store(false);
+    gate(1).store(false);
+    // One row each: one chunk, so each execution blocks a single worker
+    Ptr2D<float> a = filled(16, 1, 0.f);
+    Ptr2D<float> b = filled(16, 1, 0.f);
+    MTStream stream;
+    std::atomic<bool> aboutToSync{false};
+    auto waiter = std::async(std::launch::async, [&] {
+        executeOperations<MTDPP>(a, a, stream, WaitGate<0>::build(), Add<float>::build(1.f));
+        aboutToSync.store(true);
+        stream.sync();
+        return allEqual(a, 1.f);
+    });
+    while (!aboutToSync.load()) {
+        std::this_thread::yield();
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    MTStream copy = stream;
+    executeOperations<MTDPP>(b, b, copy, WaitGate<1>::build(), Add<float>::build(1.f));
+    gate(0).store(true);
+    const bool returned = waiter.wait_for(std::chrono::seconds(30)) == std::future_status::ready;
+    if (!returned) {
+        std::cout << "CPU_MULTITHREAD: sync() waited for an execution enqueued after it" << std::endl;
+    }
+    gate(1).store(true);
+    const bool waiterCorrect = waiter.get();
+    stream.sync();
+    return returned && waiterCorrect && allEqual(b, 1.f);
+}
+
+// The Ptr / Tensor entry points keep their buffers alive until the execution has finished, even if the caller drops
+// them before sync(); and every executeOperations entry point works on this backend
+void addThenDouble(MTStream& stream, const Ptr2D<float>& input, const Ptr2D<float>& output) {
+    Ptr2D<float> tmp(input.dims().width, input.dims().height, 0, MemType::Host);
+    executeOperations<MTDPP>(input, tmp, stream, Add<float>::build(1.f));
+    executeOperations<MTDPP>(tmp, output, stream, Mul<float>::build(2.f));
+    // tmp is released here, before the executions that use it have run
+}
+
+bool testEntryPointsAndBufferLifetime() {
+    constexpr int W = 640, H = 480;
+    MTStream stream;
+    bool correct = true;
+
+    // (input, output, stream, ops) with a temporary buffer released before sync()
+    Ptr2D<float> input = filled(W, H, 1.f);
+    Ptr2D<float> output(W, H, 0, MemType::Host);
+    for (int i = 0; i < 20; ++i) {
+        addThenDouble(stream, input, output);
+    }
+    stream.sync();
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
+            correct &= output.at(x, y) == (input.at(x, y) + 1.f) * 2.f;
+        }
+    }
+
+    // (input, stream, ops..., write)
+    Ptr2D<float> out2(W, H, 0, MemType::Host);
+    executeOperations<MTDPP>(input, stream, Add<float>::build(3.f), PerThreadWrite<ND::_2D, float>::build(out2.ptr()));
+    stream.sync();
+    correct &= allEqual(out2, 4.f);
+
+    // Batches: std::array of Ptr2D, with and without active batch, with a Tensor output or a write IOp
+    constexpr size_t BATCH = 3;
+    const std::array<Ptr2D<float>, BATCH> inputs{filled(W, H, 10.f), filled(W, H, 20.f), filled(W, H, 30.f)};
+    Tensor<float> t1(W, H, BATCH, 1, MemType::Host);
+    Tensor<float> t2(W, H, BATCH, 1, MemType::Host);
+    Tensor<float> t3(W, H, BATCH, 1, MemType::Host);
+    Tensor<float> t4(W, H, BATCH, 1, MemType::Host);
+    executeOperations<MTDPP>(inputs, t1, stream, Add<float>::build(1.f));
+    executeOperations<MTDPP>(inputs, 2, -100.f, t2, stream, Add<float>::build(1.f));
+    executeOperations<MTDPP>(inputs, stream, Add<float>::build(1.f), PerThreadWrite<ND::_3D, float>::build(t3.ptr()));
+    executeOperations<MTDPP>(inputs, 2, -100.f, stream, Add<float>::build(1.f),
+                             PerThreadWrite<ND::_3D, float>::build(t4.ptr()));
+    stream.sync();
+    for (int z = 0; z < static_cast<int>(BATCH); ++z) {
+        const float base = 10.f * static_cast<float>(z + 1) + 1.f;
+        for (int y = 0; y < H; ++y) {
+            for (int x = 0; x < W; ++x) {
+                const float expected = base + static_cast<float>(x);
+                const float expectedActive = z < 2 ? expected : -99.f;
+                correct &= t1.at(x, y, z) == expected && t3.at(x, y, z) == expected;
+                correct &= t2.at(x, y, z) == expectedActive && t4.at(x, y, z) == expectedActive;
+            }
+        }
+    }
+    return correct;
+}
+
 int launch_impl() {
     const bool same = testSameResultAsCPU();
     const bool order = testStreamOrder();
     const bool concurrent = testConcurrentStreams();
+    const bool workers = testSyncOnWorkers();
+    const bool earlier = testSyncWaitsOnlyForEarlierWork();
+    const bool entryPoints = testEntryPointsAndBufferLifetime();
     std::cout << "CPU_MULTITHREAD (" << cpuThreadPool().size() << " threads): same result as CPU " << same
-              << ", stream order " << order << ", concurrent streams " << concurrent << std::endl;
-    return same && order && concurrent ? 0 : -1;
+              << ", stream order " << order << ", concurrent streams " << concurrent << ", sync on workers "
+              << workers << ", sync waits only for earlier work " << earlier << ", entry points and buffer lifetime "
+              << entryPoints << std::endl;
+    return same && order && concurrent && workers && earlier && entryPoints ? 0 : -1;
 }
 
 } // namespace fk
@@ -171,7 +356,8 @@ int launch() {
 #include <iostream>
 
 int launch() {
-    std::cout << "ThreadPool.h not available (ENABLE_CPU_MULTITHREAD is OFF): CPU_MULTITHREAD not tested" << std::endl;
+    std::cout << "ENABLE_CPU_MULTITHREAD is OFF (thread-pool submodule not checked out): CPU_MULTITHREAD not tested"
+              << std::endl;
     return 0;
 }
 

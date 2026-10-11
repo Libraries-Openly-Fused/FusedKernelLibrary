@@ -12,6 +12,7 @@ if (ENABLE_CPU_MULTITHREAD)
     find_package(Threads REQUIRED)
     target_include_directories(${LIB_NAME} INTERFACE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/thread-pool/include>)
     target_link_libraries(${LIB_NAME} INTERFACE $<BUILD_INTERFACE:Threads::Threads>)
+    target_compile_definitions(${LIB_NAME} INTERFACE $<BUILD_INTERFACE:FK_CPU_MULTITHREAD_ENABLED>)
 endif()
 # locations are provided by GNUInstallDirs
 install(

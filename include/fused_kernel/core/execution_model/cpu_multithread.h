@@ -22,27 +22,43 @@
 // - cpuThreadPool() is the pool shared by every CPU_MULTITHREAD stream, with one worker per hardware thread.
 // - Stream_<ParArch::CPU_MULTITHREAD> behaves like a CUDA stream: executeOperations enqueues the execution of a DPP
 //   and returns, the executions of one stream run one after the other in the order they were enqueued, and sync()
-//   waits for all of them. Executions of different streams can run concurrently in the shared pool.
+//   waits for the executions enqueued before it. Executions of different streams can run concurrently in the shared
+//   pool. Copies of a stream share its queue, and the last copy to be destroyed waits for all its executions.
 // - TransformDPP<ParArch::CPU_MULTITHREAD> runs the per thread code of TransformDPP<ParArch::CPU>. Its work is split
 //   in chunks of one row of one plane of the output, which the workers of the pool consume.
+//
+// Memory: as with the host buffers of cudaMemcpyAsync, the buffers an execution reads or writes must stay valid until
+// it has finished (sync()). The executeOperations overloads that take Ptr or Tensor objects keep a reference to them in
+// the enqueued execution, so those buffers stay alive by themselves; buffers given to build() as RawPtr (ptr.ptr()) or
+// as an Image do not.
+//
+// sync() can be called from a worker of the pool (for instance from a function given to cpuThreadPool().submit()):
+// the worker then runs queued chunks while it waits, instead of blocking.
 
 #include <fused_kernel/core/execution_model/executors.h>
 
 #include <ThreadPool.h>
 
+#include <any>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
+#include <cstdint>
 #include <deque>
+#include <exception>
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <utility>
+#include <vector>
 
 namespace fk {
 
-    inline ThreadPool& cpuThreadPool() {
-        static ThreadPool pool;
+    inline thread_pool::ThreadPool& cpuThreadPool() {
+        static thread_pool::ThreadPool pool;
+        // If a worker can not be created, init() throws and the initialization is tried again in the next call
         static const bool started = (pool.init(), true);
         (void)started;
         return pool;
@@ -51,33 +67,55 @@ namespace fk {
     namespace cpu_multithread_detail {
         class LaunchQueue;
 
+        // Owning copies of the Ptr and Tensor arguments of executeOperations, which the execution being built on this
+        // thread keeps alive until it has finished
+        inline std::vector<std::any>& pendingKeepAlive() {
+            static thread_local std::vector<std::any> objects;
+            return objects;
+        }
+
         // One enqueued execution of a DPP: a bulk task of the pool that, when all its chunks are done, lets its
         // stream start the next execution
-        class Launch : public ThreadPool::BulkTask {
+        class Launch : public thread_pool::ThreadPool::BulkTask {
         public:
-            explicit Launch(LaunchQueue& queue) : m_queue(queue) {}
+            explicit Launch(LaunchQueue& queue) : m_queue(queue), m_keepAlive(std::move(pendingKeepAlive())) {
+                pendingKeepAlive().clear();
+            }
             virtual std::size_t chunks() const = 0;
             void complete() final;
 
         private:
             LaunchQueue& m_queue;
+            std::vector<std::any> m_keepAlive;
         };
 
         // The executions of one stream. The front one is running in the pool, the rest wait for it.
         class LaunchQueue {
         public:
+            LaunchQueue() = default;
+            LaunchQueue(const LaunchQueue&) = delete;
+            LaunchQueue& operator=(const LaunchQueue&) = delete;
+
+            ~LaunchQueue() {
+                sync();
+            }
+
             void enqueue(std::unique_ptr<Launch> launch) {
+                // Starts the workers, if they are not running yet, before anything is queued: this may throw
+                thread_pool::ThreadPool& pool = cpuThreadPool();
                 Launch* start = nullptr;
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
                     m_launches.push_back(std::move(launch));
+                    ++m_enqueued;
                     if (m_launches.size() == 1) {
-                        m_idle.store(false, std::memory_order_relaxed);
                         start = m_launches.front().get();
                     }
                 }
                 if (start != nullptr) {
-                    cpuThreadPool().enqueue(*start, start->chunks());
+                    if (const std::exception_ptr error = startOrDrop(pool, *start)) {
+                        std::rethrow_exception(error);
+                    }
                 }
             }
 
@@ -89,35 +127,78 @@ namespace fk {
                     std::lock_guard<std::mutex> lock(m_mutex);
                     done = std::move(m_launches.front());
                     m_launches.pop_front();
-                    if (m_launches.empty()) {
-                        // Notify while holding the lock: the stream may be destroyed as soon as sync() returns
-                        m_idle.store(true, std::memory_order_release);
-                        m_condition.notify_all();
-                    } else {
+                    ++m_finished;
+                    m_finishedAtomic.store(m_finished, std::memory_order_release);
+                    // Notify while holding the lock: the queue may be destroyed as soon as a waiter sees that its
+                    // executions have finished
+                    m_condition.notify_all();
+                    if (!m_launches.empty()) {
                         next = m_launches.front().get();
                     }
                 }
                 if (next != nullptr) {
-                    cpuThreadPool().enqueue(*next, next->chunks());
+                    // It can only fail once the pool has been shut down, and then startOrDrop drops the executions
+                    (void)startOrDrop(cpuThreadPool(), *next);
                 }
             }
 
+            // Waits for the executions enqueued before the call
             void sync() {
-                // Spin for a short time before sleeping, like the workers of the pool
-                const auto spinEnd = std::chrono::steady_clock::now() + std::chrono::microseconds(100);
-                while (!m_idle.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < spinEnd) {
-                    std::this_thread::yield();
+                std::uint64_t target;
+                {
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    target = m_enqueued;
+                    if (m_finished >= target) {
+                        return;
+                    }
+                }
+                thread_pool::ThreadPool& pool = cpuThreadPool();
+                if (pool.isWorkerThread()) {
+                    // Blocking a worker could leave no worker to run the executions: help with them instead
+                    while (m_finishedAtomic.load(std::memory_order_acquire) < target) {
+                        if (!pool.runOneChunk()) {
+                            std::this_thread::yield();
+                        }
+                    }
+                } else {
+                    // Spin for a short time before sleeping, like the workers of the pool
+                    const auto spinEnd = std::chrono::steady_clock::now() + std::chrono::microseconds(100);
+                    while (m_finishedAtomic.load(std::memory_order_acquire) < target &&
+                           std::chrono::steady_clock::now() < spinEnd) {
+                        std::this_thread::yield();
+                    }
                 }
                 // Always take the lock, so that finished() is not using this queue any more when sync() returns
                 std::unique_lock<std::mutex> lock(m_mutex);
-                m_condition.wait(lock, [this] { return m_launches.empty(); });
+                m_condition.wait(lock, [this, target] { return m_finished >= target; });
             }
 
         private:
+            // Enqueues the launch in the pool. If that fails (the pool has been shut down, at program exit), the
+            // executions of this stream can never run: they are dropped, so that nobody waits for them forever.
+            std::exception_ptr startOrDrop(thread_pool::ThreadPool& pool, Launch& launch) noexcept {
+                try {
+                    pool.enqueue(launch, launch.chunks());
+                    return nullptr;
+                } catch (...) {
+                    std::deque<std::unique_ptr<Launch>> dropped;
+                    {
+                        std::lock_guard<std::mutex> lock(m_mutex);
+                        dropped.swap(m_launches);
+                        m_finished = m_enqueued;
+                        m_finishedAtomic.store(m_finished, std::memory_order_release);
+                        m_condition.notify_all();
+                    }
+                    return std::current_exception();
+                }
+            }
+
             std::mutex m_mutex;
             std::condition_variable m_condition;
             std::deque<std::unique_ptr<Launch>> m_launches;
-            std::atomic<bool> m_idle{true};
+            std::uint64_t m_enqueued{0};
+            std::uint64_t m_finished{0};
+            std::atomic<std::uint64_t> m_finishedAtomic{0};
         };
 
         inline void Launch::complete() {
@@ -149,22 +230,10 @@ namespace fk {
     class Stream_<ParArch::CPU_MULTITHREAD> final : public BaseStream {
     public:
         Stream_() : BaseStream(), m_queue(std::make_shared<cpu_multithread_detail::LaunchQueue>()) {}
-        Stream_(const Stream_<ParArch::CPU_MULTITHREAD>& other) : BaseStream(other), m_queue(other.m_queue) {}
-        Stream_<ParArch::CPU_MULTITHREAD>& operator=(const Stream_<ParArch::CPU_MULTITHREAD>& other) {
-            if (this != &other) {
-                if (m_queue.use_count() == 1) {
-                    m_queue->sync();
-                }
-                BaseStream::operator=(other);
-                m_queue = other.m_queue;
-            }
-            return *this;
-        }
-        ~Stream_() {
-            if (m_queue.use_count() == 1) {
-                m_queue->sync();
-            }
-        }
+        Stream_(const Stream_<ParArch::CPU_MULTITHREAD>& other) = default;
+        Stream_<ParArch::CPU_MULTITHREAD>& operator=(const Stream_<ParArch::CPU_MULTITHREAD>& other) = default;
+        // The queue is destroyed with the last copy of the stream, and waits for its executions
+        ~Stream_() = default;
 
         inline void sync() final { m_queue->sync(); }
 
@@ -221,8 +290,18 @@ namespace fk {
     private:
         using Child = Executor<TransformDPP<ParArch::CPU_MULTITHREAD, TFEN>>;
         using Parent = BaseExecutor<Child>;
+        using MTStream = Stream_<ParArch::CPU_MULTITHREAD>;
+        friend struct BaseExecutor<Child>;
+
+        // The execution being built keeps these objects (Ptr, Tensor, arrays of them) alive until it has finished
+        template <typename... Objects>
+        static inline void keepAlive(const Objects&... objects) {
+            auto& pending = cpu_multithread_detail::pendingKeepAlive();
+            (pending.emplace_back(objects), ...);
+        }
+
         template <typename... IOps>
-        FK_HOST_FUSE void executeOperations_helper(Stream_<ParArch::CPU_MULTITHREAD>& stream, const IOps&... iOps) {
+        FK_HOST_FUSE void executeOperations_helper(MTStream& stream, const IOps&... iOps) {
             constexpr ParArch PA = ParArch::CPU_MULTITHREAD;
             const auto tDetails = TransformDPP<PA, TFEN>::build_details(iOps...);
             using TDPPDetails = std::decay_t<decltype(tDetails)>;
@@ -246,7 +325,48 @@ namespace fk {
         FK_HOST_FUSE ParArch parArch() {
             return ParArch::CPU_MULTITHREAD;
         }
-        DECLARE_EXECUTOR_PARENT_IMPL
+
+        // The entry points of DECLARE_EXECUTOR_PARENT_IMPL, keeping their Ptr and Tensor arguments alive
+        template <typename... IOps>
+        static inline void executeOperations(MTStream& stream, const IOps&... iOps) {
+            Parent::executeOperations(stream, iOps...);
+        }
+        template <ND D, typename I, typename... IOps>
+        static inline void executeOperations(const Ptr<D, I>& input, MTStream& stream, const IOps&... iOps) {
+            keepAlive(input);
+            Parent::executeOperations(input, stream, iOps...);
+        }
+        template <ND D, typename I, typename O, typename... IOps>
+        static inline void executeOperations(const Ptr<D, I>& input, const Ptr<D, O>& output, MTStream& stream,
+                                             const IOps&... iOps) {
+            keepAlive(input, output);
+            Parent::executeOperations(input, output, stream, iOps...);
+        }
+        template <typename I, size_t BATCH, typename... IOps>
+        static inline void executeOperations(const std::array<Ptr2D<I>, BATCH>& input, const int& activeBatch,
+                                             const I& defaultValue, MTStream& stream, const IOps&... iOps) {
+            keepAlive(input);
+            Parent::executeOperations(input, activeBatch, defaultValue, stream, iOps...);
+        }
+        template <typename I, size_t BATCH, typename... IOps>
+        static inline void executeOperations(const std::array<Ptr2D<I>, BATCH>& input, MTStream& stream,
+                                             const IOps&... iOps) {
+            keepAlive(input);
+            Parent::executeOperations(input, stream, iOps...);
+        }
+        template <typename I, typename O, size_t Batch, typename... IOps>
+        static inline void executeOperations(const std::array<Ptr2D<I>, Batch>& input, const int& activeBatch,
+                                             const I& defaultValue, const Tensor<O>& output, MTStream& stream,
+                                             const IOps&... iOps) {
+            keepAlive(input, output);
+            Parent::executeOperations(input, activeBatch, defaultValue, output, stream, iOps...);
+        }
+        template <typename I, typename O, size_t Batch, typename... IOps>
+        static inline void executeOperations(const std::array<Ptr2D<I>, Batch>& input, const Tensor<O>& output,
+                                             MTStream& stream, const IOps&... iOps) {
+            keepAlive(input, output);
+            Parent::executeOperations(input, output, stream, iOps...);
+        }
     };
 
 } // namespace fk
