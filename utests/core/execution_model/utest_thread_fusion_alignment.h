@@ -204,9 +204,9 @@ bool testCrops(Stream& stream) {
 
 // Tensors are contiguous: with an odd width their rows are not aligned on any backend
 bool testTensor(Stream& stream) {
-    constexpr int W = 1001, PLANES = 3;
-    Tensor<uchar> input(W, H, PLANES);
-    for (int z = 0; z < PLANES; ++z) {
+    constexpr int W = 1001, NUM_PLANES = 3;
+    Tensor<uchar> input(W, H, NUM_PLANES);
+    for (int z = 0; z < NUM_PLANES; ++z) {
         for (int y = 0; y < H; ++y) {
             for (int x = 0; x < W; ++x) {
                 input.at(x, y, z) = inputValue(x, y, z);
@@ -214,13 +214,13 @@ bool testTensor(Stream& stream) {
         }
     }
     input.upload(stream);
-    Tensor<float> output(W, H, PLANES);
+    Tensor<float> output(W, H, NUM_PLANES);
     executeOperations<TransformDPP<defaultParArch, TF::ENABLED>>(stream, TensorRead<uchar>::build(input.ptr()),
         Cast<uchar, float>::build(), TensorWrite<float>::build(output.ptr()));
     output.download(stream);
     stream.sync();
     bool correct = true;
-    for (int z = 0; z < PLANES; ++z) {
+    for (int z = 0; z < NUM_PLANES; ++z) {
         for (int y = 0; y < H; ++y) {
             for (int x = 0; x < W; ++x) {
                 correct &= output.at(x, y, z) == static_cast<float>(inputValue(x, y, z));
