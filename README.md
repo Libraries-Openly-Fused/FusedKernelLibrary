@@ -29,6 +29,43 @@ Currently supporting **CPU** (single-thread and multithreaded), **CUDA**, and **
 - **🔬 Non-Invasive Inline Probing:** Debug intermediate register data effortlessly. Drop a `MidWrite` at any point in the pipeline to capture in-flight values to memory for CPU inspection without breaking fusion.
 - **🖥️ Trivial CPU Debugging:** Because operations are hardware-agnostic, you can seamlessly switch to the CPU backend to step through your pipeline logic using standard C++ debuggers (like GDB or Visual Studio) before deploying to the GPU. The multithreaded CPU backend (`ParArch::CPU_MULTITHREAD`) then runs the same pipelines on all the CPU cores, with the same results as the single-thread one.
 
+## 📊 Benchmarks
+
+One `executeOperations()` call. One kernel. This is what happens to the clock:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/benchmarks/speedups-dark.png">
+  <img alt="Measured speedups of FKL over OpenCV, NPP and NPPDx on an RTX 4090, and in production at AutomaticTV" src="docs/benchmarks/speedups-light.png" width="100%">
+</picture>
+
+<table align="center">
+  <tr>
+    <td align="center"><h1>50×</h1>faster than OpenCV (CUDA)</td>
+    <td align="center"><h1>34×</h1>faster than NVIDIA NPP</td>
+    <td align="center"><h1>5.9×</h1>faster than a hand-written NPPDx kernel</td>
+    <td align="center"><h1>164×</h1>in production, 50 crops across four 4K frames</td>
+  </tr>
+  <tr>
+    <td align="center"><h1>3.1 µs</h1>4K NV12 → crop → resize → normalize, end to end</td>
+    <td align="center"><h1>9 KB</h1>read from DRAM instead of a 12.4 MB frame</td>
+    <td align="center"><h1>11×</h1>faster than OpenCV on 32 CPU threads, same source code</td>
+    <td align="center"><h1>10 lines</h1>of pipeline code, versus 86 for the NPPDx kernel</td>
+  </tr>
+</table>
+
+All of it measured, on real pipelines, with validated outputs. Across everything we have benchmarked so far, FKL is **2× to more than 1,000× faster** than the equivalent library calls, and the bigger the GPU or the longer the pipeline, the larger the gain.
+
+<details>
+<summary><b>How these numbers were measured</b></summary>
+
+- **4K NV12 pipeline** (first group of bars, and the tiles): a 3840×2160 NV12 frame → RGB → *N* crops of 20×10 px → bilinear resize with border to 64×64 → multiply, subtract, divide → `float3` tensor, for *N* = 1 to 100. RTX 4090, CUDA 13.3, OpenCV 4.14 with CUDA modules, NPP 13.1, NPPDx 0.1.2. End-to-end latency including each library's host-side work, median of 1,000 interleaved iterations; speedups are per-iteration means at the best *N* for FKL (the worst *N* still gives 26× over OpenCV, 26× over NPP and 4.4× over NPPDx). Counting GPU time alone, the FKL kernel is up to 102×, 73× and 15.5× faster, respectively; when intermediates can't stay in L2 between kernels, as on a busy GPU, up to 122× and 89× over OpenCV and NPP. The CPU figure compares FKL's multithreaded CPU backend with OpenCV's pthreads backend on a 16-core Ryzen 9 5950X. From the *Automatic Backwards Vertical Fusion* paper (2026, in preparation); code in [bvf-paper-bench](https://github.com/Libraries-Openly-Fused/bvf-paper-bench) and [FKL-vs-NPPDx](https://github.com/Libraries-Openly-Fused/FKL-vs-NPPDx).
+- **Production** figures are from the [PUMPS+AI 2025 poster](docs/posters/New_GPU_automatic_kernel_fusion_speciesV2.pdf): the AutomaticTV pipelines before and after moving to FKL (NV12 → warp/crop → resize → normalize → tensor), on the GPUs named in the chart.
+- **Vertical & horizontal fusion** figures are from [*The Fused Kernel Library* paper](https://arxiv.org/abs/2508.07071v2), measured on an RTX 4090 through the [cvGPUSpeedup](https://github.com/Libraries-Openly-Fused/cvGPUSpeedup) (OpenCV-like) and [FastNPP](https://github.com/Libraries-Openly-Fused/FastNPP) (NPP-like) wrappers: chains of fused arithmetic on a 4096×2160 image versus one OpenCV-CUDA kernel per operation; a batched crop → resize → color convert → multiply → subtract → divide → split pipeline versus NPP, for batches of 10 to 150; and a synthetic stress test with up to 10,000 fused operations on a batch of 50, which also runs 2,527× faster than OpenCV-CUDA captured in a CUDA Graph.
+
+</details>
+
+---
+
 ## 🧬 Vector Types and HIP/CUDA Interoperability
 
 FKL owns its vector types and operators in the `fk` namespace on every backend. 
@@ -154,6 +191,7 @@ target_link_libraries(my_app PRIVATE FKL::FKL)
 FKL is built on rigorously tested academic methodology. If you use FKL in your research, please refer to our publications:
 
 - 📄 **Preprint Journal Paper (arXiv):** [Methodology for GPU Kernel Fusion](https://arxiv.org/abs/2508.07071v2) *(Pending IEEE approval)*
+- 📄 **Automatic Backwards Vertical Fusion** (2026, in preparation): the fusion model behind the `ReadBack` operations (crop, resize, warp, border, deinterlace). Benchmarks: [bvf-paper-bench](https://github.com/Libraries-Openly-Fused/bvf-paper-bench), [FKL-vs-NPPDx](https://github.com/Libraries-Openly-Fused/FKL-vs-NPPDx).
 - 🖼️ **NVIDIA GTC 2025:** [![GTC 2025 Poster](docs/posters/FKL_GTC2025.PNG)](docs/posters/FKL_GTC2025.pdf).
 - 🏆 **PUMPS + AI 2025:** Award-winning continuation poster at the Barcelona Supercomputing Center [![PUMPS 2025 Poster]](docs/posters/New_GPU_automatic_kernel_fusion_speciesV2.pdf).
 - **PUMPS + AI 2026:** Explanation of how we avoid performance damaging local memory accesses in a systematic way. [![PUMPS 2026 Poster]](docs/posters/PUMPS2026.pdf).
