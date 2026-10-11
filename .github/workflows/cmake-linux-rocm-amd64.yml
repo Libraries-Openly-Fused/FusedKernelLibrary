@@ -34,7 +34,7 @@ jobs:
           echo "LD_LIBRARY_PATH=/opt/rocm/core-${{matrix.rocm_version}}/lib:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
       - name: Configure CMake
         run: |
-          cmake -G "Ninja" -DENABLE_HIP=ON -DENABLE_CUDA=OFF -DENABLE_CPU=OFF \
+          cmake -G "Ninja" -DENABLE_HIP=ON -DENABLE_CUDA=OFF -DENABLE_CPU=OFF -DENABLE_CPU_MULTITHREAD=ON \
           -DCMAKE_CXX_COMPILER="$HIP_PATH/bin/amdclang++" -DCMAKE_HIP_COMPILER="$HIP_PATH/bin/amdclang++"  \
           -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
 
