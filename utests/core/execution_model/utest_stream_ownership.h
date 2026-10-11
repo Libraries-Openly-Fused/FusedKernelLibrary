@@ -12,10 +12,9 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
-// GPU streams own the CUDA stream they create: copies share it, assignment adopts the other stream, and the last copy
-// destroys it (never before: a copy that outlives the original keeps it usable). A stream given by the user is never
-// destroyed.
-#define __ONLY_CU__
+// GPU streams (CUDA and HIP) own the native stream they create: copies share it, assignment adopts the other stream,
+// and the last copy destroys it (never before: a copy that outlives the original keeps it usable). A stream given by
+// the user is never destroyed. The CPU streams own no native stream, so the _cpp target has nothing to test.
 
 #include <tests/main.h>
 
@@ -25,19 +24,51 @@
 #include <iostream>
 #include <memory>
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
 namespace fk {
 
+#if defined(__NVCC__)
 using GPUStream = Stream_<ParArch::GPU_NVIDIA>;
+using NativeStream = cudaStream_t;
+inline bool createNative(NativeStream* stream) { return cudaStreamCreate(stream) == cudaSuccess; }
+inline bool destroyNative(const NativeStream stream) { return cudaStreamDestroy(stream) == cudaSuccess; }
+inline bool usable(const NativeStream stream) {
+    return cudaStreamQuery(stream) == cudaSuccess && cudaStreamSynchronize(stream) == cudaSuccess;
+}
+inline bool initDevice() { return cudaFree(0) == cudaSuccess; }
+inline bool freeMemory(size_t* free) {
+    size_t total = 0;
+    return cudaMemGetInfo(free, &total) == cudaSuccess;
+}
+#else
+using GPUStream = Stream_<ParArch::GPU_AMD>;
+using NativeStream = hipStream_t;
+inline bool createNative(NativeStream* stream) { return hipStreamCreate(stream) == hipSuccess; }
+inline bool destroyNative(const NativeStream stream) { return hipStreamDestroy(stream) == hipSuccess; }
+inline bool usable(const NativeStream stream) {
+    return hipStreamQuery(stream) == hipSuccess && hipStreamSynchronize(stream) == hipSuccess;
+}
+inline bool initDevice() { return hipFree(0) == hipSuccess; }
+inline bool freeMemory(size_t* free) {
+    size_t total = 0;
+    return hipMemGetInfo(free, &total) == hipSuccess;
+}
+#endif
 
-// Free device memory lost after creating, copying, assigning and destroying many streams. Every created stream holds
-// device memory, so leaking them shows here. Other processes can use the GPU at the same time: the smallest of three
-// rounds is reported, which they can only make smaller.
+inline NativeStream native(const GPUStream& stream) {
+    return static_cast<NativeStream>(stream);
+}
+
+// Free device memory lost after creating, copying, assigning and destroying many streams. A created CUDA stream holds
+// about 160 KB of device memory, so leaking them shows here. Other processes can use the GPU at the same time: the
+// smallest of three rounds is reported, which they can only make smaller.
 double megabytesLostToStreams() {
     double smallest = 1e30;
     for (int round = 0; round < 3; ++round) {
-        size_t freeBefore = 0, freeAfter = 0, total = 0;
-        gpuErrchk(cudaMemGetInfo(&freeBefore, &total));
+        size_t freeBefore = 0, freeAfter = 0;
+        if (!freeMemory(&freeBefore)) {
+            return 1e30;
+        }
         for (int i = 0; i < 1000; ++i) {
             GPUStream a;
             GPUStream b;
@@ -45,23 +76,24 @@ double megabytesLostToStreams() {
             b = a;
             c = a;
         }
-        gpuErrchk(cudaMemGetInfo(&freeAfter, &total));
+        if (!freeMemory(&freeAfter)) {
+            return 1e30;
+        }
         smallest = std::min(smallest, (static_cast<double>(freeBefore) - static_cast<double>(freeAfter)) / 1048576.0);
     }
     return smallest;
 }
 
 int launch_impl() {
-    gpuErrchk(cudaFree(0));
-    bool correct = true;
+    bool correct = initDevice();
 
-    // Copies and assignment share the CUDA stream
+    // Copies and assignment share the native stream
     GPUStream a;
     GPUStream b;
     const GPUStream copy = a;
-    correct &= copy.getCUDAStream() == a.getCUDAStream() && b.getCUDAStream() != a.getCUDAStream();
+    correct &= native(copy) == native(a) && native(b) != native(a);
     b = a;
-    correct &= b.getCUDAStream() == a.getCUDAStream();
+    correct &= native(b) == native(a);
 
     // The stream stays usable while any copy is alive: a copy that outlives the original, and a copy that shares it
     // with an object that is assigned another stream
@@ -70,30 +102,28 @@ int launch_impl() {
         GPUStream original;
         survivor = std::make_unique<GPUStream>(original);
     }
-    correct &= cudaStreamQuery(survivor->getCUDAStream()) == cudaSuccess;
-    correct &= cudaStreamSynchronize(survivor->getCUDAStream()) == cudaSuccess;
+    correct &= usable(native(*survivor));
     {
         GPUStream shared;
         GPUStream sharer = shared;
         shared = a;
-        correct &= cudaStreamQuery(sharer.getCUDAStream()) == cudaSuccess && sharer.getCUDAStream() != a.getCUDAStream();
+        correct &= usable(native(sharer)) && native(sharer) != native(a);
     }
 
     // A stream given by the user is never destroyed by its wrappers
-    cudaStream_t userStream;
-    gpuErrchk(cudaStreamCreate(&userStream));
+    NativeStream userStream{};
+    correct &= createNative(&userStream);
     {
         GPUStream wrapper(userStream);
         GPUStream wrapperCopy = wrapper;
         GPUStream other;
         other = wrapperCopy;
-        correct &= other.getCUDAStream() == userStream;
+        correct &= native(other) == userStream;
     }
-    correct &= cudaStreamQuery(userStream) == cudaSuccess;
-    gpuErrchk(cudaStreamDestroy(userStream));
+    correct &= usable(userStream) && destroyNative(userStream);
 
-    // Owned streams are destroyed with their last copy, also when replaced by assignment (each leaked stream holds
-    // about 160 KB of device memory: 2000 of them would be over 300 MB)
+    // Owned streams are destroyed with their last copy, also when replaced by assignment (2000 leaked CUDA streams
+    // would be over 300 MB)
     const double lost = megabytesLostToStreams();
     if (lost > 64.) {
         std::cout << "GPU streams: " << lost << " MB of device memory lost to streams that were not destroyed"
@@ -111,7 +141,10 @@ int launch() {
     return fk::launch_impl();
 }
 #else
+#include <iostream>
+
 int launch() {
+    std::cout << "CPU streams own no native stream: nothing to test" << std::endl;
     return 0;
 }
 #endif

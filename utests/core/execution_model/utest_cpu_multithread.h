@@ -37,6 +37,7 @@
 #include <cstdlib>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <future>
 #include <memory>
@@ -681,6 +682,46 @@ bool testSyncIgnoresLaterErrors() {
     return correct;
 }
 
+// Several threads enqueueing on copies of one stream at the same time never get more than MAX_PENDING executions
+// pending: the first one waits on a gate, so none finishes while they fill the stream
+bool testConcurrentEnqueueBound() {
+    constexpr int THREADS = 8;
+    constexpr auto MAX_PENDING = cpu_multithread::detail::ExecutionQueue::MAX_PENDING;
+    gate(0).store(false);
+    Ptr2D<float> data = filled(16, 1, 0.f);
+    MTStream stream;
+    std::atomic<std::uint64_t> enqueued{0};
+    std::atomic<bool> stop{false};
+    std::vector<std::thread> threads;
+    for (int t = 0; t < THREADS; ++t) {
+        threads.emplace_back([&] {
+            MTStream copy = stream;
+            while (!stop.load()) {
+                executeOperations<MTDPP>(copy, PerThreadRead<ND::_2D, float>::build(data.ptr()), WaitGate<0>::build(),
+                                         PerThreadWrite<ND::_2D, float>::build(data.ptr()));
+                enqueued.fetch_add(1);
+            }
+        });
+    }
+    // Wait until the stream is full (slow builds take longer), then a bit more, in case it went past the limit
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (enqueued.load() < MAX_PENDING && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    const std::uint64_t pending = enqueued.load();
+    stop.store(true);
+    gate(0).store(true);
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    stream.sync();
+    if (pending > MAX_PENDING) {
+        std::cout << "CPU_MULTITHREAD: " << pending << " executions pending, more than " << MAX_PENDING << std::endl;
+    }
+    return pending == MAX_PENDING;
+}
+
 int launch_impl() {
     const bool same = testSameResultAsCPU();
     const bool order = testStreamOrder();
@@ -694,17 +735,18 @@ int launch_impl() {
     const bool copies = testStreamCopiesAcrossThreads();
     const bool startFailure = testStartFailureReachesSync();
     const bool laterErrors = testSyncIgnoresLaterErrors();
+    const bool bound = testConcurrentEnqueueBound();
     const bool memoryHelpers = testMemoryHelpers();
     std::cout << "CPU_MULTITHREAD (" << cpuThreadPool().size() << " threads): same result as CPU " << same
               << ", stream order " << order << ", concurrent streams " << concurrent << ", sync on workers "
               << workers << ", sync waits only for earlier work " << earlier << ", entry points and buffer lifetime "
               << entryPoints << ", enqueue throttled " << throttled << ", thread fusion " << threadFusion
               << ", errors reach sync " << errors << ", stream copies across threads " << copies << ", start failure reaches sync " << startFailure
-              << ", sync ignores later errors " << laterErrors
+              << ", sync ignores later errors " << laterErrors << ", concurrent enqueue bound " << bound
               << ", setTo upload download " << memoryHelpers << std::endl;
     return same && order && concurrent && workers && earlier && entryPoints && throttled && threadFusion &&
                    errors && copies && memoryHelpers && startFailure &&
-                   laterErrors ? 0 : -1;
+                   laterErrors && bound ? 0 : -1;
 }
 
 } // namespace fk

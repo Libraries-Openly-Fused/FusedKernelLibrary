@@ -234,10 +234,12 @@ namespace fk {
                 }
 
                 void enqueue(std::unique_ptr<Execution> execution) {
-                    waitForRoom();
                     Execution* start = nullptr;
                     {
-                        std::lock_guard<std::mutex> lock(m_mutex);
+                        std::unique_lock<std::mutex> lock(m_mutex);
+                        // Wait for room and queue under the same lock, so that threads enqueueing at the same time
+                        // can not exceed MAX_PENDING
+                        waitForRoom(lock);
                         // Counted only once it is queued: push_back may throw, and then nothing changes
                         execution->number = m_enqueued + 1;
                         m_executions.push_back(std::move(execution));
@@ -323,34 +325,24 @@ namespace fk {
                 }
 
             private:
-                // Waits until fewer than MAX_PENDING executions are pending, running queued chunks meanwhile on a
-                // worker of the pool. Several threads may enqueue at the same time, so the limit can be exceeded by a
-                // few executions.
-                void waitForRoom() {
-                    const auto full = [this] {
-                        return m_enqueued - m_finishedAtomic.load(std::memory_order_acquire) >= MAX_PENDING;
-                    };
-                    {
-                        std::lock_guard<std::mutex> lock(m_mutex);
-                        if (!full()) {
-                            return;
-                        }
+                // Called and returns with the lock held: waits until fewer than MAX_PENDING executions are pending.
+                // On a worker of the pool it runs queued chunks meanwhile (without the lock) instead of blocking.
+                void waitForRoom(std::unique_lock<std::mutex>& lock) {
+                    const auto full = [this] { return m_enqueued - m_finished >= MAX_PENDING; };
+                    if (!full()) {
+                        return;
                     }
                     thread_pool::ThreadPool& pool = cpuThreadPool();
                     if (pool.isWorkerThread()) {
-                        while (true) {
-                            {
-                                std::lock_guard<std::mutex> lock(m_mutex);
-                                if (!full()) {
-                                    return;
-                                }
-                            }
+                        while (full()) {
+                            lock.unlock();
                             if (!pool.runOneChunk()) {
                                 std::this_thread::yield();
                             }
+                            lock.lock();
                         }
+                        return;
                     }
-                    std::unique_lock<std::mutex> lock(m_mutex);
                     m_condition.wait(lock, [&] { return !full(); });
                 }
 
