@@ -1,4 +1,18 @@
 @PACKAGE_INIT@
 
-include("${CMAKE_CURRENT_LIST_DIR}/@PROJECT_NAME@Targets.cmake")
-check_required_components("@PROJECT_NAME@")
+# FKL::FKL requires the cxx_std_20 compile feature, so the project that uses it has to enable CXX (its CUDA and HIP
+# sources then also compile as C++20)
+if (NOT CMAKE_CXX_COMPILER_LOADED)
+    set(FKL_FOUND FALSE)
+    set(FKL_NOT_FOUND_MESSAGE "FKL needs the CXX language: enable it in your project, e.g. project(<name> LANGUAGES CXX CUDA)")
+    return()
+endif()
+
+# FKL installed with the multithreaded CPU backend (ParArch::CPU_MULTITHREAD): FKL::FKL links Threads::Threads
+if (@ENABLE_CPU_MULTITHREAD@)
+    include(CMakeFindDependencyMacro)
+    find_dependency(Threads)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/FKLTargets.cmake")
+check_required_components(FKL)

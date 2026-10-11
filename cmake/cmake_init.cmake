@@ -16,7 +16,10 @@ set(CMAKE_CONFIGURATION_TYPES "Debug;Release;RelWithDebInfo" CACHE STRING "" FOR
 # valid configuration in CMAKE_CONFIGURATION_TYPES. By default this is the debug configuration which is wrong. See:
 # https://gitlab.kitware.com/cmake/cmake/-/issues/20319
 set(CMAKE_MAP_IMPORTED_CONFIG_RELWITHDEBINFO "RelWithDebInfo;Release;")
-set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/install")
+# Installs go to <build>/install, unless an install prefix is given (-DCMAKE_INSTALL_PREFIX, or the parent project's)
+if (NOT DEFINED CMAKE_INSTALL_PREFIX)
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/install" CACHE PATH "Install path prefix")
+endif()
 
 set (TEMPLATE_DEPTH "1000" CACHE STRING  "template depth")
 set (FUNDAMENTAL_TYPES uchar char ushort short uint int ulong long ulonglong longlong float double) 
