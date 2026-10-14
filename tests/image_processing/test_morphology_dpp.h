@@ -14,10 +14,14 @@
 
 #include <tests/main.h>
 
+#include <fused_kernel/fused_kernel.h>
+
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/basic_ops/logical.h>
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
+#include <fused_kernel/algorithms/image_processing/crop.h>
 #include <fused_kernel/algorithms/image_processing/morphology.h>
+#include <fused_kernel/algorithms/image_processing/resize.h>
 
 #include <algorithm>
 #include <array>
@@ -447,6 +451,173 @@ bool runGpuCase(const char* name, const Details& details,
 }
 #endif
 
+// Batched input: Crop of an array of rectangles of different sizes, each one
+// resized to BATCH_W x BATCH_H, read through the same Mul and Add as the
+// other cases. One execution processes every plane (a grid z plane each on
+// the GPU, a loop on ParArch::CPU, a chunk per row of every plane on
+// CPU_MULTITHREAD) and writes plane z of a Tensor, each plane with its own
+// border.
+constexpr int BATCH_SOURCE_W = 97;
+constexpr int BATCH_SOURCE_H = 61;
+constexpr int BATCH_W = 24;
+constexpr int BATCH_H = 16;
+constexpr size_t BATCH = 3;
+constexpr std::array<Rect, BATCH> batchRects{
+    Rect(3, 5, 20, 10), Rect(40, 20, 32, 16), Rect(60, 30, 37, 31)};
+constexpr size_t BATCH_PLANE = static_cast<size_t>(BATCH_W) * BATCH_H;
+
+std::vector<float> makeBatchSource() {
+    std::vector<float> source(
+        static_cast<size_t>(BATCH_SOURCE_W) * BATCH_SOURCE_H);
+    for (int y = 0; y < BATCH_SOURCE_H; ++y)
+        for (int x = 0; x < BATCH_SOURCE_W; ++x)
+            source[pixelIndex(x, y, BATCH_SOURCE_W)] = inputValue(x, y);
+    return source;
+}
+
+RawPtr<ND::_2D, float> batchSourcePtr(std::vector<float>& source) {
+    return RawPtr<ND::_2D, float>{
+        source.data(),
+        PtrDims<ND::_2D>(static_cast<uint>(BATCH_SOURCE_W),
+                         static_cast<uint>(BATCH_SOURCE_H),
+                         static_cast<uint>(BATCH_SOURCE_W * sizeof(float)))};
+}
+
+template <typename SourcePtr>
+auto makeBatchResize(const SourcePtr& source) {
+    return PerThreadRead<ND::_2D, float>::build(source)
+        .then(Crop<>::build(batchRects))
+        .then(Resize<InterpolationType::INTER_LINEAR,
+                     AspectRatio::IGNORE_AR>::build(Size(BATCH_W, BATCH_H)));
+}
+
+template <typename SourcePtr>
+auto makeBatchRead(const SourcePtr& source) {
+    return makeBatchResize(source)
+        .then(Mul<float>::build(2.f))
+        .then(Add<float>::build(1.f));
+}
+
+template <typename OutputPtr>
+auto makeBatchWrite(const OutputPtr& output) {
+    return Mul<float>::build(0.5f)
+        .then(TensorWrite<float>::build(output));
+}
+
+// The expected planes: the resized planes computed by TransformDPP on the
+// CPU, then the oracle of each one
+std::vector<float> batchOracle(const Details& details,
+                               const std::vector<bool>& erodePasses) {
+    std::vector<float> source = makeBatchSource();
+    Tensor<float> resized(BATCH_W, BATCH_H, BATCH, 1, MemType::Host);
+    Stream_<ParArch::CPU> cpuStream;
+    executeOperations<TransformDPP<ParArch::CPU>>(
+        cpuStream, makeBatchResize(batchSourcePtr(source)),
+        TensorWrite<float>::build(resized.ptr()));
+    std::vector<float> expected;
+    for (size_t z = 0; z < BATCH; ++z) {
+        std::vector<float> plane(BATCH_PLANE);
+        for (int y = 0; y < BATCH_H; ++y)
+            for (int x = 0; x < BATCH_W; ++x)
+                plane[pixelIndex(x, y, BATCH_W)] =
+                    resized.at(x, y, static_cast<int>(z));
+        const auto planeExpected =
+            oracle(plane, BATCH_W, BATCH_H, details.maskW, details.maskH,
+                   details.anchorX, details.anchorY, erodePasses);
+        expected.insert(expected.end(), planeExpected.begin(),
+                        planeExpected.end());
+    }
+    return expected;
+}
+
+std::vector<float> tensorValues(const Tensor<float>& tensor) {
+    std::vector<float> values;
+    for (size_t z = 0; z < BATCH; ++z)
+        for (int y = 0; y < BATCH_H; ++y)
+            for (int x = 0; x < BATCH_W; ++x)
+                values.push_back(tensor.at(x, y, static_cast<int>(z)));
+    return values;
+}
+
+// The resize multiplies and adds, so the backends may differ in the last
+// bits (fused multiply-add contraction): compare within 1e-5, relative
+bool batchMatches(const char* backend, const char* name,
+                  const std::vector<float>& got,
+                  const std::vector<float>& expected) {
+    for (size_t i = 0; i < got.size(); ++i) {
+        const float tolerance =
+            1e-5f * std::max(1.f, std::fabs(expected[i]));
+        if (!(std::fabs(got[i] - expected[i]) <= tolerance)) {
+            std::printf("%s batched %s plane=%zu index=%zu got=%g "
+                        "expected=%g\n", backend, name, i / BATCH_PLANE,
+                        i % BATCH_PLANE, got[i], expected[i]);
+            return false;
+        }
+    }
+    return true;
+}
+
+template <typename Reducers>
+bool runBatchedCase(const char* name, const Details& details,
+                    const Reducers& reducers,
+                    const std::vector<bool>& erodePasses) {
+    const std::vector<float> expected = batchOracle(details, erodePasses);
+    std::vector<float> source = makeBatchSource();
+    const auto read = makeBatchRead(batchSourcePtr(source));
+    if (read.getActiveThreads().z != BATCH) {
+        std::printf("batched %s: the read has %u planes, not %zu\n", name,
+                    read.getActiveThreads().z, BATCH);
+        return false;
+    }
+
+    Tensor<float> cpuOut(BATCH_W, BATCH_H, BATCH, 1, MemType::Host);
+    MorphologyDPP<ParArch::CPU, Details>::exec(
+        details, read, makeBatchWrite(cpuOut.ptr()), reducers);
+    const std::vector<float> cpuResult = tensorValues(cpuOut);
+    bool ok = batchMatches("CPU", name, cpuResult, expected);
+
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    Tensor<float> mtOut(BATCH_W, BATCH_H, BATCH, 1, MemType::Host);
+    MTStream mtStream;
+    const bool mtLaunched = executeCase(
+        details, read, makeBatchWrite(mtOut.ptr()), reducers, mtStream);
+    mtStream.sync();
+    if (!mtLaunched) {
+        std::printf("CPU_MULTITHREAD batched %s launcher rejected valid "
+                    "details\n", name);
+        ok = false;
+    } else {
+        const std::vector<float> mtResult = tensorValues(mtOut);
+        ok = batchMatches("CPU_MULTITHREAD", name, mtResult, cpuResult) &&
+             batchMatches("CPU_MULTITHREAD", name, mtResult, expected) && ok;
+    }
+#endif
+
+#if defined(__NVCC__) || defined(__HIPCC__)
+    Ptr2D<float> gpuSource(BATCH_SOURCE_W, BATCH_SOURCE_H);
+    for (int y = 0; y < BATCH_SOURCE_H; ++y)
+        for (int x = 0; x < BATCH_SOURCE_W; ++x)
+            gpuSource.at(Point{x, y, 0}) =
+                source[pixelIndex(x, y, BATCH_SOURCE_W)];
+    Tensor<float> gpuOut(BATCH_W, BATCH_H, BATCH);
+    Stream stream;
+    gpuSource.upload(stream);
+    const bool gpuLaunched = executeCase(
+        details, makeBatchRead(gpuSource.ptr()),
+        makeBatchWrite(gpuOut.ptr()), reducers, stream);
+    gpuOut.download(stream);
+    stream.sync();
+    if (!gpuLaunched) {
+        std::printf("GPU batched %s launcher rejected valid details\n",
+                    name);
+        ok = false;
+    } else {
+        ok = batchMatches("GPU", name, tensorValues(gpuOut), expected) && ok;
+    }
+#endif
+    return ok;
+}
+
 // Runs the case on ParArch::CPU, then on CPU_MULTITHREAD (bit-identical to
 // CPU) if enabled, and on the GPU if compiled for it. With inPlace the
 // output is written over the input, which the GPU version does not support.
@@ -502,6 +673,14 @@ int launch_impl() {
     ok = runCase("four-pass-large-in-place", Details{301, 203, 7, 5, 3, 2},
                  make_tuple(maxOp, minOp, maxOp, minOp),
                  {false, true, false, true}, true) && ok;
+    ok = runBatchedCase("erode-3x3", Details{BATCH_W, BATCH_H, 3, 3, 1, 1},
+                        make_tuple(minOp), {true}) && ok;
+    ok = runBatchedCase("open-5x3", Details{BATCH_W, BATCH_H, 5, 3, 1, 2},
+                        make_tuple(minOp, maxOp), {true, false}) && ok;
+    ok = runBatchedCase("four-pass-7x5",
+                        Details{BATCH_W, BATCH_H, 7, 5, 3, 2},
+                        make_tuple(maxOp, minOp, maxOp, minOp),
+                        {false, true, false, true}) && ok;
 #ifdef FK_CPU_MULTITHREAD_ENABLED
     ok = runMtChained() && ok;
     ok = runMtInvalid() && ok;

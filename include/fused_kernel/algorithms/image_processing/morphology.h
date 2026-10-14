@@ -44,12 +44,18 @@ struct MorphologyDPPDetails {
     static constexpr int MAX_MASK_WIDTH = MAX_MASK_W;
     static constexpr int MAX_MASK_HEIGHT = MAX_MASK_H;
     static constexpr int MAX_PASSES = 4;
+    // Elements of one shared memory stage of the GPU version running
+    // PASSES passes: the tile plus the halo of every pass, for masks of up
+    // to MAX_MASK_W x MAX_MASK_H
+    template <int PASSES>
+    static constexpr int STAGE_ELEMENTS =
+        (TILE_W + PASSES * (MAX_MASK_W - 1)) *
+        (TILE_H + PASSES * (MAX_MASK_H - 1));
     static constexpr int MAX_STAGE_WIDTH =
         TILE_W + MAX_PASSES * (MAX_MASK_W - 1);
     static constexpr int MAX_STAGE_HEIGHT =
         TILE_H + MAX_PASSES * (MAX_MASK_H - 1);
-    static constexpr int MAX_STAGE_ELEMENTS =
-        MAX_STAGE_WIDTH * MAX_STAGE_HEIGHT;
+    static constexpr int MAX_STAGE_ELEMENTS = STAGE_ELEMENTS<MAX_PASSES>;
 
     static_assert(TILE_W > 0 && TILE_H > 0,
                   "Morphology tile dimensions must be positive");
@@ -103,6 +109,16 @@ FK_HOST_DEVICE_CNST bool reducersAreUnary() {
 FK_HOST_DEVICE_FUSE int clamp(const int value, const int low,
                               const int high) {
     return value < low ? low : (value > high ? high : value);
+}
+
+// The planes one execution processes: z of the input's active threads, that
+// is the batch of a batched read (for instance Crop of an array of
+// rectangles, then Resize), the planes of a 3D input, and 1 otherwise. Each
+// plane z is a details.width x details.height image, read and written at
+// Point{x, y, z}, with its own border.
+template <typename InputReadIOp>
+FK_HOST_FUSE int planesOf(const InputReadIOp& input) {
+    return static_cast<int>(input.getActiveThreads().z);
 }
 
 } // namespace morphology_detail
@@ -159,17 +175,21 @@ public:
     // image of the next pass) and reduce_write_row for the last pass
     // (image -> output). The images are whole width * height buffers, so a
     // row of a pass may read any row of the previous one. Since the whole
-    // input is loaded before anything is written, the output may be the
-    // input. ParArch::CPU_MULTITHREAD runs each phase as one chunk per row.
+    // input of a plane is loaded before anything of it is written, the
+    // output may be the input. Every plane of the input
+    // (morphology_detail::planesOf) is processed in turn, each one with its
+    // own images. ParArch::CPU_MULTITHREAD runs each phase as one chunk per
+    // row of every plane.
 
-    // Loads row y of the input into row y of image
+    // Loads row y of plane `plane` of the input into row y of image
     template <typename InputReadIOp>
-    FK_HOST_STATIC void load_row(const int y, const DPPDetails& details,
+    FK_HOST_STATIC void load_row(const int y, const int plane,
+                                 const DPPDetails& details,
                                  const InputReadIOp& input, T* image) {
         for (int x = 0; x < details.width; ++x)
             image[static_cast<size_t>(y * details.width + x)] =
                 static_cast<T>(InputReadIOp::Operation::exec(
-                    Point{x, y, 0}, input));
+                    Point{x, y, plane}, input));
     }
 
     // Computes row y of pass `pass` from source into target
@@ -184,16 +204,17 @@ public:
     }
 
     // Computes row y of pass `pass` (the last one) from source, and writes
-    // it with output
+    // it with output as row y of plane `plane`
     template <typename OutputWriteIOp, typename Reducers>
-    FK_HOST_STATIC void reduce_write_row(const int y, const int pass,
+    FK_HOST_STATIC void reduce_write_row(const int y, const int plane,
+                                         const int pass,
                                          const DPPDetails& details,
                                          const T* source,
                                          const OutputWriteIOp& output,
                                          const Reducers& reducers) {
         for (int x = 0; x < details.width; ++x)
             OutputWriteIOp::Operation::exec(
-                Point{x, y, 0},
+                Point{x, y, plane},
                 reduce_pixel(x, y, pass, details, source, reducers),
                 output);
     }
@@ -217,31 +238,34 @@ public:
         constexpr int PASSES =
             static_cast<int>(std::decay_t<Reducers>::size);
         const int elements = details.width * details.height;
+        const int planes = morphology_detail::planesOf(input);
         std::vector<T> current(static_cast<size_t>(elements));
         std::vector<T> next(static_cast<size_t>(elements));
-        for (int y = 0; y < details.height; ++y)
-            load_row(y, details, input, current.data());
-
-        for (int pass = 0; pass < PASSES - 1; ++pass) {
+        for (int plane = 0; plane < planes; ++plane) {
             for (int y = 0; y < details.height; ++y)
-                reduce_row(y, pass, details, current.data(), next.data(),
-                           reducers);
-            current.swap(next);
-        }
+                load_row(y, plane, details, input, current.data());
 
-        for (int y = 0; y < details.height; ++y)
-            reduce_write_row(y, PASSES - 1, details, current.data(), output,
-                             reducers);
+            for (int pass = 0; pass < PASSES - 1; ++pass) {
+                for (int y = 0; y < details.height; ++y)
+                    reduce_row(y, pass, details, current.data(), next.data(),
+                               reducers);
+                current.swap(next);
+            }
+
+            for (int y = 0; y < details.height; ++y)
+                reduce_write_row(y, plane, PASSES - 1, details,
+                                 current.data(), output, reducers);
+        }
     }
 };
 
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 // Runs the phases of MorphologyDPP<ParArch::CPU> (load, then one per pass,
 // the last one writing the output) on cpuThreadPool(), each phase as one
-// chunk per row, enqueued when the previous phase has finished. So the
-// results are the same as with ParArch::CPU, and as there, the output may
-// be the input. The buffers the IOps use must stay valid until done is
-// called.
+// chunk per row of every plane, enqueued when the previous phase has
+// finished. So the results are the same as with ParArch::CPU, and as there,
+// the output may be the input. The buffers the IOps use must stay valid
+// until done is called.
 // The lambdas capture reducers as `reducers = reducers`, a copy that is not
 // const: the pool and the stream move them, and moving a const fk::Tuple of
 // one element selects Tuple's forwarding constructor instead of its copy
@@ -252,47 +276,73 @@ private:
     using SelfType = MorphologyDPP<ParArch::CPU_MULTITHREAD, DPPDetails>;
     using CPUDPP = MorphologyDPP<ParArch::CPU, DPPDetails>;
     using T = typename DPPDetails::ValueType;
-    // The image the load phase writes ([0]) and the one of the next pass
-    // ([1]); pass p reads [p % 2] and writes [(p + 1) % 2]. Shared by the
-    // chunks of all the phases of one execution.
+    // The images the load phase writes ([0]) and the ones of the next pass
+    // ([1]), plane after plane (width * height elements each); pass p reads
+    // [p % 2] and writes [(p + 1) % 2]. Shared by the chunks of all the
+    // phases of one execution.
     using Images = std::array<std::vector<T>, 2>;
+
+    // Chunk c of a phase is row c % height of plane c / height; its image
+    // starts at element (c / height) * width * height
+    FK_HOST_FUSE int rowOf(const std::size_t chunk,
+                           const DPPDetails& details) {
+        return static_cast<int>(chunk %
+                                static_cast<std::size_t>(details.height));
+    }
+    FK_HOST_FUSE int planeOf(const std::size_t chunk,
+                             const DPPDetails& details) {
+        return static_cast<int>(chunk /
+                                static_cast<std::size_t>(details.height));
+    }
+    FK_HOST_FUSE std::size_t planeOffset(const int plane,
+                                         const DPPDetails& details) {
+        return static_cast<std::size_t>(plane) *
+               static_cast<std::size_t>(details.width) *
+               static_cast<std::size_t>(details.height);
+    }
 
     template <typename Reducers>
     static constexpr int PASSES =
         static_cast<int>(std::decay_t<Reducers>::size);
 
-    // Enqueues the chunks of pass `pass`. The last pass writes the output
-    // and then calls done; the others start the next pass when they finish.
+    // Enqueues the chunks of pass `pass`, one per row of every plane. The
+    // last pass writes the output and then calls done; the others start the
+    // next pass when they finish.
     template <typename OutputWriteIOp, typename Reducers>
-    FK_HOST_STATIC void enqueuePass(const int pass,
+    FK_HOST_STATIC void enqueuePass(const int pass, const int planes,
                                     const cpu_multithread::Completion& done,
                                     const DPPDetails& details,
                                     const OutputWriteIOp& output,
                                     const Reducers& reducers,
                                     const std::shared_ptr<Images>& images) {
-        const auto rows = static_cast<std::size_t>(details.height);
+        const auto chunks = static_cast<std::size_t>(details.height) *
+                            static_cast<std::size_t>(planes);
         const auto source = static_cast<std::size_t>(pass % 2);
         if (pass == PASSES<Reducers> - 1) {
-            cpu_multithread::enqueueChunks(rows,
+            cpu_multithread::enqueueChunks(chunks,
                 [pass, source, details, output, reducers = reducers,
-                 images](const std::size_t row) {
-                    CPUDPP::reduce_write_row(static_cast<int>(row), pass,
-                                             details,
-                                             (*images)[source].data(),
-                                             output, reducers);
+                 images](const std::size_t chunk) {
+                    const int plane = planeOf(chunk, details);
+                    CPUDPP::reduce_write_row(
+                        rowOf(chunk, details), plane, pass, details,
+                        (*images)[source].data() +
+                            planeOffset(plane, details),
+                        output, reducers);
                 }, done);
         } else {
-            cpu_multithread::enqueueChunks(rows,
+            cpu_multithread::enqueueChunks(chunks,
                 [pass, source, details, reducers = reducers,
-                 images](const std::size_t row) {
-                    CPUDPP::reduce_row(static_cast<int>(row), pass, details,
-                                       (*images)[source].data(),
-                                       (*images)[1 - source].data(),
+                 images](const std::size_t chunk) {
+                    const std::size_t offset =
+                        planeOffset(planeOf(chunk, details), details);
+                    CPUDPP::reduce_row(rowOf(chunk, details), pass, details,
+                                       (*images)[source].data() + offset,
+                                       (*images)[1 - source].data() + offset,
                                        reducers);
                 },
-                [pass, done, details, output, reducers = reducers,
+                [pass, planes, done, details, output, reducers = reducers,
                  images](const std::exception_ptr error) noexcept {
-                    startPass(pass + 1, done, error, details, output,
+                    startPass(pass + 1, planes, done, error, details, output,
                               reducers, images);
                 });
         }
@@ -301,7 +351,7 @@ private:
     // Called when the previous phase has finished: enqueues pass `pass`,
     // or ends the execution if that phase, or enqueueing, failed
     template <typename OutputWriteIOp, typename Reducers>
-    FK_HOST_STATIC void startPass(const int pass,
+    FK_HOST_STATIC void startPass(const int pass, const int planes,
                                   const cpu_multithread::Completion& done,
                                   const std::exception_ptr& error,
                                   const DPPDetails& details,
@@ -314,7 +364,8 @@ private:
             return;
         }
         try {
-            enqueuePass(pass, done, details, output, reducers, images);
+            enqueuePass(pass, planes, done, details, output, reducers,
+                        images);
         } catch (...) {
             done(std::current_exception());
         }
@@ -353,22 +404,26 @@ public:
             return;
         }
 
-        const auto rows = static_cast<std::size_t>(details.height);
-        const auto elements =
-            static_cast<std::size_t>(details.width) * rows;
+        const int planes = morphology_detail::planesOf(input);
+        const auto chunks = static_cast<std::size_t>(details.height) *
+                            static_cast<std::size_t>(planes);
+        // Every plane: the offset of the plane after the last one
+        const auto elements = planeOffset(planes, details);
         const auto images = std::make_shared<Images>();
         (*images)[0].resize(elements);
         if constexpr (PASSES<Reducers> > 1) {
             (*images)[1].resize(elements);
         }
-        cpu_multithread::enqueueChunks(rows,
-            [details, input, images](const std::size_t row) {
-                CPUDPP::load_row(static_cast<int>(row), details, input,
-                                 (*images)[0].data());
+        cpu_multithread::enqueueChunks(chunks,
+            [details, input, images](const std::size_t chunk) {
+                const int plane = planeOf(chunk, details);
+                CPUDPP::load_row(rowOf(chunk, details), plane, details, input,
+                                 (*images)[0].data() +
+                                     planeOffset(plane, details));
             },
-            [done, details, output, reducers = reducers,
+            [planes, done, details, output, reducers = reducers,
              images](const std::exception_ptr error) noexcept {
-                startPass(0, done, error, details, output, reducers,
+                startPass(0, planes, done, error, details, output, reducers,
                           images);
             });
     }
@@ -376,6 +431,10 @@ public:
 #endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 
 #if defined(__NVCC__) || defined(__HIPCC__)
+// One block per TILE_WIDTH x TILE_HEIGHT tile of a plane, and one grid z
+// plane per plane of the input (morphology_detail::planesOf). The block
+// stages the tile and the halo of every pass in shared memory, sized for the
+// number of passes (DPPDetails::STAGE_ELEMENTS), and runs the passes there.
 template <ParArch PA, typename DPPDetails>
     requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
 struct MorphologyDPP<PA, DPPDetails> {
@@ -386,11 +445,11 @@ private:
     template <typename InputReadIOp>
     FK_DEVICE_FUSE T readClamped(const DPPDetails& details,
                                  const InputReadIOp& input,
-                                 const int x, const int y) {
+                                 const int x, const int y, const int plane) {
         const int sx = morphology_detail::clamp(x, 0, details.width - 1);
         const int sy = morphology_detail::clamp(y, 0, details.height - 1);
         return static_cast<T>(InputReadIOp::Operation::exec(
-            Point{sx, sy, 0}, input));
+            Point{sx, sy, plane}, input));
     }
 
 public:
@@ -417,12 +476,16 @@ public:
         static_assert(isAnyWriteType<OutputWriteIOp>,
                       "Morphology output must be a Write IOp");
 #if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
-        __shared__ T stage0[DPPDetails::MAX_STAGE_ELEMENTS];
-        __shared__ T stage1[DPPDetails::MAX_STAGE_ELEMENTS];
-
         constexpr int PASSES = std::decay_t<Reducers>::size;
+        constexpr int STAGE_ELEMENTS =
+            DPPDetails::template STAGE_ELEMENTS<PASSES>;
+        // A single pass only reads stage0
+        __shared__ T stage0[STAGE_ELEMENTS];
+        __shared__ T stage1[PASSES > 1 ? STAGE_ELEMENTS : 1];
+
         const int tileX = blockIdx.x * DPPDetails::TILE_WIDTH;
         const int tileY = blockIdx.y * DPPDetails::TILE_HEIGHT;
+        const int plane = static_cast<int>(blockIdx.z);
         const int tid = threadIdx.y * blockDim.x + threadIdx.x;
         const int threads = blockDim.x * blockDim.y;
         const int initialW = DPPDetails::TILE_WIDTH +
@@ -437,7 +500,7 @@ public:
             const int lx = index % initialW;
             const int ly = index / initialW;
             stage0[index] = readClamped(
-                details, input, initialX + lx, initialY + ly);
+                details, input, initialX + lx, initialY + ly, plane);
         }
         __syncthreads();
 
@@ -514,7 +577,7 @@ public:
             threadIdx.y < DPPDetails::TILE_HEIGHT &&
             outputX < details.width && outputY < details.height) {
             OutputWriteIOp::Operation::exec(
-                Point{outputX, outputY, 0}, finalValue, output);
+                Point{outputX, outputY, plane}, finalValue, output);
         }
 #else
         (void)details;
@@ -552,7 +615,8 @@ inline bool executeMorphology(const DPPDetails& details,
                         DPPDetails::TILE_WIDTH,
                     (details.height + DPPDetails::TILE_HEIGHT - 1) /
                         DPPDetails::TILE_HEIGHT,
-                    1);
+                    static_cast<unsigned int>(
+                        morphology_detail::planesOf(input)));
 #if defined(__HIPCC__)
     morphologyDPPKernel<PA><<<grid, block, 0, stream.getHIPStream()>>>(
         details, input, output, reducers);
