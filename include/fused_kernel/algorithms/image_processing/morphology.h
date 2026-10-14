@@ -153,9 +153,10 @@ FK_HOST_FUSE auto boxBlurWrite(const DPPDetails& details,
     for (int pass = 0; pass < PASSES; ++pass) {
         windows *= static_cast<double>(details.maskW) * details.maskH;
     }
-    const float scale = static_cast<float>(1. / windows);
+    // In the precision of T's elements (float or double)
+    const VBase<T> scale = static_cast<VBase<T>>(1. / windows);
     if constexpr (std::is_arithmetic_v<T>) {
-        return Mul<T>::build(static_cast<T>(scale)).then(output);
+        return Mul<T>::build(scale).then(output);
     } else {
         return Mul<T>::build(make_set<T>(scale)).then(output);
     }

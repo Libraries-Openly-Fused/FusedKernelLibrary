@@ -865,6 +865,88 @@ bool runBoxInvalid() {
 }
 #endif
 
+// The box blur of double values keeps double precision, scale included: a
+// 3x3 box in two passes against a double oracle within 1e-12, relative (a
+// float scale is off by about 1e-8)
+bool runBoxDouble() {
+    using DoubleDetails = MorphologyDPPDetails<double, 16, 8, 7, 7>;
+    const DoubleDetails details{23, 13, 3, 3, 1, 1};
+    std::vector<double> input(static_cast<size_t>(details.width * details.height));
+    for (int y = 0; y < details.height; ++y)
+        for (int x = 0; x < details.width; ++x)
+            input[pixelIndex(x, y, details.width)] =
+                1. + 0.001 * static_cast<double>((x * 17 + y * 29) % 101);
+    std::vector<double> expected(input);
+    std::vector<double> next(input.size());
+    for (int pass = 0; pass < 2; ++pass) {
+        for (int y = 0; y < details.height; ++y) {
+            for (int x = 0; x < details.width; ++x) {
+                double sum = 0.;
+                for (int my = -1; my <= 1; ++my)
+                    for (int mx = -1; mx <= 1; ++mx)
+                        sum += expected[pixelIndex(
+                            std::clamp(x + mx, 0, details.width - 1),
+                            std::clamp(y + my, 0, details.height - 1),
+                            details.width)];
+                next[pixelIndex(x, y, details.width)] = sum / 9.;
+            }
+        }
+        expected.swap(next);
+    }
+    const auto closeEnough = [&](const char* backend,
+                                 const std::vector<double>& got) {
+        for (size_t i = 0; i < got.size(); ++i) {
+            if (!(std::fabs(got[i] - expected[i]) <=
+                  1e-12 * std::fabs(expected[i]))) {
+                std::printf("%s box double index=%zu got=%.17g "
+                            "expected=%.17g\n", backend, i, got[i],
+                            expected[i]);
+                return false;
+            }
+        }
+        return true;
+    };
+    const auto width = static_cast<uint>(details.width);
+    const auto height = static_cast<uint>(details.height);
+    std::vector<double> cpuOut(input.size(), -777.);
+    const RawPtr<ND::_2D, double> inPtr{
+        input.data(), PtrDims<ND::_2D>(width, height, width * sizeof(double))};
+    const RawPtr<ND::_2D, double> outPtr{
+        cpuOut.data(),
+        PtrDims<ND::_2D>(width, height, width * sizeof(double))};
+    MorphologyDPP<ParArch::CPU, DoubleDetails>::exec(
+        details, PerThreadRead<ND::_2D, double>::build(inPtr),
+        morphology_detail::boxBlurWrite<double, 2>(
+            details, PerThreadWrite<ND::_2D, double>::build(outPtr)),
+        morphology_detail::boxBlurReducers<double, 2>());
+    bool ok = closeEnough("CPU", cpuOut);
+#if defined(__NVCC__) || defined(__HIPCC__)
+    Ptr2D<double> gpuIn(details.width, details.height);
+    Ptr2D<double> gpuOut(details.width, details.height);
+    for (int y = 0; y < details.height; ++y)
+        for (int x = 0; x < details.width; ++x)
+            gpuIn.at(Point{x, y, 0}) = input[pixelIndex(x, y, details.width)];
+    Stream stream;
+    gpuIn.upload(stream);
+    const bool launched = executeBoxBlur<2>(
+        details, PerThreadRead<ND::_2D, double>::build(gpuIn.ptr()),
+        PerThreadWrite<ND::_2D, double>::build(gpuOut.ptr()), stream);
+    gpuOut.download(stream);
+    stream.sync();
+    if (!launched) {
+        std::printf("GPU box double launcher rejected valid details\n");
+        ok = false;
+    } else {
+        std::vector<double> got(input.size());
+        for (int y = 0; y < details.height; ++y)
+            for (int x = 0; x < details.width; ++x)
+                got[pixelIndex(x, y, details.width)] = gpuOut.at(Point{x, y, 0});
+        ok = closeEnough("GPU", got) && ok;
+    }
+#endif
+    return ok;
+}
+
 static_assert(std::is_same_v<
     decltype(morphology_detail::boxBlurReducers<float, 2>()),
     Tuple<decltype(Add<float, float, float, UnaryType>::build()),
@@ -918,6 +1000,7 @@ int launch_impl() {
     ok = runBoxCase<4>("box-3x5-four-pass-large", Details{301, 203, 3, 5, 1, 2}) && ok;
     ok = runBatchedBoxCase<1>("box-5x5", Details{BATCH_W, BATCH_H, 5, 5, 2, 2}) && ok;
     ok = runBatchedBoxCase<2>("box-7x7-two-pass", Details{BATCH_W, BATCH_H, 7, 7, 3, 3}) && ok;
+    ok = runBoxDouble() && ok;
 #if defined(__NVCC__) || defined(__HIPCC__) || \
     defined(FK_CPU_MULTITHREAD_ENABLED)
     ok = runBoxInvalid() && ok;
