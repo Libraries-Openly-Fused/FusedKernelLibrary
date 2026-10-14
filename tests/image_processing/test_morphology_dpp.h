@@ -640,6 +640,236 @@ bool runCase(const char* name, const Details& details,
     return ok;
 }
 
+// Box blur (executeBoxBlur): PASSES passes of the mean of the window, each
+// replicating the border of the image it reads, through the same read
+// (2 x + 1) and write (x / 2) as the other cases; sums in double
+std::vector<float> boxOracle(const std::vector<float>& original,
+                             const int width, const int height,
+                             const int maskW, const int maskH,
+                             const int anchorX, const int anchorY,
+                             const int passes) {
+    std::vector<double> current(original.size());
+    for (size_t i = 0; i < original.size(); ++i)
+        current[i] = original[i] * 2. + 1.;
+    std::vector<double> next(original.size());
+    for (int pass = 0; pass < passes; ++pass) {
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                double sum = 0.;
+                for (int my = 0; my < maskH; ++my) {
+                    const int sy = std::clamp(y + my - anchorY, 0, height - 1);
+                    for (int mx = 0; mx < maskW; ++mx) {
+                        const int sx = std::clamp(x + mx - anchorX, 0, width - 1);
+                        sum += current[pixelIndex(sx, sy, width)];
+                    }
+                }
+                next[pixelIndex(x, y, width)] =
+                    sum / (static_cast<double>(maskW) * maskH);
+            }
+        }
+        current.swap(next);
+    }
+    std::vector<float> result(current.size());
+    for (size_t i = 0; i < current.size(); ++i)
+        result[i] = static_cast<float>(current[i] * 0.5);
+    return result;
+}
+
+// The box sums in float, in another order than the oracle: compare within
+// 1e-5, relative
+bool boxMatches(const char* backend, const char* name,
+                const std::vector<float>& got,
+                const std::vector<float>& expected) {
+    for (size_t i = 0; i < got.size(); ++i) {
+        const float tolerance =
+            1e-5f * std::max(1.f, std::fabs(expected[i]));
+        if (!(std::fabs(got[i] - expected[i]) <= tolerance)) {
+            std::printf("%s box %s index=%zu got=%g expected=%g\n",
+                        backend, name, i, got[i], expected[i]);
+            return false;
+        }
+    }
+    return true;
+}
+
+// The box blur on ParArch::CPU (MorphologyDPP with the reducers and the write
+// of executeBoxBlur), on CPU_MULTITHREAD (executeBoxBlur, bit-identical to
+// CPU) if enabled, and on the GPU (executeBoxBlur) if compiled for it
+template <int PASSES>
+bool runBoxCase(const char* name, const Details& details) {
+    const std::vector<float> original = makeInput(details);
+    const auto expected =
+        boxOracle(original, details.width, details.height, details.maskW,
+                  details.maskH, details.anchorX, details.anchorY, PASSES);
+    std::vector<float> input = original;
+    std::vector<float> cpuOut(input.size(), -777.f);
+    MorphologyDPP<ParArch::CPU, Details>::exec(
+        details, makeRead(hostPtr(input, details)),
+        morphology_detail::boxBlurWrite<float, PASSES>(
+            details, makeWrite(hostPtr(cpuOut, details))),
+        morphology_detail::boxBlurReducers<float, PASSES>());
+    bool ok = boxMatches("CPU", name, cpuOut, expected);
+
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    std::vector<float> mtOut(input.size(), -777.f);
+    MTStream mtStream;
+    const bool mtLaunched = executeBoxBlur<PASSES>(
+        details, makeRead(hostPtr(input, details)),
+        makeWrite(hostPtr(mtOut, details)), mtStream);
+    mtStream.sync();
+    if (!mtLaunched) {
+        std::printf("CPU_MULTITHREAD box %s launcher rejected valid "
+                    "details\n", name);
+        ok = false;
+    } else {
+        ok = sameBytes(name, mtOut, cpuOut) && ok;
+    }
+#endif
+
+#if defined(__NVCC__) || defined(__HIPCC__)
+    Ptr2D<float> gpuIn(details.width, details.height);
+    Ptr2D<float> gpuOut(details.width, details.height);
+    for (int y = 0; y < details.height; ++y)
+        for (int x = 0; x < details.width; ++x)
+            gpuIn.at(Point{x, y, 0}) = original[pixelIndex(x, y, details.width)];
+    Stream stream;
+    gpuIn.upload(stream);
+    const bool gpuLaunched = executeBoxBlur<PASSES>(
+        details, makeRead(gpuIn), makeWrite(gpuOut), stream);
+    gpuOut.download(stream);
+    stream.sync();
+    if (!gpuLaunched) {
+        std::printf("GPU box %s launcher rejected valid details\n", name);
+        ok = false;
+    } else {
+        std::vector<float> got(original.size());
+        for (int y = 0; y < details.height; ++y)
+            for (int x = 0; x < details.width; ++x)
+                got[pixelIndex(x, y, details.width)] = gpuOut.at(Point{x, y, 0});
+        ok = boxMatches("GPU", name, got, expected) && ok;
+    }
+#endif
+    return ok;
+}
+
+// The box blur of the batched input (Crop of rectangles of different sizes,
+// each resized to BATCH_W x BATCH_H), every plane with its own border
+template <int PASSES>
+bool runBatchedBoxCase(const char* name, const Details& details) {
+    std::vector<float> source = makeBatchSource();
+    Tensor<float> resized(BATCH_W, BATCH_H, BATCH, 1, MemType::Host);
+    Stream_<ParArch::CPU> cpuStream;
+    executeOperations<TransformDPP<ParArch::CPU>>(
+        cpuStream, makeBatchResize(batchSourcePtr(source)),
+        TensorWrite<float>::build(resized.ptr()));
+    std::vector<float> expected;
+    for (size_t z = 0; z < BATCH; ++z) {
+        std::vector<float> plane(BATCH_PLANE);
+        for (int y = 0; y < BATCH_H; ++y)
+            for (int x = 0; x < BATCH_W; ++x)
+                plane[pixelIndex(x, y, BATCH_W)] =
+                    resized.at(x, y, static_cast<int>(z));
+        const auto planeExpected =
+            boxOracle(plane, BATCH_W, BATCH_H, details.maskW, details.maskH,
+                      details.anchorX, details.anchorY, PASSES);
+        expected.insert(expected.end(), planeExpected.begin(),
+                        planeExpected.end());
+    }
+
+    const auto read = makeBatchRead(batchSourcePtr(source));
+    Tensor<float> cpuOut(BATCH_W, BATCH_H, BATCH, 1, MemType::Host);
+    MorphologyDPP<ParArch::CPU, Details>::exec(
+        details, read,
+        morphology_detail::boxBlurWrite<float, PASSES>(
+            details, makeBatchWrite(cpuOut.ptr())),
+        morphology_detail::boxBlurReducers<float, PASSES>());
+    const std::vector<float> cpuResult = tensorValues(cpuOut);
+    bool ok = batchMatches("CPU", name, cpuResult, expected);
+
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    Tensor<float> mtOut(BATCH_W, BATCH_H, BATCH, 1, MemType::Host);
+    MTStream mtStream;
+    const bool mtLaunched = executeBoxBlur<PASSES>(
+        details, read, makeBatchWrite(mtOut.ptr()), mtStream);
+    mtStream.sync();
+    if (!mtLaunched) {
+        std::printf("CPU_MULTITHREAD batched box %s launcher rejected valid "
+                    "details\n", name);
+        ok = false;
+    } else {
+        ok = sameBytes(name, tensorValues(mtOut), cpuResult) && ok;
+    }
+#endif
+
+#if defined(__NVCC__) || defined(__HIPCC__)
+    Ptr2D<float> gpuSource(BATCH_SOURCE_W, BATCH_SOURCE_H);
+    for (int y = 0; y < BATCH_SOURCE_H; ++y)
+        for (int x = 0; x < BATCH_SOURCE_W; ++x)
+            gpuSource.at(Point{x, y, 0}) =
+                source[pixelIndex(x, y, BATCH_SOURCE_W)];
+    Tensor<float> gpuOut(BATCH_W, BATCH_H, BATCH);
+    Stream stream;
+    gpuSource.upload(stream);
+    const bool gpuLaunched = executeBoxBlur<PASSES>(
+        details, makeBatchRead(gpuSource.ptr()),
+        makeBatchWrite(gpuOut.ptr()), stream);
+    gpuOut.download(stream);
+    stream.sync();
+    if (!gpuLaunched) {
+        std::printf("GPU batched box %s launcher rejected valid details\n",
+                    name);
+        ok = false;
+    } else {
+        ok = batchMatches("GPU", name, tensorValues(gpuOut), expected) && ok;
+    }
+#endif
+    return ok;
+}
+
+#if defined(__NVCC__) || defined(__HIPCC__) || \
+    defined(FK_CPU_MULTITHREAD_ENABLED)
+// executeBoxBlur rejects invalid details without launching or enqueueing
+bool runBoxInvalid() {
+    const Details invalid{10, 10, 9, 3, 4, 1};
+    bool ok = true;
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    std::vector<float> input(100, 1.f);
+    std::vector<float> output(100, -777.f);
+    MTStream mtStream;
+    bool launched = executeBoxBlur(invalid, makeRead(hostPtr(input, invalid)),
+                                   makeWrite(hostPtr(output, invalid)),
+                                   mtStream);
+    launched = executeBoxBlur<2>(invalid, makeRead(hostPtr(input, invalid)),
+                                 makeWrite(hostPtr(output, invalid)),
+                                 mtStream) || launched;
+    mtStream.sync();
+    const bool untouched = std::all_of(
+        output.begin(), output.end(),
+        [](const float value) { return value == -777.f; });
+    if (launched || !untouched) {
+        std::printf("CPU_MULTITHREAD invalid box details accepted\n");
+        ok = false;
+    }
+#endif
+#if defined(__NVCC__) || defined(__HIPCC__)
+    Ptr2D<float> gpuIn(10, 10);
+    Ptr2D<float> gpuOut(10, 10);
+    Stream stream;
+    if (executeBoxBlur(invalid, makeRead(gpuIn), makeWrite(gpuOut), stream)) {
+        std::printf("GPU invalid box details accepted\n");
+        ok = false;
+    }
+    stream.sync();
+#endif
+    return ok;
+}
+#endif
+
+static_assert(std::is_same_v<
+    decltype(morphology_detail::boxBlurReducers<float, 2>()),
+    Tuple<decltype(Add<float, float, float, UnaryType>::build()),
+          decltype(Add<float, float, float, UnaryType>::build())>>);
+
 } // namespace
 
 int launch_impl() {
@@ -681,6 +911,17 @@ int launch_impl() {
                         Details{BATCH_W, BATCH_H, 7, 5, 3, 2},
                         make_tuple(maxOp, minOp, maxOp, minOp),
                         {false, true, false, true}) && ok;
+    ok = runBoxCase<1>("box-3x3", Details{37, 19, 3, 3, 1, 1}) && ok;
+    ok = runBoxCase<1>("box-5x5", Details{35, 21, 5, 5, 2, 2}) && ok;
+    ok = runBoxCase<1>("box-7x3-anchor-off-center", Details{39, 17, 7, 3, 1, 2}) && ok;
+    ok = runBoxCase<2>("box-5x5-two-pass", Details{33, 15, 5, 5, 2, 2}) && ok;
+    ok = runBoxCase<4>("box-3x5-four-pass-large", Details{301, 203, 3, 5, 1, 2}) && ok;
+    ok = runBatchedBoxCase<1>("box-5x5", Details{BATCH_W, BATCH_H, 5, 5, 2, 2}) && ok;
+    ok = runBatchedBoxCase<2>("box-7x7-two-pass", Details{BATCH_W, BATCH_H, 7, 7, 3, 3}) && ok;
+#if defined(__NVCC__) || defined(__HIPCC__) || \
+    defined(FK_CPU_MULTITHREAD_ENABLED)
+    ok = runBoxInvalid() && ok;
+#endif
 #ifdef FK_CPU_MULTITHREAD_ENABLED
     ok = runMtChained() && ok;
     ok = runMtInvalid() && ok;
@@ -693,7 +934,7 @@ int launch_impl() {
         std::printf("invalid morphology details accepted\n");
         ok = false;
     }
-    if (ok) std::printf("MorphologyDPP 1-4 pass contracts: PASS\n");
+    if (ok) std::printf("MorphologyDPP 1-4 pass contracts and box blur: PASS\n");
     return ok ? 0 : -1;
 }
 

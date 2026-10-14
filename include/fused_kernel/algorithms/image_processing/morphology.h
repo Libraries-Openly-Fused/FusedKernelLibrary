@@ -15,6 +15,7 @@
 #ifndef FK_MORPHOLOGY
 #define FK_MORPHOLOGY
 
+#include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/basic_ops/logical.h>
 #include <fused_kernel/core/data/tuple.h>
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
@@ -119,6 +120,45 @@ FK_HOST_DEVICE_FUSE int clamp(const int value, const int low,
 template <typename InputReadIOp>
 FK_HOST_FUSE int planesOf(const InputReadIOp& input) {
     return static_cast<int>(input.getActiveThreads().z);
+}
+
+// The box blur (executeBoxBlur) as a morphology: an Add reducer per pass, so
+// that every pass sums its window, and a Mul by 1 / (maskW * maskH)^PASSES in
+// front of the output, so that the sums of every pass become the mean of
+// every pass. The passes in between keep the sums, which for floating point
+// T is the mean times a constant, up to rounding.
+template <typename T, int PASSES>
+FK_HOST_FUSE auto boxBlurReducers() {
+    static_assert(std::is_floating_point_v<VBase<T>>,
+                  "The box blur sums in T: T must be a floating point type "
+                  "or a vector of them");
+    static_assert(PASSES >= 1 && PASSES <= 4,
+                  "MorphologyDPP requires 1 through 4 reducers");
+    const auto add = Add<T, T, T, UnaryType>::build();
+    if constexpr (PASSES == 1) {
+        return make_tuple(add);
+    } else if constexpr (PASSES == 2) {
+        return make_tuple(add, add);
+    } else if constexpr (PASSES == 3) {
+        return make_tuple(add, add, add);
+    } else {
+        return make_tuple(add, add, add, add);
+    }
+}
+
+template <typename T, int PASSES, typename DPPDetails, typename OutputWriteIOp>
+FK_HOST_FUSE auto boxBlurWrite(const DPPDetails& details,
+                               const OutputWriteIOp& output) {
+    double windows = 1.;
+    for (int pass = 0; pass < PASSES; ++pass) {
+        windows *= static_cast<double>(details.maskW) * details.maskH;
+    }
+    const float scale = static_cast<float>(1. / windows);
+    if constexpr (std::is_arithmetic_v<T>) {
+        return Mul<T>::build(static_cast<T>(scale)).then(output);
+    } else {
+        return Mul<T>::build(make_set<T>(scale)).then(output);
+    }
 }
 
 } // namespace morphology_detail
@@ -682,6 +722,27 @@ inline bool executeClose(const DPPDetails& details,
         make_tuple(Max<T, T, T, UnaryType>::build(),
                    Min<T, T, T, UnaryType>::build()), stream);
 }
+
+// Box blur: PASSES passes (1 to 4) of the mean of the maskW x maskH window at
+// (anchorX, anchorY), each one replicating the border of the image it reads,
+// as the other morphology operations. T (details' ValueType) must be a
+// floating point type or a vector of them. The output receives the mean of
+// the last pass: the passes sum their windows (an Add reducer each) and a
+// Mul by 1 / (maskW * maskH)^PASSES is fused in front of the output.
+template <int PASSES = 1, typename DPPDetails, typename InputReadIOp,
+          typename OutputWriteIOp, ParArch PA>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
+inline bool executeBoxBlur(const DPPDetails& details,
+                           const InputReadIOp& input,
+                           const OutputWriteIOp& output,
+                           Stream_<PA>& stream) {
+    using T = typename DPPDetails::ValueType;
+    if (!DPPDetails::valid(details)) return false;
+    return executeMorphology(
+        details, input,
+        morphology_detail::boxBlurWrite<T, PASSES>(details, output),
+        morphology_detail::boxBlurReducers<T, PASSES>(), stream);
+}
 #endif // defined(__NVCC__) || defined(__HIPCC__)
 
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
@@ -758,6 +819,21 @@ inline bool executeClose(const DPPDetails& details,
         details, input, output,
         make_tuple(Max<T, T, T, UnaryType>::build(),
                    Min<T, T, T, UnaryType>::build()), stream);
+}
+
+// Box blur, as the GPU executeBoxBlur
+template <int PASSES = 1, typename DPPDetails, typename InputReadIOp,
+          typename OutputWriteIOp>
+inline bool executeBoxBlur(const DPPDetails& details,
+                           const InputReadIOp& input,
+                           const OutputWriteIOp& output,
+                           Stream_<ParArch::CPU_MULTITHREAD>& stream) {
+    using T = typename DPPDetails::ValueType;
+    if (!DPPDetails::valid(details)) return false;
+    return executeMorphology(
+        details, input,
+        morphology_detail::boxBlurWrite<T, PASSES>(details, output),
+        morphology_detail::boxBlurReducers<T, PASSES>(), stream);
 }
 #endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 
