@@ -969,6 +969,102 @@ static_assert(std::is_same_v<
           MorphologyPass<decltype(Add<float, float, float, UnaryType>::build()),
                          decltype(Mul<float>::build(1.f))>>>);
 
+// The box blur of a vector type (float3: make_set for the factor, per channel
+// sums), 5x5 in two passes, against a double oracle of each channel within
+// 1e-5, relative, on ParArch::CPU, CPU_MULTITHREAD (bit-identical to CPU)
+// and the GPU
+bool runBoxVector() {
+    using VectorDetails = MorphologyDPPDetails<float3, 16, 8, 7, 7>;
+    const VectorDetails details{23, 13, 5, 5, 2, 2};
+    const auto width = static_cast<uint>(details.width);
+    const auto height = static_cast<uint>(details.height);
+    const size_t pixels = static_cast<size_t>(details.width * details.height);
+    std::vector<float3> input(pixels);
+    for (int y = 0; y < details.height; ++y)
+        for (int x = 0; x < details.width; ++x)
+            input[pixelIndex(x, y, details.width)] = {inputValue(x, y), inputValue(y, x) * 2.f,
+                                                      inputValue(x + 7, y + 3) + 50.f};
+    std::vector<float3> expected(pixels);
+    for (int c = 0; c < 3; ++c) {
+        std::vector<double> current(pixels), next(pixels);
+        for (size_t i = 0; i < pixels; ++i)
+            current[i] = c == 0 ? input[i].x : (c == 1 ? input[i].y : input[i].z);
+        for (int pass = 0; pass < 2; ++pass) {
+            for (int y = 0; y < details.height; ++y)
+                for (int x = 0; x < details.width; ++x) {
+                    double sum = 0.;
+                    for (int my = -2; my <= 2; ++my)
+                        for (int mx = -2; mx <= 2; ++mx)
+                            sum += current[pixelIndex(std::clamp(x + mx, 0, details.width - 1),
+                                                      std::clamp(y + my, 0, details.height - 1),
+                                                      details.width)];
+                    next[pixelIndex(x, y, details.width)] = sum / 25.;
+                }
+            current.swap(next);
+        }
+        for (size_t i = 0; i < pixels; ++i) {
+            const float v = static_cast<float>(current[i]);
+            (c == 0 ? expected[i].x : (c == 1 ? expected[i].y : expected[i].z)) = v;
+        }
+    }
+    const auto close = [&](const char* backend, const std::vector<float3>& got) {
+        for (size_t i = 0; i < got.size(); ++i) {
+            const float g[3] = {got[i].x, got[i].y, got[i].z};
+            const float e[3] = {expected[i].x, expected[i].y, expected[i].z};
+            for (int c = 0; c < 3; ++c) {
+                if (!(std::fabs(g[c] - e[c]) <= 1e-5f * std::max(1.f, std::fabs(e[c])))) {
+                    std::printf("%s box float3 index=%zu channel=%d got=%g expected=%g\n", backend, i, c, g[c],
+                                e[c]);
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+    const auto ptrOf = [&](std::vector<float3>& data) {
+        return RawPtr<ND::_2D, float3>{data.data(), PtrDims<ND::_2D>(width, height, width * sizeof(float3))};
+    };
+    std::vector<float3> cpuOut(pixels);
+    MorphologyDPP<ParArch::CPU, VectorDetails>::exec(
+        details, PerThreadRead<ND::_2D, float3>::build(ptrOf(input)),
+        PerThreadWrite<ND::_2D, float3>::build(ptrOf(cpuOut)),
+        morphology_detail::boxBlurReducers<float3, 2>(details));
+    bool ok = close("CPU", cpuOut);
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    std::vector<float3> mtOut(pixels);
+    MTStream mtStream;
+    const bool mtLaunched = executeBoxBlur<2>(details, PerThreadRead<ND::_2D, float3>::build(ptrOf(input)),
+                                              PerThreadWrite<ND::_2D, float3>::build(ptrOf(mtOut)), mtStream);
+    mtStream.sync();
+    if (!mtLaunched || std::memcmp(mtOut.data(), cpuOut.data(), pixels * sizeof(float3)) != 0) {
+        std::printf("CPU_MULTITHREAD box float3 differs from ParArch::CPU (launched %d)\n", mtLaunched);
+        ok = false;
+    }
+#endif
+#if defined(__NVCC__) || defined(__HIPCC__)
+    Ptr2D<float3> gpuIn(details.width, details.height);
+    Ptr2D<float3> gpuOut(details.width, details.height);
+    for (int y = 0; y < details.height; ++y)
+        for (int x = 0; x < details.width; ++x) gpuIn.at(Point{x, y, 0}) = input[pixelIndex(x, y, details.width)];
+    Stream stream;
+    gpuIn.upload(stream);
+    const bool launched = executeBoxBlur<2>(details, PerThreadRead<ND::_2D, float3>::build(gpuIn.ptr()),
+                                            PerThreadWrite<ND::_2D, float3>::build(gpuOut.ptr()), stream);
+    gpuOut.download(stream);
+    stream.sync();
+    if (!launched) {
+        std::printf("GPU box float3 launcher rejected valid details\n");
+        ok = false;
+    } else {
+        std::vector<float3> got(pixels);
+        for (int y = 0; y < details.height; ++y)
+            for (int x = 0; x < details.width; ++x) got[pixelIndex(x, y, details.width)] = gpuOut.at(Point{x, y, 0});
+        ok = close("GPU", got) && ok;
+    }
+#endif
+    return ok;
+}
+
 // Runs reducers (MorphologyPasses and plain reducers) with MorphologyDPP on
 // ParArch::CPU, and through executeMorphology on CPU_MULTITHREAD
 // (bit-identical to CPU) and the GPU, against expected
@@ -1164,6 +1260,7 @@ int launch_impl() {
     ok = runBatchedBoxCase<2>("box-7x7-two-pass", Details{BATCH_W, BATCH_H, 7, 7, 3, 3}) && ok;
     ok = runBoxDouble() && ok;
     ok = runBoxNoOverflow() && ok;
+    ok = runBoxVector() && ok;
     ok = runFinalizerCases() && ok;
 #if defined(__NVCC__) || defined(__HIPCC__) || \
     defined(FK_CPU_MULTITHREAD_ENABLED)
