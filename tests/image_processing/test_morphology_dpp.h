@@ -18,6 +18,7 @@
 
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/basic_ops/logical.h>
+#include <fused_kernel/algorithms/basic_ops/math.h>
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/image_processing/crop.h>
 #include <fused_kernel/algorithms/image_processing/morphology.h>
@@ -917,6 +918,23 @@ bool runBoxDouble() {
         PerThreadWrite<ND::_2D, double>::build(outPtr),
         morphology_detail::boxBlurReducers<double, 2>(details));
     bool ok = closeEnough("CPU", cpuOut);
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    std::vector<double> mtOut(input.size(), -777.);
+    const RawPtr<ND::_2D, double> mtPtr{
+        mtOut.data(), PtrDims<ND::_2D>(width, height, width * sizeof(double))};
+    MTStream mtStream;
+    const bool mtLaunched = executeBoxBlur<2>(
+        details, PerThreadRead<ND::_2D, double>::build(inPtr),
+        PerThreadWrite<ND::_2D, double>::build(mtPtr), mtStream);
+    mtStream.sync();
+    if (!mtLaunched) {
+        std::printf("CPU_MULTITHREAD box double launcher rejected valid "
+                    "details\n");
+        ok = false;
+    } else {
+        ok = closeEnough("CPU_MULTITHREAD", mtOut) && ok;
+    }
+#endif
 #if defined(__NVCC__) || defined(__HIPCC__)
     Ptr2D<double> gpuIn(details.width, details.height);
     Ptr2D<double> gpuOut(details.width, details.height);
@@ -951,30 +969,26 @@ static_assert(std::is_same_v<
           MorphologyPass<decltype(Add<float, float, float, UnaryType>::build()),
                          decltype(Mul<float>::build(1.f))>>>);
 
-// A MorphologyPass next to a plain reducer, through executeMorphology: the
-// finalizer of the first pass (x2) applies to its staged values, and the
-// maximum commutes with it, so the result is twice the opening
-bool runMixedPassCase() {
-    const Details details{31, 18, 3, 3, 1, 1};
-    const auto reducers =
-        make_tuple(makeMorphologyPass(MinReducer::build(), Mul<float>::build(2.f)),
-                   MaxReducer::build());
+// Runs reducers (MorphologyPasses and plain reducers) with MorphologyDPP on
+// ParArch::CPU, and through executeMorphology on CPU_MULTITHREAD
+// (bit-identical to CPU) and the GPU, against expected
+template <typename Reducers>
+bool runPassCase(const char* name, const Details& details,
+                 const Reducers& reducers, const std::vector<float>& expected) {
     const std::vector<float> original = makeInput(details);
-    auto expected = oracle(original, details, {true, false});
-    for (float& v : expected) v *= 2.f;
     std::vector<float> input = original;
     std::vector<float> cpuOut(input.size(), -777.f);
     MorphologyDPP<ParArch::CPU, Details>::exec(
         details, makeRead(hostPtr(input, details)),
         makeWrite(hostPtr(cpuOut, details)), reducers);
-    bool ok = matchesOracle("CPU", "open-first-pass-x2", cpuOut, expected);
+    bool ok = matchesOracle("CPU", name, cpuOut, expected);
 #ifdef FK_CPU_MULTITHREAD_ENABLED
     std::vector<float> mtOut(input.size(), -777.f);
     MTStream mtStream;
     executeMorphology(details, makeRead(hostPtr(input, details)),
                       makeWrite(hostPtr(mtOut, details)), reducers, mtStream);
     mtStream.sync();
-    ok = sameBytes("open-first-pass-x2", mtOut, cpuOut) && ok;
+    ok = sameBytes(name, mtOut, cpuOut) && ok;
 #endif
 #if defined(__NVCC__) || defined(__HIPCC__)
     Ptr2D<float> gpuIn(details.width, details.height);
@@ -992,8 +1006,57 @@ bool runMixedPassCase() {
     for (int y = 0; y < details.height; ++y)
         for (int x = 0; x < details.width; ++x)
             got[pixelIndex(x, y, details.width)] = gpuOut.at(Point{x, y, 0});
-    ok = matchesOracle("GPU", "open-first-pass-x2", got, expected) && ok;
+    ok = matchesOracle("GPU", name, got, expected) && ok;
 #endif
+    return ok;
+}
+
+// The minimum (erode) or maximum of the 3x3 window, replicating the border
+std::vector<float> window3x3(const std::vector<float>& source, const int width,
+                             const int height, const bool erode) {
+    std::vector<float> out(source.size());
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            float value = source[pixelIndex(x, y, width)];
+            for (int my = -1; my <= 1; ++my)
+                for (int mx = -1; mx <= 1; ++mx) {
+                    const float sample = source[pixelIndex(
+                        std::clamp(x + mx, 0, width - 1),
+                        std::clamp(y + my, 0, height - 1), width)];
+                    value = erode ? std::min(value, sample)
+                                  : std::max(value, sample);
+                }
+            out[pixelIndex(x, y, width)] = value;
+        }
+    }
+    return out;
+}
+
+// MorphologyPasses next to plain reducers: an opening whose first pass has a
+// finalizer, Binary (x2: the maximum commutes with it, so the result is
+// twice the opening) or Unary (Abs: |erosion|, then the dilation)
+bool runFinalizerCases() {
+    const Details details{31, 18, 3, 3, 1, 1};
+    const std::vector<float> original = makeInput(details);
+    auto doubled = oracle(original, details, {true, false});
+    for (float& v : doubled) v *= 2.f;
+    bool ok = runPassCase(
+        "open-first-pass-x2", details,
+        make_tuple(makeMorphologyPass(MinReducer::build(), Mul<float>::build(2.f)),
+                   MaxReducer::build()),
+        doubled);
+
+    std::vector<float> read(original.size());
+    for (size_t i = 0; i < original.size(); ++i) read[i] = original[i] * 2.f + 1.f;
+    auto eroded = window3x3(read, details.width, details.height, true);
+    for (float& v : eroded) v = std::fabs(v);
+    auto absOpened = window3x3(eroded, details.width, details.height, false);
+    for (float& v : absOpened) v *= 0.5f;
+    ok = runPassCase(
+        "open-first-pass-abs", details,
+        make_tuple(makeMorphologyPass(MinReducer::build(), Abs<float>::build()),
+                   MaxReducer::build()),
+        absOpened) && ok;
     return ok;
 }
 
@@ -1101,7 +1164,7 @@ int launch_impl() {
     ok = runBatchedBoxCase<2>("box-7x7-two-pass", Details{BATCH_W, BATCH_H, 7, 7, 3, 3}) && ok;
     ok = runBoxDouble() && ok;
     ok = runBoxNoOverflow() && ok;
-    ok = runMixedPassCase() && ok;
+    ok = runFinalizerCases() && ok;
 #if defined(__NVCC__) || defined(__HIPCC__) || \
     defined(FK_CPU_MULTITHREAD_ENABLED)
     ok = runBoxInvalid() && ok;
