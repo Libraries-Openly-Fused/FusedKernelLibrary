@@ -80,18 +80,72 @@ struct MorphologyDPPDetails {
     }
 };
 
+// A pass of MorphologyDPP with a finalizer: the reducer combines the values
+// of the window (a Unary IOp on Tuple<T, T>, as a plain reducer), and the
+// finalizer (a compute IOp from T to T, Unary or Binary) maps the reduced
+// value before it is staged for the next pass or written. An element of the
+// reducers tuple is a plain reducer or a MorphologyPass; a plain reducer
+// has no finalizer. The box blur (executeBoxBlur) is an Add reducer with a
+// Mul by 1 / (maskW * maskH) as the finalizer of every pass.
+template <typename ReducerIOp, typename FinalizerIOp>
+struct MorphologyPass {
+    ReducerIOp reducer;
+    FinalizerIOp finalizer;
+};
+
+template <typename ReducerIOp, typename FinalizerIOp>
+FK_HOST_DEVICE_CNST MorphologyPass<ReducerIOp, FinalizerIOp>
+makeMorphologyPass(const ReducerIOp& reducer, const FinalizerIOp& finalizer) {
+    return {reducer, finalizer};
+}
+
 namespace morphology_detail {
+
+template <typename Pass>
+struct IsMorphologyPass : std::false_type {};
+template <typename ReducerIOp, typename FinalizerIOp>
+struct IsMorphologyPass<MorphologyPass<ReducerIOp, FinalizerIOp>>
+    : std::true_type {};
+
+// The reducer of an element of the reducers tuple
+template <typename Pass>
+FK_HOST_DEVICE_CNST const auto& reducerOf(const Pass& pass) {
+    if constexpr (IsMorphologyPass<Pass>::value) {
+        return pass.reducer;
+    } else {
+        return pass;
+    }
+}
 
 template <int Index = 0, typename T, typename Reducers>
 FK_HOST_DEVICE_STATIC T applyReducer(const int pass, const T a, const T b,
                                      const Reducers& reducers) {
     if constexpr (Index < std::decay_t<Reducers>::size) {
         if (pass == Index) {
-            return static_cast<T>(make_tuple(a, b) | get<Index>(reducers));
+            return static_cast<T>(make_tuple(a, b) |
+                                  reducerOf(get<Index>(reducers)));
         }
         return applyReducer<Index + 1>(pass, a, b, reducers);
     } else {
         return a;
+    }
+}
+
+// The value of pass `pass` once reduced: its finalizer applied, if it has
+// one (a MorphologyPass), the value itself otherwise
+template <int Index = 0, typename T, typename Reducers>
+FK_HOST_DEVICE_STATIC T applyFinalizer(const int pass, const T value,
+                                       const Reducers& reducers) {
+    if constexpr (Index < std::decay_t<Reducers>::size) {
+        using Pass = std::decay_t<decltype(get<Index>(reducers))>;
+        if constexpr (IsMorphologyPass<Pass>::value) {
+            if (pass == Index) {
+                return static_cast<T>(value | get<Index>(reducers).finalizer);
+            }
+        }
+        return applyFinalizer<Index + 1>(pass, value, reducers);
+    } else {
+        return value;
     }
 }
 
@@ -100,8 +154,8 @@ FK_HOST_DEVICE_CNST bool reducersAreUnary() {
     if constexpr (Index == std::decay_t<Reducers>::size) {
         return true;
     } else {
-        using Reducer = std::decay_t<decltype(
-            get<Index>(std::declval<const Reducers&>()))>;
+        using Reducer = std::decay_t<decltype(reducerOf(
+            get<Index>(std::declval<const Reducers&>())))>;
         return Reducer::template is<UnaryType> &&
                reducersAreUnary<Index + 1, Reducers>();
     }
@@ -122,43 +176,36 @@ FK_HOST_FUSE int planesOf(const InputReadIOp& input) {
     return static_cast<int>(input.getActiveThreads().z);
 }
 
-// The box blur (executeBoxBlur) as a morphology: an Add reducer per pass, so
-// that every pass sums its window, and a Mul by 1 / (maskW * maskH)^PASSES in
-// front of the output, so that the sums of every pass become the mean of
-// every pass. The passes in between keep the sums, which for floating point
-// T is the mean times a constant, up to rounding.
-template <typename T, int PASSES>
-FK_HOST_FUSE auto boxBlurReducers() {
+// The passes of the box blur (executeBoxBlur): every pass sums its window
+// (an Add reducer) and its finalizer multiplies the sum by 1 / (maskW *
+// maskH), so every pass, the staged ones included, is the mean of its
+// window. The factor is in the precision of T's elements (float or double).
+template <typename T, int PASSES, typename DPPDetails>
+FK_HOST_FUSE auto boxBlurReducers(const DPPDetails& details) {
     static_assert(std::is_floating_point_v<VBase<T>>,
                   "The box blur sums in T: T must be a floating point type "
                   "or a vector of them");
     static_assert(PASSES >= 1 && PASSES <= 4,
                   "MorphologyDPP requires 1 through 4 reducers");
-    const auto add = Add<T, T, T, UnaryType>::build();
+    const VBase<T> scale = static_cast<VBase<T>>(
+        1. / (static_cast<double>(details.maskW) * details.maskH));
+    const auto mean = [&]() {
+        if constexpr (std::is_arithmetic_v<T>) {
+            return Mul<T>::build(scale);
+        } else {
+            return Mul<T>::build(make_set<T>(scale));
+        }
+    }();
+    const auto pass =
+        makeMorphologyPass(Add<T, T, T, UnaryType>::build(), mean);
     if constexpr (PASSES == 1) {
-        return make_tuple(add);
+        return make_tuple(pass);
     } else if constexpr (PASSES == 2) {
-        return make_tuple(add, add);
+        return make_tuple(pass, pass);
     } else if constexpr (PASSES == 3) {
-        return make_tuple(add, add, add);
+        return make_tuple(pass, pass, pass);
     } else {
-        return make_tuple(add, add, add, add);
-    }
-}
-
-template <typename T, int PASSES, typename DPPDetails, typename OutputWriteIOp>
-FK_HOST_FUSE auto boxBlurWrite(const DPPDetails& details,
-                               const OutputWriteIOp& output) {
-    double windows = 1.;
-    for (int pass = 0; pass < PASSES; ++pass) {
-        windows *= static_cast<double>(details.maskW) * details.maskH;
-    }
-    // In the precision of T's elements (float or double)
-    const VBase<T> scale = static_cast<VBase<T>>(1. / windows);
-    if constexpr (std::is_arithmetic_v<T>) {
-        return Mul<T>::build(scale).then(output);
-    } else {
-        return Mul<T>::build(make_set<T>(scale)).then(output);
+        return make_tuple(pass, pass, pass, pass);
     }
 }
 
@@ -198,7 +245,8 @@ private:
                 }
             }
         }
-        return accumulator;
+        return morphology_detail::applyFinalizer(pass, accumulator,
+                                                 reducers);
     }
 
 public:
@@ -599,6 +647,8 @@ public:
                         }
                     }
                 }
+                accumulator = morphology_detail::applyFinalizer(
+                    pass, accumulator, reducers);
                 if (finalPass)
                     finalValue = accumulator;
                 else
@@ -727,9 +777,9 @@ inline bool executeClose(const DPPDetails& details,
 // Box blur: PASSES passes (1 to 4) of the mean of the maskW x maskH window at
 // (anchorX, anchorY), each one replicating the border of the image it reads,
 // as the other morphology operations. T (details' ValueType) must be a
-// floating point type or a vector of them. The output receives the mean of
-// the last pass: the passes sum their windows (an Add reducer each) and a
-// Mul by 1 / (maskW * maskH)^PASSES is fused in front of the output.
+// floating point type or a vector of them. Every pass is a MorphologyPass:
+// it sums its window (Add) and multiplies the sum by 1 / (maskW * maskH)
+// (its finalizer), so every pass is the mean of the previous one.
 template <int PASSES = 1, typename DPPDetails, typename InputReadIOp,
           typename OutputWriteIOp, ParArch PA>
     requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
@@ -738,11 +788,9 @@ inline bool executeBoxBlur(const DPPDetails& details,
                            const OutputWriteIOp& output,
                            Stream_<PA>& stream) {
     using T = typename DPPDetails::ValueType;
-    if (!DPPDetails::valid(details)) return false;
     return executeMorphology(
-        details, input,
-        morphology_detail::boxBlurWrite<T, PASSES>(details, output),
-        morphology_detail::boxBlurReducers<T, PASSES>(), stream);
+        details, input, output,
+        morphology_detail::boxBlurReducers<T, PASSES>(details), stream);
 }
 #endif // defined(__NVCC__) || defined(__HIPCC__)
 
@@ -830,11 +878,9 @@ inline bool executeBoxBlur(const DPPDetails& details,
                            const OutputWriteIOp& output,
                            Stream_<ParArch::CPU_MULTITHREAD>& stream) {
     using T = typename DPPDetails::ValueType;
-    if (!DPPDetails::valid(details)) return false;
     return executeMorphology(
-        details, input,
-        morphology_detail::boxBlurWrite<T, PASSES>(details, output),
-        morphology_detail::boxBlurReducers<T, PASSES>(), stream);
+        details, input, output,
+        morphology_detail::boxBlurReducers<T, PASSES>(details), stream);
 }
 #endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 

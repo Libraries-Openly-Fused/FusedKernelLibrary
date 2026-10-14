@@ -28,6 +28,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 #include <type_traits>
 #include <vector>
@@ -705,9 +706,8 @@ bool runBoxCase(const char* name, const Details& details) {
     std::vector<float> cpuOut(input.size(), -777.f);
     MorphologyDPP<ParArch::CPU, Details>::exec(
         details, makeRead(hostPtr(input, details)),
-        morphology_detail::boxBlurWrite<float, PASSES>(
-            details, makeWrite(hostPtr(cpuOut, details))),
-        morphology_detail::boxBlurReducers<float, PASSES>());
+        makeWrite(hostPtr(cpuOut, details)),
+        morphology_detail::boxBlurReducers<float, PASSES>(details));
     bool ok = boxMatches("CPU", name, cpuOut, expected);
 
 #ifdef FK_CPU_MULTITHREAD_ENABLED
@@ -779,10 +779,8 @@ bool runBatchedBoxCase(const char* name, const Details& details) {
     const auto read = makeBatchRead(batchSourcePtr(source));
     Tensor<float> cpuOut(BATCH_W, BATCH_H, BATCH, 1, MemType::Host);
     MorphologyDPP<ParArch::CPU, Details>::exec(
-        details, read,
-        morphology_detail::boxBlurWrite<float, PASSES>(
-            details, makeBatchWrite(cpuOut.ptr())),
-        morphology_detail::boxBlurReducers<float, PASSES>());
+        details, read, makeBatchWrite(cpuOut.ptr()),
+        morphology_detail::boxBlurReducers<float, PASSES>(details));
     const std::vector<float> cpuResult = tensorValues(cpuOut);
     bool ok = batchMatches("CPU", name, cpuResult, expected);
 
@@ -916,9 +914,8 @@ bool runBoxDouble() {
         PtrDims<ND::_2D>(width, height, width * sizeof(double))};
     MorphologyDPP<ParArch::CPU, DoubleDetails>::exec(
         details, PerThreadRead<ND::_2D, double>::build(inPtr),
-        morphology_detail::boxBlurWrite<double, 2>(
-            details, PerThreadWrite<ND::_2D, double>::build(outPtr)),
-        morphology_detail::boxBlurReducers<double, 2>());
+        PerThreadWrite<ND::_2D, double>::build(outPtr),
+        morphology_detail::boxBlurReducers<double, 2>(details));
     bool ok = closeEnough("CPU", cpuOut);
 #if defined(__NVCC__) || defined(__HIPCC__)
     Ptr2D<double> gpuIn(details.width, details.height);
@@ -948,9 +945,111 @@ bool runBoxDouble() {
 }
 
 static_assert(std::is_same_v<
-    decltype(morphology_detail::boxBlurReducers<float, 2>()),
-    Tuple<decltype(Add<float, float, float, UnaryType>::build()),
-          decltype(Add<float, float, float, UnaryType>::build())>>);
+    decltype(morphology_detail::boxBlurReducers<float, 2>(Details{})),
+    Tuple<MorphologyPass<decltype(Add<float, float, float, UnaryType>::build()),
+                         decltype(Mul<float>::build(1.f))>,
+          MorphologyPass<decltype(Add<float, float, float, UnaryType>::build()),
+                         decltype(Mul<float>::build(1.f))>>>);
+
+// A MorphologyPass next to a plain reducer, through executeMorphology: the
+// finalizer of the first pass (x2) applies to its staged values, and the
+// maximum commutes with it, so the result is twice the opening
+bool runMixedPassCase() {
+    const Details details{31, 18, 3, 3, 1, 1};
+    const auto reducers =
+        make_tuple(makeMorphologyPass(MinReducer::build(), Mul<float>::build(2.f)),
+                   MaxReducer::build());
+    const std::vector<float> original = makeInput(details);
+    auto expected = oracle(original, details, {true, false});
+    for (float& v : expected) v *= 2.f;
+    std::vector<float> input = original;
+    std::vector<float> cpuOut(input.size(), -777.f);
+    MorphologyDPP<ParArch::CPU, Details>::exec(
+        details, makeRead(hostPtr(input, details)),
+        makeWrite(hostPtr(cpuOut, details)), reducers);
+    bool ok = matchesOracle("CPU", "open-first-pass-x2", cpuOut, expected);
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    std::vector<float> mtOut(input.size(), -777.f);
+    MTStream mtStream;
+    executeMorphology(details, makeRead(hostPtr(input, details)),
+                      makeWrite(hostPtr(mtOut, details)), reducers, mtStream);
+    mtStream.sync();
+    ok = sameBytes("open-first-pass-x2", mtOut, cpuOut) && ok;
+#endif
+#if defined(__NVCC__) || defined(__HIPCC__)
+    Ptr2D<float> gpuIn(details.width, details.height);
+    Ptr2D<float> gpuOut(details.width, details.height);
+    for (int y = 0; y < details.height; ++y)
+        for (int x = 0; x < details.width; ++x)
+            gpuIn.at(Point{x, y, 0}) = original[pixelIndex(x, y, details.width)];
+    Stream stream;
+    gpuIn.upload(stream);
+    executeMorphology(details, makeRead(gpuIn), makeWrite(gpuOut), reducers,
+                      stream);
+    gpuOut.download(stream);
+    stream.sync();
+    std::vector<float> got(original.size());
+    for (int y = 0; y < details.height; ++y)
+        for (int x = 0; x < details.width; ++x)
+            got[pixelIndex(x, y, details.width)] = gpuOut.at(Point{x, y, 0});
+    ok = matchesOracle("GPU", "open-first-pass-x2", got, expected) && ok;
+#endif
+    return ok;
+}
+
+// Every pass of the box blur is a mean, the staged ones included, so values
+// that a mean keeps finite stay finite however many passes run: a constant
+// image near max() / 100, 7x7 in four passes (sums of 49 such values would
+// overflow), must come out as the constant
+bool runBoxNoOverflow() {
+    const Details details{29, 17, 7, 7, 3, 3};
+    const float big = std::numeric_limits<float>::max() / 100.f;
+    std::vector<float> input(static_cast<size_t>(details.width * details.height), big);
+    const auto read = PerThreadRead<ND::_2D, float>::build(hostPtr(input, details));
+    const auto exact = [&](const char* backend, const std::vector<float>& got) {
+        for (size_t i = 0; i < got.size(); ++i) {
+            if (!(std::fabs(got[i] - big) <= 1e-5f * big)) {
+                std::printf("%s box overflow index=%zu got=%g expected=%g\n",
+                            backend, i, got[i], big);
+                return false;
+            }
+        }
+        return true;
+    };
+    std::vector<float> cpuOut(input.size(), -777.f);
+    MorphologyDPP<ParArch::CPU, Details>::exec(
+        details, read,
+        PerThreadWrite<ND::_2D, float>::build(hostPtr(cpuOut, details)),
+        morphology_detail::boxBlurReducers<float, 4>(details));
+    bool ok = exact("CPU", cpuOut);
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+    std::vector<float> mtOut(input.size(), -777.f);
+    MTStream mtStream;
+    executeBoxBlur<4>(details, read,
+                      PerThreadWrite<ND::_2D, float>::build(hostPtr(mtOut, details)),
+                      mtStream);
+    mtStream.sync();
+    ok = exact("CPU_MULTITHREAD", mtOut) && ok;
+#endif
+#if defined(__NVCC__) || defined(__HIPCC__)
+    Ptr2D<float> gpuIn(details.width, details.height);
+    Ptr2D<float> gpuOut(details.width, details.height);
+    for (int y = 0; y < details.height; ++y)
+        for (int x = 0; x < details.width; ++x) gpuIn.at(Point{x, y, 0}) = big;
+    Stream stream;
+    gpuIn.upload(stream);
+    executeBoxBlur<4>(details, PerThreadRead<ND::_2D, float>::build(gpuIn.ptr()),
+                      PerThreadWrite<ND::_2D, float>::build(gpuOut.ptr()), stream);
+    gpuOut.download(stream);
+    stream.sync();
+    std::vector<float> got(input.size());
+    for (int y = 0; y < details.height; ++y)
+        for (int x = 0; x < details.width; ++x)
+            got[pixelIndex(x, y, details.width)] = gpuOut.at(Point{x, y, 0});
+    ok = exact("GPU", got) && ok;
+#endif
+    return ok;
+}
 
 } // namespace
 
@@ -1001,6 +1100,8 @@ int launch_impl() {
     ok = runBatchedBoxCase<1>("box-5x5", Details{BATCH_W, BATCH_H, 5, 5, 2, 2}) && ok;
     ok = runBatchedBoxCase<2>("box-7x7-two-pass", Details{BATCH_W, BATCH_H, 7, 7, 3, 3}) && ok;
     ok = runBoxDouble() && ok;
+    ok = runBoxNoOverflow() && ok;
+    ok = runMixedPassCase() && ok;
 #if defined(__NVCC__) || defined(__HIPCC__) || \
     defined(FK_CPU_MULTITHREAD_ENABLED)
     ok = runBoxInvalid() && ok;
