@@ -204,14 +204,13 @@ FKL is an Apache 2.0 OpenSource project maintained by contributors in their spar
 
 While we provide no formal guarantees or free support, we actively test against:
 
-**CUDA Builds (x86_64 and arm64)**
+**CUDA Builds**
 - **Ubuntu 24.04:** `g++ 13` + CUDA 13.4
 - **Windows 11:** Visual Studio 2026 (14.44 toolset) + CUDA 13.0
 - **Windows:** Visual Studio 2026 (14.51 toolset) + CUDA 13.4
 
 **ROCm Builds (x86_64 only)**
-- **Ubuntu 24.04:** ROCm 10.1.0
-- **Windows 11 25H2:** ROCm 10.1.0
+- **Ubuntu 26.04:** ROCm 10.1.0
 
 **CPU Backend** (single-thread and multithreaded)
 - **Linux:** `g++ 13` or `clang++-23`
