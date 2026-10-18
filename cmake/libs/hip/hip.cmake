@@ -1,6 +1,12 @@
 include(cmake/libs/hip/debug.cmake)
 include(cmake/libs/hip/target_generation.cmake)
 
+# hip::device compiles the C++ sources of a target with --offload-arch=${GPU_TARGETS}, and hip-config sets GPU_TARGETS
+# to the GPU of this machine when it is empty: make it follow CMAKE_HIP_ARCHITECTURES, as the HIP sources do.
+# hip-config reads it through the cache variable GPU_BUILD_TARGETS, which it only creates, so drop that variable to
+# update it on a reconfigure.
+set(GPU_TARGETS "${CMAKE_HIP_ARCHITECTURES}")
+unset(GPU_BUILD_TARGETS CACHE)
 find_package(HIP CONFIG REQUIRED)
 option(ENABLE_HIP_LINE_INFO "Enable line info for HIP kernels compilation" ON)
 
