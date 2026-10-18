@@ -16,19 +16,20 @@ function (discover_tests DIR)
         string(FIND "${TEST_SOURCE_CONTENTS}" "ONLY_CU"  POS_ONLY_CU)
         string(FIND "${TEST_SOURCE_CONTENTS}" "ONLY_CPU"  POS_ONLY_CPU)
         string(FIND "${TEST_SOURCE_CONTENTS}" "ONLY_GPU"  POS_ONLY_GPU) # no _cpp target, but _cu and _hip ones
+        string(FIND "${TEST_SOURCE_CONTENTS}" "ONLY_HIP"  POS_ONLY_HIP) # only the _hip target
         set (TEST_SOURCE1 "${TEST_SOURCE}")
         string(REPLACE ${CMAKE_SOURCE_DIR} "" TEST_SOURCE1 "${TEST_SOURCE1}") #make the path relative to the current directory)
         
         cmake_path(GET TEST_SOURCE1 RELATIVE_PART DIR_RELATIVE_PATH) 
               
-        if (${POS_ONLY_CU} EQUAL -1 AND ${POS_ONLY_GPU} EQUAL -1) #if the source file contains neither "__ONLY_CU__" nor "__ONLY_GPU__"
+        if (${POS_ONLY_CU} EQUAL -1 AND ${POS_ONLY_GPU} EQUAL -1 AND ${POS_ONLY_HIP} EQUAL -1) #if the source file contains none of "__ONLY_CU__", "__ONLY_GPU__", "__ONLY_HIP__"
             if (${ENABLE_CPU})                                    
                 add_generated_test("${TARGET_NAME}" "${TEST_SOURCE}" "cpp" "${DIR_RELATIVE_PATH}")                
              endif()
         endif()
 
         if (CMAKE_CUDA_COMPILER AND ENABLE_CUDA)
-            if (${POS_ONLY_CPU} EQUAL -1) #if the source file does not contain "__ONLY_CPU__"         
+            if (${POS_ONLY_CPU} EQUAL -1 AND ${POS_ONLY_HIP} EQUAL -1) #if the source file contains neither "__ONLY_CPU__" nor "__ONLY_HIP__"
                 add_generated_test("${TARGET_NAME}"  "${TEST_SOURCE}" "cu"  "${DIR_RELATIVE_PATH}")
                 add_cuda_to_test("${TARGET_NAME}_cu")                           
             endif()
