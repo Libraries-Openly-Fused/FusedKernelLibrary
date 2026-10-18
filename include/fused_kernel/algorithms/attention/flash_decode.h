@@ -35,10 +35,10 @@
  * This pairs with FA4-sm12x's fp8 decode direction (Dao-AILab PR #2634)
  * but keeps FKL's universal prologue: ANY Read/ReadBack IOp works. */
 
-#include <fused_kernel/algorithms/attention/flash_attention.h>
-#include <fused_kernel/algorithms/attention/flash_attention_mma.h>  // IOp traits + bf16 read
+#include <fused_kernel/algorithms/attention/flash_attention.h>  // IOp traits + bf16 read
+#include <fused_kernel/algorithms/attention/flash_attention_mma.h>
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
 
 namespace fk {
 
@@ -50,9 +50,9 @@ private:
 public:
     FK_STATIC_STRUCT(FlashDecodeDPP, SelfType)
 
-    static_assert(HEAD_DIM % 32 == 0, "HEAD_DIM must be a multiple of 32");
-    static constexpr int THREADS = NUM_WARPS * 32;
-    static constexpr int ELEMS = HEAD_DIM / 32;   // per-lane o/q elements
+    static_assert(HEAD_DIM % ATTN_WAVE_SIZE == 0, "HEAD_DIM must be a multiple of 32");
+    static constexpr int THREADS = NUM_WARPS * ATTN_WAVE_SIZE;
+    static constexpr int ELEMS = HEAD_DIM / ATTN_WAVE_SIZE;   // per-lane o/q elements
 
     struct Params {
         QIOp q; KIOp k; VIOp v;
@@ -66,29 +66,31 @@ public:
 
     template <typename IOp>
     FK_DEVICE_FUSE float readElem(const IOp& iop, const int x, const int y, const int z) {
-        return attnToF32(IOp::Operation::exec(Point{ x, y, z }, iop));
+        return low_precision::attnToF32(IOp::Operation::exec(Point{ x, y, z }, iop));
     }
 
     /* Vectorized row loader: lane owns elements [ELEMS*lane, ELEMS*lane+ELEMS).
        Raw bf16 rows load as bfloat162 pairs (4B), fp8/int8 rows as packed
        bytes (ELEMS bytes in one load) — decode is bandwidth-bound, wide
-       loads are the whole game. Generic IOps fall back to per-element. */
+       loads are the whole game. Generic IOps fall back to per-element, and
+       so do the widths the packed loads don't cover: bf16 pairs need an even
+       ELEMS, the byte loads 2 or 4 bytes (HEAD_DIM 64 or 128). */
     template <typename IOp>
     FK_DEVICE_FUSE void loadRow(const IOp& iop, const int lane, const int t,
                                 const int bh, const int seqLen,
                                 float (&out)[ELEMS]) {
-        if constexpr (isRawBf16Read<IOp>) {
+        if constexpr (isRawBf16Read<IOp> && ELEMS % 2 == 0) {
             const auto& prm = iop.params;
-            const __nv_bfloat16* base = prm.data
+            const attn_bf16* base = prm.data
                 + ((long)bh * seqLen + t) * HEAD_DIM + ELEMS * lane;
             #pragma unroll
             for (int e = 0; e < ELEMS; e += 2) {
-                const __nv_bfloat162 pair =
-                    *reinterpret_cast<const __nv_bfloat162*>(base + e);
+                const attn_bf162 pair =
+                    *reinterpret_cast<const attn_bf162*>(base + e);
                 out[e] = __bfloat162float(pair.x);
                 out[e + 1] = __bfloat162float(pair.y);
             }
-        } else if constexpr (isFp8KVRead<IOp> || isInt8KVRead<IOp>) {
+        } else if constexpr ((isFp8KVRead<IOp> || isInt8KVRead<IOp>) && (ELEMS == 2 || ELEMS == 4)) {
             const auto& prm = iop.params;
             const float sc = prm.scales[(long)bh * seqLen + t];
             const int8_t* base = reinterpret_cast<const int8_t*>(prm.data.data)
@@ -102,9 +104,7 @@ public:
                 const int8_t b = static_cast<int8_t>((packed >> (8 * e)) & 0xFF);
                 if constexpr (isFp8KVRead<IOp>) {
 #ifdef FK_HAS_FP8
-                    __nv_fp8_e4m3 f8;
-                    f8.__x = static_cast<__nv_fp8_storage_t>(b);
-                    out[e] = static_cast<float>(f8) * sc;
+                    out[e] = attnFp8ToF32(b) * sc;
 #endif
                 } else {
                     out[e] = static_cast<float>(b) * sc;
@@ -118,8 +118,9 @@ public:
     }
 
     static __device__ void exec(const Params& p) {
-        const int lane = threadIdx.x & 31;
-        const int warp = threadIdx.x >> 5;
+        attnRequireWave32();
+        const int lane = threadIdx.x % ATTN_WAVE_SIZE;
+        const int warp = threadIdx.x / ATTN_WAVE_SIZE;
         const int split = blockIdx.x;
         const int bh = blockIdx.y;
 
@@ -159,8 +160,8 @@ public:
             #pragma unroll
             for (int e = 0; e < ELEMS; ++e) partialDot += qReg[e] * kReg[e];
             #pragma unroll
-            for (int off = 16; off > 0; off >>= 1)
-                partialDot += __shfl_xor_sync(0xFFFFFFFFu, partialDot, off);
+            for (int off = ATTN_WAVE_SIZE / 2; off > 0; off >>= 1)
+                partialDot += attnShflXor(partialDot, off);
             const float s = partialDot * p.scale;
 
             const float mNew = fmaxf(m, s);
@@ -310,7 +311,7 @@ inline void executeFlashDecode(
         float* workspace /* flashDecodeWorkspaceFloats(); zeroed at alloc;
                             nullptr ok if splits==1 */,
         const int batchHeads, const int seqK,
-        Stream_<ParArch::GPU_NVIDIA>& stream,
+        Stream_<defaultParArch>& stream,
         const float scaleOverride = -1.f, const int splitsOverride = 0) {
     using DPP = FlashDecodeDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp, NUM_WARPS>;
     const float scale = scaleOverride > 0.f ? scaleOverride
@@ -328,13 +329,19 @@ inline void executeFlashDecode(
     // single kernel: the split merge is FUSED (last-CTA-arrives pattern) —
     // profiling showed the separate 1.4us merge kernel + launch gap was pure
     // overhead at decode latencies.
+#if defined(__HIPCC__)
+    launchFlashDecodeDPP_Kernel<OT, HEAD_DIM, QIOp, KIOp, VIOp, NUM_WARPS>
+        <<<grid, DPP::THREADS, 0, stream.getHIPStream()>>>(params);
+    gpuErrchk(hipGetLastError());
+#else
     launchFlashDecodeDPP_Kernel<OT, HEAD_DIM, QIOp, KIOp, VIOp, NUM_WARPS>
         <<<grid, DPP::THREADS, 0, stream.getCUDAStream()>>>(params);
     gpuErrchk(cudaGetLastError());
+#endif
 }
 
 } // namespace fk
 
-#endif // defined(__NVCC__)
+#endif // defined(__NVCC__) || defined(__HIPCC__)
 
 #endif // FK_ATTENTION_FLASH_DECODE_H
