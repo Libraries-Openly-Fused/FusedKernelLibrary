@@ -10,10 +10,9 @@ endif()
 
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF) #clang with HIP does not come with  clang-scan-deps
 
-# HIP_ARCH seeds CMAKE_HIP_ARCHITECTURES before enable_language(HIP), which would otherwise set it to the GPU of this
-# machine (or the compiler default) and leave HIP_ARCH unused. gfx1200 (Navi 44) and gfx1201 (Navi 48) can't load each
-# other's code objects, so both are built. Passing CMAKE_HIP_ARCHITECTURES explicitly still wins; changing HIP_ARCH on
-# a reconfigure updates it unless CMAKE_HIP_ARCHITECTURES was changed by hand.
+# By default enable_language(HIP) sets CMAKE_HIP_ARCHITECTURES to the GPU of this machine (or the compiler default).
+# -DHIP_ARCH=<list> (e.g. "gfx1200;gfx1201": Navi 44 and Navi 48 can't load each other's code objects) seeds it instead
+# on the first configure of a build directory; an explicit -DCMAKE_HIP_ARCHITECTURES wins over HIP_ARCH.
 
 if(DEFINED HIP_ARCH AND NOT DEFINED CACHE{CMAKE_HIP_ARCHITECTURES})
   set(CMAKE_HIP_ARCHITECTURES "${HIP_ARCH}" CACHE STRING "HIP architectures")
