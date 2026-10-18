@@ -22,7 +22,7 @@
  * must still arrive at the fused last-block merge; every case runs twice on
  * the same workspace to check that the arrival counters reset themselves. */
 
-#define __ONLY_CU__ // This file is only generated and compiled with nvcc, not with the host compiler
+#define __ONLY_GPU__ // Generated as _cu and _hip, not as _cpp: the attention DPPs are GPU-only
 #include <tests/main.h>
 
 #include <fused_kernel/algorithms/attention/flash_decode.h>
@@ -38,15 +38,6 @@ namespace fk {
 constexpr double DECODE_TOL = 1e-5;
 
 enum class DecodeKV { FP32, BF16, INT8, FP8 };
-
-#ifdef FK_HAS_FP8
-// host decode of one e4m3 byte, for the oracle
-static double fp8ToDouble(const int8_t byte) {
-    __nv_fp8_e4m3 f8;
-    f8.__x = static_cast<__nv_fp8_storage_t>(byte);
-    return static_cast<double>(static_cast<float>(f8));
-}
-#endif
 
 template <int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp>
 static void runDecode(const char* name, const QIOp& q, const KIOp& k, const VIOp& v,
@@ -94,7 +85,7 @@ static void testDecode(const char* name, const int bh, const int seqK, const int
     } else if constexpr (KV == DecodeKV::BF16) {
         // Q, K and V are all bf16 (the raw prologue); the oracle sees the
         // bf16-rounded values
-        std::vector<__nv_bfloat16> bq(nQ), bk(nK), bv(nK);
+        std::vector<attn_bf16> bq(nQ), bk(nK), bv(nK);
         for (size_t i = 0; i < nQ; ++i) { bq[i] = __float2bfloat16(hq[i]); dq[i] = __bfloat162float(bq[i]); }
         for (size_t i = 0; i < nK; ++i) {
             bk[i] = __float2bfloat16(hk[i]); dk[i] = __bfloat162float(bk[i]);
@@ -104,11 +95,11 @@ static void testDecode(const char* name, const int bh, const int seqK, const int
         auto q = uploadBuffer(bq, stream);
         auto kd = uploadBuffer(bk, stream);
         auto vd = uploadBuffer(bv, stream);
-        const auto kIOp = makeAttentionRead(static_cast<const __nv_bfloat16*>(kd.ptr().data), bh, seqK, HEAD_DIM);
+        const auto kIOp = makeAttentionRead(static_cast<const attn_bf16*>(kd.ptr().data), bh, seqK, HEAD_DIM);
         static_assert(isRawBf16Read<std::decay_t<decltype(kIOp)>>, "bf16 K must take the raw (vectorized) path");
-        runDecode<HEAD_DIM>(name, makeAttentionRead(static_cast<const __nv_bfloat16*>(q.ptr().data), bh, 1, HEAD_DIM),
+        runDecode<HEAD_DIM>(name, makeAttentionRead(static_cast<const attn_bf16*>(q.ptr().data), bh, 1, HEAD_DIM),
                             kIOp,
-                            makeAttentionRead(static_cast<const __nv_bfloat16*>(vd.ptr().data), bh, seqK, HEAD_DIM),
+                            makeAttentionRead(static_cast<const attn_bf16*>(vd.ptr().data), bh, seqK, HEAD_DIM),
                             ref, bh, seqK, splitsOverride, stream);
     } else {
         std::vector<int8_t> k8(nK), v8(nK);
@@ -126,8 +117,8 @@ static void testDecode(const char* name, const int bh, const int seqK, const int
             quantizeKVCacheFp8Host(hk.data(), k8.data(), kSc.data(), (int)nTok, HEAD_DIM);
             quantizeKVCacheFp8Host(hv.data(), v8.data(), vSc.data(), (int)nTok, HEAD_DIM);
             for (size_t i = 0; i < nK; ++i) {
-                dk[i] = fp8ToDouble(k8[i]) * kSc[i / HEAD_DIM];
-                dv[i] = fp8ToDouble(v8[i]) * vSc[i / HEAD_DIM];
+                dk[i] = (double)attnFp8ToF32(k8[i]) * kSc[i / HEAD_DIM];
+                dv[i] = (double)attnFp8ToF32(v8[i]) * vSc[i / HEAD_DIM];
             }
 #endif
         }

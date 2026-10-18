@@ -52,65 +52,8 @@
 
 namespace fk {
 
-// ---- bf16 identity Read IOp (the "raw" prologue) ---------------------------
-struct Bf16AttentionRead {
-private:
-    using Parent = ReadOperation<__nv_bfloat16, RawPtr<ND::_3D, __nv_bfloat16>,
-                                 float, TF::DISABLED, Bf16AttentionRead>;
-    using SelfType = Bf16AttentionRead;
-public:
-    FK_STATIC_STRUCT(Bf16AttentionRead, SelfType)
-    DECLARE_READ_PARENT
-
-    FK_HOST_DEVICE_FUSE float exec(const Point thread, const ParamsType& params) {
-#if defined(__CUDA_ARCH__)
-        return __bfloat162float(*PtrAccessor<ND::_3D>::cr_point(thread, params));
-#else
-        return 0.f;  // host never executes this
-#endif
-    }
-    FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
-        return opData.params.dims.width;
-    }
-    FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
-        return opData.params.dims.height;
-    }
-    FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
-        return opData.params.dims.planes;
-    }
-    FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {
-        return opData.params.dims.pitch;
-    }
-    FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
-        return { num_elems_x(Point{0,0,0}, opData),
-                 num_elems_y(Point{0,0,0}, opData),
-                 num_elems_z(Point{0,0,0}, opData) };
-    }
-};
-
-// bf16 overload of the canonical prologue builder.
-inline auto makeAttentionRead(const __nv_bfloat16* data, const int batchHeads,
-                              const int seq, const int headDim) {
-    const RawPtr<ND::_3D, __nv_bfloat16> ptr{
-        const_cast<__nv_bfloat16*>(data),
-        PtrDims<ND::_3D>(static_cast<uint>(headDim), static_cast<uint>(seq),
-                         static_cast<uint>(batchHeads), 1,
-                         static_cast<uint>(headDim * sizeof(__nv_bfloat16))) };
-    return Bf16AttentionRead::build(ptr);
-}
-
-template <typename IOp>
-constexpr bool isRawBf16Read = std::is_same_v<typename IOp::Operation, Bf16AttentionRead>;
-
-#ifdef FK_HAS_FP8
-template <typename IOp>
-constexpr bool isFp8KVRead = std::is_same_v<typename IOp::Operation, Fp8TokenDequantRead>;
-#else
-template <typename IOp>
-constexpr bool isFp8KVRead = false;
-#endif
-template <typename IOp>
-constexpr bool isInt8KVRead = std::is_same_v<typename IOp::Operation, Int8TokenDequantRead>;
+// Bf16AttentionRead, its makeAttentionRead overload and the isRawBf16Read,
+// isFp8KVRead and isInt8KVRead traits live in flash_attention.h.
 
 // ---- FLEX ATTENTION: score mods (FlexAttention-style score_mod) ------------
 // A score mod is a tiny device functor applied to each attention score

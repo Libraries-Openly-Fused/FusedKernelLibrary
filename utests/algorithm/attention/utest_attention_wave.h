@@ -17,6 +17,7 @@
  * waves per block: each lane holds its thread index, a butterfly sum must give
  * the sum of its own wave, and a single exchange must return lane ^ mask. */
 
+#define __ONLY_GPU__ // Generated as _cu and _hip, not as _cpp: attention_wave.h has no CPU code
 #include <tests/main.h>
 
 #include <fused_kernel/algorithms/attention/attention_wave.h>
@@ -24,8 +25,6 @@
 #include <fused_kernel/core/execution_model/stream.h>
 
 #include <iostream>
-
-#if defined(__NVCC__) || defined(__HIPCC__)
 
 namespace fk {
 
@@ -84,12 +83,3 @@ int launch_impl() {
 int launch() {
     return fk::launch_impl();
 }
-
-#else
-
-int launch() {
-    std::cout << "attention_wave.h has no CPU code to test" << std::endl;
-    return 0;
-}
-
-#endif // defined(__NVCC__) || defined(__HIPCC__)
