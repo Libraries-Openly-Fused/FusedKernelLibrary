@@ -9,11 +9,11 @@ on:
     inputs:
       runner_label:
         description: "Self-hosted runner label to probe"
-        default: "ubuntu2604"
+        default: "minisforumubuntu2604"
 
 jobs:
   probe:
-    runs-on: [self-hosted, linux, x64, "${{ inputs.runner_label || 'ubuntu2604' }}"]
+    runs-on: [self-hosted, ubuntu2604, x64, "${{ inputs.runner_label || 'ubuntu2604' }}"]
     steps:
       - name: System
         run: |
