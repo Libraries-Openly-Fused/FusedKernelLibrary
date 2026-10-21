@@ -1,0 +1,46 @@
+name: Profiling probe (runner inventory)
+
+# Temporary: discovers which GPUs, toolchains and profilers a self-hosted runner has.
+on:
+  push:
+    branches: ["test/profilers"]
+    paths: [".github/workflows/profiling-probe.yml"]
+  workflow_dispatch:
+    inputs:
+      runner_label:
+        description: "Self-hosted runner label to probe"
+        default: "ubuntu26"
+
+jobs:
+  probe:
+    runs-on: [self-hosted, linux, x64, "${{ inputs.runner_label || 'ubuntu26' }}"]
+    steps:
+      - name: System
+        run: |
+          echo "runner: $RUNNER_NAME"; cat /etc/os-release | head -4; uname -r
+          lscpu | grep -E 'Model name|^CPU\(s\)|Thread|Socket|Flags' | cut -c1-300
+          free -g | head -2
+      - name: GPUs
+        continue-on-error: true
+        run: |
+          nvidia-smi || echo "no nvidia-smi"
+          ls -d /usr/local/cuda* 2>/dev/null || true
+          ls -d /opt/rocm* /opt/rocm/* 2>/dev/null || true
+          for r in /opt/rocm/core-*/bin /opt/rocm/bin; do [ -x "$r/rocminfo" ] && "$r/rocminfo" | grep -E 'Marketing Name|Name: +gfx' | sort -u; done || true
+      - name: Profilers and tools
+        continue-on-error: true
+        run: |
+          export PATH="$PATH:/usr/local/cuda-13.4/bin:/opt/nvidia/nsight-systems/bin:/opt/nvidia/nsight-compute:$(ls -d /opt/rocm/core-*/bin 2>/dev/null | tr '\n' ':'):/opt/rocm/bin"
+          for t in nvcc nsys ncu compute-sanitizer cuobjdump nvdisasm amdclang++ hipcc rocprofv3 rocprof rocprof-compute rocprof-sys-run omniperf omnitrace roc-obj perf valgrind vtune AMDuProfCLI likwid-perfctr g++-13 clang++-23 cmake ninja python3; do
+            p=$(command -v $t 2>/dev/null); printf '%-18s %s\n' "$t" "${p:-MISSING}"
+          done
+          ls -d /opt/nvidia/nsight-* /opt/intel/oneapi/vtune* /opt/AMDuProf* 2>/dev/null || true
+          ls $HOME/cmake-*/bin/cmake 2>/dev/null || true
+          nsys --version 2>/dev/null; ncu --version 2>/dev/null | tail -1; rocprofv3 --version 2>/dev/null | head -3
+      - name: Profiling permissions
+        continue-on-error: true
+        run: |
+          echo "perf_event_paranoid=$(cat /proc/sys/kernel/perf_event_paranoid)"
+          echo "kptr_restrict=$(cat /proc/sys/kernel/kptr_restrict)"
+          grep -H RmProfilingAdminOnly /proc/driver/nvidia/params 2>/dev/null || true
+          id; groups
