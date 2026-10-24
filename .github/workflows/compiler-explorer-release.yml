@@ -1,0 +1,127 @@
+# Opens the Compiler Explorer PRs (compiler-explorer/infra + compiler-explorer/compiler-explorer)
+# that add a new FKL release to godbolt.org.
+#
+# Requires the repository secret CE_BOT_TOKEN: a classic PAT with `public_repo` scope (or a
+# fine-grained token allowed to fork and push to public repos) of the account that should own
+# the forks and open the PRs. The default GITHUB_TOKEN cannot open PRs in other organisations.
+name: Compiler Explorer - add release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release tag to add to Compiler Explorer (e.g. Beta-0.2.0)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compiler-explorer-${{ github.event.release.tag_name || inputs.version }}
+  cancel-in-progress: false
+
+env:
+  CE_LIB_ID: fusedkernellibrary
+  CE_LIB_URL: https://github.com/Libraries-Openly-Fused/FusedKernelLibrary
+
+jobs:
+  add-to-compiler-explorer:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ github.event.release.tag_name || inputs.version }}
+      GH_TOKEN: ${{ secrets.CE_BOT_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.CE_BOT_TOKEN }}
+    steps:
+      - name: Check token
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Secret CE_BOT_TOKEN is not set"
+            exit 1
+          fi
+
+      - name: Skip if version is already on Compiler Explorer or has an open PR
+        id: check
+        run: |
+          if curl -fsS -H 'Accept: application/json' https://godbolt.org/api/libraries/c++ \
+              | jq -e --arg id "$CE_LIB_ID" --arg v "$VERSION" \
+                  '.[] | select(.id == $id) | .versions[] | select(.version == $v)' > /dev/null; then
+            echo "$VERSION is already live on godbolt.org"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          open=$(gh pr list --repo compiler-explorer/infra --state open \
+                   --search "$CE_LIB_ID v$VERSION in:title" --json url --jq '.[0].url')
+          if [ -n "$open" ]; then
+            echo "A PR for $VERSION is already open: $open"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+
+      - name: Configure git identity of the token owner
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          login=$(gh api user --jq .login)
+          id=$(gh api user --jq .id)
+          git config --global user.name "$login"
+          git config --global user.email "$id+$login@users.noreply.github.com"
+
+      - name: Open CE PRs with ce-library-wizard
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          git clone --depth 1 https://github.com/compiler-explorer/ce-library-wizard "$RUNNER_TEMP/ce-library-wizard"
+          cd "$RUNNER_TEMP/ce-library-wizard"
+          ./run.sh -y \
+            --lang=c++ \
+            --lib="$CE_LIB_URL" \
+            --ver="$VERSION" \
+            --type=header-only \
+            --build-test=no
+
+      # ce-library-wizard only writes c++.amazon.properties. FKL is also offered for CUDA, so copy
+      # the library block into cuda.amazon.properties on the same PR branch.
+      - name: Add the version to the CUDA properties too
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          pr=$(gh pr list --repo compiler-explorer/compiler-explorer --state open --author "@me" \
+                 --search "$CE_LIB_ID v$VERSION in:title" \
+                 --json number,headRefName,headRepository,headRepositoryOwner --jq '.[0]')
+          if [ -z "$pr" ] || [ "$pr" = "null" ]; then
+            echo "::error::Could not find the compiler-explorer PR the wizard opened for $VERSION"
+            exit 1
+          fi
+          number=$(jq -r .number <<< "$pr")
+          branch=$(jq -r .headRefName <<< "$pr")
+          fork="$(jq -r .headRepositoryOwner.login <<< "$pr")/$(jq -r .headRepository.name <<< "$pr")"
+
+          git clone --depth 1 --branch "$branch" "https://x-access-token:$GH_TOKEN@github.com/$fork" ce
+          cd ce
+          python3 - <<'EOF'
+          import os
+          import pathlib
+          import sys
+
+          prefix = f"libs.{os.environ['CE_LIB_ID']}."
+          cpp = pathlib.Path("etc/config/c++.amazon.properties").read_text().splitlines()
+          cuda_path = pathlib.Path("etc/config/cuda.amazon.properties")
+          cuda = cuda_path.read_text().splitlines()
+
+          block = [line for line in cpp if line.startswith(prefix)]
+          first = next((i for i, line in enumerate(cuda) if line.startswith(prefix)), None)
+          if not block or first is None:
+              sys.exit(f"{prefix}* not found in both properties files; add the CUDA entry by hand")
+          rest = [line for line in cuda[first:] if not line.startswith(prefix)]
+          cuda_path.write_text("\n".join(cuda[:first] + block + rest) + "\n")
+          EOF
+
+          if git diff --quiet; then
+            echo "CUDA properties already up to date"
+            exit 0
+          fi
+          git commit -am "Add $CE_LIB_ID $VERSION to CUDA libraries"
+          git push origin "$branch"
+          gh pr comment "$number" --repo compiler-explorer/compiler-explorer \
+            --body "Also added $VERSION to \`cuda.amazon.properties\`, since FKL is offered for CUDA as well."

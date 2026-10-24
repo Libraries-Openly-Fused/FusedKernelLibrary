@@ -1,0 +1,63 @@
+# Once the latest FKL release is live on godbolt.org, makes a new Compiler Explorer short link
+# for it and opens a PR updating the "Try FKL vX" link in README.md.
+#
+# Needs "Allow GitHub Actions to create and approve pull requests" enabled in
+# Settings > Actions > General.
+name: Godbolt link - refresh README
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release tag to link to (default is the latest release)
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: godbolt-link-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+
+      - name: Pick the release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          version="$INPUT_VERSION"
+          if [ -z "$version" ]; then
+            version=$(gh release list --limit 1 --exclude-drafts --json tagName --jq '.[0].tagName')
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Backends (label, compiler, flags) are listed in .github/godbolt/links.json and share the
+      # example in .github/godbolt/playground.cpp. This step fails when any backend's example no
+      # longer compiles; the backends that do compile still get their PR below.
+      - name: Make new short links if the release is live on godbolt.org
+        id: link
+        run: python3 .github/scripts/godbolt_link.py --readme README.md --version "${{ steps.release.outputs.version }}"
+
+      - uses: peter-evans/create-pull-request@v7
+        if: ${{ !cancelled() && steps.link.outputs.changed == 'true' }}
+        with:
+          branch: bot/godbolt-link
+          delete-branch: true
+          commit-message: "docs: point Compiler Explorer links at FKL ${{ steps.release.outputs.version }}"
+          title: "docs: Compiler Explorer links for FKL ${{ steps.release.outputs.version }}"
+          body: |
+            ${{ steps.release.outputs.version }} is now available on Compiler Explorer.
+            Each example was compiled against it on godbolt.org before its link was made.
+
+            ${{ steps.link.outputs.summary }}
+          add-paths: README.md
