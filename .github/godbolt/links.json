@@ -3,18 +3,24 @@
     "label": "CUDA",
     "language": "cuda",
     "compiler": "nvcc130u2",
-    "options": "-std=c++20 -arch=sm_89"
+    "options": "-std=c++20"
+  },
+  {
+    "label": "CUDA",
+    "language": "cuda",
+    "compiler": "nvcc133",
+    "options": "-std=c++20"
   },
   {
     "label": "CPU",
     "language": "c++",
-    "compiler": "g142",
+    "compiler": "g133",
     "options": "-std=c++20 -O2"
   },
   {
     "label": "ROCm",
     "language": "cuda",
-    "compiler": "hipclang-rocm-70001",
-    "options": "-std=c++20 --offload-arch=gfx90a"
+    "compiler": "hipclang-rocm-100000",
+    "options": "-std=c++20"
   }
 ]
