@@ -1,0 +1,20 @@
+[
+  {
+    "label": "CUDA",
+    "language": "cuda",
+    "compiler": "nvcc130u2",
+    "options": "-std=c++17 -arch=sm_89"
+  },
+  {
+    "label": "CPU",
+    "language": "c++",
+    "compiler": "g142",
+    "options": "-std=c++17 -O2"
+  },
+  {
+    "label": "ROCm",
+    "language": "cuda",
+    "compiler": "hipclang-rocm-70001",
+    "options": "-std=c++17 --offload-arch=gfx90a"
+  }
+]

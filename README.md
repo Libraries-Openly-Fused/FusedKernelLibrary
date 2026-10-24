@@ -154,7 +154,7 @@ void preprocess() {
 ## 🚀 Try It Live (Zero Setup)
 
 You can explore how FKL generates highly optimized assembly without installing anything:
-- 🛠️ **Compiler Explorer (Godbolt):** [Try FKL v0.1.13-LTS](https://godbolt.org/z/WWjGfj1hY)
+- 🛠️ **Compiler Explorer (Godbolt):** [Try FKL v0.1.13-LTS (CUDA)](https://godbolt.org/z/WWjGfj1hY) · [Try FKL v0.1.13-LTS (CPU)](https://godbolt.org/z/bnM5Yvn6c) · [Try FKL (ROCm)](https://godbolt.org/)
 - 📓 **Google Colab:** [Run the FKL Playground](#)
 
 ---
