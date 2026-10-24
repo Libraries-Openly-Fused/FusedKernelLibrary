@@ -1,12 +1,12 @@
 [
   {
-    "label": "CUDA",
+    "label": "CUDA 13.0",
     "language": "cuda",
     "compiler": "nvcc130u2",
     "options": "-std=c++20"
   },
   {
-    "label": "CUDA",
+    "label": "CUDA 13.3",
     "language": "cuda",
     "compiler": "nvcc133",
     "options": "-std=c++20"
@@ -16,7 +16,7 @@
     "language": "c++",
     "compiler": "g133",
     "options": "-std=c++20 -O2"
-  },
+  },                           
   {
     "label": "ROCm",
     "language": "cuda",
