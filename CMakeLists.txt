@@ -29,6 +29,12 @@ else()
     message(STATUS "CUDA compiler not found, CUDA support will be disabled.")     
 endif()
 
+#hip is optional too: if amdclang++ is found, the GPU_AMD backend is built
+option (ENABLE_HIP "Enable HIP (ROCm) support" ON)
+if (${ENABLE_HIP})
+    include(cmake/libs/hip/hip_init.cmake)
+endif()
+
 add_subdirectory(include)
 add_subdirectory(lib)
 
