@@ -91,16 +91,16 @@ namespace fk {
 
     template <ColorDepth CD>
     constexpr SubCoefficients subCoefficients{};
-    template <> constexpr SubCoefficients subCoefficients<ColorDepth::p8bit>{ 16.f, 128.f };
-    template <> constexpr SubCoefficients subCoefficients<ColorDepth::p10bit>{ 64.f, 512.f };
-    template <> constexpr SubCoefficients subCoefficients<ColorDepth::p12bit>{ 64.f, 2048.f };
+    template <> inline constexpr SubCoefficients subCoefficients<ColorDepth::p8bit>{ 16.f, 128.f };
+    template <> inline constexpr SubCoefficients subCoefficients<ColorDepth::p10bit>{ 64.f, 512.f };
+    template <> inline constexpr SubCoefficients subCoefficients<ColorDepth::p12bit>{ 64.f, 2048.f };
 
     template <ColorDepth CD>
     constexpr ColorDepthPixelBaseType<CD> maxDepthValue{};
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::p8bit>  maxDepthValue<ColorDepth::p8bit> { 255u };
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::p10bit> maxDepthValue<ColorDepth::p10bit> { 1023u };
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::p12bit> maxDepthValue<ColorDepth::p12bit> { 4095u };
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::f24bit> maxDepthValue<ColorDepth::f24bit> { 1.f };
+    template <> inline constexpr ColorDepthPixelBaseType<ColorDepth::p8bit>  maxDepthValue<ColorDepth::p8bit> { 255u };
+    template <> inline constexpr ColorDepthPixelBaseType<ColorDepth::p10bit> maxDepthValue<ColorDepth::p10bit> { 1023u };
+    template <> inline constexpr ColorDepthPixelBaseType<ColorDepth::p12bit> maxDepthValue<ColorDepth::p12bit> { 4095u };
+    template <> inline constexpr ColorDepthPixelBaseType<ColorDepth::f24bit> maxDepthValue<ColorDepth::f24bit> { 1.f };
 
     template <typename I, ColorDepth CD>
     struct AddOpaqueAlpha {
@@ -134,19 +134,19 @@ namespace fk {
     template <ColorRange CR, ColorPrimitives CP, ColorConversionDir CCD>
     constexpr M3x3Float ccMatrix{};
     // Source: https://en.wikipedia.org/wiki/YCbCr
-    template <> constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt601, ColorConversionDir::YCbCr2RGB>{
+    template <> inline constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt601, ColorConversionDir::YCbCr2RGB>{
         { 1.164383562f,           0.f,       1.596026786f  },
         { 1.164383562f,  -0.39176229f,       -0.812967647f },
         { 1.164383562f,  2.017232143f,       0.f           }};
 
     // Source: https://en.wikipedia.org/wiki/YCbCr
-    template <> constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt709, ColorConversionDir::YCbCr2RGB>{
+    template <> inline constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt709, ColorConversionDir::YCbCr2RGB>{
         { 1.f,               0.f,            1.5748f },
         { 1.f,          -0.1873f,           -0.4681f },
         { 1.f,           1.8556f,                0.f }};
 
     // To be verified
-    template <> constexpr M3x3Float ccMatrix<ColorRange::Limited, ColorPrimitives::bt709, ColorConversionDir::YCbCr2RGB>{
+    template <> inline constexpr M3x3Float ccMatrix<ColorRange::Limited, ColorPrimitives::bt709, ColorConversionDir::YCbCr2RGB>{
         { 1.f,               0.f,            1.402f },
         { 1.f,         -0.34414f,         -0.71414f },
         { 1.f,            1.772f,               0.f }};
@@ -155,33 +155,33 @@ namespace fk {
         { 1.f,           1.8814f,            0.f     }};*/
 
     // Source: https://en.wikipedia.org/wiki/YCbCr
-    template <> constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt709, ColorConversionDir::RGB2YCbCr>{
+    template <> inline constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt709, ColorConversionDir::RGB2YCbCr>{
         {  0.2126f, 0.7152f, 0.0722f           },
         { -0.1146f,      -0.3854f,            0.5f },
         { 0.5f,         -0.4542f,           -0.0458f }};
 
     // Source: https://en.wikipedia.org/wiki/YCbCr
-    template <> constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt2020, ColorConversionDir::YCbCr2RGB>{
+    template <> inline constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt2020, ColorConversionDir::YCbCr2RGB>{
         {  1.f, 0.f, 1.4746f           },
         { 1.f,          -0.16455312684366f, -0.57135312684366f },
         { 1.f,           1.8814f,            0.f }};
 
     // Computed from ccMatrix<ColorRange::Full, ColorPrimitives::bt2020, ColorConversionDir::YCbCr2RGB>
-    template <> constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt2020, ColorConversionDir::RGB2YCbCr>{
+    template <> inline constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt2020, ColorConversionDir::RGB2YCbCr>{
         { -0.73792134831461f, 1.90449438202248f, -0.16657303370787f },
         { 0.39221927730127f, -1.01227510472121f,  0.62005582741994f },
         { 1.17857137414527f, -1.29153287808387f,  0.11296150393861f }};
 
     template <ColorDepth CD> constexpr ColorDepthPixelBaseType<CD> shiftFactor{};
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::p8bit>  shiftFactor<ColorDepth::p8bit>{ 0u };
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::p10bit> shiftFactor<ColorDepth::p10bit>{ 6u };
-    template <> constexpr ColorDepthPixelBaseType<ColorDepth::p12bit> shiftFactor<ColorDepth::p12bit>{ 4u };
+    template <> inline constexpr ColorDepthPixelBaseType<ColorDepth::p8bit>  shiftFactor<ColorDepth::p8bit>{ 0u };
+    template <> inline constexpr ColorDepthPixelBaseType<ColorDepth::p10bit> shiftFactor<ColorDepth::p10bit>{ 6u };
+    template <> inline constexpr ColorDepthPixelBaseType<ColorDepth::p12bit> shiftFactor<ColorDepth::p12bit>{ 4u };
 
     template <ColorDepth CD>
     constexpr float floatShiftFactor{};
-    template <> constexpr float floatShiftFactor<ColorDepth::p8bit>{ 1.f };
-    template <> constexpr float floatShiftFactor<ColorDepth::p10bit>{ 64.f };
-    template <> constexpr float floatShiftFactor<ColorDepth::p12bit>{ 16.f };
+    template <> inline constexpr float floatShiftFactor<ColorDepth::p8bit>{ 1.f };
+    template <> inline constexpr float floatShiftFactor<ColorDepth::p10bit>{ 64.f };
+    template <> inline constexpr float floatShiftFactor<ColorDepth::p12bit>{ 16.f };
 
 
     template <typename O, ColorDepth CD>
