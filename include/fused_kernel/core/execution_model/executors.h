@@ -23,6 +23,8 @@
 #include <fused_kernel/algorithms/basic_ops/set.h>
 #include <fused_kernel/core/execution_model/stream.h>
 
+#include <cstdint>
+
 #if defined(__NVCC__)
 #include <fused_kernel/core/execution_model/executor_details/executor_kernels.h>
 #endif
@@ -160,6 +162,56 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
     };
 #endif
 
+    // Thread fusion reads and writes whole BiggerType vectors, so the pointer and the pitches
+    // of every thread fused memory access must be aligned to BiggerType. Params that are not
+    // pointers are not accessed with BiggerType vectors, so they are always considered aligned.
+    template <typename BiggerType, typename ParamsType>
+    FK_HOST_INLINE bool isThreadFusionAligned(const ParamsType&) {
+        return true;
+    }
+
+    template <typename BiggerType, enum ND D, typename T>
+    FK_HOST_INLINE bool isThreadFusionAligned(const RawPtr<D, T>& ptr) {
+        constexpr size_t alignment = alignof(BiggerType);
+        const bool dataAligned = reinterpret_cast<uintptr_t>(ptr.data) % alignment == 0;
+        if constexpr (D == ND::_1D) {
+            return dataAligned;
+        } else if constexpr (D == ND::_2D) {
+            return dataAligned && ptr.dims.pitch % alignment == 0;
+        } else if constexpr (D == ND::_3D) {
+            return dataAligned && ptr.dims.pitch % alignment == 0 && ptr.dims.plane_pitch % alignment == 0;
+        } else {
+            return dataAligned && ptr.dims.pitch % alignment == 0 && ptr.dims.plane_pitch % alignment == 0 &&
+                   ptr.dims.color_planes_pitch % alignment == 0;
+        }
+    }
+
+    template <typename BiggerType, size_t BATCH, enum PlanePolicy PP, typename Operation, typename DefaultType>
+    FK_HOST_INLINE bool isThreadFusionAligned(const BatchReadParams<BATCH, PP, Operation, DefaultType>& params) {
+        for (size_t i = 0; i < BATCH; ++i) {
+            if (!isThreadFusionAligned<BiggerType>(params.opData[i].params)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    template <typename BiggerType, typename OpParamsType, size_t BATCH>
+    FK_HOST_INLINE bool isThreadFusionAligned(const OpParamsType (&params)[BATCH]) {
+        for (size_t i = 0; i < BATCH; ++i) {
+            if (!isThreadFusionAligned<BiggerType>(params[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    template <typename TFI, typename... IOps>
+    FK_HOST_INLINE bool areThreadFusionAccessesAligned(const IOps&... iOps) {
+        return isThreadFusionAligned<typename TFI::BiggerReadType>(ppFirst(iOps...).params) &&
+               isThreadFusionAligned<typename TFI::BiggerWriteType>(ppLast(iOps...).params);
+    }
+
     template <enum TF TFEN>
     struct Executor<TransformDPP<ParArch::CPU, TFEN, void>> {
     private:
@@ -171,7 +223,13 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             const auto tDetails = TransformDPP<PA, TFEN>::build_details(iOps...);
             using TDPPDetails = std::decay_t<decltype(tDetails)>;
             if constexpr (TDPPDetails::TFI::ENABLED) {
-                if (!tDetails.threadDivisible) {
+                if (!areThreadFusionAccessesAligned<typename TDPPDetails::TFI>(iOps...)) {
+                    // Pointers or pitches not aligned to the thread fusion vector types, e.g. views
+                    // into user memory: use the non thread fused path instead of faulting.
+                    const auto noTFDetails = TransformDPP<PA, TF::DISABLED>::build_details(iOps...);
+                    using NoTFDetails = std::decay_t<decltype(noTFDetails)>;
+                    TransformDPP<PA, TF::DISABLED, NoTFDetails, true>::exec(noTFDetails, iOps...);
+                } else if (!tDetails.threadDivisible) {
                     TransformDPP<PA, TFEN, TDPPDetails, false>::exec(tDetails, iOps...);
                 } else {
                     TransformDPP<PA, TFEN, TDPPDetails, true>::exec(tDetails, iOps...);
