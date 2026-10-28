@@ -180,6 +180,70 @@ bool testCroppedViews() {
     return passed;
 }
 
+// Batch reads, plain and circular, of crops at x = 1 of images allocated by FKL with the default
+// backend, written to tensors with aligned pitches: only the batch read params are misaligned.
+template <typename I, typename O>
+bool testBatchReadCroppedViews() {
+    fk::Stream stream;
+    constexpr size_t BATCH = 2;
+    constexpr std::array<uint, 2> alignedWidths{ 64, 1024 };
+    bool passed = true;
+    for (const uint width : alignedWidths) {
+        const auto makeInput = [&](const uint plane) {
+            fk::Ptr2D<I> input(width + 1, testHeight);
+            for (uint y = 0; y < testHeight; ++y) {
+                for (uint x = 0; x < width + 1; ++x) {
+                    input.at(x, y) = testValue<I>(x, y + plane);
+                }
+            }
+            input.upload(stream);
+            return input;
+        };
+        std::array<fk::Ptr2D<I>, BATCH> inputs{ makeInput(0), makeInput(1) };
+        const fk::Point origin{ 1, 0, 0 };
+        std::array<fk::Ptr2D<I>, BATCH> views{
+            inputs[0].crop2D(origin, fk::PtrDims<fk::ND::_2D>(width, testHeight, inputs[0].dims().pitch)),
+            inputs[1].crop2D(origin, fk::PtrDims<fk::ND::_2D>(width, testHeight, inputs[1].dims().pitch)) };
+
+        fk::Read<fk::CircularBatchRead<fk::CircularDirection::Ascendent, fk::PerThreadRead<fk::ND::_2D, I>, BATCH>> circularRead;
+        circularRead.params.first = 1;
+        for (size_t i = 0; i < BATCH; ++i) {
+            circularRead.params.opData[i].params = views[i].ptr();
+        }
+
+        fk::Tensor<O> batchTF(width, testHeight, BATCH);
+        fk::Tensor<O> batchNoTF(width, testHeight, BATCH);
+        fk::Tensor<O> circularTF(width, testHeight, BATCH);
+        fk::Tensor<O> circularNoTF(width, testHeight, BATCH);
+
+        executeTFAndNoTF<I, O>(stream, fk::PerThreadRead<fk::ND::_2D, I>::build(views),
+                               fk::TensorWrite<O>::build(batchTF.ptr()),
+                               fk::TensorWrite<O>::build(batchNoTF.ptr()));
+        executeTFAndNoTF<I, O>(stream, circularRead,
+                               fk::TensorWrite<O>::build(circularTF.ptr()),
+                               fk::TensorWrite<O>::build(circularNoTF.ptr()));
+
+        batchTF.download(stream);
+        batchNoTF.download(stream);
+        circularTF.download(stream);
+        circularNoTF.download(stream);
+        stream.sync();
+
+        for (uint z = 0; z < BATCH; ++z) {
+            for (uint y = 0; y < testHeight; ++y) {
+                for (uint x = 0; x < width; ++x) {
+                    const fk::Point p = testPoint(x, y, z);
+                    if (!sameValue(batchTF.at(p), batchNoTF.at(p)) || !sameValue(circularTF.at(p), circularNoTF.at(p))) {
+                        std::cout << "testBatchReadCroppedViews mismatch at width " << width << " (" << x << ", " << y << ", " << z << ")" << std::endl;
+                        passed = false;
+                    }
+                }
+            }
+        }
+    }
+    return passed;
+}
+
 // Host views starting one element into a buffer, with an unpadded pitch, like RawPtrs wrapping
 // user memory. Neither the pointer nor the pitch is aligned to the thread fusion vector types.
 template <typename I, typename O>
@@ -258,10 +322,11 @@ bool testAll() {
     const bool fklAllocated = testFKLAllocatedWidths<I, O>();
     const bool tensors = testTensorWidths<I, O>();
     const bool croppedViews = testCroppedViews<I, O>();
+    const bool batchReads = testBatchReadCroppedViews<I, O>();
     // CPU backend in both tests
     const bool cpuMisalignedViews = testCPUMisalignedViews<I, O>();
     const bool cpuTensors = testCPUTensorWidths<I, O>();
-    return fklAllocated && tensors && croppedViews && cpuMisalignedViews && cpuTensors;
+    return fklAllocated && tensors && croppedViews && batchReads && cpuMisalignedViews && cpuTensors;
 }
 
 int launch() {
