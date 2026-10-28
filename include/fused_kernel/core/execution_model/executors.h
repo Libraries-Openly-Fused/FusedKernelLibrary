@@ -173,7 +173,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
     template <typename BiggerType, enum ND D, typename T>
     FK_HOST_INLINE bool isThreadFusionAligned(const RawPtr<D, T>& ptr) {
         constexpr size_t alignment = alignof(BiggerType);
-        const bool dataAligned = reinterpret_cast<uintptr_t>(ptr.data) % alignment == 0;
+        const bool dataAligned = reinterpret_cast<std::uintptr_t>(ptr.data) % alignment == 0;
         if constexpr (D == ND::_1D) {
             return dataAligned;
         } else if constexpr (D == ND::_2D) {
@@ -196,6 +196,11 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         return true;
     }
 
+    template <typename BiggerType, typename Operation, typename Enabler>
+    FK_HOST_INLINE bool isThreadFusionAligned(const OperationData<Operation, Enabler>& opData) {
+        return isThreadFusionAligned<BiggerType>(opData.params);
+    }
+
     template <typename BiggerType, typename OpParamsType, size_t BATCH>
     FK_HOST_INLINE bool isThreadFusionAligned(const OpParamsType (&params)[BATCH]) {
         for (size_t i = 0; i < BATCH; ++i) {
@@ -204,6 +209,11 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             }
         }
         return true;
+    }
+
+    template <typename BiggerType, typename OperationDataTypeArray>
+    FK_HOST_INLINE bool isThreadFusionAligned(const CircularMemoryParams<OperationDataTypeArray>& params) {
+        return isThreadFusionAligned<BiggerType>(params.opData);
     }
 
     template <typename TFI, typename... IOps>
