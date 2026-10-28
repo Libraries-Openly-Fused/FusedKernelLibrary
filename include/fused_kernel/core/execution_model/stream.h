@@ -20,6 +20,8 @@
 
 #if defined(__NVCC__)
 #include <fused_kernel/core/utils/utils.h>
+#include <memory>
+#include <type_traits>
 #elif defined(__HIP__)
 #include <hip/hip_runtime.h>
 #endif
@@ -51,54 +53,43 @@ namespace fk {
 #if defined(__NVCC__)
     template <>
     class Stream_<ParArch::GPU_NVIDIA> final : public BaseStream {
-        cudaStream_t m_stream;
-        bool m_isMine{ false };
-
-        inline void initFromOther(const Stream_<ParArch::GPU_NVIDIA>& other) {
-            m_stream = other.m_stream;
-            m_isMine = other.m_isMine;
-        }
+        // The cudaStream_t, shared by the copies of this Stream_. One created here is destroyed with the last copy:
+        // cudaStreamDestroy returns at once and releases the stream when its pending work has finished (no
+        // synchronization, which would invalidate CUDA graph captures running in other threads; errors can not be
+        // reported from a destructor). One given by the user is never destroyed.
+        std::shared_ptr<std::remove_pointer_t<cudaStream_t>> m_stream;
 
     public:
         Stream_() : BaseStream() {
-            gpuErrchk(cudaStreamCreate(&m_stream));
-            m_isMine = true;
+            cudaStream_t stream;
+            gpuErrchk(cudaStreamCreate(&stream));
+            m_stream = std::shared_ptr<std::remove_pointer_t<cudaStream_t>>(stream, [](const cudaStream_t owned) {
+                (void)cudaStreamDestroy(owned);
+            });
         }
-        Stream_(const Stream_<ParArch::GPU_NVIDIA>& other) : BaseStream(other) {
-            initFromOther(other);
-        }
-        explicit Stream_<ParArch::GPU_NVIDIA>(const cudaStream_t& stream) : m_stream(stream), BaseStream() {}
+        Stream_(const Stream_<ParArch::GPU_NVIDIA>& other) = default;
+        explicit Stream_(const cudaStream_t& stream)
+            : BaseStream(), m_stream(stream, [](const cudaStream_t) {}) {}
 
         cudaStream_t operator()() const {
-            return m_stream;
+            return m_stream.get();
         }
 
-        Stream_<ParArch::GPU_NVIDIA>& operator=(const Stream_<ParArch::GPU_NVIDIA>& other) {
-            if (this != &other) {
-                BaseStream::operator=(other);
-                initFromOther(other);
-            }
-            return *this;
-        }
+        Stream_<ParArch::GPU_NVIDIA>& operator=(const Stream_<ParArch::GPU_NVIDIA>& other) = default;
 
         Stream_(Stream_<ParArch::GPU_NVIDIA>&&) = delete;
         Stream_<ParArch::GPU_NVIDIA>& operator=(Stream_<ParArch::GPU_NVIDIA>&&) = delete;
 
-        ~Stream_() {
-            if ( this->getRefCount() == 0 && m_stream != 0 && m_isMine) {
-                sync();
-                gpuErrchk(cudaStreamDestroy(m_stream));
-            }
-        }
+        ~Stream_() = default;
 
         operator cudaStream_t() const {
-            return m_stream;
+            return m_stream.get();
         }
         inline cudaStream_t getCUDAStream() const {
-            return m_stream;
+            return m_stream.get();
         }
         inline void sync() final {
-            gpuErrchk(cudaStreamSynchronize(m_stream));
+            gpuErrchk(cudaStreamSynchronize(m_stream.get()));
         }
         constexpr inline enum ParArch getParArch() const {
             return ParArch::GPU_NVIDIA;
