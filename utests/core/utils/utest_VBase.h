@@ -17,6 +17,14 @@
 
 #include <fused_kernel/core/utils/vector_utils.h>
 
+#if defined(__HIPCC__)
+// Under HIP the global vector types are HIP's own, not FKL's: FKL's are fk::float3...
+static_assert(!std::is_same_v<fk::float3, ::float3>, "fk::float3 must be FKL's type, not HIP's");
+static_assert(!fk::validCUDAVec<::float3>, "HIP's ::float3 must not be an FKL vector type");
+static_assert(fk::validCUDAVec<fk::float3>, "fk::float3 must be an FKL vector type");
+static_assert(std::is_aggregate_v<fk::float3>, "FKL vector types are aggregates");
+#endif
+
 template <typename InputTypeList, typename ExpectedTypeList, size_t... Idx>
 constexpr bool validateVBaseFor(const std::index_sequence<Idx...>&) {
     return (std::is_same_v<fk::EquivalentType_t<fk::TypeAt_t<Idx, InputTypeList>, InputTypeList, ExpectedTypeList>, fk::VBase<fk::TypeAt_t<Idx, InputTypeList>>> && ...);
