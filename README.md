@@ -1,6 +1,6 @@
 # Fused Kernel Library (FKL) LTS-C++17 branch
   
-The Fused Kernel Library is a C++17  implementation of a methodology that allows to define a set of  code elements that need to be executed inside a kernel, in the same order that they are expressed. The library currently has CPU and CUDA backends, but other GPU language implemenations (such as HIP)  are possible.
+The Fused Kernel Library is a C++17  implementation of a methodology that allows to define a set of  code elements that need to be executed inside a kernel, in the same order that they are expressed. The library currently has CPU, CUDA and HIP (AMD ROCm) backends, and other GPU language implementations are possible.
 
 It automatically implements Vertical and Horizontal fusion, and also implements two new Fusion techniques, Backwards Vertical Fusion (akin to OpenCV Filters, but with an standard generic API), and Divergent Horizontal Fusion.
 
@@ -151,6 +151,21 @@ This is way faster to program than the conventional way of programming CUDA.
 This novel type of Horizontal Fusion, allows to Horizontally Fuse kernels that are completelly different, and read the same or different data, but write the results in different memory regions.
 
 This has been tested before, by creating special compilers that generate the assembly code, and the performance benefits have been already reported. The novelty in our approach is that we do not require a different compiler. We do this by leveraging the C++17 capabilities found in nvcc.
+
+## Backends and building
+
+Each test, utest and benchmark is built once per enabled backend: `_cpp` (CPU, `ParArch::CPU`), `_cu` (CUDA with nvcc, `ParArch::GPU_NVIDIA`) and `_hip` (HIP with amdclang++, `ParArch::GPU_AMD`). CUDA and HIP are optional: `ENABLE_CUDA` and `ENABLE_HIP` are ON by default and are disabled when nvcc or amdclang++ is not found. Every backend compiles as C++17.
+
+A HIP (ROCm) build, here with g++ for the CPU targets and the GPU architecture detected by CMake (`-DCMAKE_HIP_ARCHITECTURES=gfx1200` or `-DHIP_ARCH=...` to choose it):
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_BENCHMARK=ON \
+      -DCMAKE_HIP_COMPILER=/opt/rocm/bin/amdclang++
+cmake --build build
+cd build && ctest
+```
+
+Under HIP, the global names `float3`, `uchar3`... are HIP's own vector types, which are not FKL vector types. Use the FKL vector types as `fk::float3`, `fk::uchar3`... They exist in every backend: with nvcc they are the CUDA vector types and on the CPU the same types as the global names, so code written with the `fk::` names compiles for all of them.
 
 ## Closed source friendly
 

@@ -16,18 +16,23 @@ cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=90 \
 make -j$(nproc)
 ```
 
-- Requires CMake >= 3.28, a C++ host compiler, and (optionally) CUDA.
-- Options: `ENABLE_CUDA` (default ON if found), `ENABLE_CPU` (ON),
-  `ENABLE_BENCHMARK` (OFF) for the benchmark targets.
-- Without CUDA the CPU backend still builds and tests run on CPU.
+- Requires CMake >= 3.28, a C++ host compiler, and (optionally) CUDA
+  and/or HIP (ROCm, amdclang++: `-DCMAKE_HIP_COMPILER=/opt/rocm/bin/amdclang++`).
+- Options: `ENABLE_CUDA` (default ON if found), `ENABLE_HIP` (default ON if
+  found), `ENABLE_CPU` (ON), `ENABLE_BENCHMARK` (OFF) for the benchmark targets.
+  HIP architectures: the local GPU by default, or `-DHIP_ARCH=gfx1200`.
+- Without CUDA and HIP the CPU backend still builds and tests run on CPU.
 - Binaries land in `build/bin/Release/` — one executable per test unit,
-  suffixed `_cu` (CUDA) / `_cpp` (CPU).
+  suffixed `_cu` (CUDA) / `_hip` (HIP) / `_cpp` (CPU). Test sources marked
+  `__ONLY_CU__` / `__ONLY_CPU__` / `__ONLY_GPU__` (CUDA and HIP) skip the other
+  backends.
+- Under HIP the global `float3`... are HIP's types: tests use `fk::float3`...
 
 ## Running the suite
 
 ```bash
 cd build/bin/Release
-for t in *_cu *_cpp; do ./$t >/dev/null 2>&1 && echo "$t OK" || echo "$t FAIL"; done
+for t in *_cu *_hip *_cpp; do ./$t >/dev/null 2>&1 && echo "$t OK" || echo "$t FAIL"; done
 ```
 All binaries exit 0 on success. The full suite is the merge gate: a
 header change that compiles can still break a distant instantiation, so
