@@ -24,9 +24,40 @@
 #include <fused_kernel/core/utils/vector_utils.h>
 
 #include <atomic>
+#include <cstdlib>
+#if defined(_MSC_VER)
+#include <malloc.h>
+#endif
 
 namespace fk {
 	enum class MemType { Device, Host, HostPinned, DeviceAndPinned };
+
+    // Host allocations are aligned, and host 2D rows are padded, to this number of bytes,
+    // so that every row can be read and written with the thread fusion vector types,
+    // like cudaMallocPitch does for device memory. 64 covers the biggest thread fusion
+    // vector types (32 bytes) and matches the cache line size.
+    constexpr size_t hostAlignment = 64;
+
+    inline constexpr size_t alignUpToHostAlignment(const size_t sizeInBytes) {
+        return ((sizeInBytes + hostAlignment - 1) / hostAlignment) * hostAlignment;
+    }
+
+    inline void* hostAlignedMalloc(const size_t sizeInBytes) {
+#if defined(_MSC_VER)
+        return _aligned_malloc(alignUpToHostAlignment(sizeInBytes), hostAlignment);
+#else
+        // std::aligned_alloc requires the size to be a multiple of the alignment
+        return std::aligned_alloc(hostAlignment, alignUpToHostAlignment(sizeInBytes));
+#endif
+    }
+
+    inline void hostAlignedFree(void* ptr) {
+#if defined(_MSC_VER)
+        _aligned_free(ptr);
+#else
+        std::free(ptr);
+#endif
+    }
 #if defined(__NVCC__)
     constexpr MemType defaultMemType = MemType::DeviceAndPinned;
 #else
@@ -76,7 +107,7 @@ namespace fk {
         }
         FK_HOST_FUSE void h_malloc_init(PtrDims<ND::_2D>& dims) {
             if (dims.pitch == 0) {
-                dims.pitch = sizeof(T) * dims.width;
+                dims.pitch = static_cast<uint>(alignUpToHostAlignment(sizeof(T) * dims.width));
             }
         }
     };
@@ -167,7 +198,7 @@ namespace fk {
 
         inline constexpr void allocHost() {
             PtrImpl<D, T>::h_malloc_init(ptr_a.dims);
-            ptr_a.data = (T*)malloc(PtrImpl<D, T>::sizeInBytes(ptr_a.dims));
+            ptr_a.data = (T*)hostAlignedMalloc(PtrImpl<D, T>::sizeInBytes(ptr_a.dims));
         }
 
         inline constexpr void allocHostPinned() {
@@ -218,7 +249,7 @@ namespace fk {
                     }
                 case MemType::Host:
                     { 
-                        free(ref->ptr);
+                        hostAlignedFree(ref->ptr);
                         break;
                     }
                 case MemType::HostPinned:
