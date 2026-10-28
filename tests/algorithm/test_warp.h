@@ -19,15 +19,15 @@
 #include <fused_kernel/algorithms/image_processing/warping.h>
 
 int launch() {
-    constexpr auto readIOp = fk::PerThreadRead<fk::ND::_2D, uchar3>::build(
-        fk::RawPtr<fk::ND::_2D, uchar3>{ nullptr, { 128, 128, 128 * sizeof(uchar3) }});
+    constexpr auto readIOp = fk::PerThreadRead<fk::ND::_2D, fk::uchar3>::build(
+        fk::RawPtr<fk::ND::_2D, fk::uchar3>{ nullptr, { 128, 128, 128 * sizeof(fk::uchar3) }});
     constexpr auto warpIOp =
         fk::Warping<fk::WarpType::Perspective>::build(fk::WarpingParameters<fk::WarpType::Perspective>{});
     constexpr auto fusedIOp = readIOp.then(warpIOp);
 
     constexpr bool correct =
         std::is_same_v<std::decay_t<decltype(fusedIOp)>,
-        fk::ReadBack<fk::Warping<fk::WarpType::Perspective, fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>;
+        fk::ReadBack<fk::Warping<fk::WarpType::Perspective, fk::Read<fk::PerThreadRead<fk::ND::_2D, fk::uchar3>>>>>;
 
     static_assert(correct, "Unexpected type for fusedIOp");
 

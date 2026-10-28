@@ -20,13 +20,13 @@
 
 int launch() {
 
-    constexpr auto readIOp = fk::PerThreadRead<fk::ND::_2D, uchar3>::build(
-        fk::RawPtr<fk::ND::_2D, uchar3>{ nullptr, { 128, 128, 128 * sizeof(uchar3) }});
+    constexpr auto readIOp = fk::PerThreadRead<fk::ND::_2D, fk::uchar3>::build(
+        fk::RawPtr<fk::ND::_2D, fk::uchar3>{ nullptr, { 128, 128, 128 * sizeof(fk::uchar3) }});
 
-    constexpr auto borderIOp = fk::BorderReader<fk::BorderType::CONSTANT>::build(readIOp, fk::make_set<uchar3>(0));
+    constexpr auto borderIOp = fk::BorderReader<fk::BorderType::CONSTANT>::build(readIOp, fk::make_set<fk::uchar3>(0));
 
     static_assert(std::is_same_v<std::decay_t<decltype(borderIOp)>,
-        fk::ReadBack<fk::BorderReader<fk::BorderType::CONSTANT, fk::BorderReaderParameters<fk::BorderType::CONSTANT, uchar3>, fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>,
+        fk::ReadBack<fk::BorderReader<fk::BorderType::CONSTANT, fk::BorderReaderParameters<fk::BorderType::CONSTANT, fk::uchar3>, fk::Read<fk::PerThreadRead<fk::ND::_2D, fk::uchar3>>>>>,
         "Unexpected type for borderIOp");
 
     return 0;

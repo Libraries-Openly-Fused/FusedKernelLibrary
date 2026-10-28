@@ -36,29 +36,29 @@ constexpr size_t testIdxFirstNonBack(const IOps&...) {
 bool testBack() {
 
     // Inputs
-    constexpr RawPtr<ND::_2D, uchar3> input{nullptr, {128, 128, 0}};
+    constexpr RawPtr<ND::_2D, fk::uchar3> input{nullptr, {128, 128, 0}};
 
     // Read Operations
-    constexpr auto readOp = PerThreadRead<ND::_2D, uchar3>::build({ input });
+    constexpr auto readOp = PerThreadRead<ND::_2D, fk::uchar3>::build({ input });
 
     // ReadBack Operations
     constexpr auto cropOp = Crop<>::build(Rect(0, 0, 16, 16));
     constexpr auto resizeOp = Resize<InterpolationType::INTER_LINEAR>::build(Size(1024, 1024));
 
     // Compute Operations
-    constexpr auto castU3F3 = Cast<uchar3, float3>::build();
-    constexpr auto mulOpU3 = Mul<uchar3>::build(uchar3{ 2, 2, 2 });
-    constexpr auto mulOpF3 = Mul<float3>::build(float3{ 2, 2, 2 });
+    constexpr auto castU3F3 = Cast<fk::uchar3, fk::float3>::build();
+    constexpr auto mulOpU3 = Mul<fk::uchar3>::build(fk::uchar3{ 2, 2, 2 });
+    constexpr auto mulOpF3 = Mul<fk::float3>::build(fk::float3{ 2, 2, 2 });
 
-    constexpr auto vecReduceF3 = VectorReduce<float3, Add<float>>::build();
+    constexpr auto vecReduceF3 = VectorReduce<fk::float3, Add<float>>::build();
 
     // Outputs
     constexpr RawPtr<ND::_2D, float> outputF{nullptr, {1024, 1024, 0}};
-    constexpr RawPtr<ND::_2D, float3> outputF3{ nullptr, {1024, 1024, 0} };
+    constexpr RawPtr<ND::_2D, fk::float3> outputF3{ nullptr, {1024, 1024, 0} };
 
     // Write Operations
     constexpr auto writeF = PerThreadWrite<ND::_2D, float>::build({ outputF });
-    constexpr auto writeF3 = PerThreadWrite<ND::_2D, float3>::build({ outputF3 });
+    constexpr auto writeF3 = PerThreadWrite<ND::_2D, fk::float3>::build({ outputF3 });
 
     // Test no read back
     {
@@ -81,7 +81,7 @@ bool testBack() {
         static_assert(std::is_same_v<typename GenerateFuseBack::Operation::InstanceType, ReadBackType>);
         static_assert(std::is_same_v<typename GenerateFuseBack::Operation::BackIOp::Operation::InstanceType, TernaryType>, "Expecting a ternary operation");
         static_assert(GenerateFuseBack::Operation::BackIOp::Operation::BackIOp::Operation::IS_FUSED_OP, "Expecting a fused operation");
-        using FusedBackType = ReadBack<ResizeComplete<AspectRatio::IGNORE_AR, Ternary<InterpolateComplete<InterpolationType::INTER_LINEAR, Read<FusedOperation<ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>, Binary<Mul<uchar3>>>>>>>>;
+        using FusedBackType = ReadBack<ResizeComplete<AspectRatio::IGNORE_AR, Ternary<InterpolateComplete<InterpolationType::INTER_LINEAR, Read<FusedOperation<ReadBack<Crop<Read<PerThreadRead<ND::_2D, fk::uchar3>>>>, Binary<Mul<fk::uchar3>>>>>>>>;
         static_assert(std::is_same_v<std::decay_t<decltype(fusedIOp3)>, FusedBackType>, "Expecting ReadBack<ResizeComplete<AspectRatio::IGNORE_AR, Ternary<InterpolateComplete<InterpolationType::INTER_LINEAR, Read<FusedOperation<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>, Mul<uchar3>>>>>>>");
     }
 
@@ -91,24 +91,24 @@ bool testBack() {
 int launch() {
     Stream stream;
 
-    Ptr2D<float2> input(1920, 1080);
-    Ptr2D<float2> output1(16, 16);
-    Ptr2D<float2> output2(16, 16);
+    Ptr2D<fk::float2> input(1920, 1080);
+    Ptr2D<fk::float2> output1(16, 16);
+    Ptr2D<fk::float2> output2(16, 16);
 
     for (int y = 0; y < 1080; ++y) {
         for (int x = 0; x < 1920; ++x) {
-            input.at(x, y) = make_<float2>(static_cast<float>(x), static_cast<float>(y));
+            input.at(x, y) = make_<fk::float2>(static_cast<float>(x), static_cast<float>(y));
         }
     }
 
     input.upload(stream);
 
-    const auto readOp = PerThreadRead<ND::_2D, float2>::build(input);
+    const auto readOp = PerThreadRead<ND::_2D, fk::float2>::build(input);
     const auto cropOp = Crop<>::build(Rect(128, 256, 64, 64));
     const auto resizeOp = Resize<InterpolationType::INTER_LINEAR>::build(Size(16, 16));
-    const auto mulOp = Mul<float2>::build(make_<float2>(3.f, 5.f));
-    const auto writeOp1 = PerThreadWrite<ND::_2D, float2>::build(output1);
-    const auto writeOp2 = PerThreadWrite<ND::_2D, float2>::build(output2);
+    const auto mulOp = Mul<fk::float2>::build(make_<fk::float2>(3.f, 5.f));
+    const auto writeOp1 = PerThreadWrite<ND::_2D, fk::float2>::build(output1);
+    const auto writeOp2 = PerThreadWrite<ND::_2D, fk::float2>::build(output2);
 
     Executor<TransformDPP<>>::executeOperations(stream, readOp, cropOp, resizeOp, mulOp, writeOp1);
     Executor<TransformDPP<>>::executeOperations(stream, readOp.then(cropOp).then(resizeOp), mulOp, writeOp2);
