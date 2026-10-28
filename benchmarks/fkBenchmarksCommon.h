@@ -61,7 +61,7 @@ inline bool compareAndCheck(const fk::Ptr2D<T>& firstResult, const fk::Ptr2D<T>&
 }
 
 struct BenchmarkResultsNumbersOne {
-    float fkElapsedTimeMax{ fk::minValue<float> };;
+    float fkElapsedTimeMax{ fk::minValue<float> };
     float fkElapsedTimeMin{ fk::maxValue<float> };
     float fkElapsedTimeAcum{ 0.f };
 };

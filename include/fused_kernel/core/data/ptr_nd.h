@@ -102,7 +102,7 @@ namespace fk {
         }
         FK_HOST_FUSE void d_malloc(RawPtr<ND::_2D, T>& ptr_a) {
             if (ptr_a.dims.pitch == 0) {
-                size_t pitch;
+                size_t pitch = 0;
 #if defined(__HIPCC__)
                 gpuErrchk(hipMallocPitch(&ptr_a.data, &pitch, sizeof(T) * ptr_a.dims.width, ptr_a.dims.height));
 #else
@@ -204,7 +204,7 @@ namespace fk {
 
         inline constexpr void allocDevice() {
             #if defined(__NVCC__) || defined(__HIPCC__)
-            int currentDevice;
+            int currentDevice = 0;
 #if defined(__HIPCC__)
             gpuErrchk(hipGetDevice(&currentDevice));
 #else
@@ -235,7 +235,7 @@ namespace fk {
 
         inline constexpr void allocHostPinned() {
             #if defined(__NVCC__) || defined(__HIPCC__)
-            int currentDevice;
+            int currentDevice = 0;
 #if defined(__HIPCC__)
             gpuErrchk(hipGetDevice(&currentDevice));
 #else
@@ -266,7 +266,7 @@ namespace fk {
 
         inline constexpr void allocDeviceAndPinned() {
             #if defined(__NVCC__) || defined(__HIPCC__)
-            int currentDevice;
+            int currentDevice = 0;
 #if defined(__HIPCC__)
             gpuErrchk(hipGetDevice(&currentDevice));
 #else
