@@ -44,8 +44,11 @@ namespace fk {
     // stream, in stream order: after the work already enqueued on it, and recorded by a graph capture. Pageable Host
     // memory is filled by the CPU once the work enqueued on the stream has finished, since the GPU can not write it
     // (unless the system gives GPUs access to pageable memory); while the stream is being captured into a graph that
-    // can not be done, and setTo throws std::runtime_error, leaving the capture as it was. A CPU stream can not write
-    // Device or DeviceAndPinned memory: setTo throws std::runtime_error.
+    // can not be done, and setTo throws std::runtime_error, leaving the capture as it was. That synchronization is still
+    // subject to the capture rules for other streams: it invalidates a global mode capture that the same thread is
+    // making on another stream, and on the legacy default stream the capture check fails (gpuErrchk throws) while
+    // another stream is being captured. A CPU stream can not write Device or DeviceAndPinned memory: setTo throws
+    // std::runtime_error.
     template <enum ParArch PA, enum ND D, typename T>
     inline void setTo(const T& value, Ptr<D, T>& outputPtr, Stream_<PA>& stream) {
         RawPtr<D, T> output = outputPtr.ptr();
