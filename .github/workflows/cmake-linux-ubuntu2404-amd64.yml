@@ -37,7 +37,7 @@ jobs:
           echo "CXX=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
       - name: Configure CMake
         run: |
-          cmake -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -DENABLE_BENCHMARK=ON -S ${{github.workspace}}
+          cmake -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -DCMAKE_CUDA_COMPILER="/usr/local/cuda-${{matrix.cuda_toolkit}}/bin/nvcc" -DENABLE_BENCHMARK=ON -S ${{github.workspace}}
 
       - name: Build        
         run: |
