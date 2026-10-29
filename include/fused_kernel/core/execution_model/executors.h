@@ -451,12 +451,34 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
     private:
         using Child = Executor<TransformDPP<ParArch::GPU_AMD, TFEN>>;
         using Parent = BaseExecutor<Child>;
+        template <enum TF TFEN_, typename TDPPDetails, typename... IOps>
+        FK_HOST_FUSE void launchNonThreadFused(const hipStream_t& stream, const TDPPDetails& tDetails, const IOps&... iOps) {
+            const auto readOp = get_arg<0>(iOps...);
+
+            const ActiveThreads activeThreads = readOp.getActiveThreads();
+
+            const CtxDim3 ctx_block = getDefaultBlockSize(activeThreads.x, activeThreads.y);
+
+            const dim3 block{ ctx_block.x, ctx_block.y, 1 };
+            const dim3 grid{ static_cast<uint>(ceil(activeThreads.x / static_cast<float>(block.x))),
+                             static_cast<uint>(ceil(activeThreads.y / static_cast<float>(block.y))),
+                             activeThreads.z };
+            launchTransformDPP_Kernel<ParArch::GPU_AMD, TFEN_, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
+            gpuErrchk(hipGetLastError());
+        }
         template <typename... IOps>
         FK_HOST_FUSE void executeOperations_helper(Stream_<ParArch::GPU_AMD>& stream_, const IOps&... iOps) {
             const hipStream_t stream = stream_.getHIPStream();
             constexpr ParArch PA = ParArch::GPU_AMD;
             const auto tDetails = TransformDPP<PA, TFEN>::build_details(iOps...);
             if constexpr (decltype(tDetails)::TFI::ENABLED) {
+                if (!areThreadFusionAccessesAligned<typename std::decay_t<decltype(tDetails)>::TFI>(iOps...)) {
+                    // Pointers or pitches not aligned to the thread fusion vector types, e.g. device tensors
+                    // with odd widths or views into user memory: launch the non thread fused kernel instead
+                    // of failing with a misaligned address error.
+                    launchNonThreadFused<TF::DISABLED>(stream, TransformDPP<PA, TF::DISABLED>::build_details(iOps...), iOps...);
+                    return;
+                }
                 const ActiveThreads activeThreads = tDetails.activeThreads;
 
                 const CtxDim3 ctx_block = getDefaultBlockSize(activeThreads.x, activeThreads.y);
@@ -473,18 +495,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                     gpuErrchk(hipGetLastError());
                 }
             } else {
-                const auto readOp = get_arg<0>(iOps...);
-
-                const ActiveThreads activeThreads = readOp.getActiveThreads();
-
-                const CtxDim3 ctx_block = getDefaultBlockSize(activeThreads.x, activeThreads.y);
-
-                const dim3 block{ ctx_block.x, ctx_block.y, 1 };
-                const dim3 grid{ static_cast<uint>(ceil(activeThreads.x / static_cast<float>(block.x))),
-                                 static_cast<uint>(ceil(activeThreads.y / static_cast<float>(block.y))),
-                                 activeThreads.z };
-                launchTransformDPP_Kernel<ParArch::GPU_AMD, TFEN, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
-                gpuErrchk(hipGetLastError());
+                launchNonThreadFused<TFEN>(stream, tDetails, iOps...);
             }
         }
     public:
