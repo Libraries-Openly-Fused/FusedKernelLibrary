@@ -32,6 +32,7 @@ make -j$(nproc)
 
 ```bash
 cd build/bin/Release
+shopt -s nullglob  # a backend that is not built has no binaries
 for t in *_cu *_hip *_cpp; do ./$t >/dev/null 2>&1 && echo "$t OK" || echo "$t FAIL"; done
 ```
 All binaries exit 0 on success. The full suite is the merge gate: a
