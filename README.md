@@ -171,6 +171,16 @@ Under HIP, the global names `float3`, `uchar3`... are HIP's own vector types, wh
 
 Each test, utest and benchmark executable is built for a single backend. Do not link translation units that include FKL compiled for different backends (for instance a .cpp compiled for the CPU and a .hip or .cu file) into one program: FKL is header only, and its templates and inline functions would get a different definition in each backend under the same name, of which the linker keeps only one.
 
+## Memory layout
+
+Thread fusion reads and writes several elements per thread with vector types, so `Ptr2D` rows are padded to keep them aligned:
+- Device `Ptr2D` memory is allocated with `cudaMallocPitch` (`hipMallocPitch` with HIP).
+- Host and pinned `Ptr2D` memory allocated by FKL (`MemType::Host`, `MemType::HostPinned` and the pinned side of `MemType::DeviceAndPinned`) is 64 byte aligned, and its pitch is rounded up to a multiple of 64 bytes.
+
+A `Ptr2D` is therefore not contiguous in general: index rows with `dims().pitch` (or use `at()` and `PtrAccessor`), and note that `sizeInBytes()` includes the row padding. To get a contiguous host buffer, pass the pitch explicitly when constructing the `Ptr2D`. `Tensor` and other 1D and 3D pointers are not padded.
+
+When a pointer or a pitch is not aligned to the thread fusion vector types, for example a crop or memory provided by the user, the executors use the non thread fused path instead.
+
 ## Closed source friendly
 
 A company that has it's own CUDA kernels, and wants to start fusing them along with operations present in this library, can do so by shaping their kernels into a conformant FusedKernel Operation, that can be passed as a template parameter of one of the FKL InstantiableOperation structs.
