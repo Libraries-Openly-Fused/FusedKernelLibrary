@@ -20,7 +20,8 @@ make -j$(nproc)
   and/or HIP (ROCm, amdclang++: `-DCMAKE_HIP_COMPILER=/opt/rocm/bin/amdclang++`).
 - Options: `ENABLE_CUDA` (default ON if found), `ENABLE_HIP` (default ON if
   found), `ENABLE_CPU` (ON), `ENABLE_BENCHMARK` (OFF) for the benchmark targets.
-  HIP architectures: the local GPU by default, or `-DHIP_ARCH=gfx1200`.
+  HIP architectures: the local GPU by default, or `-DHIP_ARCH=gfx1200` on the
+  first configure of a build directory (`-DCMAKE_HIP_ARCHITECTURES` later).
 - Without CUDA and HIP the CPU backend still builds and tests run on CPU.
 - Binaries land in `build/bin/Release/` — one executable per test unit,
   suffixed `_cu` (CUDA) / `_hip` (HIP) / `_cpp` (CPU). Test sources marked
@@ -81,10 +82,11 @@ int launch() { RUN_ALL_TESTS }
 ## CI
 
 GitHub workflows build on linux-amd64, linux-arm64 and windows-amd64,
-with a matrix over host compilers and CUDA toolkits (currently 12.9 and
-13.3). Keep changes warning-clean on BOTH nvcc and clang: clang is a
-first-class compiler for FKL (single-step host+device compiles matter
-for downstream packaging).
+with a matrix over host compilers and CUDA toolkits (on Linux currently
+12.9 and 13.4). They build the benchmarks (`-DENABLE_BENCHMARK=ON`) but
+leave them out of ctest; no workflow builds HIP. Keep changes
+warning-clean on BOTH nvcc and clang: clang is a first-class compiler for
+FKL (single-step host+device compiles matter for downstream packaging).
 
 ## Debugging compile failures in templates
 
