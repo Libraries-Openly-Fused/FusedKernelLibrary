@@ -35,9 +35,11 @@ namespace fk { // namespace FusedKernel
     /**
      * @brief ceilDiv: the number of groups of b elements (threads, blocks...) that cover a elements, in integer
      * arithmetic. ceil(a / static_cast<float>(b)) rounds a to a float first, which above 2^24 can give one group less.
+     * Groups of 0 elements (the blocks of an empty thread space) give 0 groups, so that a launch with them fails with an
+     * invalid configuration error instead of dividing by 0.
      */
     FK_HOST_DEVICE_CNST uint ceilDiv(const uint& a, const uint& b) {
-        return a / b + (a % b != 0 ? 1u : 0u);
+        return b == 0 ? 0u : a / b + (a % b != 0 ? 1u : 0u);
     }
 } // namespace fk
 

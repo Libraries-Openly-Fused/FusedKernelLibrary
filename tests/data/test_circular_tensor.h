@@ -13,8 +13,8 @@
    limitations under the License. */
 
 // CircularTensor::update with a GPU stream (CUDA and HIP), as main's test_circular_tensor: after every update, plane z
-// holds the input of the z-th last update. An update of a CircularTensor in Host memory throws. LTS has no CPU executor
-// for DivergentBatchTransformDPP, so there is no _cpp target.
+// holds the input of the z-th last update. An update of a CircularTensor in Host memory, or with an empty thread
+// space, throws. LTS has no CPU executor for DivergentBatchTransformDPP, so there is no _cpp target.
 #define __ONLY_GPU__
 #include <tests/main.h>
 
@@ -97,6 +97,24 @@ bool testHostCircularTensorThrows() {
     return false;
 }
 
+// An update of a CircularTensor that is not allocated, with an empty input, has an empty thread space: the launch fails
+// and update throws, instead of the grid computation dividing by the empty block size
+bool testEmptyUpdateThrows() {
+    CircularTensor<fk::float3, 1, 4, CircularTensorOrder::NewestFirst, ColorPlanes::Standard> myTensor;
+    const RawPtr<ND::_2D, fk::float3> empty{ nullptr, PtrDims<ND::_2D>(0, 0, 0) };
+    Stream fk_stream;
+    try {
+        myTensor.update(fk_stream, Read<PerThreadRead<ND::_2D, fk::float3>>{ empty },
+                        Write<TensorWrite<fk::float3>>{ myTensor.ptr() });
+        fk_stream.sync();
+    } catch (const std::exception&) {
+        std::cout << "Empty CircularTensor update: throws, OK" << std::endl;
+        return true;
+    }
+    std::cout << "Empty CircularTensor update: did not throw, Failed!" << std::endl;
+    return false;
+}
+
 int launch_impl() {
     bool correct = true;
     correct &= launchTest<2, 128, 128, 100, fk::uchar3, fk::float3>();
@@ -106,6 +124,7 @@ int launch_impl() {
     correct &= launchTest<8, 128, 128, 100, fk::uchar3, fk::float3>();
     correct &= launchTest<15, 128, 128, 100, fk::uchar3, fk::float3>();
     correct &= testHostCircularTensorThrows();
+    correct &= testEmptyUpdateThrows();
     return correct ? 0 : -1;
 }
 
