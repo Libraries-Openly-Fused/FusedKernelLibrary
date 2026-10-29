@@ -20,16 +20,41 @@
 #include <fused_kernel/core/execution_model/data_parallel_patterns.h>
 
 namespace fk {
+#if defined(__NVCC__)
+    namespace set_to_internal {
+        // True while the stream is being captured into a graph
+        inline bool isCapturing(const Stream_<ParArch::GPU_NVIDIA>& stream) {
+            cudaStreamCaptureStatus status{ cudaStreamCaptureStatusNone };
+            gpuErrchk(cudaStreamIsCapturing(stream.getCUDAStream(), &status));
+            return status != cudaStreamCaptureStatusNone;
+        }
+    } // namespace set_to_internal
+#elif defined(FK_HIP_BACKEND)
+    namespace set_to_internal {
+        // True while the stream is being captured into a graph
+        inline bool isCapturing(const Stream_<ParArch::GPU_AMD>& stream) {
+            hipStreamCaptureStatus status{ hipStreamCaptureStatusNone };
+            gpuErrchk(hipStreamIsCapturing(stream.getHIPStream(), &status));
+            return status != hipStreamCaptureStatusNone;
+        }
+    } // namespace set_to_internal
+#endif
+
     // With a GPU stream, Device, HostPinned and DeviceAndPinned memory (both copies) are filled by kernels on the
-    // stream, in stream order: after the work already enqueued on it, and recorded by a graph capture. The GPU can not
-    // write pageable Host memory, so the CPU fills it once the work enqueued on the stream has finished. A CPU stream
-    // can not write Device or DeviceAndPinned memory: setTo throws std::runtime_error.
+    // stream, in stream order: after the work already enqueued on it, and recorded by a graph capture. Pageable Host
+    // memory is filled by the CPU once the work enqueued on the stream has finished, since the GPU can not write it
+    // (unless the system gives GPUs access to pageable memory); while the stream is being captured into a graph that
+    // can not be done, and setTo throws std::runtime_error, leaving the capture as it was. A CPU stream can not write
+    // Device or DeviceAndPinned memory: setTo throws std::runtime_error.
     template <enum ParArch PA, enum ND D, typename T>
     inline void setTo(const T& value, Ptr<D, T>& outputPtr, Stream_<PA>& stream) {
         RawPtr<D, T> output = outputPtr.ptr();
 #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
         if constexpr (PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD) {
             if (outputPtr.getMemType() == MemType::Host) {
+                if (set_to_internal::isCapturing(stream)) {
+                    throw std::runtime_error("setTo: Host memory can not be filled while the stream is being captured into a graph");
+                }
                 stream.sync();
                 Stream_<ParArch::CPU> cpuStream;
                 Executor<TransformDPP<ParArch::CPU>>::executeOperations(

@@ -325,6 +325,44 @@ bool test_setTo_device_with_cpu_stream() {
     return false;
 }
 
+// setTo on Host memory can not be recorded in a graph capture (the CPU fills it after a stream sync): it throws, and the
+// capture of the work enqueued before it stays valid
+bool test_setTo_host_in_graph_capture(Stream& stream) {
+    PtrToTest device(WIDTH, HEIGHT, 0, MemType::Device);
+    PtrToTest host(WIDTH, HEIGHT, 0, MemType::Host);
+#if defined(__NVCC__)
+    gpuErrchk(cudaStreamBeginCapture(stream.getCUDAStream(), cudaStreamCaptureModeThreadLocal));
+#else
+    gpuErrchk(hipStreamBeginCapture(stream.getHIPStream(), hipStreamCaptureModeThreadLocal));
+#endif
+    setTo(make_<fk::uchar3>(1, 2, 3), device, stream);
+    bool threw = false;
+    try {
+        setTo(make_<fk::uchar3>(4, 5, 6), host, stream);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    size_t nodes = 0;
+#if defined(__NVCC__)
+    cudaGraph_t graph{};
+    const bool captured = cudaStreamEndCapture(stream.getCUDAStream(), &graph) == cudaSuccess;
+    if (captured) {
+        gpuErrchk(cudaGraphGetNodes(graph, nullptr, &nodes));
+        gpuErrchk(cudaGraphDestroy(graph));
+    }
+#else
+    hipGraph_t graph{};
+    const bool captured = hipStreamEndCapture(stream.getHIPStream(), &graph) == hipSuccess;
+    if (captured) {
+        gpuErrchk(hipGraphGetNodes(graph, nullptr, &nodes));
+        gpuErrchk(hipGraphDestroy(graph));
+    }
+#endif
+    std::cout << "setTo on Host memory in a graph capture: threw " << threw << ", capture valid " << captured << ", "
+              << nodes << " nodes" << std::endl;
+    return threw && captured && nodes == 1;
+}
+
 // A CPU stream fills HostPinned memory from the CPU
 bool test_setTo_pinned_with_cpu_stream() {
     PtrToTest pinnedPtr(WIDTH, HEIGHT, 0, MemType::HostPinned);
@@ -389,6 +427,7 @@ int launch() {
     h_correct3 &= test_setTo_device_with_cpu_stream<MemType::Device>();
     h_correct3 &= test_setTo_device_with_cpu_stream<MemType::DeviceAndPinned>();
     h_correct3 &= test_setTo_pinned_with_cpu_stream();
+    h_correct3 &= test_setTo_host_in_graph_capture(stream);
 #endif
 
     test_uploadTo(stream);
