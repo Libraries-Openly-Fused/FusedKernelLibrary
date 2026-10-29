@@ -191,8 +191,8 @@ bool test_shared_allocation_ref_counts() {
     return correct;
 }
 
-// setTo on memory the device can not write: the default stream may be a GPU stream, but the values
-// must be written from the CPU
+// setTo on host memory with the default stream, which may be a GPU stream: Host memory is filled from the CPU, and
+// HostPinned memory by a kernel on the GPU stream
 template <MemType MT>
 bool test_setTo_host(Stream& stream) {
     PtrToTest hostPtr(WIDTH, HEIGHT, 0, MT);

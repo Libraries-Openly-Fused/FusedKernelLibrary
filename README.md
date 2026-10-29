@@ -154,7 +154,7 @@ This has been tested before, by creating special compilers that generate the ass
 
 ## Backends and building
 
-Each test, utest and benchmark is built once per enabled backend: `_cpp` (CPU, `ParArch::CPU`), `_cu` (CUDA with nvcc, `ParArch::GPU_NVIDIA`) and `_hip` (HIP with amdclang++, `ParArch::GPU_AMD`), except for the sources marked `__ONLY_CU__`, `__ONLY_CPU__` or `__ONLY_GPU__` (CUDA and HIP). The benchmarks are built with `-DENABLE_BENCHMARK=ON`. CUDA and HIP are optional: `ENABLE_CUDA` and `ENABLE_HIP` are ON by default and are disabled when nvcc or amdclang++ is not found. Every backend compiles as C++17.
+Each test, utest and benchmark is built once per enabled backend: `_cpp` (CPU, `ParArch::CPU`), `_cu` (CUDA with nvcc, `ParArch::GPU_NVIDIA`) and `_hip` (HIP with amdclang++, `ParArch::GPU_AMD`), except for the test and utest sources marked `__ONLY_CU__`, `__ONLY_CPU__` or `__ONLY_GPU__` (CUDA and HIP). The benchmarks are built with `-DENABLE_BENCHMARK=ON`. CUDA and HIP are optional: `ENABLE_CUDA` and `ENABLE_HIP` are ON by default and are disabled when nvcc or amdclang++ is not found. Every backend compiles as C++17.
 
 A HIP (ROCm) build, with the default C++ compiler for the CPU targets and the GPU architecture detected by CMake (`-DCMAKE_HIP_ARCHITECTURES=gfx1200` to choose it, or `-DHIP_ARCH=...` on the first configure of a build directory):
 
