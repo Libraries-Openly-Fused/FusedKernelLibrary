@@ -9,9 +9,9 @@ if (DEFINED HIP_ARCH AND NOT DEFINED CACHE{CMAKE_HIP_ARCHITECTURES})
     set(CMAKE_HIP_ARCHITECTURES "${HIP_ARCH}" CACHE STRING "HIP architectures")
 endif()
 enable_language(HIP)
-# Where find_package(hip) looks for the HIP package: $HIP_PATH / $ROCM_PATH if set, and the ROCm installation of the HIP
-# compiler that CMake found
-foreach(ROCM_DIR "$ENV{HIP_PATH}" "$ENV{ROCM_PATH}" "${CMAKE_HIP_COMPILER_ROCM_ROOT}")
+# Where find_package(hip) looks for the HIP package: first the ROCm installation of the HIP compiler that CMake found,
+# so that hip::host links the HIP runtime of that ROCm (the one the HIP language links), then $HIP_PATH / $ROCM_PATH
+foreach(ROCM_DIR "${CMAKE_HIP_COMPILER_ROCM_ROOT}" "$ENV{HIP_PATH}" "$ENV{ROCM_PATH}")
     if (NOT "${ROCM_DIR}" STREQUAL "")
         list(APPEND CMAKE_PREFIX_PATH "${ROCM_DIR}")
     endif()
