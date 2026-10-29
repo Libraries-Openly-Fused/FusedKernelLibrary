@@ -281,6 +281,20 @@ bool test_setTo_stream_order(Stream& stream) {
               << std::endl;
     return pinnedDownload && hostDownload && pinnedUpload && deviceAndPinnedDownload;
 }
+
+// A CPU stream can not write device memory: setTo throws instead of writing a device pointer from the CPU
+template <MemType MT>
+bool test_setTo_device_with_cpu_stream() {
+    PtrToTest devicePtr(WIDTH, HEIGHT, 0, MT);
+    Stream_<ParArch::CPU> cpuStream;
+    try {
+        setTo(make_<fk::uchar3>(7, 8, 9), devicePtr, cpuStream);
+    } catch (const std::runtime_error&) {
+        return true;
+    }
+    std::cout << "setTo with a CPU stream did not throw for device memory" << std::endl;
+    return false;
+}
 #endif
 
 int launch() {
@@ -335,6 +349,8 @@ int launch() {
 #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     h_correct3 &= test_setTo_host<MemType::HostPinned>(stream);
     h_correct3 &= test_setTo_stream_order(stream);
+    h_correct3 &= test_setTo_device_with_cpu_stream<MemType::Device>();
+    h_correct3 &= test_setTo_device_with_cpu_stream<MemType::DeviceAndPinned>();
 #endif
 
     test_uploadTo(stream);

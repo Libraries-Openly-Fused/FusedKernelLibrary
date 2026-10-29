@@ -22,7 +22,8 @@
 namespace fk {
     // With a GPU stream, Device, HostPinned and DeviceAndPinned memory (both copies) are filled by kernels on the
     // stream, in stream order: after the work already enqueued on it, and recorded by a graph capture. The GPU can not
-    // write pageable Host memory, so the CPU fills it once the work enqueued on the stream has finished.
+    // write pageable Host memory, so the CPU fills it once the work enqueued on the stream has finished. A CPU stream
+    // can not write Device or DeviceAndPinned memory: setTo throws std::runtime_error.
     template <enum ParArch PA, enum ND D, typename T>
     inline void setTo(const T& value, Ptr<D, T>& outputPtr, Stream_<PA>& stream) {
         RawPtr<D, T> output = outputPtr.ptr();
@@ -42,6 +43,9 @@ namespace fk {
             }
         }
         else {
+            if (outputPtr.getMemType() == MemType::Device || outputPtr.getMemType() == MemType::DeviceAndPinned) {
+                throw std::runtime_error("setTo: a CPU stream can not write Device or DeviceAndPinned memory");
+            }
             Executor<TransformDPP<PA>>::executeOperations(stream, ReadSet<T>::build(value, outputPtr.dims()), PerThreadWrite<D, T>::build(output));
         }
 #else
