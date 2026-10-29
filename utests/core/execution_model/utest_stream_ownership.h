@@ -129,9 +129,22 @@ int launch_impl() {
                   << std::endl;
         correct = false;
     }
+
+    // A destroy that fails, here because cudaDeviceReset destroyed the context of the stream, leaves no error for the
+    // next cudaGetLastError() to report for other work. Last check: the device is reset.
+    correct &= cudaGetLastError() == cudaSuccess;
+    {
+        GPUStream reset;
+        correct &= cudaDeviceReset() == cudaSuccess;
+    }
+    if (cudaGetLastError() != cudaSuccess) {
+        std::cout << "GPU streams: the error of a failed cudaStreamDestroy was left pending" << std::endl;
+        correct = false;
+    }
 #else
     // Not checked under HIP: ROCm maps the streams onto a few hardware queues and reuses their memory, so free device
-    // memory does not show leaked streams (ROCm 10.1 on an RX 9060: 4000 streams that are never destroyed cost 0 MB)
+    // memory does not show leaked streams (ROCm 10.1 on an RX 9060: 4000 streams that are never destroyed cost 0 MB).
+    // A hipStreamDestroy after hipDeviceReset succeeds on ROCm 10.1, so there is no failed destroy to check either.
 #endif
 
     std::cout << "GPU stream ownership " << (correct ? "OK" : "FAILED") << std::endl;
