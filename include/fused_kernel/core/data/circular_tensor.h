@@ -120,6 +120,15 @@ namespace fk {
             }
             using equivalentReadDFType = EquivalentType_t<writeDFType, WriteInstantiableOperations, ReadInstantiableOperations>;
 
+            // The DivergentBatchTransformDPP defines a global plane space whose size is the sum of the
+            // planes declared by each sequence. Both sequences write into the same output Tensor, but
+            // each one owns a different subset of its planes: the update sequence produces a single
+            // plane (the newly inserted image) and the copy sequence produces the remaining BATCH - 1.
+            // Therefore each sequence must be given a view of the data that reports its own number of
+            // planes, so that the total adds up to BATCH and no thread addresses a plane past the end.
+            // The update sequence already declares a single plane through its 2D read.
+            constexpr uint COPY_PLANES = static_cast<uint>(BATCH) - 1u;
+
             MidWrite<CircularTensorWrite<CircularDirection::Ascendent, writeOpType, BATCH>> updateWriteToTemp;
             updateWriteToTemp.params.first = m_nextUpdateIdx;
             updateWriteToTemp.params.opData.params = m_tempTensor.ptr();
@@ -130,8 +139,16 @@ namespace fk {
             equivalentReadDFType nonUpdateRead;
             nonUpdateRead.params.first = m_nextUpdateIdx;
             nonUpdateRead.params.opData.params = m_tempTensor.ptr();
+            nonUpdateRead.params.opData.params.dims.planes = COPY_PLANES;
 
-            const auto copyOps = buildOperationSequence(nonUpdateRead, writeInstantiableOperation);
+            // The copy sequence writes into the same output Tensor as the update sequence, using the
+            // global plane index, so it needs the full view: narrowing dims.planes here would be
+            // misleading. Write operations take no part in the thread space (the DPP derives it from
+            // the first IOp of the sequence, i.e. the read) and TensorSplit/TensorWrite address the
+            // data through the pitch/plane_pitch strides, never through dims.planes.
+            const auto nonUpdateWrite = writeInstantiableOperation;
+
+            const auto copyOps = buildOperationSequence(nonUpdateRead, nonUpdateWrite);
 
             if (PA == ParArch::GPU_NVIDIA && !(this->type == MemType::Device || this->type == MemType::DeviceAndPinned)) {
                 throw std::runtime_error("CircularTensor operations on Device memory only supported \
