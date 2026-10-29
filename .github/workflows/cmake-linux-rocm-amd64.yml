@@ -30,10 +30,13 @@ jobs:
           echo "ROCM_PATH=/opt/rocm/core-${{matrix.rocm_version}}" >> "$GITHUB_ENV"
           echo "HIP_PATH=/opt/rocm/core-${{matrix.rocm_version}}" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=/opt/rocm/core-${{matrix.rocm_version}}/lib:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+      # Strict C++17: no compiler extensions, except the anonymous structs in the unions of array.h
       - name: Configure CMake
         run: |
+          STRICT_FLAGS="-Werror=c++20-extensions -pedantic-errors -Wno-gnu-anonymous-struct"
           cmake -G "Ninja" -DENABLE_HIP=ON -DENABLE_CUDA=OFF -DENABLE_CPU=OFF -DENABLE_BENCHMARK=ON \
           -DCMAKE_CXX_COMPILER="$HIP_PATH/bin/amdclang++" -DCMAKE_HIP_COMPILER="$HIP_PATH/bin/amdclang++"  \
+          -DCMAKE_CXX_FLAGS="$STRICT_FLAGS" -DCMAKE_HIP_FLAGS="$STRICT_FLAGS" \
           -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
 
       - name: Build
