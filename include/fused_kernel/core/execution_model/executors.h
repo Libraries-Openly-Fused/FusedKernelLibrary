@@ -330,6 +330,11 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
 
         return CtxDim3(blockDimX[bxS], blockDimY[byS][bxS]);
     }
+
+    // The grid of blocks of size block that covers activeThreads in x and y, with one block per plane in z
+    inline dim3 computeGrid(const ActiveThreads& activeThreads, const dim3& block) {
+        return dim3(ceilDiv(activeThreads.x, block.x), ceilDiv(activeThreads.y, block.y), activeThreads.z);
+    }
 #endif
 #if defined(__NVCC__)
     template <enum TF TFEN>
@@ -346,9 +351,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             const CtxDim3 ctx_block = getDefaultBlockSize(activeThreads.x, activeThreads.y);
 
             const dim3 block{ ctx_block.x, ctx_block.y, 1 };
-            const dim3 grid{ static_cast<uint>(ceil(activeThreads.x / static_cast<float>(block.x))),
-                             static_cast<uint>(ceil(activeThreads.y / static_cast<float>(block.y))),
-                             activeThreads.z };
+            const dim3 grid = computeGrid(activeThreads, block);
             launchTransformDPP_Kernel<ParArch::GPU_NVIDIA, TFEN_, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
             gpuErrchk(cudaGetLastError());
         }
@@ -370,9 +373,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                 const CtxDim3 ctx_block = getDefaultBlockSize(activeThreads.x, activeThreads.y);
 
                 const dim3 block{ ctx_block.x, ctx_block.y, 1 };
-                const dim3 grid{ static_cast<uint>(ceil(activeThreads.x / static_cast<float>(block.x))),
-                                 static_cast<uint>(ceil(activeThreads.y / static_cast<float>(block.y))),
-                                 activeThreads.z };
+                const dim3 grid = computeGrid(activeThreads, block);
                 if (!tDetails.threadDivisible) {
                     launchTransformDPP_Kernel<ParArch::GPU_NVIDIA, TFEN, false><<<grid, block, 0, stream>>>(tDetails, iOps...);
                     gpuErrchk(cudaGetLastError());
@@ -423,8 +424,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             const DPPDetails details{};
 
             const dim3 block(cxp::min::f(activeThreads.x, 32u), cxp::min::f(activeThreads.y, 8u));
-            const dim3 grid(ceil(activeThreads.x / static_cast<float>(block.x)),
-                            ceil(activeThreads.y / static_cast<float>(block.y)), activeThreads.z);
+            const dim3 grid = computeGrid(activeThreads, block);
             launchDivergentBatchTransformDPP_Kernel<ParArch::GPU_NVIDIA, SequenceSelector><<<grid, block, 0, stream.getCUDAStream()>>>(details, iOpSequences...);
             gpuErrchk(cudaGetLastError());
         }
@@ -460,9 +460,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             const CtxDim3 ctx_block = getDefaultBlockSize(activeThreads.x, activeThreads.y);
 
             const dim3 block{ ctx_block.x, ctx_block.y, 1 };
-            const dim3 grid{ static_cast<uint>(ceil(activeThreads.x / static_cast<float>(block.x))),
-                             static_cast<uint>(ceil(activeThreads.y / static_cast<float>(block.y))),
-                             activeThreads.z };
+            const dim3 grid = computeGrid(activeThreads, block);
             launchTransformDPP_Kernel<ParArch::GPU_AMD, TFEN_, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
             gpuErrchk(hipGetLastError());
         }
@@ -484,9 +482,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                 const CtxDim3 ctx_block = getDefaultBlockSize(activeThreads.x, activeThreads.y);
 
                 const dim3 block{ ctx_block.x, ctx_block.y, 1 };
-                const dim3 grid{ static_cast<uint>(ceil(activeThreads.x / static_cast<float>(block.x))),
-                                 static_cast<uint>(ceil(activeThreads.y / static_cast<float>(block.y))),
-                                 activeThreads.z };
+                const dim3 grid = computeGrid(activeThreads, block);
                 if (!tDetails.threadDivisible) {
                     launchTransformDPP_Kernel<ParArch::GPU_AMD, TFEN, false><<<grid, block, 0, stream>>>(tDetails, iOps...);
                     gpuErrchk(hipGetLastError());
@@ -537,8 +533,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             const DPPDetails details{};
 
             const dim3 block(cxp::min::f(activeThreads.x, 32u), cxp::min::f(activeThreads.y, 8u));
-            const dim3 grid(ceil(activeThreads.x / static_cast<float>(block.x)),
-                            ceil(activeThreads.y / static_cast<float>(block.y)), activeThreads.z);
+            const dim3 grid = computeGrid(activeThreads, block);
             launchDivergentBatchTransformDPP_Kernel<ParArch::GPU_AMD, SequenceSelector><<<grid, block, 0, stream.getHIPStream()>>>(details, iOpSequences...);
             gpuErrchk(hipGetLastError());
         }

@@ -31,6 +31,14 @@ namespace fk { // namespace FusedKernel
             : x(vx), y(vy), z(vz) {
         }
     };
+
+    /**
+     * @brief ceilDiv: the number of groups of b elements (threads, blocks...) that cover a elements, in integer
+     * arithmetic. ceil(a / static_cast<float>(b)) rounds a to a float first, which above 2^24 can give one group less.
+     */
+    FK_HOST_DEVICE_CNST uint ceilDiv(const uint& a, const uint& b) {
+        return a / b + (a % b != 0 ? 1u : 0u);
+    }
 } // namespace fk
 
 #endif // FK_ACTIVE_THREADS_H

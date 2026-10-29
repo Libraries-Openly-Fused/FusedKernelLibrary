@@ -192,7 +192,7 @@ namespace fk { // namespace FusedKernel
 
             if constexpr (TFI::ENABLED) {
                 const ActiveThreads initAT = firstIOp.getActiveThreads();
-                const ActiveThreads gridActiveThreads(static_cast<uint>(ceil(initAT.x / static_cast<float>(TFI::elems_per_thread))),
+                const ActiveThreads gridActiveThreads(ceilDiv(initAT.x, static_cast<uint>(TFI::elems_per_thread)),
                     initAT.y, initAT.z);
                 const bool threadDivisible = isThreadDivisible<TFI::ENABLED>(TFI::elems_per_thread, firstIOp, iOps...);
                 const Details details{ gridActiveThreads, threadDivisible };
