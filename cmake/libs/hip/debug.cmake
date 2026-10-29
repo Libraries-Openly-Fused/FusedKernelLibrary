@@ -7,9 +7,7 @@ endfunction()
 
 function(add_hip_lineinfo_to_target TARGET_NAME)
     # clang keeps the last -g* flag, so -gline-tables-only would replace the full debug information of -g: only pass
-    # it when there is no -g, neither from ENABLE_DEBUG nor from a Debug configuration
-    if (NOT ${ENABLE_DEBUG})
-        target_compile_options(${TARGET_NAME} PRIVATE
-                               $<$<AND:$<NOT:$<CONFIG:debug>>,$<COMPILE_LANGUAGE:HIP>>:-gline-tables-only>)
-    endif()
+    # it outside the Debug configuration, the only one that gets -g (from CMAKE_HIP_FLAGS_DEBUG and ENABLE_DEBUG)
+    target_compile_options(${TARGET_NAME} PRIVATE
+                           $<$<AND:$<NOT:$<CONFIG:debug>>,$<COMPILE_LANGUAGE:HIP>>:-gline-tables-only>)
 endfunction()
