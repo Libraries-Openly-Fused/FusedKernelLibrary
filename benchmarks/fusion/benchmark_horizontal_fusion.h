@@ -478,28 +478,35 @@ int launch() {
     constexpr size_t NUM_ELEMS_X = 3840;
     constexpr size_t NUM_ELEMS_Y = 2160;
     fk::Stream stream;
+    bool passed = true;
 
     warmup = true;
-    launch_benchmark_Horizontal_Fusion(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
-    launch_benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
+    passed &= launch_benchmark_Horizontal_Fusion(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
+    passed &= launch_benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
     warmup = false;
 
-    launch_benchmark_Horizontal_Fusion(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
-    launch_benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
+    passed &= launch_benchmark_Horizontal_Fusion(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
+    passed &= launch_benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
 
 #if defined(__NVCC__)
     warmup = true;
-    launch_benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD_CUDAGraphs(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
+    passed &= launch_benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD_CUDAGraphs(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
     warmup = false;
 
-    launch_benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD_CUDAGraphs(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
+    passed &= launch_benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD_CUDAGraphs(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
 #elif defined(__HIPCC__)
     warmup = true;
-    launch_benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD_HIPGraphs(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
+    passed &= launch_benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD_HIPGraphs(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
     warmup = false;
 
-    launch_benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD_HIPGraphs(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
+    passed &= launch_benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD_HIPGraphs(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
 #endif
 
-    return 0;
+    if (passed) {
+        std::cout << "benchmark_horizontal_fusion Passed!!!" << std::endl;
+        return 0;
+    } else {
+        std::cout << "benchmark_horizontal_fusion Failed!!! Some fused results do not match the iterated baseline." << std::endl;
+        return -1;
+    }
 }
