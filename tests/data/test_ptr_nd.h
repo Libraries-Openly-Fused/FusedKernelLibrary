@@ -139,6 +139,23 @@ void test_download(Stream& stream) {
     stream.sync();
 }
 
+// setTo on memory the device can not write: the default stream may be a GPU stream, but the values
+// must be written from the CPU
+template <MemType MT>
+bool test_setTo_host(Stream& stream) {
+    PtrToTest hostPtr(WIDTH, HEIGHT, 0, MT);
+    setTo(make_<fk::uchar3>(7, 8, 9), hostPtr, stream);
+    stream.sync();
+    bool correct{ true };
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++) {
+            const bool allTrue = hostPtr.at(Point{x, y, 0}) == fk::uchar3{7, 8, 9};
+            correct &= allTrue;
+        }
+    }
+    return correct;
+}
+
 int launch() {
 
     Stream stream;
@@ -187,10 +204,15 @@ int launch() {
         }
     }
 
+    bool h_correct3 = test_setTo_host<MemType::Host>(stream);
+#if defined(__NVCC__) || defined(__HIPCC__)
+    h_correct3 &= test_setTo_host<MemType::HostPinned>(stream);
+#endif
+
     test_uploadTo(stream);
     test_downloadTo(stream);
     test_upload(stream);
     test_download(stream);
 
-    return result && h_correct && h_correct2 ? 0 : -1;
+    return result && h_correct && h_correct2 && h_correct3 ? 0 : -1;
 }

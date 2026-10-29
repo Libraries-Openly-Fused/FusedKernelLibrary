@@ -33,7 +33,9 @@ namespace fk {
                 }
             }
             else {
-                Executor<TransformDPP<PA>>::executeOperations(stream, ReadSet<T>::build(value, outputPtr.dims()), PerThreadWrite<D, T>::build(output));
+                Stream_<ParArch::CPU> cpuStream;
+                Executor<TransformDPP<ParArch::CPU>>::executeOperations(
+                    cpuStream, ReadSet<T>::build(value, outputPtr.dims()), PerThreadWrite<D, T>::build(output));
             }
         }
         else {
