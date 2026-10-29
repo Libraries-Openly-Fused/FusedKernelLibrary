@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**FusedKernelLibrary (FKL)** is a header-only C++17 library that enables automatic GPU kernel fusion (Vertical, Horizontal, Backwards Vertical, and Divergent Horizontal Fusion) for CUDA and CPU backends. The library lives under `include/fused_kernel/`. All public types (except for vector types) are in the `fk` namespace.
+**FusedKernelLibrary (FKL)** is a header-only C++17 library that enables automatic GPU kernel fusion (Vertical, Horizontal, Backwards Vertical, and Divergent Horizontal Fusion) for CUDA, HIP (AMD ROCm) and CPU backends. The library lives under `include/fused_kernel/`. All public types are in the `fk` namespace. Name the FKL vector types `fk::float3`, `fk::uchar3`...: under HIP the global `float3`, `uchar3`... are HIP's own types, which are not FKL vector types (with nvcc and on the CPU the `fk::` names are the global types).
 
 - The primary entry point header is `include/fused_kernel/fused_kernel.h`.
 - The main user-facing function is `fk::executeOperations<DPPType>(stream, iop1, iop2, ...)`.
@@ -17,6 +17,7 @@ FusedKernelLibrary/
 │   ├── cmake_init.cmake     # Global settings, output dirs, config types
 │   ├── cuda_init.cmake      # CUDA language enable + arch detection
 │   ├── libs/cuda/           # CUDA-specific helpers (archs, deploy, debug, target generation)
+│   ├── libs/hip/            # HIP (ROCm) helpers (hip_init, archs, debug, target generation)
 │   ├── tests/               # Test discovery and generation (discover_tests.cmake, add_generated_test.cmake)
 │   └── generators/          # Code generators (version_header.cmake, export_header.cmake)
 ├── include/fused_kernel/    # All library headers (header-only)
@@ -50,6 +51,7 @@ FusedKernelLibrary/
 - **CMake ≥ 3.28** (CI uses cmake 4.3.3 custom install)
 - **C++17** standard required (enforced via `CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO`)
 - **CUDA 12.x or 13.x** 
+- **HIP (ROCm)**, optional: amdclang++ through CMake's HIP language (`-DCMAKE_HIP_COMPILER=/opt/rocm/bin/amdclang++`); HIP sources compile as C++17 with `-Werror=c++20-extensions`
 - **Host compilers**: ``g++-13` (ARM64, x86_64 for cuda 12.9),g++-15` (x86_64), `clang++-21`, `cl` (MSVC 14.44, MSVC 14.51), `clang-cl`
 - Only **nvcc** is supported as the CUDA compiler 
 - **Ninja** generator is used in CI; Visual Studio generator also works on Windows
@@ -63,13 +65,15 @@ FusedKernelLibrary/
 | `BUILD_UTEST` | ON | Build unit tests under `utests/` |
 | `ENABLE_BENCHMARK` | OFF | Build benchmarks under `benchmarks/` |
 | `CUDA_ARCH` | `native` | Target CUDA architectures (e.g., `native`, `all`, `89`, `86;89`) |
+| `ENABLE_HIP` | ON (if a HIP compiler for AMD GPUs is found) | Enable tests on HIP backend |
+| `HIP_ARCH` | the local GPU | HIP architectures on the first configure of a build directory (e.g., `gfx1200`); `CMAKE_HIP_ARCHITECTURES` afterwards |
 
 ### Build Commands (Linux)
 ```bash
 #setup compilers
    
 export PATH=/home/cudeiro/cmake-4.3.3-linux-aarch64/bin/:$PATH #update with linux-aarch64 for arm64, linux-x86_64 for x86_64
-export CUDACXX=/usr/local/cuda-12.9/bin/nvcc  # can be 13.3 as well
+export CUDACXX=/usr/local/cuda-12.9/bin/nvcc  # can be 13.4 as well
 export CC=g++-13 # e.g. "g++-13" (ARM64), "g++-15" (x86_64), "clang++-21"
 export CXX=g++-13 # e.g. "g++-13" (ARM64), "g++-15" (x86_64), "clang++-21"
 cmake -G "Ninja" -B build -DCMAKE_BUILD_TYPE=Release -S .
@@ -105,18 +109,20 @@ Workflows trigger on **pull requests** targeting branches matching `LTS-C*`. All
 
 | Workflow | Runner | Compilers | CUDA versions |
 |---|---|---|---|
-| `cmake-linux-amd64.yml` | `linux, x64` | `g++-15`, `clang++-21` | 12.9, 13.3 |
-| `cmake-linux-arm64.yml` | `linux, arm64` | `g++-13`, `clang++-21` | 12.9, 13.3 |
-| `cmake-windows-amd64.yml` | `windows, x64` | `cl`, `clang-cl` (LLVM 21.1.0) | 12.9, 13.3 |
+| `cmake-linux-amd64.yml` | `linux, x64, cuda` | `g++-15`, `clang++-21` | 13.4 |
+| `cmake-linux-arm64.yml` | `linux, arm64, cuda` | `g++-13`, `clang++-21` | 12.9, 13.4 |
+| `cmake-linux-ubuntu2404-amd64.yml` | `linux, x64, ubuntu2404` | `g++-13`, `clang++-21` | 12.9 |
+| `cmake-windows-amd64.yml` | `windows, x64, cuda` | `cl`, `clang-cl` (LLVM 21.1.0) | 12.9, 13.3 (toolkits the runner no longer has: these jobs build the CPU backend only) |
 
-Compilers are set via `CC`, `CXX`, `CUDACXX` environment variables in the "Set reusable strings" step — not as CMake `-D` flags.
+`CC` and `CXX` are set as environment variables in the "Set reusable strings" step; they select the compiler of the CPU targets (nvcc uses the system g++ as host compiler). The Linux workflows pass nvcc as `-DCMAKE_CUDA_COMPILER`, so a missing toolkit fails the configure step, and configure with `-DENABLE_BENCHMARK=ON -DENABLE_HIP=OFF`: the benchmarks are built, and ctest runs with `-E "^benchmark_"`. No workflow builds the HIP backend.
 
 ## Test Infrastructure
 
 ### How Tests Are Discovered
 CMake auto-discovers tests from `.h` files in `tests/` and `utests/` subdirectories using `discover_tests()` in `cmake/tests/discover_tests.cmake`. For each `.h` file:
-- A `.cpp` target is generated (CPU backend) unless the file contains `ONLY_CU`
+- A `.cpp` target is generated (CPU backend) unless the file contains `ONLY_CU` or `ONLY_GPU`
 - A `.cu` target is generated (CUDA backend) unless the file contains `ONLY_CPU`
+- A `.hip` target is generated (HIP backend, when enabled) unless the file contains `ONLY_CPU` or `ONLY_CU`
 - Files matching `*_common*` are excluded from auto-discovery
 
 A `configure_file()` step generates a launcher from `tests/launcher.in` that includes the test header and calls `launch()`.
@@ -125,13 +131,15 @@ A `configure_file()` step generates a launcher from `tests/launcher.in` that inc
 - Each test `.h` file must define a function `int launch()` that returns 0 on success
 - Tests that are CPU-only contain the string `ONLY_CPU` (as a marker, not necessarily as a macro)
 - Tests that are CUDA-only contain the string `ONLY_CU`
+- Tests for the GPU backends only (CUDA and HIP) contain the string `ONLY_GPU`
+- Tests use the `fk::` vector type names, so that they compile for every backend
 - Tests link against `FKL::FKL` (the header-only interface library)
 
 ### Adding a New Test
 1. Create a `.h` file in an appropriate subdirectory of `tests/` or `utests/`
 2. Include the necessary FKL headers
 3. Define `int launch() { ... return 0; }`
-4. Add `ONLY_CPU` or `ONLY_CU` in a comment if needed to restrict to one backend
+4. Add `ONLY_CPU`, `ONLY_CU` or `ONLY_GPU` if needed to restrict the backends (the marker text anywhere in the file counts)
 
 ## Core Concepts
 
@@ -168,7 +176,7 @@ DPPs determine how threads are organized. The main one is `TransformDPP<THREAD_F
 - `fk::Rect` — x, y, width, height rectangle
 - `fk::Point` — thread index (x, y, z)
 - `fk::Tuple<Ts...>` — GPU-safe tuple (use instead of `std::tuple` in device code)
-- `fk::Stream` / `fk::Stream_<ParArch::GPU_NVIDIA>` — CUDA stream wrapper
+- `fk::Stream` — stream of the default backend; `fk::Stream_<ParArch::GPU_NVIDIA>` / `fk::Stream_<ParArch::GPU_AMD>` — CUDA / HIP stream wrappers (copies share the native stream)
 
 ### Fusion API (`.then()` and `operator&`)
 IOps support chaining:
@@ -181,10 +189,11 @@ auto fusedIOp = readIOp & unaryIOp1 & unaryIOp2 & writeIOp;
 ### Compiler Macros (`compiler_macros.h`)
 - `_MSC_VER_EXISTS` — 1 when compiling with MSVC
 - `FK_HOST_DEVICE_CNST`, `FK_HOST_FUSE`, `FK_DEVICE_FUSE`, etc.
-- CNST means __forceinline__ constexpr with nvcc, inline constexpr with CPU compilers.
-- FUSE means __forceinline__ static constexpr with nvcc, inline static constexpr with CPU compilers.
-- HOST means __host__ with nvcc, nothing with CPU compilers.
-- DEVICE  means __device__ with nvcc, nothing with CPU compilers.
+- CNST means __forceinline__ constexpr with nvcc and HIP, inline constexpr with CPU compilers.
+- FUSE means __forceinline__ static constexpr with nvcc and HIP, inline static constexpr with CPU compilers.
+- HOST means __host__ with nvcc and HIP, nothing with CPU compilers.
+- DEVICE  means __device__ with nvcc and HIP, nothing with CPU compilers.
+- `FK_HIP_BACKEND` is defined for HIP compilations by clang (amdclang++); use it, not `__HIPCC__` (which the HIP headers also define under nvcc), to select HIP code.
 
 ## Code Style
 
@@ -192,7 +201,7 @@ auto fusedIOp = readIOp & unaryIOp1 & unaryIOp2 & writeIOp;
 - **C++ Standard**: C++17 strictly (no extensions)
 - **Copyright header**: Every file begins with an Apache 2.0 license header
 - **Include guards**: `#ifndef FK_XXX_H` / `#define FK_XXX_H` (not `#pragma once`)
-- **Namespace**: All public API is in namespace `fk` except for vector types
+- **Namespace**: All public API is in namespace `fk`; use the `fk::` vector type names
 - **Templates**: Heavy use of SFINAE (`std::enable_if_t`), type traits, and variadic templates
 - **No exceptions in device code**: Only host code uses `std::runtime_error`
 - **Pointer alignment**: Right (i.e., `T* ptr`, not `T *ptr`)
