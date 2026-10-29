@@ -22,4 +22,11 @@
 #define _MSC_VER_EXISTS 0
 #endif
 
+// The HIP (ROCm) backend, ParArch::GPU_AMD: HIP code compiled by clang (amdclang++). __HIPCC__ does not identify it:
+// the HIP headers also define __HIPCC__ in the CUDA compilations (nvcc, clang CUDA) that include them, and those use
+// the CUDA backend
+#if defined(__HIP__) && !defined(__NVCC__) && !defined(__CUDACC__)
+#define FK_HIP_BACKEND 1
+#endif
+
 #endif // COMPILER_MACROS_H

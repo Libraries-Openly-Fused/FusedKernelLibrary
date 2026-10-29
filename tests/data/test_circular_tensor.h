@@ -1,0 +1,135 @@
+/* Copyright 2026 Oscar Amoros Huguet
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License. */
+
+// CircularTensor::update with a GPU stream (CUDA and HIP), as main's test_circular_tensor: after every update, plane z
+// holds the input of the z-th last update. An update of a CircularTensor in Host memory, or with an empty thread
+// space, throws. LTS has no CPU executor for DivergentBatchTransformDPP, so there is no _cpp target.
+#define __ONLY_GPU__
+#include <tests/main.h>
+
+#include <fused_kernel/algorithms/basic_ops/memory_operations.h>
+#include <fused_kernel/algorithms/image_processing/saturate.h>
+#include <fused_kernel/core/data/circular_tensor.h>
+#include <fused_kernel/core/data/ptr_utils.h>
+#include <fused_kernel/fused_kernel.h>
+
+#include <iostream>
+#include <stdexcept>
+#include <typeinfo>
+
+namespace fk {
+
+template <uint BATCH, uint WIDTH, uint HEIGHT, uint ITERS, typename IT, typename OT>
+bool testCircularTensor() {
+    using TensorOT = typename VectorTraits<OT>::base;
+    constexpr uint COLOR_PLANES = cn<IT>;
+
+    CircularTensor<TensorOT, COLOR_PLANES, BATCH, CircularTensorOrder::NewestFirst, ColorPlanes::Standard>
+        myTensor(WIDTH, HEIGHT);
+    Ptr2D<IT> input(WIDTH, HEIGHT);
+
+    Stream fk_stream;
+    setTo(10.0f, myTensor, fk_stream);
+
+    for (uint i = 0; i < ITERS; i++) {
+        setTo(make_<IT>(i + 1, i + 1, i + 1), input, fk_stream);
+        myTensor.update(fk_stream, Read<PerThreadRead<ND::_2D, IT>>{input.ptr()},
+                        Unary<SaturateCast<IT, OT>>{}, Write<TensorSplit<OT>>{myTensor.ptr()});
+        fk_stream.sync();
+    }
+
+    myTensor.download(fk_stream);
+    fk_stream.sync();
+
+    bool correct = true;
+    for (uint z = 0; z < BATCH; z++) {
+        const TensorOT value = static_cast<TensorOT>(ITERS - z);
+        for (uint y = 0; y < HEIGHT; y++) {
+            for (uint x = 0; x < WIDTH; x++) {
+                const Point p{static_cast<int>(x), static_cast<int>(y), static_cast<int>(z)};
+                const TensorOT res = *PtrAccessor<ND::_3D>::point(p, myTensor.ptrPinned());
+                correct &= value == res;
+            }
+        }
+    }
+
+    return correct;
+}
+
+template <uint BATCH, uint WIDTH, uint HEIGHT, uint ITERS, typename IT, typename OT>
+bool launchTest() {
+    const bool correct = testCircularTensor<BATCH, WIDTH, HEIGHT, ITERS, IT, OT>();
+    std::cout << "testCircularTensor<" << BATCH << ", " << WIDTH << ", " << HEIGHT << ", " << ITERS << ", "
+              << typeid(IT).name() << ", " << typeid(OT).name() << "> " << (correct ? "OK" : "Failed!") << std::endl;
+    return correct;
+}
+
+// A CircularTensor in Host memory can not be updated with a GPU stream: update throws instead of launching a kernel
+// that writes it
+bool testHostCircularTensorThrows() {
+    using IT = fk::uchar3;
+    using OT = fk::float3;
+    CircularTensor<float, 3, 2, CircularTensorOrder::NewestFirst, ColorPlanes::Standard> myTensor(16, 16,
+                                                                                                MemType::Host);
+    Ptr2D<IT> input(16, 16);
+    Stream fk_stream;
+    try {
+        myTensor.update(fk_stream, Read<PerThreadRead<ND::_2D, IT>>{input.ptr()}, Unary<SaturateCast<IT, OT>>{},
+                        Write<TensorSplit<OT>>{myTensor.ptr()});
+    } catch (const std::runtime_error&) {
+        fk_stream.sync();
+        std::cout << "Host CircularTensor with a GPU stream: update throws, OK" << std::endl;
+        return true;
+    }
+    fk_stream.sync();
+    std::cout << "Host CircularTensor with a GPU stream: update did not throw, Failed!" << std::endl;
+    return false;
+}
+
+// An update of a CircularTensor that is not allocated, with an empty input, has an empty thread space: the launch fails
+// and update throws, instead of the grid computation dividing by the empty block size
+bool testEmptyUpdateThrows() {
+    CircularTensor<fk::float3, 1, 4, CircularTensorOrder::NewestFirst, ColorPlanes::Standard> myTensor;
+    const RawPtr<ND::_2D, fk::float3> empty{ nullptr, PtrDims<ND::_2D>(0, 0, 0) };
+    Stream fk_stream;
+    try {
+        myTensor.update(fk_stream, Read<PerThreadRead<ND::_2D, fk::float3>>{ empty },
+                        Write<TensorWrite<fk::float3>>{ myTensor.ptr() });
+        fk_stream.sync();
+    } catch (const std::exception&) {
+        std::cout << "Empty CircularTensor update: throws, OK" << std::endl;
+        return true;
+    }
+    std::cout << "Empty CircularTensor update: did not throw, Failed!" << std::endl;
+    return false;
+}
+
+int launch_impl() {
+    bool correct = true;
+    correct &= launchTest<2, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= launchTest<3, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= launchTest<4, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= launchTest<5, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= launchTest<8, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= launchTest<15, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= testHostCircularTensorThrows();
+    correct &= testEmptyUpdateThrows();
+    return correct ? 0 : -1;
+}
+
+} // namespace fk
+
+int launch() {
+    return fk::launch_impl();
+}

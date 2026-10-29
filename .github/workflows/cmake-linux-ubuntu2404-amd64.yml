@@ -37,13 +37,14 @@ jobs:
           echo "CXX=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
       - name: Configure CMake
         run: |
-          cmake -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
+          cmake -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -DCMAKE_CUDA_COMPILER="/usr/local/cuda-${{matrix.cuda_toolkit}}/bin/nvcc" -DENABLE_BENCHMARK=ON -DENABLE_HIP=OFF -S ${{github.workspace}}
 
       - name: Build        
         run: |
           cmake --build ${{ steps.strings.outputs.build-output-dir }} --config Release
 
+      # The benchmarks are built (ENABLE_BENCHMARK=ON) so that CI checks that they compile, but ctest does not run them
       - name: Test
         working-directory: ${{ steps.strings.outputs.build-output-dir }}
         run: |
-          ctest --build-config Release --output-junit test_results.xml
+          ctest --build-config Release --output-junit test_results.xml -E "^benchmark_"

@@ -58,7 +58,7 @@ namespace fk {
         std::free(ptr);
 #endif
     }
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     constexpr MemType defaultMemType = MemType::DeviceAndPinned;
 #else
     constexpr MemType defaultMemType = MemType::Host;
@@ -79,7 +79,11 @@ namespace fk {
             if (ptr_a.dims.pitch == 0) {
                 ptr_a.dims.pitch = sizeof(T) * ptr_a.dims.width;
             }
+#if defined(FK_HIP_BACKEND)
+            gpuErrchk(hipMalloc(&ptr_a.data, ptr_a.dims.pitch));
+#else
             gpuErrchk(cudaMalloc(&ptr_a.data, ptr_a.dims.pitch));
+#endif
         }
         FK_HOST_FUSE void h_malloc_init(PtrDims<ND::_1D>& dims) {
             if (dims.pitch == 0) {
@@ -98,11 +102,19 @@ namespace fk {
         }
         FK_HOST_FUSE void d_malloc(RawPtr<ND::_2D, T>& ptr_a) {
             if (ptr_a.dims.pitch == 0) {
-                size_t pitch;
+                size_t pitch = 0;
+#if defined(FK_HIP_BACKEND)
+                gpuErrchk(hipMallocPitch(&ptr_a.data, &pitch, sizeof(T) * ptr_a.dims.width, ptr_a.dims.height));
+#else
                 gpuErrchk(cudaMallocPitch(&ptr_a.data, &pitch, sizeof(T) * ptr_a.dims.width, ptr_a.dims.height));
+#endif
                 ptr_a.dims.pitch = static_cast<int>(pitch);
             } else {
+#if defined(FK_HIP_BACKEND)
+                gpuErrchk(hipMalloc(&ptr_a.data, PtrImpl<ND::_2D, T>::sizeInBytes(ptr_a.dims)));
+#else
                 gpuErrchk(cudaMalloc(&ptr_a.data, PtrImpl<ND::_2D, T>::sizeInBytes(ptr_a.dims)));
+#endif
             }
         }
         FK_HOST_FUSE void h_malloc_init(PtrDims<ND::_2D>& dims) {
@@ -124,7 +136,11 @@ namespace fk {
             if (ptr_a.dims.pitch == 0) {
                 ptr_a.dims.pitch = sizeof(T) * ptr_a.dims.width;
             }
+#if defined(FK_HIP_BACKEND)
+            gpuErrchk(hipMalloc(&ptr_a.data, PtrImpl<ND::_3D, T>::sizeInBytes(ptr_a.dims)));
+#else
             gpuErrchk(cudaMalloc(&ptr_a.data, PtrImpl<ND::_3D, T>::sizeInBytes(ptr_a.dims)));
+#endif
             ptr_a.dims.plane_pitch = ptr_a.dims.pitch * ptr_a.dims.height;
         }
         FK_HOST_FUSE void h_malloc_init(PtrDims<ND::_3D>& dims) {
@@ -145,7 +161,11 @@ namespace fk {
         }
         FK_HOST_FUSE void d_malloc(RawPtr<ND::T3D, T>& ptr_a) {
             PtrImpl<ND::T3D, T>::h_malloc_init(ptr_a.dims);
+#if defined(FK_HIP_BACKEND)
+            gpuErrchk(hipMalloc(&ptr_a.data, PtrImpl<ND::T3D, T>::sizeInBytes(ptr_a.dims)));
+#else
             gpuErrchk(cudaMalloc(&ptr_a.data, PtrImpl<ND::T3D, T>::sizeInBytes(ptr_a.dims)));
+#endif
         }
         FK_HOST_FUSE void h_malloc_init(PtrDims<ND::T3D>& dims) {
             if (dims.pitch == 0) {
@@ -183,13 +203,25 @@ namespace fk {
         }
 
         inline constexpr void allocDevice() {
-            #if defined(__NVCC__)
-            int currentDevice;
+            #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
+            int currentDevice = 0;
+#if defined(FK_HIP_BACKEND)
+            gpuErrchk(hipGetDevice(&currentDevice));
+#else
             gpuErrchk(cudaGetDevice(&currentDevice));
+#endif
+#if defined(FK_HIP_BACKEND)
+            gpuErrchk(hipSetDevice(deviceID));
+#else
             gpuErrchk(cudaSetDevice(deviceID));
+#endif
             PtrImpl<D, T>::d_malloc(ptr_a);
             if (currentDevice != deviceID) {
+#if defined(FK_HIP_BACKEND)
+                gpuErrchk(hipSetDevice(currentDevice));
+#else
                 gpuErrchk(cudaSetDevice(currentDevice));
+#endif
             }
             #else
             throw std::runtime_error("Device allocation not supported in non-CUDA compilation.");
@@ -202,14 +234,30 @@ namespace fk {
         }
 
         inline constexpr void allocHostPinned() {
-            #if defined(__NVCC__)
-            int currentDevice;
+            #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
+            int currentDevice = 0;
+#if defined(FK_HIP_BACKEND)
+            gpuErrchk(hipGetDevice(&currentDevice));
+#else
             gpuErrchk(cudaGetDevice(&currentDevice));
+#endif
+#if defined(FK_HIP_BACKEND)
+            gpuErrchk(hipSetDevice(deviceID));
+#else
             gpuErrchk(cudaSetDevice(deviceID));
+#endif
             PtrImpl<D, T>::h_malloc_init(ptr_a.dims);
+#if defined(FK_HIP_BACKEND)
+            gpuErrchk(hipHostMalloc(&ptr_a.data, PtrImpl<D, T>::sizeInBytes(ptr_a.dims)));
+#else
             gpuErrchk(cudaMallocHost(&ptr_a.data, PtrImpl<D, T>::sizeInBytes(ptr_a.dims)));
+#endif
             if (currentDevice != deviceID) {
+#if defined(FK_HIP_BACKEND)
+                gpuErrchk(hipSetDevice(currentDevice));
+#else
                 gpuErrchk(cudaSetDevice(currentDevice));
+#endif
             }
             #else
             throw std::runtime_error("Host pinned allocation not supported in non-CUDA compilation.");
@@ -217,15 +265,31 @@ namespace fk {
         }
 
         inline constexpr void allocDeviceAndPinned() {
-            #if defined(__NVCC__)
-            int currentDevice;
+            #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
+            int currentDevice = 0;
+#if defined(FK_HIP_BACKEND)
+            gpuErrchk(hipGetDevice(&currentDevice));
+#else
             gpuErrchk(cudaGetDevice(&currentDevice));
+#endif
+#if defined(FK_HIP_BACKEND)
+            gpuErrchk(hipSetDevice(deviceID));
+#else
             gpuErrchk(cudaSetDevice(deviceID));
+#endif
             PtrImpl<D, T>::d_malloc(ptr_a);
             PtrImpl<D, T>::h_malloc_init(ptr_pinned.dims);
+#if defined(FK_HIP_BACKEND)
+            gpuErrchk(hipHostMalloc(&ptr_pinned.data, PtrImpl<D, T>::sizeInBytes(ptr_pinned.dims)));
+#else
             gpuErrchk(cudaMallocHost(&ptr_pinned.data, PtrImpl<D, T>::sizeInBytes(ptr_pinned.dims)));
+#endif
             if (currentDevice != deviceID) {
+#if defined(FK_HIP_BACKEND)
+                gpuErrchk(hipSetDevice(currentDevice));
+#else
                 gpuErrchk(cudaSetDevice(currentDevice));
+#endif
             }
             #else
             throw std::runtime_error("Host pinned and Device allocations not supported in non-CUDA compilation.");
@@ -240,8 +304,12 @@ namespace fk {
                 switch (type) {
                 case MemType::Device:
                     {
-                        #if defined(__NVCC__)
+                        #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
+#if defined(FK_HIP_BACKEND)
+                        gpuErrchk(hipFree(ref->ptr));
+#else
                         gpuErrchk(cudaFree(ref->ptr));
+#endif
                         #else
                         throw std::runtime_error("Device memory deallocation not supported in non-CUDA compilation.");
                         #endif
@@ -254,8 +322,12 @@ namespace fk {
                     }
                 case MemType::HostPinned:
                     {
-                        #if defined(__NVCC__)
+                        #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
+#if defined(FK_HIP_BACKEND)
+                        gpuErrchk(hipHostFree(ref->ptr));
+#else
                         gpuErrchk(cudaFreeHost(ref->ptr));
+#endif
                         #else
                         throw std::runtime_error("Host pinned memory deallocation not supported in non-CUDA compilation.");
                         #endif
@@ -263,9 +335,17 @@ namespace fk {
                     }
                 case MemType::DeviceAndPinned:
                 {
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
+#if defined(FK_HIP_BACKEND)
+                    gpuErrchk(hipFree(ref->ptr));
+#else
                     gpuErrchk(cudaFree(ref->ptr));
+#endif
+#if defined(FK_HIP_BACKEND)
+                    gpuErrchk(hipHostFree(ref->pinnedPtr));
+#else
                     gpuErrchk(cudaFreeHost(ref->pinnedPtr));
+#endif
 #else
                     throw std::runtime_error("Device and Host pinned memory deallocation not supported in non-CUDA compilation.");
 #endif
@@ -276,8 +356,9 @@ namespace fk {
                 }
 
                 delete ref;
-                ref = nullptr;
             }
+            // This Ptr no longer holds a reference, also when others still share the allocation
+            ref = nullptr;
         }
 
 #if defined(__NVCC__)
@@ -294,6 +375,24 @@ namespace fk {
                     throw std::runtime_error("Padding only supported in 2D pointers");
                 } else {
                     gpuErrchk(cudaMemcpy2DAsync(other.data, other.dims.pitch, thisPtr.data, thisPtr.dims.pitch,
+                        thisPtr.dims.width * sizeof(T), thisPtr.dims.height, kind, stream));
+                }
+            }
+        }
+#elif defined(FK_HIP_BACKEND)
+        inline void copy(const RawPtr<D, T>& thisPtr, RawPtr<D, T>& other, const hipMemcpyKind& kind,
+                         hipStream_t stream = 0) const {
+            if ((other.dims.pitch == other.dims.width * sizeof(T)) && (thisPtr.dims.pitch == thisPtr.dims.width * sizeof(T))) {
+                if (sizeInBytes() != PtrImpl<D, T>::sizeInBytes(other.dims)) {
+                    throw std::runtime_error("Size mismatch in upload.");
+                }
+                const size_t totalBytes = sizeInBytes();
+                gpuErrchk(hipMemcpyAsync(other.data, thisPtr.data, totalBytes, kind, stream));
+            } else {
+                if constexpr (D > ND::_2D || D == ND::_1D) {
+                    throw std::runtime_error("Padding only supported in 2D pointers");
+                } else {
+                    gpuErrchk(hipMemcpy2DAsync(other.data, other.dims.pitch, thisPtr.data, thisPtr.dims.pitch,
                         thisPtr.dims.width * sizeof(T), thisPtr.dims.height, kind, stream));
                 }
             }
@@ -440,11 +539,9 @@ namespace fk {
 
         inline constexpr operator RawPtr<D, T>() const { return ptr_a; }
 
+        // The crop shares the allocation: the constructor adds its reference
         inline constexpr Ptr<D, T> crop(const Point p, const PtrDims<D>& newDims) {
             T* ptr = At::point(p, ptr_a);
-            if (ref) {
-                ref->cnt.fetch_add(1);
-            }
             const RawPtr<D, T> newRawPtr = { ptr, newDims };
             if (type == MemType::DeviceAndPinned) {
                 T* pinnedPtr = At::point(p, ptr_pinned);
@@ -560,10 +657,59 @@ namespace fk {
                 copy(ptr_a, ptr_pinned, kind, stream);
             }
         }
+#elif defined(FK_HIP_BACKEND)
+        inline void uploadTo(Ptr<D, T>& other, hipStream_t stream = 0) {
+            constexpr hipMemcpyKind kind = hipMemcpyHostToDevice;
+            constexpr MemType otherExpectedMemType1 = MemType::Device;
+            constexpr MemType otherExpectedMemType2 = MemType::DeviceAndPinned;
+            constexpr MemType thisExpectedMemType1 = MemType::Host;
+            constexpr MemType thisExpectedMemType2 = MemType::HostPinned;
+            if (type == thisExpectedMemType1 || type == thisExpectedMemType2) {
+                if (other.getMemType() == otherExpectedMemType1 || other.getMemType() == otherExpectedMemType2) {
+                    auto dstRawPtr = other.ptr();
+                    copy(ptr_a, dstRawPtr, kind, stream);
+                } else {
+                    throw std::runtime_error("Upload can only copy to Device pointers");
+                }
+            } else {
+                throw std::runtime_error("Upload can only copy from Host or HostPinned pointers.");
+            }
+        }
+
+        inline void downloadTo(Ptr<D, T>& other, hipStream_t stream = 0) {
+            constexpr hipMemcpyKind kind = hipMemcpyDeviceToHost;
+            constexpr MemType otherExpectedMemType1 = MemType::Host;
+            constexpr MemType otherExpectedMemType2 = MemType::HostPinned;
+            constexpr MemType thisExpectedMemType1 = MemType::Device;
+            constexpr MemType thisExpectedMemType2 = MemType::DeviceAndPinned;
+            if (type == thisExpectedMemType1 || type == thisExpectedMemType2) {
+                if (other.getMemType() == otherExpectedMemType1 || other.getMemType() == otherExpectedMemType2) {
+                    auto dstRawPtr = other.ptr();
+                    copy(ptr_a, dstRawPtr, kind, stream);
+                } else {
+                    throw std::runtime_error("Download can only copy to Host or HostPinned pointers.");
+                }
+            } else {
+                throw std::runtime_error("Download can only copy from Device pointers.");
+            }
+        }
+
+        inline void upload(Stream_<ParArch::GPU_AMD>& stream) {
+            if (type == MemType::DeviceAndPinned) {
+                constexpr hipMemcpyKind kind = hipMemcpyHostToDevice;
+                copy(ptr_pinned, ptr_a, kind, stream);
+            }
+        }
+        inline void download(Stream_<ParArch::GPU_AMD>& stream) {
+            if (type == MemType::DeviceAndPinned) {
+                constexpr hipMemcpyKind kind = hipMemcpyDeviceToHost;
+                copy(ptr_a, ptr_pinned, kind, stream);
+            }
+        }
 #else
         inline void upload(Stream& stream) {}
         inline void download(Stream& stream) {}
-#endif // defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED)
+#endif // defined(__NVCC__) || defined(FK_HIP_BACKEND)
 
         inline T at(const Point p) const {
             if (type != MemType::Device) {
@@ -625,9 +771,7 @@ namespace fk {
             }
             const PtrDims<ND::_2D> dims_a{ ptr_a.dims.width, ptr_a.dims.height, ptr_a.dims.pitch };
             const PtrDims<ND::_2D> dims_pinned{ ptr_pinned.dims.width, ptr_pinned.dims.height, ptr_pinned.dims.pitch };
-            if (ref) {
-                ref->cnt.fetch_add(1);
-            }
+            // The plane shares the allocation: the constructor adds its reference
             const Point p{ 0, 0, static_cast<int>(plane) };
             return { ref, RawPtr<ND::_2D, T>{At::point(p, ptr_a), dims_a}, RawPtr<ND::_2D, T>{At::point(p, ptr_pinned), dims_pinned}, type, deviceID };
         }

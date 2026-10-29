@@ -23,6 +23,17 @@
 
 #if defined(__NVCC__)
 #include <cuda_runtime.h>
+#elif defined(FK_HIP_BACKEND)
+#include <hip/hip_runtime.h>
+// Kernel parameters are always in the constant kernel argument segment on AMD GPUs: __grid_constant__ is CUDA syntax,
+// accepted by clang when it supports the attribute, and empty otherwise
+#if !defined(__grid_constant__)
+#if __has_attribute(grid_constant)
+#define __grid_constant__ __attribute__((grid_constant))
+#else
+#define __grid_constant__
+#endif
+#endif
 #endif
 
 #if defined(NVRTC_ENABLED)
@@ -31,7 +42,7 @@
 #endif
 #endif // NVRTC_COMPILER
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
 #define FK_DEVICE_FUSE __device__ __forceinline__ static constexpr
 #define FK_DEVICE_CNST __device__ __forceinline__ constexpr
 #define FK_HOST_DEVICE_FUSE __host__ FK_DEVICE_FUSE
@@ -68,7 +79,7 @@
 #else
 #define FK_RESTRICT __restrict__
 #endif // _MSC_VER
-#endif // __CUDACC__ || __NVCC__ || NVRTC_COMPILER || __HIPCC__
+#endif // __CUDACC__ || __NVCC__ || NVRTC_COMPILER || FK_HIP_BACKEND
 
 #ifdef CUDART_VERSION
 #define CUDART_MAJOR_VERSION CUDART_VERSION/1000
@@ -92,8 +103,9 @@ using ulonglong = unsigned long long;
 using ushort = unsigned short;
 using ulong = unsigned long;
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
 namespace fk {
+#if defined(__NVCC__)
     inline void gpuAssert(cudaError_t code,
                           const char *file,
                           int line,
@@ -109,6 +121,23 @@ namespace fk {
             if (abort) throw std::runtime_error(message.c_str());
         }
     }
+#else
+    inline void gpuAssert(hipError_t code,
+                          const char *file,
+                          int line,
+                          bool abort = true) {
+        if (code != hipSuccess) {
+            std::string message = "GPU Error: ";
+            message.append(hipGetErrorString(code));
+            message.append(" File: ");
+            message.append(file);
+            message.append(" Line:");
+            message.append(std::to_string(line).c_str());
+            message.append("\n");
+            if (abort) throw std::runtime_error(message.c_str());
+        }
+    }
+#endif // __NVCC__
 #if defined(NVRTC_ENABLED)
     inline void gpuAssert(CUresult code,
                           const char* file,
@@ -147,7 +176,7 @@ namespace fk {
 } // namespace fk
 
 #define gpuErrchk(ans) { fk::gpuAssert((ans), __FILE__, __LINE__, true); }
-#endif // defined(__NVCC__)
+#endif // defined(__NVCC__) || defined(FK_HIP_BACKEND)
 
 // Null type, used for Operation required aliases that can not still be known,
 // because they are deduced from a backwards operation that is till not defined.

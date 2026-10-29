@@ -261,6 +261,10 @@ namespace fk {
 
 #if defined(__NVCC__)
 #include <vector_types.h>
+#elif defined(FK_HIP_BACKEND)
+// HIP declares its own vector types (::float3, ::uchar3...) in the global namespace (hip/hip_runtime.h). They are not
+// FKL vector types: they are not aggregates, they come with their own operators and some layouts differ (::double4 is
+// 32/32 under HIP). FKL uses its own types under HIP, as it does on the CPU: fk::float3, fk::uchar3... (see below).
 #else
 using char1 = fk::Char1;
 using uchar1 = fk::Uchar1;
@@ -310,6 +314,43 @@ using double1 = fk::Double1;
 using double2 = fk::Double2;
 using double3 = fk::Double3;
 using double4 = fk::Double4;
-#endif /* __NVCC__ || __HIPCC__ */
+#endif /* __NVCC__ || FK_HIP_BACKEND */
+
+// The FKL vector types, as fk::float3, fk::uchar3..., in every backend. With nvcc they are the CUDA vector types, and on
+// the CPU the global aliases above: there the fk:: names are using-declarations of the same types, so code that also
+// does "using namespace fk;" can keep using the global names. Under HIP the global names are HIP's own types, so code
+// that has to compile for HIP must use the fk:: names.
+#if defined(FK_HIP_BACKEND)
+#define FK_VECTOR_TYPE_NAME(name, StructName) using name = StructName;
+#else
+#define FK_VECTOR_TYPE_NAME(name, StructName) using ::name;
+#endif
+#define FK_VECTOR_TYPE_NAMES(base, Base) \
+    FK_VECTOR_TYPE_NAME(base##1, Base##1) \
+    FK_VECTOR_TYPE_NAME(base##2, Base##2) \
+    FK_VECTOR_TYPE_NAME(base##3, Base##3) \
+    FK_VECTOR_TYPE_NAME(base##4, Base##4)
+
+namespace fk {
+    FK_VECTOR_TYPE_NAMES(char, Char)
+    FK_VECTOR_TYPE_NAMES(uchar, Uchar)
+    FK_VECTOR_TYPE_NAMES(short, Short)
+    FK_VECTOR_TYPE_NAMES(ushort, Ushort)
+    FK_VECTOR_TYPE_NAMES(int, Int)
+    FK_VECTOR_TYPE_NAMES(uint, Uint)
+    FK_VECTOR_TYPE_NAMES(long, Long)
+    FK_VECTOR_TYPE_NAMES(ulong, Ulong)
+    FK_VECTOR_TYPE_NAMES(float, Float)
+    FK_VECTOR_TYPE_NAMES(longlong, Longlong)
+    FK_VECTOR_TYPE_NAMES(ulonglong, Ulonglong)
+    FK_VECTOR_TYPE_NAMES(double, Double)
+    // The bool vector types are FKL's in every backend (neither CUDA nor HIP has them)
+    using ::bool1;
+    using ::bool2;
+    using ::bool3;
+    using ::bool4;
+} // namespace fk
+#undef FK_VECTOR_TYPE_NAMES
+#undef FK_VECTOR_TYPE_NAME
 
 #endif /* FK_VECTOR_TYPES */

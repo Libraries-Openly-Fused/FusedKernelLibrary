@@ -42,10 +42,10 @@ void testIsEvenFunction() {
 // Test RGB2Gray conversion functionality
 void testRGB2GrayConversion() {
     // Test with known RGB values
-    constexpr std::array<uchar3, 3> inputVals{
-        uchar3{255, 0, 0},    // Pure red -> expected ~77 (0.299*255)
-        uchar3{0, 255, 0},    // Pure green -> expected ~150 (0.587*255)  
-        uchar3{0, 0, 255}     // Pure blue -> expected ~29 (0.114*255)
+    constexpr std::array<fk::uchar3, 3> inputVals{
+        fk::uchar3{255, 0, 0},    // Pure red -> expected ~77 (0.299*255)
+        fk::uchar3{0, 255, 0},    // Pure green -> expected ~150 (0.587*255)  
+        fk::uchar3{0, 0, 255}     // Pure blue -> expected ~29 (0.114*255)
     };
 
     constexpr std::array<uchar, 3> expectedVals{
@@ -54,65 +54,65 @@ void testRGB2GrayConversion() {
         29     // 0.114*255 ≈ 29.07 -> 29
     };
 
-    TestCaseBuilder<fk::RGB2Gray<uchar3, uchar>>::addTest(testCases, inputVals, expectedVals);
+    TestCaseBuilder<fk::RGB2Gray<fk::uchar3, uchar>>::addTest(testCases, inputVals, expectedVals);
 }
 
 // Test AddOpaqueAlpha functionality
 void testAddOpaqueAlpha() {
-    constexpr std::array<uchar3, 2> inputVals{
-        uchar3{100, 150, 200},
-        uchar3{50, 75, 125}
+    constexpr std::array<fk::uchar3, 2> inputVals{
+        fk::uchar3{100, 150, 200},
+        fk::uchar3{50, 75, 125}
     };
 
-    constexpr std::array<uchar4, 2> expectedVals{
-        uchar4{100, 150, 200, 255},  // Alpha = maxDepthValue<p8bit> = 255
-        uchar4{50, 75, 125, 255}
+    constexpr std::array<fk::uchar4, 2> expectedVals{
+        fk::uchar4{100, 150, 200, 255},  // Alpha = maxDepthValue<p8bit> = 255
+        fk::uchar4{50, 75, 125, 255}
     };
 
-    TestCaseBuilder<fk::AddOpaqueAlpha<uchar3, fk::ColorDepth::p8bit>>::addTest(testCases, inputVals, expectedVals);
+    TestCaseBuilder<fk::AddOpaqueAlpha<fk::uchar3, fk::ColorDepth::p8bit>>::addTest(testCases, inputVals, expectedVals);
 }
 
 // Test ColorConversion operations
 void testColorConversionOperations() {
     // Test BGR2BGRA conversion (adds alpha)
-    constexpr std::array<uchar3, 2> inputVals1{
-        uchar3{100, 150, 200},
-        uchar3{50, 75, 125}
+    constexpr std::array<fk::uchar3, 2> inputVals1{
+        fk::uchar3{100, 150, 200},
+        fk::uchar3{50, 75, 125}
     };
 
-    constexpr std::array<uchar4, 2> expectedVals1{
-        uchar4{100, 150, 200, 255},
-        uchar4{50, 75, 125, 255}
+    constexpr std::array<fk::uchar4, 2> expectedVals1{
+        fk::uchar4{100, 150, 200, 255},
+        fk::uchar4{50, 75, 125, 255}
     };
 
-    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2BGRA, uchar3, uchar4>>::addTest(testCases, inputVals1, expectedVals1);
+    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2BGRA, fk::uchar3, fk::uchar4>>::addTest(testCases, inputVals1, expectedVals1);
 
     // Test BGR2RGB conversion (channel reorder)  
-    constexpr std::array<uchar3, 2> inputVals2{
-        uchar3{100, 150, 200},  // BGR
-        uchar3{50, 75, 125}     // BGR
+    constexpr std::array<fk::uchar3, 2> inputVals2{
+        fk::uchar3{100, 150, 200},  // BGR
+        fk::uchar3{50, 75, 125}     // BGR
     };
 
-    constexpr std::array<uchar3, 2> expectedVals2{
-        uchar3{200, 150, 100},  // RGB (channels 2,1,0)
-        uchar3{125, 75, 50}     // RGB (channels 2,1,0)
+    constexpr std::array<fk::uchar3, 2> expectedVals2{
+        fk::uchar3{200, 150, 100},  // RGB (channels 2,1,0)
+        fk::uchar3{125, 75, 50}     // RGB (channels 2,1,0)
     };
 
-    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2RGB, uchar3, uchar3>>::addTest(testCases, inputVals2, expectedVals2);
+    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2RGB, fk::uchar3, fk::uchar3>>::addTest(testCases, inputVals2, expectedVals2);
 }
 
 void testStaticAddAlpha() {
     // Test StaticAddAlpha with alpha value 255
-    using StaticAddAlphaTest = fk::StaticAddAlpha<uchar3, 255>;
+    using StaticAddAlphaTest = fk::StaticAddAlpha<fk::uchar3, 255>;
 
-    std::array<uchar3, 2> inputVals = {
-        uchar3{100, 150, 200},
-        uchar3{50, 75, 125}
+    std::array<fk::uchar3, 2> inputVals = {
+        fk::uchar3{100, 150, 200},
+        fk::uchar3{50, 75, 125}
     };
 
-    std::array<uchar4, 2> expectedVals = {
-        uchar4{100, 150, 200, 255},
-        uchar4{50, 75, 125, 255}
+    std::array<fk::uchar4, 2> expectedVals = {
+        fk::uchar4{100, 150, 200, 255},
+        fk::uchar4{50, 75, 125, 255}
     };
 
     TestCaseBuilder<StaticAddAlphaTest>::addTest(testCases, inputVals, expectedVals);
@@ -121,11 +121,11 @@ void testStaticAddAlpha() {
 void testBGR2Gray() {
     // Test BGR2Gray with CCIR_601 formula  
     // Formula uses input.x * 0.299 + input.y * 0.587 + input.z * 0.114
-    using BGR2GrayTest = fk::RGB2Gray<uchar3, uchar, fk::GrayFormula::CCIR_601>;
+    using BGR2GrayTest = fk::RGB2Gray<fk::uchar3, uchar, fk::GrayFormula::CCIR_601>;
 
-    std::array<uchar3, 2> inputVals = {
-        uchar3{50, 100, 150},   // x=50, y=100, z=150
-        uchar3{75, 125, 200}    // x=75, y=125, z=200
+    std::array<fk::uchar3, 2> inputVals = {
+        fk::uchar3{50, 100, 150},   // x=50, y=100, z=150
+        fk::uchar3{75, 125, 200}    // x=75, y=125, z=200
     };
 
     // Expected gray values using formula: x * 0.299 + y * 0.587 + z * 0.114
@@ -143,54 +143,54 @@ void testBGR2Gray() {
 void testFusedColorConversionAliases() {
     // COLOR_BGR2GRAY: reorder(2,1,0) then RGB2Gray
     // input is BGR -> luma = 0.299*R(z) + 0.587*G(y) + 0.114*B(x)
-    std::array<uchar3, 2> inBGR = {
-        uchar3{50, 100, 150},
-        uchar3{75, 125, 200}
+    std::array<fk::uchar3, 2> inBGR = {
+        fk::uchar3{50, 100, 150},
+        fk::uchar3{75, 125, 200}
     };
     std::array<uchar, 2> expGray = {
         static_cast<uchar>(std::nearbyint(150 * 0.299f + 100 * 0.587f + 50 * 0.114f)),
         static_cast<uchar>(std::nearbyint(200 * 0.299f + 125 * 0.587f + 75 * 0.114f))
     };
-    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2GRAY, uchar3, uchar>>::
+    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2GRAY, fk::uchar3, uchar>>::
         addTest(testCases, inBGR, expGray);
 
     // COLOR_BGRA2GRAY: reorder(2,1,0,3) then RGB2Gray (alpha discarded by formula)
-    std::array<uchar4, 2> inBGRA = {
-        uchar4{50, 100, 150, 255},
-        uchar4{75, 125, 200, 128}
+    std::array<fk::uchar4, 2> inBGRA = {
+        fk::uchar4{50, 100, 150, 255},
+        fk::uchar4{75, 125, 200, 128}
     };
-    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGRA2GRAY, uchar4, uchar>>::
+    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGRA2GRAY, fk::uchar4, uchar>>::
         addTest(testCases, inBGRA, expGray);
 
     // COLOR_BGR2RGBA: reorder(2,1,0) then AddOpaqueAlpha
-    std::array<uchar4, 2> expRGBA = {
-        uchar4{150, 100, 50, 255},
-        uchar4{200, 125, 75, 255}
+    std::array<fk::uchar4, 2> expRGBA = {
+        fk::uchar4{150, 100, 50, 255},
+        fk::uchar4{200, 125, 75, 255}
     };
-    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2RGBA, uchar3, uchar4>>::
+    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2RGBA, fk::uchar3, fk::uchar4>>::
         addTest(testCases, inBGR, expRGBA);
 
     // COLOR_BGRA2RGB: reorder(2,1,0,3) then Discard -> 3 channels
-    std::array<uchar3, 2> expRGB = {
-        uchar3{150, 100, 50},
-        uchar3{200, 125, 75}
+    std::array<fk::uchar3, 2> expRGB = {
+        fk::uchar3{150, 100, 50},
+        fk::uchar3{200, 125, 75}
     };
-    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGRA2RGB, uchar4, uchar3>>::
+    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGRA2RGB, fk::uchar4, fk::uchar3>>::
         addTest(testCases, inBGRA, expRGB);
 }
 
 void testAddOpaqueAlphaStruct() {
     // Test AddOpaqueAlpha struct with 8-bit depth
-    using AddOpaqueAlphaTest = fk::AddOpaqueAlpha<uchar3, fk::ColorDepth::p8bit>;
+    using AddOpaqueAlphaTest = fk::AddOpaqueAlpha<fk::uchar3, fk::ColorDepth::p8bit>;
 
-    std::array<uchar3, 2> inputVals = {
-        uchar3{100, 150, 200},
-        uchar3{50, 75, 125}
+    std::array<fk::uchar3, 2> inputVals = {
+        fk::uchar3{100, 150, 200},
+        fk::uchar3{50, 75, 125}
     };
 
-    std::array<uchar4, 2> expectedVals = {
-        uchar4{100, 150, 200, 255},  // Alpha = 255 for 8-bit
-        uchar4{50, 75, 125, 255}
+    std::array<fk::uchar4, 2> expectedVals = {
+        fk::uchar4{100, 150, 200, 255},  // Alpha = 255 for 8-bit
+        fk::uchar4{50, 75, 125, 255}
     };
 
     TestCaseBuilder<AddOpaqueAlphaTest>::addTest(testCases, inputVals, expectedVals);
@@ -198,16 +198,16 @@ void testAddOpaqueAlphaStruct() {
 
 void testDenormalizePixel() {
     // Test DenormalizePixel with 8-bit depth
-    using DenormalizePixelTest = fk::DenormalizePixel<float3, fk::ColorDepth::p8bit>;
+    using DenormalizePixelTest = fk::DenormalizePixel<fk::float3, fk::ColorDepth::p8bit>;
     
-    std::array<float3, 2> inputVals = {
-        float3{0.0f, 0.5f, 1.0f},      // Normalized values [0, 1]
-        float3{0.25f, 0.75f, 0.9f}
+    std::array<fk::float3, 2> inputVals = {
+        fk::float3{0.0f, 0.5f, 1.0f},      // Normalized values [0, 1]
+        fk::float3{0.25f, 0.75f, 0.9f}
     };
     
-    std::array<float3, 2> expectedVals = {
-        float3{0.0f, 127.5f, 255.0f},     // Denormalized to [0, 255]
-        float3{63.75f, 191.25f, 229.5f}
+    std::array<fk::float3, 2> expectedVals = {
+        fk::float3{0.0f, 127.5f, 255.0f},     // Denormalized to [0, 255]
+        fk::float3{63.75f, 191.25f, 229.5f}
     };
     
     TestCaseBuilder<DenormalizePixelTest>::addTest(testCases, inputVals, expectedVals);
@@ -215,16 +215,16 @@ void testDenormalizePixel() {
 
 void testNormalizePixel() {
     // Test NormalizePixel with 8-bit depth
-    using NormalizePixelTest = fk::NormalizePixel<uchar3, fk::ColorDepth::p8bit>;
+    using NormalizePixelTest = fk::NormalizePixel<fk::uchar3, fk::ColorDepth::p8bit>;
     
-    std::array<uchar3, 2> inputVals = {
-        uchar3{0, 128, 255},
-        uchar3{64, 192, 32}
+    std::array<fk::uchar3, 2> inputVals = {
+        fk::uchar3{0, 128, 255},
+        fk::uchar3{64, 192, 32}
     };
     
-    std::array<float3, 2> expectedVals = {
-        float3{0.0f, 128.0f/255.0f, 1.0f},        // Normalized to [0, 1]
-        float3{64.0f/255.0f, 192.0f/255.0f, 32.0f/255.0f}
+    std::array<fk::float3, 2> expectedVals = {
+        fk::float3{0.0f, 128.0f/255.0f, 1.0f},        // Normalized to [0, 1]
+        fk::float3{64.0f/255.0f, 192.0f/255.0f, 32.0f/255.0f}
     };
     
     TestCaseBuilder<NormalizePixelTest>::addTest(testCases, inputVals, expectedVals);
@@ -232,16 +232,16 @@ void testNormalizePixel() {
 
 void testSaturateDenormalizePixel() {
     // Test SaturateDenormalizePixel with 8-bit depth
-    using SaturateDenormalizePixelTest = fk::SaturateDenormalizePixel<float3, uchar3, fk::ColorDepth::p8bit>;
+    using SaturateDenormalizePixelTest = fk::SaturateDenormalizePixel<fk::float3, fk::uchar3, fk::ColorDepth::p8bit>;
     
-    std::array<float3, 2> inputVals = {
-        float3{-0.5f, 0.5f, 1.5f},     // Values that need saturation and denormalization
-        float3{0.25f, 0.75f, 0.9f}
+    std::array<fk::float3, 2> inputVals = {
+        fk::float3{-0.5f, 0.5f, 1.5f},     // Values that need saturation and denormalization
+        fk::float3{0.25f, 0.75f, 0.9f}
     };
     
-    std::array<uchar3, 2> expectedVals = {
-        uchar3{0, 128, 255},            // Saturated to [0,1] then denormalized to [0,255]
-        uchar3{63, 191, 229}            // 0.25*255=63.75≈63, 0.75*255=191.25≈191, 0.9*255=229.5≈229
+    std::array<fk::uchar3, 2> expectedVals = {
+        fk::uchar3{0, 128, 255},            // Saturated to [0,1] then denormalized to [0,255]
+        fk::uchar3{63, 191, 229}            // 0.25*255=63.75≈63, 0.75*255=191.25≈191, 0.9*255=229.5≈229
     };
     
     TestCaseBuilder<SaturateDenormalizePixelTest>::addTest(testCases, inputVals, expectedVals);
@@ -250,17 +250,17 @@ void testSaturateDenormalizePixel() {
 void testNormalizeColorRangeDepth() {
     // Test NormalizeColorRangeDepth with 8-bit depth
     // For 8-bit, floatShiftFactor is 1.0f, so input * 1.0f = input (unchanged)
-    using NormalizeColorRangeDepthTest = fk::NormalizeColorRangeDepth<float3, fk::ColorDepth::p8bit>;
+    using NormalizeColorRangeDepthTest = fk::NormalizeColorRangeDepth<fk::float3, fk::ColorDepth::p8bit>;
     
-    std::array<float3, 2> inputVals = {
-        float3{0.0f, 128.0f, 255.0f},    
-        float3{64.0f, 192.0f, 100.0f}
+    std::array<fk::float3, 2> inputVals = {
+        fk::float3{0.0f, 128.0f, 255.0f},    
+        fk::float3{64.0f, 192.0f, 100.0f}
     };
     
     // For 8-bit depth, floatShiftFactor = 1.0f, so output = input * 1.0f = input
-    std::array<float3, 2> expectedVals = {
-        float3{0.0f, 128.0f, 255.0f},    
-        float3{64.0f, 192.0f, 100.0f}
+    std::array<fk::float3, 2> expectedVals = {
+        fk::float3{0.0f, 128.0f, 255.0f},    
+        fk::float3{64.0f, 192.0f, 100.0f}
     };
 
     TestCaseBuilder<NormalizeColorRangeDepthTest>::addTest(testCases, inputVals, expectedVals);
@@ -280,7 +280,7 @@ void testReadYUV() {
     { 128, 254, 129, 255, 128, 254, 129, 255,
       128, 254, 129, 255, 128, 254, 129, 255 }; // UYVY pixel data
     
-    constexpr uchar3 ptr1Expected[] =
+    constexpr fk::uchar3 ptr1Expected[] =
     { {254, 128, 129}, {255, 128, 129}, {254, 128, 129}, {255, 128, 129},
       {254, 128, 129}, {255, 128, 129}, {254, 128, 129}, {255, 128, 129} }; // Expected YUV values
     
@@ -289,7 +289,7 @@ void testReadYUV() {
     { 0,  2, 1,  3,  4,  6,  5,  7,
       8, 10, 9, 11, 12, 14, 13, 15 }; // UYVY pixel data
     
-    constexpr uchar3 ptr2Expected[] =
+    constexpr fk::uchar3 ptr2Expected[] =
     { { 2, 0, 1}, { 3, 0, 1}, { 6,  4,  5}, { 7,  4,  5},
       {10, 8, 9}, {11, 8, 9}, {14, 12, 13}, {15, 12, 13}  }; // Expected YUV values
 
@@ -304,7 +304,7 @@ void testReadYUV() {
       0,  2,  1,  3,  4,  6,  5,  7,  8, 10,  9, 11, 12, 14, 13, 15,
      16, 18, 17, 19, 20, 22, 21, 23, 24, 26, 25, 27, 28, 30, 29, 31 }; // UYVY pixel data
 
-    constexpr uchar3 ptr3Expected[] =
+    constexpr fk::uchar3 ptr3Expected[] =
     {{ 2,  0,  1}, { 3,  0,  1}, { 6,  4,  5}, { 7,  4,  5}, {10,  8,  9}, {11,  8,  9}, {14, 12, 13}, {15, 12, 13},
      {18, 16, 17}, {19, 16, 17}, {22, 20, 21}, {23, 20, 21}, {26, 24, 25}, {27, 24, 25}, {30, 28, 29}, {31, 28, 29},
      { 2,  0,  1}, { 3,  0,  1}, { 6,  4,  5}, { 7,  4,  5}, {10,  8,  9}, {11,  8,  9}, {14, 12, 13}, {15, 12, 13},
@@ -323,10 +323,10 @@ void testReadYUV() {
       fk::Image<fk::PixelFormat::UYVY>(res3.width,   res3.height)
     };
 
-    std::array<fk::Ptr<fk::ND::_2D, uchar3>, 3> expectedVals = {
-      fk::Ptr<fk::ND::_2D, uchar3>(res1_2.width, res1_2.height, 0, fk::MemType::Host),
-      fk::Ptr<fk::ND::_2D, uchar3>(res1_2.width, res1_2.height, 0, fk::MemType::Host),
-      fk::Ptr<fk::ND::_2D, uchar3>(  res3.width,   res3.height, 0, fk::MemType::Host)
+    std::array<fk::Ptr<fk::ND::_2D, fk::uchar3>, 3> expectedVals = {
+      fk::Ptr<fk::ND::_2D, fk::uchar3>(res1_2.width, res1_2.height, 0, fk::MemType::Host),
+      fk::Ptr<fk::ND::_2D, fk::uchar3>(res1_2.width, res1_2.height, 0, fk::MemType::Host),
+      fk::Ptr<fk::ND::_2D, fk::uchar3>(  res3.width,   res3.height, 0, fk::MemType::Host)
     };
 
     // Copy values test 1 and 2

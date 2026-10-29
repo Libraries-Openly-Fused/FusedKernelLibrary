@@ -118,14 +118,14 @@ constexpr bool test_allUnaryTypes() {
     constexpr bool mustFalse5 = Test_allUnaryTypes<NoBinary>::value;
     using ComplexType =
     fk::Read<fk::FusedOperation<typename fk::ResizeComplete<fk::AspectRatio::PRESERVE_AR,
-                                fk::Ternary<fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>>>::InstantiableType,
-                                typename fk::Mul<float3, float3, float3>::InstantiableType>>;
+                                fk::Ternary<fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, fk::uchar3>>>>>>>::InstantiableType,
+                                typename fk::Mul<fk::float3, fk::float3, fk::float3>::InstantiableType>>;
     constexpr bool mustFalse6 = fk::allUnaryTypes<ComplexType>;
 
     using ComplexType2 =
         fk::Read<fk::FusedOperation<typename fk::ResizeComplete<fk::AspectRatio::PRESERVE_AR,
-                                    fk::Ternary<fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, uchar3>>>>>>>::InstantiableType,
-                                    typename fk::Mul<float3, float3, float3>::InstantiableType>>;
+                                    fk::Ternary<fk::InterpolateComplete<fk::InterpolationType::INTER_LINEAR, fk::ReadBack<fk::Crop<fk::Read<fk::PerThreadRead<fk::ND::_2D, fk::uchar3>>>>>>>::InstantiableType,
+                                    typename fk::Mul<fk::float3, fk::float3, fk::float3>::InstantiableType>>;
     constexpr bool mustFalse7 = Test_allUnaryTypes<fk::TypeList<ComplexType2>>::value;
 
     return mustTrue && !fk::or_v<mustFalse1, mustFalse2, mustFalse3, mustFalse4, mustFalse5, mustFalse6, mustFalse7>;

@@ -83,7 +83,7 @@ int launch() {
                                 seventhType>, "Unexpected types in TypeList");
     }
 
-    using TL6 = fk::TypeList<int, char, float, double, uchar3>;
+    using TL6 = fk::TypeList<int, char, float, double, fk::uchar3>;
     using TL6_0 = TL6::at<0>;
     using TL6_1 = TL6::at<1>;
     using TL6_2 = TL6::at<2>;
@@ -93,7 +93,7 @@ int launch() {
     static_assert(std::is_same_v<char, TL6_1>, "Unexpected type");
     static_assert(std::is_same_v<float, TL6_2>, "Unexpected type");
     static_assert(std::is_same_v<double, TL6_3>, "Unexpected type");
-    static_assert(std::is_same_v<uchar3, TL6_4>, "Unexpected type");
+    static_assert(std::is_same_v<fk::uchar3, TL6_4>, "Unexpected type");
 
     return 0;
 }

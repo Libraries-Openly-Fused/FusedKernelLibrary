@@ -43,7 +43,7 @@ namespace fk {
     union ArrayVector {
         enum { size = SIZE };
         T at[SIZE];
-        FK_HOST_DEVICE_CNST ArrayVector(const T& initValue) {
+        FK_HOST_DEVICE_CNST ArrayVector(const T& initValue) : at{} {
             for (int i = 0; i < static_cast<int>(SIZE); i++) {
                 at[i] = initValue;
             }
@@ -102,7 +102,7 @@ namespace fk {
         };
         FK_HOST_DEVICE_CNST ArrayVector(const T& x, const T& y) : at{ x, y } {}
         FK_HOST_DEVICE_CNST ArrayVector(const VectorType_t<T, 2>& other) : x(other.x), y(other.y) {}
-        FK_HOST_DEVICE_CNST ArrayVector(const T& initValue) {
+        FK_HOST_DEVICE_CNST ArrayVector(const T& initValue) : at{} {
             for (int i = 0; i < size; i++) {
                 at[i] = initValue;
             }
@@ -136,7 +136,7 @@ namespace fk {
         };
         FK_HOST_DEVICE_CNST ArrayVector(const T& x, const T& y, const T& z) : at{ x, y, z } {}
         FK_HOST_DEVICE_CNST ArrayVector(const VectorType_t<T, 3>& other) : x(other.x), y(other.y), z(other.z) {}
-        FK_HOST_DEVICE_CNST ArrayVector(const T& initValue) {
+        FK_HOST_DEVICE_CNST ArrayVector(const T& initValue) : at{} {
             for (int i = 0; i < size; i++) {
                 at[i] = initValue;
             }
@@ -171,7 +171,7 @@ namespace fk {
         };
         FK_HOST_DEVICE_CNST ArrayVector(const T& x, const T& y, const T& z, const T& w) : at{ x, y, z, w } {}
         FK_HOST_DEVICE_CNST ArrayVector(const VectorType_t<T, 4>& other) : x(other.x), y(other.y), z(other.z), w(other.w) {}
-        FK_HOST_DEVICE_CNST ArrayVector(const T& initValue) {
+        FK_HOST_DEVICE_CNST ArrayVector(const T& initValue) : at{} {
             for (int i = 0; i < size; i++) {
                 at[i] = initValue;
             }

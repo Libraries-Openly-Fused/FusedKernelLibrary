@@ -1,6 +1,6 @@
 # Fused Kernel Library (FKL) LTS-C++17 branch
   
-The Fused Kernel Library is a C++17  implementation of a methodology that allows to define a set of  code elements that need to be executed inside a kernel, in the same order that they are expressed. The library currently has CPU and CUDA backends, but other GPU language implemenations (such as HIP)  are possible.
+The Fused Kernel Library is a C++17  implementation of a methodology that allows to define a set of  code elements that need to be executed inside a kernel, in the same order that they are expressed. The library currently has CPU, CUDA and HIP (AMD ROCm) backends, and other GPU language implementations are possible.
 
 It automatically implements Vertical and Horizontal fusion, and also implements two new Fusion techniques, Backwards Vertical Fusion (akin to OpenCV Filters, but with an standard generic API), and Divergent Horizontal Fusion.
 
@@ -35,7 +35,7 @@ using namespace fk;
 Stream stream;
 
 // Get the input image
-const Ptr2D<uchar3> inputImage = getGPUSourceImage(stream);
+const Ptr2D<fk::uchar3> inputImage = getGPUSourceImage(stream);
 
 // Define the crops on the source image
 constexpr std::array<Rect, BATCH> crops{
@@ -47,7 +47,7 @@ constexpr std::array<Rect, BATCH> crops{
 };
 
 // We want a Tensor of contiguous memory for all crops as output
-Tensor<uchar3> output(outputSize.width, outputSize.height, BATCH);
+Tensor<fk::uchar3> output(outputSize.width, outputSize.height, BATCH);
 
 // CREATING AND EXECUTING YOUR FUSED CUDA KERNEL
 // Create a fused operation that reads the input image,
@@ -55,13 +55,13 @@ Tensor<uchar3> output(outputSize.width, outputSize.height, BATCH);
 // At compile time, the types are used to define the kernel code.
 // At runtime, the kernel is executed with the provided parameters.
 executeOperations<TransformDPP<>>(stream,
-                                  PerThreadRead<ND::_2D, uchar3>::build(inputImage.ptr()),
+                                  PerThreadRead<ND::_2D, fk::uchar3>::build(inputImage.ptr()),
                                   Crop<>::build(crops),
                                   Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR>::build(outputSize, backgroundColor),
-                                  Mul<float3>::build(make_<float3>(2.f, 2.f, 2.f)),
-                                  Sub<float3>::build(make_set<float3>(128.f)),
-                                  SaturateCast<float3, uchar3>::build(),
-                                  TensorWrite<uchar3>::build(output.ptr()));
+                                  Mul<fk::float3>::build(make_<fk::float3>(2.f, 2.f, 2.f)),
+                                  Sub<fk::float3>::build(make_set<fk::float3>(128.f)),
+                                  SaturateCast<fk::float3, fk::uchar3>::build(),
+                                  TensorWrite<fk::uchar3>::build(output.ptr()));
 
 stream.sync();
 
@@ -71,7 +71,7 @@ Let's see a bit more in detail what is going on in the code.
 First of all, take into account that there is no CUDA kernel launch until we call the function executeOperations. Until then, we accumulate and combine information to build the final kernel.
 
 ```C++
-PerThreadRead<ND::_2D, uchar3>::build(inputImage.ptr()),
+PerThreadRead<ND::_2D, fk::uchar3>::build(inputImage.ptr()),
 ```
 In this line we are specifying that we want to read a 4K (2D) image, where we will have one CUDA thread per each pixel.
 
@@ -95,16 +95,16 @@ Each thread will work as if the source image had the size informed by the corres
 Each thread will ask the Crop operation for the pixels it needs to interpolate the output pixel.
 
 ```C++
-Mul<float3>::build(mulValue),
-Sub<float3>::build(subValue),
-Div<float3>::build(divValue),
-ColorConversion<COLOR_RGB2BGR, float3, float3>::build(),
+Mul<fk::float3>::build(mulValue),
+Sub<fk::float3>::build(subValue),
+Div<fk::float3>::build(divValue),
+ColorConversion<COLOR_RGB2BGR, fk::float3, fk::float3>::build(),
 ```
 
 The following 4 lines will add element wise continuation operations to be applied to the output of the fused operation "PerThreadRead + Crop + Resize" (Read<BatchRead<BATCH, Resize<InterpolationType::INTER_LINEAR, AspectRatio::PRESERVE_AR, ReadBack<Crop<Read<PerThreadRead<ND::_2D, uchar3>>>>>>>).
 
 ```C++
-TensorWrite<float3>::build(output));
+TensorWrite<fk::float3>::build(output));
 ```
 
 The Operation TensorWrite will write the 60x60x5 pixels into a contiguous memory region, without padding on the x axis. The CUDA kernel will receive as parameters the fused operation and the continuation operations, including TensorWrite, as a parameter pack. The kernel is a variadic template kernel function.
@@ -151,6 +151,25 @@ This is way faster to program than the conventional way of programming CUDA.
 This novel type of Horizontal Fusion, allows to Horizontally Fuse kernels that are completelly different, and read the same or different data, but write the results in different memory regions.
 
 This has been tested before, by creating special compilers that generate the assembly code, and the performance benefits have been already reported. The novelty in our approach is that we do not require a different compiler. We do this by leveraging the C++17 capabilities found in nvcc.
+
+## Backends and building
+
+Each test, utest and benchmark is built once per enabled backend: `_cpp` (CPU, `ParArch::CPU`), `_cu` (CUDA with nvcc, `ParArch::GPU_NVIDIA`) and `_hip` (HIP with amdclang++, `ParArch::GPU_AMD`), except for the test and utest sources marked `__ONLY_CU__`, `__ONLY_CPU__` or `__ONLY_GPU__` (CUDA and HIP). The benchmarks are built with `-DENABLE_BENCHMARK=ON`. CUDA and HIP are optional: `ENABLE_CUDA` and `ENABLE_HIP` are ON by default and are disabled when nvcc or amdclang++ is not found. Every backend compiles as C++17.
+
+A HIP (ROCm) build, with the default C++ compiler for the CPU targets and the GPU architecture detected by CMake (`-DCMAKE_HIP_ARCHITECTURES=gfx1200` to choose it, or `-DHIP_ARCH=...` on the first configure of a build directory):
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_HIP_COMPILER=/opt/rocm/bin/amdclang++
+cmake --build build
+cd build && ctest
+```
+
+With `-DENABLE_BENCHMARK=ON`, ctest also runs the benchmarks, some of which take many minutes on the CPU: `ctest -E "^benchmark_"` skips them.
+
+Under HIP, the global names `float3`, `uchar3`... are HIP's own vector types, which are not FKL vector types. Use the FKL vector types as `fk::float3`, `fk::uchar3`... They exist in every backend: with nvcc they are the CUDA vector types and on the CPU the same types as the global names, so code written with the `fk::` names compiles for all of them.
+
+Each test, utest and benchmark executable is built for a single backend. Do not link translation units that include FKL compiled for different backends (for instance a .cpp compiled for the CPU and a .hip or .cu file) into one program: FKL is header only, and its templates and inline functions would get a different definition in each backend under the same name, of which the linker keeps only one.
 
 ## Closed source friendly
 

@@ -38,21 +38,21 @@
 #ifdef WILL_COMPILE
 
 constexpr bool buildTuple() {
-    constexpr fk::Tuple<int, float, double, float3> test{1, 4.f, 5.0, float3{4.f, 3.f, 1.f}};
+    constexpr fk::Tuple<int, float, double, fk::float3> test{1, 4.f, 5.0, fk::float3{4.f, 3.f, 1.f}};
 
     constexpr bool result1 = fk::TupleUtil::get<0>(test) == 1;
     constexpr bool result2 = fk::TupleUtil::get<1>(test) == 4.f;
     constexpr bool result3 = fk::TupleUtil::get<2>(test) == 5.0;
-    constexpr float3 temp = fk::TupleUtil::get<3>(test);
+    constexpr fk::float3 temp = fk::TupleUtil::get<3>(test);
     constexpr bool result4 = (temp.x == 4.f) && (temp.y == 3.f) && (temp.z == 1.f);
 
     return fk::and_v<result1, result2, result3, result4>;
 }
 
 constexpr bool buildOperationTupleType() {
-    using Op1 = typename fk::PerThreadRead<fk::ND::_2D, uchar3>::InstantiableType;
-    using Op2 = typename fk::VectorReorder<uchar3, 0, 1, 2>::InstantiableType;
-    using Op3 = typename fk::PerThreadWrite<fk::ND::_2D, uchar3>::InstantiableType;
+    using Op1 = typename fk::PerThreadRead<fk::ND::_2D, fk::uchar3>::InstantiableType;
+    using Op2 = typename fk::VectorReorder<fk::uchar3, 0, 1, 2>::InstantiableType;
+    using Op3 = typename fk::PerThreadWrite<fk::ND::_2D, fk::uchar3>::InstantiableType;
 
     using TupleType = typename fk::OperationTuple<Op1, Op2, Op3>::Operations;
 

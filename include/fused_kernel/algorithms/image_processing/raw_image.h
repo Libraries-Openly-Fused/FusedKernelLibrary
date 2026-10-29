@@ -18,6 +18,7 @@
 
 #include <fused_kernel/core/utils/type_lists.h>
 #include <fused_kernel/core/data/rawptr.h>
+#include <fused_kernel/core/data/vector_types.h>
 
 namespace fk {
     enum class ColorSpace { YUV420, YUV422, YUV444, RGB, RGBA };

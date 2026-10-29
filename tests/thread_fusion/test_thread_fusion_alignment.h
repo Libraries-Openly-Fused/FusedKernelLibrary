@@ -318,7 +318,7 @@ bool testCPUTensorWidths() {
 
 template <typename I, typename O>
 bool testAll() {
-    // Default backend: CPU in the _cpp test, GPU in the _cu test
+    // Default backend: CPU in the _cpp test, GPU in the _cu and _hip tests
     const bool fklAllocated = testFKLAllocatedWidths<I, O>();
     const bool tensors = testTensorWidths<I, O>();
     const bool croppedViews = testCroppedViews<I, O>();
@@ -335,7 +335,7 @@ int launch() {
     passed &= testAll<uchar, uchar>();
     passed &= testAll<float, float>();
     passed &= testAll<uchar, double>();
-    passed &= testAll<uchar2, float2>();
+    passed &= testAll<fk::uchar2, fk::float2>();
     passed &= testAll<ushort, float>();
     passed &= testAll<float, double>();
     return passed ? 0 : -1;

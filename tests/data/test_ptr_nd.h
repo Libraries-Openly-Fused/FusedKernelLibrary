@@ -25,7 +25,7 @@
 
 using namespace fk;
 
-using PtrToTest = Ptr2D<uchar3>;
+using PtrToTest = Ptr2D<fk::uchar3>;
 constexpr int WIDTH = 64;
 constexpr int HEIGHT = 64;
 
@@ -42,18 +42,18 @@ PtrToTest& test_return_by_reference(PtrToTest& somePtr) {
 }
 
 void test_uploadTo(Stream& stream) {
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     // Device pointers
-    Ptr1D<uchar3> test1D(1333, 0, MemType::Device);
-    Ptr2D<uchar3> test2D(1333, 444, 0, MemType::Device);
-    Ptr3D<uchar3> test3D(1333, 444, 22, 1, 0, MemType::Device);
-    Tensor<uchar3> testTensor(1333, 444, 22, 1, MemType::Device);
+    Ptr1D<fk::uchar3> test1D(1333, 0, MemType::Device);
+    Ptr2D<fk::uchar3> test2D(1333, 444, 0, MemType::Device);
+    Ptr3D<fk::uchar3> test3D(1333, 444, 22, 1, 0, MemType::Device);
+    Tensor<fk::uchar3> testTensor(1333, 444, 22, 1, MemType::Device);
 
     // Host Pinned Pointers
-    Ptr1D<uchar3> test1D_h(1333, 0, MemType::HostPinned);
-    Ptr2D<uchar3> test2D_h(1333, 444, 0, MemType::HostPinned);
-    Ptr3D<uchar3> test3D_h(1333, 444, 22, 1, 0, MemType::HostPinned);
-    Tensor<uchar3> testTensor_h(1333, 444, 22, 1, MemType::HostPinned);
+    Ptr1D<fk::uchar3> test1D_h(1333, 0, MemType::HostPinned);
+    Ptr2D<fk::uchar3> test2D_h(1333, 444, 0, MemType::HostPinned);
+    Ptr3D<fk::uchar3> test3D_h(1333, 444, 22, 1, 0, MemType::HostPinned);
+    Tensor<fk::uchar3> testTensor_h(1333, 444, 22, 1, MemType::HostPinned);
 
     // Must work
     test1D_h.uploadTo(test1D, stream);
@@ -77,18 +77,18 @@ void test_uploadTo(Stream& stream) {
 }
 
 void test_downloadTo(Stream& stream) {
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     // Device pointers
-    Ptr1D<uchar3> test1D(1333, 0, MemType::Device);
-    Ptr2D<uchar3> test2D(1333, 444, 0, MemType::Device);
-    Ptr3D<uchar3> test3D(1333, 444, 22, 1, 0, MemType::Device);
-    Tensor<uchar3> testTensor(1333, 444, 22, 1, MemType::Device);
+    Ptr1D<fk::uchar3> test1D(1333, 0, MemType::Device);
+    Ptr2D<fk::uchar3> test2D(1333, 444, 0, MemType::Device);
+    Ptr3D<fk::uchar3> test3D(1333, 444, 22, 1, 0, MemType::Device);
+    Tensor<fk::uchar3> testTensor(1333, 444, 22, 1, MemType::Device);
 
     // Host Pinned Pointers
-    Ptr1D<uchar3> test1D_h(1333, 0, MemType::HostPinned);
-    Ptr2D<uchar3> test2D_h(1333, 444, 0, MemType::HostPinned);
-    Ptr3D<uchar3> test3D_h(1333, 444, 22, 1, 0, MemType::HostPinned);
-    Tensor<uchar3> testTensor_h(1333, 444, 22, 1, MemType::HostPinned);
+    Ptr1D<fk::uchar3> test1D_h(1333, 0, MemType::HostPinned);
+    Ptr2D<fk::uchar3> test2D_h(1333, 444, 0, MemType::HostPinned);
+    Ptr3D<fk::uchar3> test3D_h(1333, 444, 22, 1, 0, MemType::HostPinned);
+    Tensor<fk::uchar3> testTensor_h(1333, 444, 22, 1, MemType::HostPinned);
 
     // Must work
     test1D.downloadTo(test1D_h, stream);
@@ -109,10 +109,10 @@ void test_downloadTo(Stream& stream) {
 
 void test_upload(Stream& stream) {
     // Device pointers
-    Ptr1D<uchar3> test1D(1333);
-    Ptr2D<uchar3> test2D(1333, 444);
-    Ptr3D<uchar3> test3D(1333, 444, 22);
-    Tensor<uchar3> testTensor(1333, 444, 22);
+    Ptr1D<fk::uchar3> test1D(1333);
+    Ptr2D<fk::uchar3> test2D(1333, 444);
+    Ptr3D<fk::uchar3> test3D(1333, 444, 22);
+    Tensor<fk::uchar3> testTensor(1333, 444, 22);
 
     // Must work
     test1D.upload(stream);
@@ -125,10 +125,10 @@ void test_upload(Stream& stream) {
 
 void test_download(Stream& stream) {
     // Device pointers
-    Ptr1D<uchar3> test1D(1333);
-    Ptr2D<uchar3> test2D(1333, 444);
-    Ptr3D<uchar3> test3D(1333, 444, 22);
-    Tensor<uchar3> testTensor(1333, 444, 22);
+    Ptr1D<fk::uchar3> test1D(1333);
+    Ptr2D<fk::uchar3> test2D(1333, 444);
+    Ptr3D<fk::uchar3> test3D(1333, 444, 22);
+    Tensor<fk::uchar3> testTensor(1333, 444, 22);
 
     // Must work
     test1D.download(stream);
@@ -139,17 +139,264 @@ void test_download(Stream& stream) {
     stream.sync();
 }
 
+// Crops and planes share their parent's allocation: each adds exactly one reference, and whichever is destroyed last,
+// the parent or not, frees it
+bool test_shared_allocation_ref_counts() {
+    bool correct = true;
+    PtrToTest parent(WIDTH, HEIGHT);
+    const PtrDims<ND::_2D> cropDims{ WIDTH / 2, HEIGHT / 2, parent.dims().pitch };
+    {
+        const PtrToTest cropped = parent.crop(Point{ 1, 2, 0 }, cropDims);
+        correct &= parent.getRefCount() == 2 && cropped.getRefCount() == 2;
+        {
+            const PtrToTest secondCrop = parent.crop2D(Point{ 3, 4, 0 }, PtrDims<ND::_2D>{ 4, 4, cropDims.pitch });
+            correct &= parent.getRefCount() == 3;
+        }
+        correct &= parent.getRefCount() == 2;
+    }
+    correct &= parent.getRefCount() == 1;
+
+    // A crop that outlives its parent holds the last reference
+    PtrToTest survivor;
+    {
+        PtrToTest shortLived(WIDTH, HEIGHT);
+        survivor = shortLived.crop(Point{ 0, 0, 0 }, cropDims);
+    }
+    correct &= survivor.getRefCount() == 1;
+
+    Ptr3D<fk::uchar3> volume(WIDTH, HEIGHT, 3);
+    Tensor<fk::uchar3> tensor(WIDTH, HEIGHT, 3);
+    {
+        const Ptr2D<fk::uchar3> plane = volume.getPlane(1);
+        const Ptr2D<fk::uchar3> tensorPlane = tensor.getPlane(2);
+        correct &= volume.getRefCount() == 2 && tensor.getRefCount() == 2;
+    }
+    correct &= volume.getRefCount() == 1 && tensor.getRefCount() == 1;
+
+    // Allocating again in a Ptr that shares an allocation releases only its own reference
+    try {
+        PtrToTest sharer = parent;
+        sharer.Alloc(Size(WIDTH / 4, HEIGHT / 4));
+        correct &= parent.getRefCount() == 1 && sharer.getRefCount() == 1;
+        Tensor<fk::uchar3> tensorSharer = tensor;
+        tensorSharer.allocTensor(WIDTH / 4, HEIGHT / 4, 2);
+        correct &= tensor.getRefCount() == 1 && tensorSharer.getRefCount() == 1;
+    } catch (const std::exception& e) {
+        std::cout << "Allocating in a Ptr that shares an allocation threw: " << e.what() << std::endl;
+        return false;
+    }
+    correct &= parent.getRefCount() == 1 && tensor.getRefCount() == 1;
+
+    std::cout << "Shared allocations: " << (correct ? "reference counts OK" : "WRONG reference counts") << std::endl;
+    return correct;
+}
+
+// setTo on host memory with the default stream, which may be a GPU stream: Host memory is filled from the CPU, and
+// HostPinned memory by a kernel on the GPU stream
+template <MemType MT>
+bool test_setTo_host(Stream& stream) {
+    PtrToTest hostPtr(WIDTH, HEIGHT, 0, MT);
+    setTo(make_<fk::uchar3>(7, 8, 9), hostPtr, stream);
+    stream.sync();
+    bool correct{ true };
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++) {
+            const bool allTrue = hostPtr.at(Point{x, y, 0}) == fk::uchar3{7, 8, 9};
+            correct &= allTrue;
+        }
+    }
+    return correct;
+}
+
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
+// Keeps the GPU busy for some milliseconds, so that the work enqueued after it runs after the host code that follows
+#if defined(__NVCC__)
+__global__ void spinKernel(const long long int cycles) {
+    const long long int start = clock64();
+    while (clock64() - start < cycles) {}
+}
+#else
+// Under HIP it counts ticks of the constant rate wall clock: on some AMD GPUs (gfx11) clock64() is a 20 bit counter
+// that wraps, so a difference of clock64() values would never reach the cycles to wait
+__global__ void spinKernel(const long long int ticks) {
+    const long long int start = wall_clock64();
+    while (wall_clock64() - start < ticks) {}
+}
+#endif
+
+void spin(Stream& stream) {
+#if defined(__NVCC__)
+    spinKernel<<<1, 1, 0, stream.getCUDAStream()>>>(50000000);
+#else
+    // 20 ms of the wall clock, whose rate is in kHz
+    int device = 0;
+    int wallClockKHz = 0;
+    gpuErrchk(hipGetDevice(&device));
+    gpuErrchk(hipDeviceGetAttribute(&wallClockKHz, hipDeviceAttributeWallClockRate, device));
+    spinKernel<<<1, 1, 0, stream.getHIPStream()>>>(static_cast<long long int>(wallClockKHz) * 20);
+#endif
+}
+
+bool allEqual(const PtrToTest& hostPtr, const fk::uchar3& value) {
+    bool correct{ true };
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++) {
+            const bool allTrue = hostPtr.at(Point{x, y, 0}) == value;
+            correct &= allTrue;
+        }
+    }
+    return correct;
+}
+
+// Writes value into the Host memory of hostPtr from a host function enqueued on a stream
+struct HostWrite {
+    PtrToTest* hostPtr;
+    fk::uchar3 value;
+};
+
+#if defined(__NVCC__)
+void CUDART_CB writeHost(void* userData) {
+#else
+void writeHost(void* userData) {
+#endif
+    const HostWrite& write = *static_cast<const HostWrite*>(userData);
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++) {
+            write.hostPtr->at(Point{x, y, 0}) = write.value;
+        }
+    }
+}
+
+void enqueueHostWrite(Stream& stream, HostWrite& write) {
+#if defined(__NVCC__)
+    gpuErrchk(cudaLaunchHostFunc(stream.getCUDAStream(), writeHost, &write));
+#else
+    gpuErrchk(hipLaunchHostFunc(stream.getHIPStream(), writeHost, &write));
+#endif
+}
+
+// setTo with a GPU stream is ordered with the work enqueued on the stream before it, here work that waits behind a
+// busy GPU: a download into the memory that setTo fills does not overwrite the values, and an upload from it copies
+// the values from before setTo. A copy into pageable Host memory waits for the stream, so for Host memory the earlier
+// work is a host function that writes the memory.
+bool test_setTo_stream_order(Stream& stream) {
+    const fk::uchar3 before{ 1, 2, 3 };
+    const fk::uchar3 after{ 7, 8, 9 };
+    PtrToTest device(WIDTH, HEIGHT, 0, MemType::Device);
+    PtrToTest check(WIDTH, HEIGHT, 0, MemType::HostPinned);
+    setTo(before, device, stream);
+
+    PtrToTest pinned(WIDTH, HEIGHT, 0, MemType::HostPinned);
+    spin(stream);
+    device.downloadTo(pinned, stream);
+    setTo(after, pinned, stream);
+    stream.sync();
+    const bool pinnedDownload = allEqual(pinned, after);
+
+    PtrToTest host(WIDTH, HEIGHT, 0, MemType::Host);
+    HostWrite hostWrite{ &host, before };
+    spin(stream);
+    enqueueHostWrite(stream, hostWrite);
+    setTo(after, host, stream);
+    stream.sync();
+    const bool hostFunction = allEqual(host, after);
+
+    setTo(before, pinned, stream);
+    spin(stream);
+    pinned.uploadTo(device, stream);
+    setTo(after, pinned, stream);
+    device.downloadTo(check, stream);
+    stream.sync();
+    const bool pinnedUpload = allEqual(check, before) && allEqual(pinned, after);
+
+    // Both copies of DeviceAndPinned memory
+    PtrToTest both(WIDTH, HEIGHT, 0, MemType::DeviceAndPinned);
+    setTo(before, both, stream);
+    spin(stream);
+    both.download(stream);
+    setTo(after, both, stream);
+    both.downloadTo(check, stream);
+    stream.sync();
+    const bool deviceAndPinnedDownload = allEqual(both, after) && allEqual(check, after);
+
+    std::cout << "setTo in stream order: HostPinned download " << pinnedDownload << ", Host host function "
+              << hostFunction << ", HostPinned upload " << pinnedUpload << ", DeviceAndPinned download "
+              << deviceAndPinnedDownload << std::endl;
+    return pinnedDownload && hostFunction && pinnedUpload && deviceAndPinnedDownload;
+}
+
+// A CPU stream can not write device memory: setTo throws instead of writing a device pointer from the CPU
+template <MemType MT>
+bool test_setTo_device_with_cpu_stream() {
+    PtrToTest devicePtr(WIDTH, HEIGHT, 0, MT);
+    Stream_<ParArch::CPU> cpuStream;
+    try {
+        setTo(make_<fk::uchar3>(7, 8, 9), devicePtr, cpuStream);
+    } catch (const std::runtime_error&) {
+        return true;
+    }
+    std::cout << "setTo with a CPU stream did not throw for device memory" << std::endl;
+    return false;
+}
+
+// setTo on Host memory can not be recorded in a graph capture (the CPU fills it after a stream sync): it throws, and the
+// capture of the work enqueued before it stays valid
+bool test_setTo_host_in_graph_capture(Stream& stream) {
+    PtrToTest device(WIDTH, HEIGHT, 0, MemType::Device);
+    PtrToTest host(WIDTH, HEIGHT, 0, MemType::Host);
+#if defined(__NVCC__)
+    gpuErrchk(cudaStreamBeginCapture(stream.getCUDAStream(), cudaStreamCaptureModeThreadLocal));
+#else
+    gpuErrchk(hipStreamBeginCapture(stream.getHIPStream(), hipStreamCaptureModeThreadLocal));
+#endif
+    setTo(make_<fk::uchar3>(1, 2, 3), device, stream);
+    bool threw = false;
+    try {
+        setTo(make_<fk::uchar3>(4, 5, 6), host, stream);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    size_t nodes = 0;
+#if defined(__NVCC__)
+    cudaGraph_t graph{};
+    const bool captured = cudaStreamEndCapture(stream.getCUDAStream(), &graph) == cudaSuccess;
+    if (captured) {
+        gpuErrchk(cudaGraphGetNodes(graph, nullptr, &nodes));
+        gpuErrchk(cudaGraphDestroy(graph));
+    }
+#else
+    hipGraph_t graph{};
+    const bool captured = hipStreamEndCapture(stream.getHIPStream(), &graph) == hipSuccess;
+    if (captured) {
+        gpuErrchk(hipGraphGetNodes(graph, nullptr, &nodes));
+        gpuErrchk(hipGraphDestroy(graph));
+    }
+#endif
+    std::cout << "setTo on Host memory in a graph capture: threw " << threw << ", capture valid " << captured << ", "
+              << nodes << " nodes" << std::endl;
+    return threw && captured && nodes == 1;
+}
+
+// A CPU stream fills HostPinned memory from the CPU
+bool test_setTo_pinned_with_cpu_stream() {
+    PtrToTest pinnedPtr(WIDTH, HEIGHT, 0, MemType::HostPinned);
+    Stream_<ParArch::CPU> cpuStream;
+    setTo(make_<fk::uchar3>(4, 5, 6), pinnedPtr, cpuStream);
+    return allEqual(pinnedPtr, fk::uchar3{ 4, 5, 6 });
+}
+#endif
+
 int launch() {
 
     Stream stream;
 
     PtrToTest test0(WIDTH, HEIGHT);
-    setTo(make_<uchar3>(1, 2, 3), test0, stream);
+    setTo(make_<fk::uchar3>(1, 2, 3), test0, stream);
     stream.sync();
     bool h_correct{ true };
     for (int y = 0; y < HEIGHT; y++) {
         for (int x = 0; x < WIDTH; x++) {
-            const Bool3 boolVect = *PtrAccessor<ND::_2D>::cr_point(Point{x, y, 0}, test0.ptrPinned()) == make_<uchar3>(1, 2, 3);
+            const Bool3 boolVect = *PtrAccessor<ND::_2D>::cr_point(Point{x, y, 0}, test0.ptrPinned()) == make_<fk::uchar3>(1, 2, 3);
             const bool allTrue = boolVect;
             h_correct &= allTrue;
         }
@@ -175,22 +422,33 @@ int launch() {
     result &= test6.getRefCount() == 1;
 
     PtrToTest test7(WIDTH, HEIGHT);
-    setTo(make_<uchar3>(3,6,10), test7, stream);
+    setTo(make_<fk::uchar3>(3,6,10), test7, stream);
     test7.download(stream);
     stream.sync();
 
     bool h_correct2{ true };
     for (int y = 0; y < HEIGHT; y++) {
         for (int x = 0; x < WIDTH; x++) {
-            const bool allTrue = test7.at(Point{x, y, 0}) == uchar3{3, 6, 10};
+            const bool allTrue = test7.at(Point{x, y, 0}) == fk::uchar3{3, 6, 10};
             h_correct2 &= allTrue;
         }
     }
+
+    bool h_correct3 = test_setTo_host<MemType::Host>(stream);
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
+    h_correct3 &= test_setTo_host<MemType::HostPinned>(stream);
+    h_correct3 &= test_setTo_stream_order(stream);
+    h_correct3 &= test_setTo_device_with_cpu_stream<MemType::Device>();
+    h_correct3 &= test_setTo_device_with_cpu_stream<MemType::DeviceAndPinned>();
+    h_correct3 &= test_setTo_pinned_with_cpu_stream();
+    h_correct3 &= test_setTo_host_in_graph_capture(stream);
+#endif
 
     test_uploadTo(stream);
     test_downloadTo(stream);
     test_upload(stream);
     test_download(stream);
+    const bool shared = test_shared_allocation_ref_counts();
 
-    return result && h_correct && h_correct2 ? 0 : -1;
+    return result && h_correct && h_correct2 && h_correct3 && shared ? 0 : -1;
 }

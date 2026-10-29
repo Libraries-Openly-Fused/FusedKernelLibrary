@@ -29,6 +29,23 @@ else()
     message(STATUS "CUDA compiler not found, CUDA support will be disabled.")     
 endif()
 
+#hip is optional too: if amdclang++ is found, the GPU_AMD backend is built. Only the amd HIP platform is considered:
+#HIP on NVIDIA GPUs is not a FKL backend (CUDA is).
+if (NOT DEFINED CMAKE_HIP_PLATFORM)
+    set(CMAKE_HIP_PLATFORM "amd")
+endif()
+check_language(HIP)
+if (CMAKE_HIP_COMPILER AND "${CMAKE_HIP_PLATFORM}" STREQUAL "amd")
+    option (ENABLE_HIP "Enable HIP (ROCm) support" ON)
+    if (${ENABLE_HIP})
+        include(cmake/libs/hip/hip_init.cmake)
+    endif()
+else()
+    message(STATUS "HIP compiler for AMD GPUs not found, HIP support will be disabled.")
+    # Not a cache variable: an ENABLE_HIP=ON given by the user is kept for a configure that finds the compiler
+    set(ENABLE_HIP OFF)
+endif()
+
 add_subdirectory(include)
 add_subdirectory(lib)
 
