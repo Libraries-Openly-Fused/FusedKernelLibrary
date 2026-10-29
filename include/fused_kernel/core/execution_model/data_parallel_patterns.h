@@ -315,7 +315,10 @@ namespace fk { // namespace FusedKernel
                                                    const InstantiableOperationSequence<IOps...>& iOpSequence,
                                                    const IOpSequenceTypes&... iOpSequences) {
             if (OpSequenceNumber == SequenceSelector::at(z)) {
-                apply_d(launchTransformDPP<IOps...>, iOpSequence.iOps);
+                // A lambda, not the function pointer launchTransformDPP<IOps...>: without optimizations (HIP Debug
+                // builds) clang keeps a call through a pointer as an indirect call, whose stack the kernel's static
+                // stack size does not include
+                apply_d([](const auto&... sequenceIOps) { launchTransformDPP(sequenceIOps...); }, iOpSequence.iOps);
             } else if constexpr (sizeof...(iOpSequences) > 0) {
                 divergent_operate<OpSequenceNumber + 1>(z, iOpSequences...);
             }
