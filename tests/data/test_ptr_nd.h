@@ -208,6 +208,81 @@ bool test_setTo_host(Stream& stream) {
     return correct;
 }
 
+#if defined(__NVCC__) || defined(__HIPCC__)
+// Keeps the GPU busy for some milliseconds, so that the work enqueued after it runs after the host code that follows
+__global__ void spinKernel(const long long int cycles) {
+    const long long int start = clock64();
+    while (clock64() - start < cycles) {}
+}
+
+void spin(Stream& stream) {
+#if defined(__NVCC__)
+    spinKernel<<<1, 1, 0, stream.getCUDAStream()>>>(50000000);
+#else
+    spinKernel<<<1, 1, 0, stream.getHIPStream()>>>(50000000);
+#endif
+}
+
+bool allEqual(const PtrToTest& hostPtr, const fk::uchar3& value) {
+    bool correct{ true };
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++) {
+            const bool allTrue = hostPtr.at(Point{x, y, 0}) == value;
+            correct &= allTrue;
+        }
+    }
+    return correct;
+}
+
+// setTo with a GPU stream is ordered with the work enqueued on the stream before it, here copies that wait behind a
+// busy GPU: a download into the memory that setTo fills does not overwrite the values, and an upload from it copies
+// the values from before setTo
+bool test_setTo_stream_order(Stream& stream) {
+    const fk::uchar3 before{ 1, 2, 3 };
+    const fk::uchar3 after{ 7, 8, 9 };
+    PtrToTest device(WIDTH, HEIGHT, 0, MemType::Device);
+    PtrToTest check(WIDTH, HEIGHT, 0, MemType::HostPinned);
+    setTo(before, device, stream);
+
+    PtrToTest pinned(WIDTH, HEIGHT, 0, MemType::HostPinned);
+    spin(stream);
+    device.downloadTo(pinned, stream);
+    setTo(after, pinned, stream);
+    stream.sync();
+    const bool pinnedDownload = allEqual(pinned, after);
+
+    PtrToTest host(WIDTH, HEIGHT, 0, MemType::Host);
+    spin(stream);
+    device.downloadTo(host, stream);
+    setTo(after, host, stream);
+    stream.sync();
+    const bool hostDownload = allEqual(host, after);
+
+    setTo(before, pinned, stream);
+    spin(stream);
+    pinned.uploadTo(device, stream);
+    setTo(after, pinned, stream);
+    device.downloadTo(check, stream);
+    stream.sync();
+    const bool pinnedUpload = allEqual(check, before) && allEqual(pinned, after);
+
+    // Both copies of DeviceAndPinned memory
+    PtrToTest both(WIDTH, HEIGHT, 0, MemType::DeviceAndPinned);
+    setTo(before, both, stream);
+    spin(stream);
+    both.download(stream);
+    setTo(after, both, stream);
+    both.downloadTo(check, stream);
+    stream.sync();
+    const bool deviceAndPinnedDownload = allEqual(both, after) && allEqual(check, after);
+
+    std::cout << "setTo in stream order: HostPinned download " << pinnedDownload << ", Host download " << hostDownload
+              << ", HostPinned upload " << pinnedUpload << ", DeviceAndPinned download " << deviceAndPinnedDownload
+              << std::endl;
+    return pinnedDownload && hostDownload && pinnedUpload && deviceAndPinnedDownload;
+}
+#endif
+
 int launch() {
 
     Stream stream;
@@ -259,6 +334,7 @@ int launch() {
     bool h_correct3 = test_setTo_host<MemType::Host>(stream);
 #if defined(__NVCC__) || defined(__HIPCC__)
     h_correct3 &= test_setTo_host<MemType::HostPinned>(stream);
+    h_correct3 &= test_setTo_stream_order(stream);
 #endif
 
     test_uploadTo(stream);

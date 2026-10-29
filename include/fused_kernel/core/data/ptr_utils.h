@@ -20,22 +20,25 @@
 #include <fused_kernel/core/execution_model/data_parallel_patterns.h>
 
 namespace fk {
+    // With a GPU stream, Device, HostPinned and DeviceAndPinned memory (both copies) are filled by kernels on the
+    // stream, in stream order: after the work already enqueued on it, and recorded by a graph capture. The GPU can not
+    // write pageable Host memory, so the CPU fills it once the work enqueued on the stream has finished.
     template <enum ParArch PA, enum ND D, typename T>
     inline void setTo(const T& value, Ptr<D, T>& outputPtr, Stream_<PA>& stream) {
         RawPtr<D, T> output = outputPtr.ptr();
 #if defined(__NVCC__) || defined(__HIPCC__)
         if constexpr (PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD) {
-            if (outputPtr.getMemType() == MemType::Device || outputPtr.getMemType() == MemType::DeviceAndPinned) {
-                Executor<TransformDPP<PA>>::executeOperations(stream, ReadSet<T>::build(value, outputPtr.dims()), PerThreadWrite<D, T>::build(output));
-                if (outputPtr.getMemType() == MemType::DeviceAndPinned) {
-                    Stream_<ParArch::CPU> cpuStream;
-                    Executor<TransformDPP<ParArch::CPU>>::executeOperations(cpuStream, ReadSet<T>::build(value, outputPtr.dims()), PerThreadWrite<D, T>::build(outputPtr.ptrPinned()));
-                }
-            }
-            else {
+            if (outputPtr.getMemType() == MemType::Host) {
+                stream.sync();
                 Stream_<ParArch::CPU> cpuStream;
                 Executor<TransformDPP<ParArch::CPU>>::executeOperations(
                     cpuStream, ReadSet<T>::build(value, outputPtr.dims()), PerThreadWrite<D, T>::build(output));
+            }
+            else {
+                Executor<TransformDPP<PA>>::executeOperations(stream, ReadSet<T>::build(value, outputPtr.dims()), PerThreadWrite<D, T>::build(output));
+                if (outputPtr.getMemType() == MemType::DeviceAndPinned) {
+                    Executor<TransformDPP<PA>>::executeOperations(stream, ReadSet<T>::build(value, outputPtr.dims()), PerThreadWrite<D, T>::build(outputPtr.ptrPinned()));
+                }
             }
         }
         else {
