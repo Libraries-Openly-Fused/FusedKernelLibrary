@@ -13,8 +13,8 @@
    limitations under the License. */
 
 // CircularTensor::update with a GPU stream (CUDA and HIP), as main's test_circular_tensor: after every update, plane z
-// holds the input of the z-th last update. LTS has no CPU executor for DivergentBatchTransformDPP, so there is no _cpp
-// target.
+// holds the input of the z-th last update. An update of a CircularTensor in Host memory throws. LTS has no CPU executor
+// for DivergentBatchTransformDPP, so there is no _cpp target.
 #define __ONLY_GPU__
 #include <tests/main.h>
 
@@ -25,6 +25,7 @@
 #include <fused_kernel/fused_kernel.h>
 
 #include <iostream>
+#include <stdexcept>
 #include <typeinfo>
 
 namespace fk {
@@ -74,6 +75,28 @@ bool launchTest() {
     return correct;
 }
 
+// A CircularTensor in Host memory can not be updated with a GPU stream: update throws instead of launching a kernel
+// that writes it
+bool testHostCircularTensorThrows() {
+    using IT = fk::uchar3;
+    using OT = fk::float3;
+    CircularTensor<float, 3, 2, CircularTensorOrder::NewestFirst, ColorPlanes::Standard> myTensor(16, 16,
+                                                                                                MemType::Host);
+    Ptr2D<IT> input(16, 16);
+    Stream fk_stream;
+    try {
+        myTensor.update(fk_stream, Read<PerThreadRead<ND::_2D, IT>>{input.ptr()}, Unary<SaturateCast<IT, OT>>{},
+                        Write<TensorSplit<OT>>{myTensor.ptr()});
+    } catch (const std::runtime_error&) {
+        fk_stream.sync();
+        std::cout << "Host CircularTensor with a GPU stream: update throws, OK" << std::endl;
+        return true;
+    }
+    fk_stream.sync();
+    std::cout << "Host CircularTensor with a GPU stream: update did not throw, Failed!" << std::endl;
+    return false;
+}
+
 int launch_impl() {
     bool correct = true;
     correct &= launchTest<2, 128, 128, 100, fk::uchar3, fk::float3>();
@@ -82,6 +105,7 @@ int launch_impl() {
     correct &= launchTest<5, 128, 128, 100, fk::uchar3, fk::float3>();
     correct &= launchTest<8, 128, 128, 100, fk::uchar3, fk::float3>();
     correct &= launchTest<15, 128, 128, 100, fk::uchar3, fk::float3>();
+    correct &= testHostCircularTensorThrows();
     return correct ? 0 : -1;
 }
 

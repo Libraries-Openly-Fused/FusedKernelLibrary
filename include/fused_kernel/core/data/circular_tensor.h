@@ -150,7 +150,7 @@ namespace fk {
 
             const auto copyOps = buildOperationSequence(nonUpdateRead, nonUpdateWrite);
 
-            if (PA == ParArch::GPU_NVIDIA && !(this->type == MemType::Device || this->type == MemType::DeviceAndPinned)) {
+            if ((PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD) && !(this->type == MemType::Device || this->type == MemType::DeviceAndPinned)) {
                 throw std::runtime_error("CircularTensor operations on Device memory only supported \
                     if the CircularTensor is MemType::Device or MemType::DeviceAndPinned");
             }
