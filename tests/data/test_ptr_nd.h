@@ -234,9 +234,37 @@ bool allEqual(const PtrToTest& hostPtr, const fk::uchar3& value) {
     return correct;
 }
 
-// setTo with a GPU stream is ordered with the work enqueued on the stream before it, here copies that wait behind a
+// Writes value into the Host memory of hostPtr from a host function enqueued on a stream
+struct HostWrite {
+    PtrToTest* hostPtr;
+    fk::uchar3 value;
+};
+
+#if defined(__NVCC__)
+void CUDART_CB writeHost(void* userData) {
+#else
+void writeHost(void* userData) {
+#endif
+    const HostWrite& write = *static_cast<const HostWrite*>(userData);
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++) {
+            write.hostPtr->at(Point{x, y, 0}) = write.value;
+        }
+    }
+}
+
+void enqueueHostWrite(Stream& stream, HostWrite& write) {
+#if defined(__NVCC__)
+    gpuErrchk(cudaLaunchHostFunc(stream.getCUDAStream(), writeHost, &write));
+#else
+    gpuErrchk(hipLaunchHostFunc(stream.getHIPStream(), writeHost, &write));
+#endif
+}
+
+// setTo with a GPU stream is ordered with the work enqueued on the stream before it, here work that waits behind a
 // busy GPU: a download into the memory that setTo fills does not overwrite the values, and an upload from it copies
-// the values from before setTo
+// the values from before setTo. A copy into pageable Host memory waits for the stream, so for Host memory the earlier
+// work is a host function that writes the memory.
 bool test_setTo_stream_order(Stream& stream) {
     const fk::uchar3 before{ 1, 2, 3 };
     const fk::uchar3 after{ 7, 8, 9 };
@@ -252,11 +280,12 @@ bool test_setTo_stream_order(Stream& stream) {
     const bool pinnedDownload = allEqual(pinned, after);
 
     PtrToTest host(WIDTH, HEIGHT, 0, MemType::Host);
+    HostWrite hostWrite{ &host, before };
     spin(stream);
-    device.downloadTo(host, stream);
+    enqueueHostWrite(stream, hostWrite);
     setTo(after, host, stream);
     stream.sync();
-    const bool hostDownload = allEqual(host, after);
+    const bool hostFunction = allEqual(host, after);
 
     setTo(before, pinned, stream);
     spin(stream);
@@ -276,10 +305,10 @@ bool test_setTo_stream_order(Stream& stream) {
     stream.sync();
     const bool deviceAndPinnedDownload = allEqual(both, after) && allEqual(check, after);
 
-    std::cout << "setTo in stream order: HostPinned download " << pinnedDownload << ", Host download " << hostDownload
-              << ", HostPinned upload " << pinnedUpload << ", DeviceAndPinned download " << deviceAndPinnedDownload
-              << std::endl;
-    return pinnedDownload && hostDownload && pinnedUpload && deviceAndPinnedDownload;
+    std::cout << "setTo in stream order: HostPinned download " << pinnedDownload << ", Host host function "
+              << hostFunction << ", HostPinned upload " << pinnedUpload << ", DeviceAndPinned download "
+              << deviceAndPinnedDownload << std::endl;
+    return pinnedDownload && hostFunction && pinnedUpload && deviceAndPinnedDownload;
 }
 
 // A CPU stream can not write device memory: setTo throws instead of writing a device pointer from the CPU
@@ -294,6 +323,14 @@ bool test_setTo_device_with_cpu_stream() {
     }
     std::cout << "setTo with a CPU stream did not throw for device memory" << std::endl;
     return false;
+}
+
+// A CPU stream fills HostPinned memory from the CPU
+bool test_setTo_pinned_with_cpu_stream() {
+    PtrToTest pinnedPtr(WIDTH, HEIGHT, 0, MemType::HostPinned);
+    Stream_<ParArch::CPU> cpuStream;
+    setTo(make_<fk::uchar3>(4, 5, 6), pinnedPtr, cpuStream);
+    return allEqual(pinnedPtr, fk::uchar3{ 4, 5, 6 });
 }
 #endif
 
@@ -351,6 +388,7 @@ int launch() {
     h_correct3 &= test_setTo_stream_order(stream);
     h_correct3 &= test_setTo_device_with_cpu_stream<MemType::Device>();
     h_correct3 &= test_setTo_device_with_cpu_stream<MemType::DeviceAndPinned>();
+    h_correct3 &= test_setTo_pinned_with_cpu_stream();
 #endif
 
     test_uploadTo(stream);
