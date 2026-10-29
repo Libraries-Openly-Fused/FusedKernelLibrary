@@ -26,9 +26,13 @@
 #elif defined(FK_HIP_BACKEND)
 #include <hip/hip_runtime.h>
 // Kernel parameters are always in the constant kernel argument segment on AMD GPUs: __grid_constant__ is CUDA syntax,
-// accepted by clang when it supports the attribute
-#if !defined(__grid_constant__) && __has_attribute(grid_constant)
+// accepted by clang when it supports the attribute, and empty otherwise
+#if !defined(__grid_constant__)
+#if __has_attribute(grid_constant)
 #define __grid_constant__ __attribute__((grid_constant))
+#else
+#define __grid_constant__
+#endif
 #endif
 #endif
 
