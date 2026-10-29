@@ -210,16 +210,30 @@ bool test_setTo_host(Stream& stream) {
 
 #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
 // Keeps the GPU busy for some milliseconds, so that the work enqueued after it runs after the host code that follows
+#if defined(__NVCC__)
 __global__ void spinKernel(const long long int cycles) {
     const long long int start = clock64();
     while (clock64() - start < cycles) {}
 }
+#else
+// Under HIP it counts ticks of the constant rate wall clock: on some AMD GPUs (gfx11) clock64() is a 20 bit counter
+// that wraps, so a difference of clock64() values would never reach the cycles to wait
+__global__ void spinKernel(const long long int ticks) {
+    const long long int start = wall_clock64();
+    while (wall_clock64() - start < ticks) {}
+}
+#endif
 
 void spin(Stream& stream) {
 #if defined(__NVCC__)
     spinKernel<<<1, 1, 0, stream.getCUDAStream()>>>(50000000);
 #else
-    spinKernel<<<1, 1, 0, stream.getHIPStream()>>>(50000000);
+    // 20 ms of the wall clock, whose rate is in kHz
+    int device = 0;
+    int wallClockKHz = 0;
+    gpuErrchk(hipGetDevice(&device));
+    gpuErrchk(hipDeviceGetAttribute(&wallClockKHz, hipDeviceAttributeWallClockRate, device));
+    spinKernel<<<1, 1, 0, stream.getHIPStream()>>>(static_cast<long long int>(wallClockKHz) * 20);
 #endif
 }
 
