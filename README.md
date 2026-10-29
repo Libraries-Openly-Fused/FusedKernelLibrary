@@ -169,6 +169,8 @@ With `-DENABLE_BENCHMARK=ON`, ctest also runs the benchmarks, some of which take
 
 Under HIP, the global names `float3`, `uchar3`... are HIP's own vector types, which are not FKL vector types. Use the FKL vector types as `fk::float3`, `fk::uchar3`... They exist in every backend: with nvcc they are the CUDA vector types and on the CPU the same types as the global names, so code written with the `fk::` names compiles for all of them.
 
+Each test, utest and benchmark executable is built for a single backend. Do not link translation units that include FKL compiled for different backends (for instance a .cpp compiled for the CPU and a .hip or .cu file) into one program: FKL is header only, and its templates and inline functions would get a different definition in each backend under the same name, of which the linker keeps only one.
+
 ## Closed source friendly
 
 A company that has it's own CUDA kernels, and wants to start fusing them along with operations present in this library, can do so by shaping their kernels into a conformant FusedKernel Operation, that can be passed as a template parameter of one of the FKL InstantiableOperation structs.
