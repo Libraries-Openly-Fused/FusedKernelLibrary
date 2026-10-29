@@ -130,21 +130,13 @@ int launch_impl() {
         correct = false;
     }
 
-    // A destroy that fails, here because cudaDeviceReset destroyed the context of the stream, leaves no error for the
-    // next cudaGetLastError() to report for other work. Last check: the device is reset.
-    correct &= cudaGetLastError() == cudaSuccess;
-    {
-        GPUStream reset;
-        correct &= cudaDeviceReset() == cudaSuccess;
-    }
-    if (cudaGetLastError() != cudaSuccess) {
-        std::cout << "GPU streams: the error of a failed cudaStreamDestroy was left pending" << std::endl;
-        correct = false;
-    }
+    // Not checked: that a failed cudaStreamDestroy leaves no pending error. The only way to make the destroy of an owned
+    // stream fail is a cudaDeviceReset while the stream exists, and passing a stream from before the reset to a later
+    // CUDA call is undefined behavior: with CUDA 13.4 and driver R610 (RTX 4090), that destroy segfaults in libcuda in
+    // this test, and returns an error in a smaller program.
 #else
     // Not checked under HIP: ROCm maps the streams onto a few hardware queues and reuses their memory, so free device
     // memory does not show leaked streams (ROCm 10.1 on an RX 9060: 4000 streams that are never destroyed cost 0 MB).
-    // A hipStreamDestroy after hipDeviceReset succeeds on ROCm 10.1, so there is no failed destroy to check either.
 #endif
 
     std::cout << "GPU stream ownership " << (correct ? "OK" : "FAILED") << std::endl;
