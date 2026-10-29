@@ -53,8 +53,10 @@ namespace fk {
     class Stream_<ParArch::GPU_NVIDIA> final : public BaseStream {
         // The cudaStream_t, shared by the copies of this Stream_. One created here is destroyed with the last copy:
         // cudaStreamDestroy returns at once and releases the stream when its pending work has finished (no
-        // synchronization, which would invalidate CUDA graph captures running in other threads; errors can not be
-        // reported from a destructor). One given by the user is never destroyed.
+        // synchronization, which would invalidate CUDA graph captures running in other threads). Errors can not be
+        // reported from a destructor: an error of cudaStreamDestroy is cleared, so that the next cudaGetLastError()
+        // does not report it for other work, unless an error was already pending. One given by the user is never
+        // destroyed.
         std::shared_ptr<std::remove_pointer_t<cudaStream_t>> m_stream;
 
     public:
@@ -62,7 +64,10 @@ namespace fk {
             cudaStream_t stream;
             gpuErrchk(cudaStreamCreate(&stream));
             m_stream = std::shared_ptr<std::remove_pointer_t<cudaStream_t>>(stream, [](const cudaStream_t owned) {
-                (void)cudaStreamDestroy(owned);
+                const cudaError_t pending = cudaPeekAtLastError();
+                if (cudaStreamDestroy(owned) != cudaSuccess && pending == cudaSuccess) {
+                    (void)cudaGetLastError();
+                }
             });
         }
         Stream_(const Stream_<ParArch::GPU_NVIDIA>& other) = default;
@@ -102,8 +107,10 @@ namespace fk {
     template <>
     class Stream_<ParArch::GPU_AMD> final : public BaseStream {
         // The hipStream_t, shared by the copies of this Stream_. One created here is destroyed with the last copy:
-        // hipStreamDestroy releases the stream when its pending work has finished (errors can not be reported from a
-        // destructor). One given by the user is never destroyed.
+        // hipStreamDestroy waits for the work pending on the stream (ROCm blocks the host until it has finished).
+        // Errors can not be reported from a destructor: an error of hipStreamDestroy is cleared, so that the next
+        // hipGetLastError() does not report it for other work, unless an error was already pending. One given by the
+        // user is never destroyed.
         std::shared_ptr<std::remove_pointer_t<hipStream_t>> m_stream;
 
     public:
@@ -111,7 +118,10 @@ namespace fk {
             hipStream_t stream;
             gpuErrchk(hipStreamCreate(&stream));
             m_stream = std::shared_ptr<std::remove_pointer_t<hipStream_t>>(stream, [](const hipStream_t owned) {
-                (void)hipStreamDestroy(owned);
+                const hipError_t pending = hipPeekAtLastError();
+                if (hipStreamDestroy(owned) != hipSuccess && pending == hipSuccess) {
+                    (void)hipGetLastError();
+                }
             });
         }
         Stream_(const Stream_<ParArch::GPU_AMD>& other) = default;
