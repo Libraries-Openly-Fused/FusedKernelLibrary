@@ -1,12 +1,6 @@
 # HIP (ROCm) backend: FKL's GPU_AMD ParArch, compiled by amdclang++ through CMake's HIP language.
-# HIP support is optional: if no HIP compiler is found it is disabled and the other backends are unaffected.
-check_language(HIP)
-
-if (NOT CMAKE_HIP_COMPILER)
-    message(STATUS "HIP compiler not found, HIP support will be disabled.")
-    set(ENABLE_HIP OFF CACHE BOOL "Enable HIP support" FORCE)
-    return()
-endif()
+# HIP support is optional: CMakeLists.txt includes this file only if check_language(HIP) found a HIP compiler for AMD
+# GPUs and ENABLE_HIP is ON.
 
 # By default enable_language(HIP) sets CMAKE_HIP_ARCHITECTURES to the GPU(s) of this machine (or the compiler default).
 # -DHIP_ARCH=<list> (e.g. "gfx1200;gfx1201") seeds it instead on the first configure of a build directory; an explicit
