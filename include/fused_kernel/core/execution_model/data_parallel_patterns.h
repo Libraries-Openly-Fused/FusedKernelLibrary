@@ -234,7 +234,7 @@ namespace fk { // namespace FusedKernel
             }
         }
     };
-#elif defined(__HIPCC__)
+#elif defined(FK_HIP_BACKEND)
     template <typename DPPDetails, enum TF TFEN, bool THREAD_DIVISIBLE>
     struct TransformDPP<ParArch::GPU_AMD, TFEN, DPPDetails, THREAD_DIVISIBLE, std::enable_if_t<!std::is_same_v<DPPDetails, void>, void>> {
     private:
@@ -263,7 +263,7 @@ namespace fk { // namespace FusedKernel
             }
         }
     };
-#endif // defined(__NVCC__) || defined(__HIPCC__)
+#endif // defined(__NVCC__) || defined(FK_HIP_BACKEND)
 
     template <enum TF TFEN, typename DPPDetails, bool THREAD_DIVISIBLE>
     struct TransformDPP<ParArch::CPU, TFEN, DPPDetails, THREAD_DIVISIBLE, std::enable_if_t<!std::is_same_v<DPPDetails, void>, void>> {
@@ -353,7 +353,7 @@ namespace fk { // namespace FusedKernel
             Parent::template divergent_operate<0>(z, iOpSequences...);
         }
     };
-#elif defined(__HIPCC__)
+#elif defined(FK_HIP_BACKEND)
     template <typename SequenceSelector>
     struct DivergentBatchTransformDPP<ParArch::GPU_AMD, SequenceSelector> {
     private:
@@ -368,7 +368,7 @@ namespace fk { // namespace FusedKernel
             Parent::template divergent_operate<0>(z, iOpSequences...);
         }
     };
-#endif // defined(__NVCC__) || defined(__HIPCC__)
+#endif // defined(__NVCC__) || defined(FK_HIP_BACKEND)
     template <typename SequenceSelector>
     struct DivergentBatchTransformDPP<ParArch::CPU, SequenceSelector> {
     private:

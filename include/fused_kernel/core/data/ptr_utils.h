@@ -26,7 +26,7 @@ namespace fk {
     template <enum ParArch PA, enum ND D, typename T>
     inline void setTo(const T& value, Ptr<D, T>& outputPtr, Stream_<PA>& stream) {
         RawPtr<D, T> output = outputPtr.ptr();
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
         if constexpr (PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD) {
             if (outputPtr.getMemType() == MemType::Host) {
                 stream.sync();

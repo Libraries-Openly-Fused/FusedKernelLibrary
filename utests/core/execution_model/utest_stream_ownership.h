@@ -24,7 +24,7 @@
 #include <iostream>
 #include <memory>
 
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
 namespace fk {
 
 #if defined(__NVCC__)

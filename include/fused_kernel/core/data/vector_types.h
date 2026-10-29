@@ -261,7 +261,7 @@ namespace fk {
 
 #if defined(__NVCC__)
 #include <vector_types.h>
-#elif defined(__HIPCC__)
+#elif defined(FK_HIP_BACKEND)
 // HIP declares its own vector types (::float3, ::uchar3...) in the global namespace (hip/hip_runtime.h). They are not
 // FKL vector types: they are not aggregates, they come with their own operators and some layouts differ (::double4 is
 // 32/32 under HIP). FKL uses its own types under HIP, as it does on the CPU: fk::float3, fk::uchar3... (see below).
@@ -314,13 +314,13 @@ using double1 = fk::Double1;
 using double2 = fk::Double2;
 using double3 = fk::Double3;
 using double4 = fk::Double4;
-#endif /* __NVCC__ || __HIPCC__ */
+#endif /* __NVCC__ || FK_HIP_BACKEND */
 
 // The FKL vector types, as fk::float3, fk::uchar3..., in every backend. With nvcc they are the CUDA vector types, and on
 // the CPU the global aliases above: there the fk:: names are using-declarations of the same types, so code that also
 // does "using namespace fk;" can keep using the global names. Under HIP the global names are HIP's own types, so code
 // that has to compile for HIP must use the fk:: names.
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
 #define FK_VECTOR_TYPE_NAME(name, StructName) using name = StructName;
 #else
 #define FK_VECTOR_TYPE_NAME(name, StructName) using ::name;

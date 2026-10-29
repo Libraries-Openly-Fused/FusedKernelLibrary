@@ -42,7 +42,7 @@ PtrToTest& test_return_by_reference(PtrToTest& somePtr) {
 }
 
 void test_uploadTo(Stream& stream) {
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     // Device pointers
     Ptr1D<fk::uchar3> test1D(1333, 0, MemType::Device);
     Ptr2D<fk::uchar3> test2D(1333, 444, 0, MemType::Device);
@@ -77,7 +77,7 @@ void test_uploadTo(Stream& stream) {
 }
 
 void test_downloadTo(Stream& stream) {
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     // Device pointers
     Ptr1D<fk::uchar3> test1D(1333, 0, MemType::Device);
     Ptr2D<fk::uchar3> test2D(1333, 444, 0, MemType::Device);
@@ -208,7 +208,7 @@ bool test_setTo_host(Stream& stream) {
     return correct;
 }
 
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
 // Keeps the GPU busy for some milliseconds, so that the work enqueued after it runs after the host code that follows
 __global__ void spinKernel(const long long int cycles) {
     const long long int start = clock64();
@@ -332,7 +332,7 @@ int launch() {
     }
 
     bool h_correct3 = test_setTo_host<MemType::Host>(stream);
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     h_correct3 &= test_setTo_host<MemType::HostPinned>(stream);
     h_correct3 &= test_setTo_stream_order(stream);
 #endif

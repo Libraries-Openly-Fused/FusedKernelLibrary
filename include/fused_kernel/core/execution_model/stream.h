@@ -18,7 +18,7 @@
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 #include <fused_kernel/core/data/ref_class.h>
 
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
 #include <fused_kernel/core/utils/utils.h>
 #include <memory>
 #include <type_traits>
@@ -98,7 +98,7 @@ namespace fk {
     };
 #endif
 
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
     template <>
     class Stream_<ParArch::GPU_AMD> final : public BaseStream {
         // The hipStream_t, shared by the copies of this Stream_. One created here is destroyed with the last copy:

@@ -23,7 +23,7 @@
 
 #if defined(__NVCC__)
 #include <cuda_runtime.h>
-#elif defined(__HIPCC__)
+#elif defined(FK_HIP_BACKEND)
 #include <hip/hip_runtime.h>
 // Kernel parameters are always in the constant kernel argument segment on AMD GPUs: __grid_constant__ is CUDA syntax,
 // accepted by clang when it supports the attribute
@@ -38,7 +38,7 @@
 #endif
 #endif // NVRTC_COMPILER
 
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
 #define FK_DEVICE_FUSE __device__ __forceinline__ static constexpr
 #define FK_DEVICE_CNST __device__ __forceinline__ constexpr
 #define FK_HOST_DEVICE_FUSE __host__ FK_DEVICE_FUSE
@@ -75,7 +75,7 @@
 #else
 #define FK_RESTRICT __restrict__
 #endif // _MSC_VER
-#endif // __CUDACC__ || __NVCC__ || NVRTC_COMPILER || __HIPCC__
+#endif // __CUDACC__ || __NVCC__ || NVRTC_COMPILER || FK_HIP_BACKEND
 
 #ifdef CUDART_VERSION
 #define CUDART_MAJOR_VERSION CUDART_VERSION/1000
@@ -99,7 +99,7 @@ using ulonglong = unsigned long long;
 using ushort = unsigned short;
 using ulong = unsigned long;
 
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
 namespace fk {
 #if defined(__NVCC__)
     inline void gpuAssert(cudaError_t code,
@@ -172,7 +172,7 @@ namespace fk {
 } // namespace fk
 
 #define gpuErrchk(ans) { fk::gpuAssert((ans), __FILE__, __LINE__, true); }
-#endif // defined(__NVCC__) || defined(__HIPCC__)
+#endif // defined(__NVCC__) || defined(FK_HIP_BACKEND)
 
 // Null type, used for Operation required aliases that can not still be known,
 // because they are deduced from a backwards operation that is till not defined.

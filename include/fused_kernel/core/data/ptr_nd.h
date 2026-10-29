@@ -58,7 +58,7 @@ namespace fk {
         std::free(ptr);
 #endif
     }
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     constexpr MemType defaultMemType = MemType::DeviceAndPinned;
 #else
     constexpr MemType defaultMemType = MemType::Host;
@@ -79,7 +79,7 @@ namespace fk {
             if (ptr_a.dims.pitch == 0) {
                 ptr_a.dims.pitch = sizeof(T) * ptr_a.dims.width;
             }
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
             gpuErrchk(hipMalloc(&ptr_a.data, ptr_a.dims.pitch));
 #else
             gpuErrchk(cudaMalloc(&ptr_a.data, ptr_a.dims.pitch));
@@ -103,14 +103,14 @@ namespace fk {
         FK_HOST_FUSE void d_malloc(RawPtr<ND::_2D, T>& ptr_a) {
             if (ptr_a.dims.pitch == 0) {
                 size_t pitch = 0;
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
                 gpuErrchk(hipMallocPitch(&ptr_a.data, &pitch, sizeof(T) * ptr_a.dims.width, ptr_a.dims.height));
 #else
                 gpuErrchk(cudaMallocPitch(&ptr_a.data, &pitch, sizeof(T) * ptr_a.dims.width, ptr_a.dims.height));
 #endif
                 ptr_a.dims.pitch = static_cast<int>(pitch);
             } else {
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
                 gpuErrchk(hipMalloc(&ptr_a.data, PtrImpl<ND::_2D, T>::sizeInBytes(ptr_a.dims)));
 #else
                 gpuErrchk(cudaMalloc(&ptr_a.data, PtrImpl<ND::_2D, T>::sizeInBytes(ptr_a.dims)));
@@ -136,7 +136,7 @@ namespace fk {
             if (ptr_a.dims.pitch == 0) {
                 ptr_a.dims.pitch = sizeof(T) * ptr_a.dims.width;
             }
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
             gpuErrchk(hipMalloc(&ptr_a.data, PtrImpl<ND::_3D, T>::sizeInBytes(ptr_a.dims)));
 #else
             gpuErrchk(cudaMalloc(&ptr_a.data, PtrImpl<ND::_3D, T>::sizeInBytes(ptr_a.dims)));
@@ -161,7 +161,7 @@ namespace fk {
         }
         FK_HOST_FUSE void d_malloc(RawPtr<ND::T3D, T>& ptr_a) {
             PtrImpl<ND::T3D, T>::h_malloc_init(ptr_a.dims);
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
             gpuErrchk(hipMalloc(&ptr_a.data, PtrImpl<ND::T3D, T>::sizeInBytes(ptr_a.dims)));
 #else
             gpuErrchk(cudaMalloc(&ptr_a.data, PtrImpl<ND::T3D, T>::sizeInBytes(ptr_a.dims)));
@@ -203,21 +203,21 @@ namespace fk {
         }
 
         inline constexpr void allocDevice() {
-            #if defined(__NVCC__) || defined(__HIPCC__)
+            #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
             int currentDevice = 0;
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
             gpuErrchk(hipGetDevice(&currentDevice));
 #else
             gpuErrchk(cudaGetDevice(&currentDevice));
 #endif
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
             gpuErrchk(hipSetDevice(deviceID));
 #else
             gpuErrchk(cudaSetDevice(deviceID));
 #endif
             PtrImpl<D, T>::d_malloc(ptr_a);
             if (currentDevice != deviceID) {
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
                 gpuErrchk(hipSetDevice(currentDevice));
 #else
                 gpuErrchk(cudaSetDevice(currentDevice));
@@ -234,26 +234,26 @@ namespace fk {
         }
 
         inline constexpr void allocHostPinned() {
-            #if defined(__NVCC__) || defined(__HIPCC__)
+            #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
             int currentDevice = 0;
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
             gpuErrchk(hipGetDevice(&currentDevice));
 #else
             gpuErrchk(cudaGetDevice(&currentDevice));
 #endif
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
             gpuErrchk(hipSetDevice(deviceID));
 #else
             gpuErrchk(cudaSetDevice(deviceID));
 #endif
             PtrImpl<D, T>::h_malloc_init(ptr_a.dims);
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
             gpuErrchk(hipHostMalloc(&ptr_a.data, PtrImpl<D, T>::sizeInBytes(ptr_a.dims)));
 #else
             gpuErrchk(cudaMallocHost(&ptr_a.data, PtrImpl<D, T>::sizeInBytes(ptr_a.dims)));
 #endif
             if (currentDevice != deviceID) {
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
                 gpuErrchk(hipSetDevice(currentDevice));
 #else
                 gpuErrchk(cudaSetDevice(currentDevice));
@@ -265,27 +265,27 @@ namespace fk {
         }
 
         inline constexpr void allocDeviceAndPinned() {
-            #if defined(__NVCC__) || defined(__HIPCC__)
+            #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
             int currentDevice = 0;
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
             gpuErrchk(hipGetDevice(&currentDevice));
 #else
             gpuErrchk(cudaGetDevice(&currentDevice));
 #endif
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
             gpuErrchk(hipSetDevice(deviceID));
 #else
             gpuErrchk(cudaSetDevice(deviceID));
 #endif
             PtrImpl<D, T>::d_malloc(ptr_a);
             PtrImpl<D, T>::h_malloc_init(ptr_pinned.dims);
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
             gpuErrchk(hipHostMalloc(&ptr_pinned.data, PtrImpl<D, T>::sizeInBytes(ptr_pinned.dims)));
 #else
             gpuErrchk(cudaMallocHost(&ptr_pinned.data, PtrImpl<D, T>::sizeInBytes(ptr_pinned.dims)));
 #endif
             if (currentDevice != deviceID) {
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
                 gpuErrchk(hipSetDevice(currentDevice));
 #else
                 gpuErrchk(cudaSetDevice(currentDevice));
@@ -304,8 +304,8 @@ namespace fk {
                 switch (type) {
                 case MemType::Device:
                     {
-                        #if defined(__NVCC__) || defined(__HIPCC__)
-#if defined(__HIPCC__)
+                        #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
+#if defined(FK_HIP_BACKEND)
                         gpuErrchk(hipFree(ref->ptr));
 #else
                         gpuErrchk(cudaFree(ref->ptr));
@@ -322,8 +322,8 @@ namespace fk {
                     }
                 case MemType::HostPinned:
                     {
-                        #if defined(__NVCC__) || defined(__HIPCC__)
-#if defined(__HIPCC__)
+                        #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
+#if defined(FK_HIP_BACKEND)
                         gpuErrchk(hipHostFree(ref->ptr));
 #else
                         gpuErrchk(cudaFreeHost(ref->ptr));
@@ -335,13 +335,13 @@ namespace fk {
                     }
                 case MemType::DeviceAndPinned:
                 {
-#if defined(__NVCC__) || defined(__HIPCC__)
-#if defined(__HIPCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
+#if defined(FK_HIP_BACKEND)
                     gpuErrchk(hipFree(ref->ptr));
 #else
                     gpuErrchk(cudaFree(ref->ptr));
 #endif
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
                     gpuErrchk(hipHostFree(ref->pinnedPtr));
 #else
                     gpuErrchk(cudaFreeHost(ref->pinnedPtr));
@@ -379,7 +379,7 @@ namespace fk {
                 }
             }
         }
-#elif defined(__HIPCC__)
+#elif defined(FK_HIP_BACKEND)
         inline void copy(const RawPtr<D, T>& thisPtr, RawPtr<D, T>& other, const hipMemcpyKind& kind,
                          hipStream_t stream = 0) const {
             if ((other.dims.pitch == other.dims.width * sizeof(T)) && (thisPtr.dims.pitch == thisPtr.dims.width * sizeof(T))) {
@@ -657,7 +657,7 @@ namespace fk {
                 copy(ptr_a, ptr_pinned, kind, stream);
             }
         }
-#elif defined(__HIPCC__)
+#elif defined(FK_HIP_BACKEND)
         inline void uploadTo(Ptr<D, T>& other, hipStream_t stream = 0) {
             constexpr hipMemcpyKind kind = hipMemcpyHostToDevice;
             constexpr MemType otherExpectedMemType1 = MemType::Device;
@@ -709,7 +709,7 @@ namespace fk {
 #else
         inline void upload(Stream& stream) {}
         inline void download(Stream& stream) {}
-#endif // defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED)
+#endif // defined(__NVCC__) || defined(FK_HIP_BACKEND)
 
         inline T at(const Point p) const {
             if (type != MemType::Device) {

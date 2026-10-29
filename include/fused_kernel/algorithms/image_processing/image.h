@@ -81,7 +81,7 @@ namespace fk {
         inline void download(Stream_<ParArch::GPU_NVIDIA>& stream) {
             data.download(stream);
         }
-#elif defined(__HIPCC__)
+#elif defined(FK_HIP_BACKEND)
         inline void uploadTo(Image& other, hipStream_t stream = 0) {
             data.uploadTo(other.data, stream);
         }
@@ -99,7 +99,7 @@ namespace fk {
 #else
         inline void upload(Stream& stream) {}
         inline void download(Stream& stream) {}
-#endif // defined(__NVCC__) || defined(__HIP__) || defined(NVRTC_ENABLED)
+#endif // defined(__NVCC__) || defined(FK_HIP_BACKEND)
 #endif // defined(NVRTC_COMPILER)
 
         FK_HOST_CNST VectorType_t<BaseType, PixelFormatTraits<PF>::cn> readAt(const Point p) const {

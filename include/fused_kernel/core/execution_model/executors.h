@@ -25,13 +25,13 @@
 
 #include <cstdint>
 
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
 #include <fused_kernel/core/execution_model/executor_details/executor_kernels.h>
 #endif
 
 namespace fk {
 
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     struct CtxDim3 {
         uint x;
         uint y;
@@ -156,7 +156,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
     template <typename DataParallelPattern>
     struct Executor {
         FK_STATIC_STRUCT(Executor, Executor)
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
         static_assert(DataParallelPattern::PAR_ARCH == ParArch::GPU_AMD ||
                       DataParallelPattern::PAR_ARCH == ParArch::CPU,
                       "Only GPU_AMD and CPU supported");
@@ -262,7 +262,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         DECLARE_EXECUTOR_PARENT_IMPL
     };
 
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     struct ComputeBestSolutionBase {
         FK_HOST_FUSE uint computeDiscardedThreads(const uint width, const uint height, const uint blockDimx, const uint blockDimy) {
             const uint modX = width % blockDimx;
@@ -444,7 +444,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             executeOperations_helper(stream, iOpSequences...);
         }
     };
-#elif defined(__HIPCC__)
+#elif defined(FK_HIP_BACKEND)
     // The CUDA executors above, with the HIP runtime API
     template <enum TF TFEN>
     struct Executor<TransformDPP<ParArch::GPU_AMD, TFEN>> {

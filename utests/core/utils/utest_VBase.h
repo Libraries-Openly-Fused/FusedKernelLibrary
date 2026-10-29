@@ -17,7 +17,7 @@
 
 #include <fused_kernel/core/utils/vector_utils.h>
 
-#if defined(__HIPCC__)
+#if defined(FK_HIP_BACKEND)
 // Under HIP the global vector types are HIP's own, not FKL's: FKL's are fk::float3...
 static_assert(!std::is_same_v<fk::float3, ::float3>, "fk::float3 must be FKL's type, not HIP's");
 static_assert(!fk::validCUDAVec<::float3>, "HIP's ::float3 must not be an FKL vector type");

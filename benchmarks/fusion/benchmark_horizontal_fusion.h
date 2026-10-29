@@ -331,7 +331,7 @@ bool launch_benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD_CUDAGraphs(const size_t&
 
     return passed;
 }
-#elif defined(__HIPCC__)
+#elif defined(FK_HIP_BACKEND)
 // The CUDA graphs version above, with HIP graphs
 template <size_t BATCH>
 bool benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD_HIPGraphs(const size_t& NUM_ELEMS_X, const size_t& NUM_ELEMS_Y, fk::Stream& stream) {
@@ -494,7 +494,7 @@ int launch() {
     warmup = false;
 
     passed &= launch_benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD_CUDAGraphs(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
-#elif defined(__HIPCC__)
+#elif defined(FK_HIP_BACKEND)
     warmup = true;
     passed &= launch_benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD_HIPGraphs(NUM_ELEMS_X, NUM_ELEMS_Y, std::make_index_sequence<NUM_EXPERIMENTS>{}, stream);
     warmup = false;
