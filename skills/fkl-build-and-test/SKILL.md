@@ -34,7 +34,10 @@ make -j$(nproc)
 ```bash
 cd build/bin/Release
 shopt -s nullglob  # a backend that is not built has no binaries
-for t in *_cu *_hip *_cpp; do ./$t >/dev/null 2>&1 && echo "$t OK" || echo "$t FAIL"; done
+for t in *_cu *_hip *_cpp; do
+  case $t in benchmark_*) continue;; esac  # ENABLE_BENCHMARK builds: the benchmarks take far longer
+  ./$t >/dev/null 2>&1 && echo "$t OK" || echo "$t FAIL"
+done
 ```
 All binaries exit 0 on success. The full suite is the merge gate: a
 header change that compiles can still break a distant instantiation, so
