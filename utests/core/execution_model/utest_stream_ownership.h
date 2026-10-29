@@ -14,8 +14,9 @@
 
 // GPU streams (CUDA and HIP) own the native stream they create: copies share it, assignment adopts the other stream,
 // and the last copy destroys it (never before: a copy that outlives the original keeps it usable). A stream given by
-// the user is never destroyed. The CPU streams own no native stream, so the _cpp target has nothing to test.
+// the user is never destroyed. The CPU streams own no native stream, so there is no _cpp target.
 
+#define __ONLY_GPU__
 #include <tests/main.h>
 
 #include <fused_kernel/core/execution_model/stream.h>
@@ -24,7 +25,6 @@
 #include <iostream>
 #include <memory>
 
-#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
 namespace fk {
 
 #if defined(__NVCC__)
@@ -49,16 +49,13 @@ inline bool usable(const NativeStream stream) {
     return hipStreamQuery(stream) == hipSuccess && hipStreamSynchronize(stream) == hipSuccess;
 }
 inline bool initDevice() { return hipFree(0) == hipSuccess; }
-inline bool freeMemory(size_t* free) {
-    size_t total = 0;
-    return hipMemGetInfo(free, &total) == hipSuccess;
-}
 #endif
 
 inline NativeStream native(const GPUStream& stream) {
     return static_cast<NativeStream>(stream);
 }
 
+#if defined(__NVCC__)
 // Free device memory lost after creating, copying, assigning and destroying many streams. A created CUDA stream holds
 // about 160 KB of device memory, so leaking them shows here. Other processes can use the GPU at the same time: the
 // smallest of three rounds is reported, which they can only make smaller.
@@ -83,6 +80,7 @@ double megabytesLostToStreams() {
     }
     return smallest;
 }
+#endif
 
 int launch_impl() {
     bool correct = initDevice();
@@ -122,6 +120,7 @@ int launch_impl() {
     }
     correct &= usable(userStream) && destroyNative(userStream);
 
+#if defined(__NVCC__)
     // Owned streams are destroyed with their last copy, also when replaced by assignment (2000 leaked CUDA streams
     // would be over 300 MB)
     const double lost = megabytesLostToStreams();
@@ -130,6 +129,10 @@ int launch_impl() {
                   << std::endl;
         correct = false;
     }
+#else
+    // Not checked under HIP: ROCm maps the streams onto a few hardware queues and reuses their memory, so free device
+    // memory does not show leaked streams (ROCm 10.1 on an RX 9060: 4000 streams that are never destroyed cost 0 MB)
+#endif
 
     std::cout << "GPU stream ownership " << (correct ? "OK" : "FAILED") << std::endl;
     return correct ? 0 : -1;
@@ -140,11 +143,3 @@ int launch_impl() {
 int launch() {
     return fk::launch_impl();
 }
-#else
-#include <iostream>
-
-int launch() {
-    std::cout << "CPU streams own no native stream: nothing to test" << std::endl;
-    return 0;
-}
-#endif
