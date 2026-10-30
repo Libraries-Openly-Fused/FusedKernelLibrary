@@ -85,9 +85,10 @@ int launch() { RUN_ALL_TESTS }
 
 ## CI
 
-GitHub workflows build on linux-amd64, linux-arm64 and windows-amd64,
-with a matrix over host compilers and CUDA toolkits (on Linux currently
-12.9 and 13.4). No workflow builds HIP. Keep changes
+GitHub workflows build on linux-amd64, linux-arm64, linux-rocm-amd64 and
+windows-amd64, with a matrix over host compilers and CUDA toolkits (on Linux
+currently 12.9 and 13.4). The ROCm one builds the CPU and HIP targets with
+amdclang++ and runs the tests on an AMD GPU; no other workflow builds HIP. Keep changes
 warning-clean on BOTH nvcc and clang: clang is a first-class compiler for
 FKL (single-step host+device compiles matter for downstream packaging).
 
