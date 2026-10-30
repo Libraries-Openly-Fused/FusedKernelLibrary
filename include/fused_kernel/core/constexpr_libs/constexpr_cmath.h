@@ -23,6 +23,24 @@
 #include <type_traits>
 #include <limits>
 
+// The functions of this file are constexpr, so that they can be evaluated at compile time, and are the same code on the host and
+// on the device. At run time on the host, a few of them (nearbyint) can use the instructions of the CPU instead. That needs to know
+// whether the call is being constant evaluated: __builtin_is_constant_evaluated (GCC 9+, Clang, AMD Clang, MSVC 19.25+, and nvcc
+// through its host compiler) tells it in C++17, as std::is_constant_evaluated does in C++20. The device passes of nvcc and HIP, NVRTC
+// and the compilers without the builtin keep the code that is written in the functions.
+#if !defined(FK_HOST_RUNTIME_MATH) && !defined(__CUDA_ARCH__) && !defined(__HIP_DEVICE_COMPILE__) && !defined(NVRTC_COMPILER)
+#if defined(__has_builtin)
+#if __has_builtin(__builtin_is_constant_evaluated)
+#define FK_HOST_RUNTIME_MATH 1
+#endif
+#elif defined(_MSC_VER) && _MSC_VER >= 1925
+#define FK_HOST_RUNTIME_MATH 1
+#endif
+#endif
+#if defined(FK_HOST_RUNTIME_MATH)
+#include <cmath>
+#endif
+
 namespace cxp {
     template <typename T>
     constexpr T minValue = std::numeric_limits<T>::lowest();
@@ -237,6 +255,17 @@ namespace cxp {
                 if (isnan::BaseFunc::exec(s) || isinf::BaseFunc::exec(s) || (s == static_cast<ST>(0))) {
                     return s;
                 }
+#if defined(FK_HOST_RUNTIME_MATH)
+                if (!__builtin_is_constant_evaluated()) {
+                    // At run time on the host: one instruction (roundss, cvtss2si...) instead of the branches below, which cost
+                    // tens of cycles when the fractions are not predictable. Ties go to even, with the rounding mode to nearest,
+                    // as below. The code below returns +0 for -0.5 <= s < 0 where std::nearbyint returns -0: the same value, but not
+                    // the same bits, and the results are the same bits. The condition is on the input, not on the result
+                    // (rounded == 0 ? 0 : rounded would be -0 == +0 to a compiler that does not keep the sign of zero).
+                    const ST rounded = std::nearbyint(s);
+                    return (s < static_cast<ST>(0) && s >= static_cast<ST>(-0.5)) ? static_cast<ST>(0) : rounded;
+                }
+#endif
                 ST fl{0};
                 // This is doing the same as floor, but we don't want to execute the previous if again
                 if constexpr (std::is_same_v<ST, double>) {
