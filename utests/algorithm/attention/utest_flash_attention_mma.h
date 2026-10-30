@@ -34,7 +34,7 @@ using namespace fk;
  *   2. the SIMT FlashAttention DPP (executeFlashAttention<float, HEAD_DIM>) on the same values.
  * Head dimensions 64 and 128, dense and causal (causal only with seqQ == seqK), aligned and ragged lengths, cross-attention.
  * The MMA kernel converts the probabilities to bf16 before the second matrix product and accumulates in fp32, so its error against the
- * oracle is that of a bf16 product (about 1e-3), not the 5e-6 of the fp32 SIMT kernel; the tolerance below is a bound that a real
+ * oracle is that of a bf16 product (up to about 1.2e-3 in these cases), not the 1e-7 of the fp32 SIMT kernel; the tolerance below is a bound that a real
  * indexing, masking or softmax bug exceeds by a wide margin (those give errors of order 1e-1 to 1). The kernels need sm_80 or newer
  * (ldmatrix, cp.async, bf16 mma): on an older device the test prints a message and succeeds. */
 
@@ -144,7 +144,9 @@ int launch() {
         std::cout << "FlashAttentionMmaDPP needs sm_80 or newer (ldmatrix, cp.async, bf16 mma): skipped on this device" << std::endl;
         return 0;
     }
-    constexpr double TOL = 2e-2;   // a bf16 probability matrix: about 1e-3 expected, to be tightened to the measured maximum
+    // Measured on an RTX 4090 (sm_89) and an RTX 5050 (sm_120): the largest error of the MMA kernel against the double oracle over these seven cases is 1.21e-3 (causal, d128)
+    // and its largest difference to the SIMT kernel 1.21e-3; the bound keeps a margin of 2.5x.
+    constexpr double TOL = 3e-3;
     testMma<64>("FA-MMA dense d64 b2 s64", 2, 64, 64, false, TOL, TOL, 11);
     testMma<64>("FA-MMA causal d64 b2 s256", 2, 256, 256, true, TOL, TOL, 12);
     testMma<64>("FA-MMA dense d64 ragged s67/s131", 2, 67, 131, false, TOL, TOL, 13);
