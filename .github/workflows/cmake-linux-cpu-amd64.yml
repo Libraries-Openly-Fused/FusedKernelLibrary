@@ -1,4 +1,4 @@
-name: CMake on Linux (x86_64) Ubuntu 24.04
+name: CMake on Linux (CPU x86_64)
 
 on:
   #push:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: [self-hosted, linux, x64,ubuntu2404]
+    runs-on: [self-hosted, linux, x64]
 
     strategy:
       # Set fail-fast to false to ensure that feedback is delivered for all matrix combinations.
@@ -18,34 +18,29 @@ jobs:
       matrix: #host,cuda,cuda_toolkit
         include:
           - host_compiler: "g++-13"
-            cuda_toolkit: "12.9"             
           - host_compiler: "clang++-21"
-            cuda_toolkit: "12.9"
- 
 
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Set reusable strings and path
         # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
         id: strings
         run: |
-          echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"        
-          echo "PATH=$HOME/cmake-4.3.3-linux-x86_64/bin/:$PATH" >> "$GITHUB_ENV"
-          echo "CUDACXX=/usr/local/cuda-${{matrix.cuda_toolkit}}/bin/nvcc" >> "$GITHUB_ENV"
-          echo "CC=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
-          echo "CXX=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
+          echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"
+          echo "PATH=$HOME/cmake-4.4.2-linux-x86_64/bin/:$PATH" >> "$GITHUB_ENV"
       - name: Configure CMake
         run: |
-          cmake -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -DCMAKE_CUDA_COMPILER="/usr/local/cuda-${{matrix.cuda_toolkit}}/bin/nvcc" -DENABLE_HIP=OFF -DENABLE_CPU_MULTITHREAD=ON -S ${{github.workspace}}
-
-      - name: Build        
+          cmake -G "Ninja" -DCMAKE_CXX_COMPILER="${{matrix.host_compiler}}" \
+          -B ${{steps.strings.outputs.build-output-dir}}  -DENABLE_HIP=OFF  -DENABLE_CUDA=OFF -DENABLE_CPU=ON -DENABLE_CPU_MULTITHREAD=ON -DENABLE_BENCHMARK=ON\
+          -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
+      - name: Build
         run: |
           cmake --build ${{ steps.strings.outputs.build-output-dir }} --config Release
 
       - name: Test
         working-directory: ${{ steps.strings.outputs.build-output-dir }}
         run: |
-          ctest --build-config Release --output-junit test_results.xml
+          ctest --build-config Release --output-junit test_results.xml -E "^benchmark_"
