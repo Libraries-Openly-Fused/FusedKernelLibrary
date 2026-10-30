@@ -169,6 +169,22 @@ With `-DENABLE_BENCHMARK=ON`, ctest also runs the benchmarks, some of which take
 
 Under HIP, the global names `float3`, `uchar3`... are HIP's own vector types, which are not FKL vector types. Use the FKL vector types as `fk::float3`, `fk::uchar3`... They exist in every backend: with nvcc they are the CUDA vector types and on the CPU the same types as the global names, so code written with the `fk::` names compiles for all of them.
 
+### Multithreaded CPU backend
+
+`ParArch::CPU_MULTITHREAD` executes `TransformDPP` on a thread pool, one chunk per output row, with the same per thread code as `ParArch::CPU`, so both backends give the same output: `utest_cpu_multithread_bit_identity` checks that the bytes are the same on integer, float, thread fusion, batch and NV12 chains. For float chains that is a property of the build, not a guarantee of the language: a compiler may contract `a * b + c` into a fused multiply-add differently where the shared code is inlined. The pool is the `thread-pool` git submodule: clone with `git clone --recursive`, or run `git submodule update --init` in an existing clone. `ENABLE_CPU_MULTITHREAD` is ON when the submodule is checked out (and `-DENABLE_CPU_MULTITHREAD=ON` fails if it is not), and defines `FK_CPU_MULTITHREAD_ENABLED`.
+
+`Stream_<ParArch::CPU_MULTITHREAD>` behaves like a CUDA stream: `executeOperations` enqueues the execution and returns, the executions of a stream run one after the other in the order they were enqueued, and `sync()` waits for the ones enqueued before it and rethrows the first exception their work threw.
+
+```cpp
+#include <fused_kernel/core/execution_model/cpu_multithread.h>
+
+fk::Stream_<fk::ParArch::CPU_MULTITHREAD> stream;
+fk::executeOperations<fk::TransformDPP<fk::ParArch::CPU_MULTITHREAD>>(input, output, stream, /* operations */);
+stream.sync();
+```
+
+As with the host buffers of `cudaMemcpyAsync`, the buffers of an execution must stay valid until `sync()`: the overloads that take `Ptr` or `Tensor` objects keep them alive by themselves, buffers given to `build()` as `RawPtr` are not. `setTo`, `upload` and `download` accept the stream and need `Host` or `HostPinned` memory (they throw for `Device` and `DeviceAndPinned`, the default memory type of CUDA and HIP builds). `DivergentBatchTransformDPP` has no `CPU_MULTITHREAD` (nor `CPU`) executor.
+
 Each test, utest and benchmark executable is built for a single backend. Do not link translation units that include FKL compiled for different backends (for instance a .cpp compiled for the CPU and a .hip or .cu file) into one program: FKL is header only, and its templates and inline functions would get a different definition in each backend under the same name, of which the linker keeps only one.
 
 ## Memory layout
