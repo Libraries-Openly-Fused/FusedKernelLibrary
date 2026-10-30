@@ -131,8 +131,24 @@ namespace fk {
 
     enum class ColorConversionDir { YCbCr2RGB, RGB2YCbCr };
 
+    // The matrices of the combinations of range, primitives and direction that are specialised below. A combination without a
+    // matrix is a compile time error where it is used (it used to be a matrix of zeros, and a conversion that gave black).
+    // The primary template is only instantiated for the combinations that are not specialised; the condition of the
+    // static_assert depends on the template parameters and is always false, so it fires there and nowhere else.
     template <ColorRange CR, ColorPrimitives CP, ColorConversionDir CCD>
-    constexpr M3x3Float ccMatrix{};
+    inline constexpr bool ccMatrixIsMissing = false;
+
+    template <ColorRange CR, ColorPrimitives CP, ColorConversionDir CCD>
+    constexpr M3x3Float undefinedCcMatrix() {
+        static_assert(ccMatrixIsMissing<CR, CP, CCD>,
+                      "There is no color conversion matrix for this ColorRange, ColorPrimitives and ColorConversionDir. "
+                      "Note that ColorRange::Full with ColorPrimitives::bt601 is the conversion of BT.601 studio swing "
+                      "(limited range) YCbCr to full range RGB.");
+        return M3x3Float{};
+    }
+
+    template <ColorRange CR, ColorPrimitives CP, ColorConversionDir CCD>
+    constexpr M3x3Float ccMatrix = undefinedCcMatrix<CR, CP, CCD>();
     // Source: https://en.wikipedia.org/wiki/YCbCr
     template <> inline constexpr M3x3Float ccMatrix<ColorRange::Full, ColorPrimitives::bt601, ColorConversionDir::YCbCr2RGB>{
         { 1.164383562f,           0.f,       1.596026786f  },
