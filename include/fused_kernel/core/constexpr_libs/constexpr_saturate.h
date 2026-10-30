@@ -29,6 +29,29 @@ namespace cxp {
             FK_HOST_DEVICE_FUSE auto exec(const ST& s) {
                 constexpr auto maxValOutput = maxValue<fk::VBase<OT>>;
                 constexpr auto minValueOutput = minValue<fk::VBase<OT>>;
+#if defined(FK_HOST_RUNTIME_MATH)
+                if constexpr (std::is_floating_point_v<ST> && std::is_integral_v<fk::VBase<OT>>) {
+                    if (!__builtin_is_constant_evaluated()) {
+                        // At run time on the host, from a floating point type to an integer type: no branches (the ones below mispredict
+                        // when the values are not predictable) and one instruction to round. The results are the ones of the code
+                        // below, except where that code is not defined: a NaN gives 0 for every output type (below, it is cast to
+                        // the integer type: 0 for the narrow types, the smallest int with an x86 CPU; a GPU gives 0), and a value
+                        // equal to the limit of the output type when the limit is not exact in the floating point type (2^31 as a
+                        // float for int) gives the limit (below, it is cast unchanged: the smallest int with an x86 CPU).
+                        using Out = fk::VBase<OT>;
+                        const ST hi = static_cast<ST>(maxValOutput);
+                        const ST lo = static_cast<ST>(minValueOutput);
+                        const bool isNaN = s != s;
+                        const bool over = s >= hi;
+                        const bool under = s <= lo;
+                        // The value that is rounded and cast is inside the range of the output type
+                        const ST inRange = (isNaN | over | under) ? static_cast<ST>(0) : s;
+                        const Out rounded = static_cast<Out>(std::nearbyint(inRange));
+                        return over ? static_cast<Out>(maxValOutput)
+                                    : (under ? static_cast<Out>(minValueOutput) : (isNaN ? static_cast<Out>(0) : rounded));
+                    }
+                }
+#endif
                 if (cxp::cmp_greater::BaseFunc::exec(s, maxValOutput)) {
                     return maxValOutput;
                 } else if (cxp::cmp_less::BaseFunc::exec(s, minValueOutput)) {
