@@ -35,7 +35,6 @@ FusedKernelLibrary/
 ├── lib/                     # CMake INTERFACE library target (FKL::FKL) and install config
 ├── tests/                   # Integration tests (discovered from .h files by CMake)
 ├── utests/                  # Unit tests (discovered from .h files by CMake)
-├── benchmarks/              # Performance benchmarks (off by default)
 ├── CMakeLists.txt           # Root CMake, version 0.1.14, requires CMake 3.28+
 └── .clang-format            # LLVM-based style, 4-space indent, 120 column limit
 ```
@@ -64,7 +63,6 @@ FusedKernelLibrary/
 | `ENABLE_CUDA` | ON (if nvcc found) | Enable tests on CUDA backend |
 | `BUILD_TEST` | ON | Build integration tests under `tests/` |
 | `BUILD_UTEST` | ON | Build unit tests under `utests/` |
-| `ENABLE_BENCHMARK` | OFF | Build benchmarks under `benchmarks/` |
 | `CUDA_ARCH` | `native` | Target CUDA architectures (e.g., `native`, `all`, `89`, `86;89`) |
 | `ENABLE_HIP` | ON (if a HIP compiler for AMD GPUs is found) | Enable tests on HIP backend |
 | `HIP_ARCH` | the local GPU | HIP architectures on the first configure of a build directory (e.g., `gfx1200`); `CMAKE_HIP_ARCHITECTURES` afterwards |
@@ -115,7 +113,7 @@ Workflows trigger on **pull requests** targeting branches matching `LTS-C*`. All
 | `cmake-linux-ubuntu2404-amd64.yml` | `linux, x64, ubuntu2404` | `g++-13`, `clang++-21` | 12.9 |
 | `cmake-windows-amd64.yml` | `windows, x64, cuda` | `cl`, `clang-cl` (LLVM 21.1.0) | 12.9, 13.3 (toolkits the runner no longer has: these jobs build the CPU backend only) |
 
-`CC` and `CXX` are set as environment variables in the "Set reusable strings" step; they select the compiler of the CPU targets (nvcc uses the system g++ as host compiler). The Linux workflows pass nvcc as `-DCMAKE_CUDA_COMPILER`, so a missing toolkit fails the configure step, and configure with `-DENABLE_BENCHMARK=ON -DENABLE_HIP=OFF`: the benchmarks are built, and ctest runs with `-E "^benchmark_"`. No workflow builds the HIP backend.
+`CC` and `CXX` are set as environment variables in the "Set reusable strings" step; they select the compiler of the CPU targets (nvcc uses the system g++ as host compiler). The Linux workflows pass nvcc as `-DCMAKE_CUDA_COMPILER`, so a missing toolkit fails the configure step, and configure with `-DENABLE_HIP=OFF`. No workflow builds the HIP backend.
 
 ## Test Infrastructure
 

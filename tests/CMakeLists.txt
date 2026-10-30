@@ -1,4 +1,3 @@
-option (ENABLE_BENCHMARK "build benchmarking unit tests" OFF)
 set (CMAKE_RUNTIME_OUTPUT_DIRECTORY ${OUT_DIR})
 
 MACRO(SUBDIRLIST result curdir)

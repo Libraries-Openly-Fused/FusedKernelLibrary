@@ -66,7 +66,6 @@ add_subdirectory(lib)
 
 option (BUILD_TEST "build standard  tests" ON)
 option (BUILD_UTEST "build standard unit tests" ON)
-option (ENABLE_BENCHMARK "build benchmarking unit tests" OFF)
 
 if (${BUILD_TEST})    
     include (cmake/tests/discover_tests.cmake)
@@ -78,10 +77,4 @@ if (${BUILD_UTEST})
     include (cmake/tests/discover_tests.cmake)
     enable_testing()      
     add_subdirectory(utests)         
-endif()
-
-if (${ENABLE_BENCHMARK})
-    include (cmake/tests/discover_tests.cmake)
-    enable_testing()
-    add_subdirectory(benchmarks)
 endif()

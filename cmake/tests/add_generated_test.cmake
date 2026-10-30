@@ -25,9 +25,6 @@ function(configure_test_target_flags TARGET_NAME TEST_SOURCE DIR)
         configure_file(${CMAKE_SOURCE_DIR}/tests/launcher.in ${TEST_GENERATED_SOURCE} @ONLY) #replace variables in the test source file                         
         #message(STATUS "Adding test: ${TARGET_NAME} from ${TEST_GENERATED_SOURCE} and ${TEST_SOURCE}")
          
-        if(${ENABLE_BENCHMARK})
-            target_compile_definitions(${TARGET_NAME} PRIVATE ENABLE_BENCHMARK)
-        endif()
         set_target_properties(${TARGET_NAME} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)            
         target_include_directories(${TARGET_NAME} PUBLIC "${CMAKE_SOURCE_DIR}")        
         target_include_directories(${TARGET_NAME} PUBLIC "${DIR}")      
