@@ -25,15 +25,32 @@ namespace fk { // namespace fused kernel
     template <size_t N>
     constexpr auto indexSequence = std::make_index_sequence<N>{};
 
-    // Util to get the parameters of a parameter pack
+    namespace pp_detail {
+        // A parameter that accepts any argument and ignores it: the I leading parameters of Nth<I>::pick
+        template <size_t Skipped>
+        struct Skip {
+            template <typename U>
+            FK_HOST_DEVICE_CNST Skip(U&&) {}
+        };
+        template <size_t I, typename Seq = std::make_index_sequence<I>>
+        struct Nth;
+        template <size_t I, size_t... S>
+        struct Nth<I, std::index_sequence<S...>> {
+            template <typename T, typename... Rest>
+            FK_HOST_DEVICE_CNST static T&& pick(Skip<S>..., T&& x, Rest&&...) { return static_cast<T&&>(x); }
+        };
+    } // namespace pp_detail
+
+    // Util to get the parameters of a parameter pack.
+    // It does not build a Tuple of references to all the arguments: such an object has one pointer per argument at every call, the optimizers
+    // remove it for small packs, but when the arguments are the operations of a fused kernel (each one a __grid_constant__ kernel parameter)
+    // and there are more than 1024 of them, nvcc keeps it as a local array of pointers (8 KB), takes the address of every kernel parameter and
+    // the kernel goes from 17 to 255 registers with thousands of spills. pick() skips the first I arguments with I empty parameters instead
+    // (O(1) template depth, nothing is built), and returns exactly the reference that the original returned: T&& for Args&&... = T&&...
     template <size_t I, typename... Args>
     FK_HOST_DEVICE_CNST decltype(auto) get_arg(Args&&... args) {
-        // 1. Args&& captures the exact category (L-value vs R-value)
-        // 2. std::forward preserves it
-        // 3. forward_as_tuple creates a Tuple of references (Tuple<T&, U&&...>)
-        // 4. get extracts it
-        // 5. decltype(auto) returns exactly that reference
-        return TupleUtil::get<I>(forward_as_tuple(std::forward<Args>(args)...));
+        static_assert(I < sizeof...(Args), "get_arg: the index is out of range");
+        return pp_detail::Nth<I>::pick(std::forward<Args>(args)...);
     }
 
     // Util to get the last parameter of a parameter pack
