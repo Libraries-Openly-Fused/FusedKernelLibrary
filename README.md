@@ -154,7 +154,7 @@ This has been tested before, by creating special compilers that generate the ass
 
 ## Backends and building
 
-Each test, utest and benchmark is built once per enabled backend: `_cpp` (CPU, `ParArch::CPU`), `_cu` (CUDA with nvcc, `ParArch::GPU_NVIDIA`) and `_hip` (HIP with amdclang++, `ParArch::GPU_AMD`), except for the test and utest sources marked `__ONLY_CU__`, `__ONLY_CPU__` or `__ONLY_GPU__` (CUDA and HIP). The benchmarks are built with `-DENABLE_BENCHMARK=ON`. CUDA and HIP are optional: `ENABLE_CUDA` and `ENABLE_HIP` are ON by default and are disabled when nvcc or amdclang++ is not found. Every backend compiles as C++17.
+Each test and utest is built once per enabled backend: `_cpp` (CPU, `ParArch::CPU`), `_cu` (CUDA with nvcc, `ParArch::GPU_NVIDIA`) and `_hip` (HIP with amdclang++, `ParArch::GPU_AMD`), except for the test and utest sources marked `__ONLY_CU__`, `__ONLY_CPU__` or `__ONLY_GPU__` (CUDA and HIP). CUDA and HIP are optional: `ENABLE_CUDA` and `ENABLE_HIP` are ON by default and are disabled when nvcc or amdclang++ is not found. Every backend compiles as C++17.
 
 A HIP (ROCm) build, with the default C++ compiler for the CPU targets and the GPU architecture detected by CMake (`-DCMAKE_HIP_ARCHITECTURES=gfx1200` to choose it, or `-DHIP_ARCH=...` on the first configure of a build directory):
 
@@ -165,7 +165,7 @@ cmake --build build
 cd build && ctest
 ```
 
-With `-DENABLE_BENCHMARK=ON`, ctest also runs the benchmarks, some of which take many minutes on the CPU: `ctest -E "^benchmark_"` skips them.
+The benchmarks of the paper are in the separate repository [fkl-benchmarks](https://github.com/Libraries-Openly-Fused/fkl-benchmarks), which pins this library as a submodule.
 
 Under HIP, the global names `float3`, `uchar3`... are HIP's own vector types, which are not FKL vector types. Use the FKL vector types as `fk::float3`, `fk::uchar3`... They exist in every backend: with nvcc they are the CUDA vector types and on the CPU the same types as the global names, so code written with the `fk::` names compiles for all of them.
 
@@ -185,7 +185,7 @@ stream.sync();
 
 As with the host buffers of `cudaMemcpyAsync`, the buffers of an execution must stay valid until `sync()`: the overloads that take `Ptr` or `Tensor` objects keep them alive by themselves, buffers given to `build()` as `RawPtr` are not. `setTo`, `upload` and `download` accept the stream and need `Host` or `HostPinned` memory (they throw for `Device` and `DeviceAndPinned`, the default memory type of CUDA and HIP builds). `DivergentBatchTransformDPP` has no `CPU_MULTITHREAD` (nor `CPU`) executor.
 
-Each test, utest and benchmark executable is built for a single backend. Do not link translation units that include FKL compiled for different backends (for instance a .cpp compiled for the CPU and a .hip or .cu file) into one program: FKL is header only, and its templates and inline functions would get a different definition in each backend under the same name, of which the linker keeps only one.
+Each test and utest executable is built for a single backend. Do not link translation units that include FKL compiled for different backends (for instance a .cpp compiled for the CPU and a .hip or .cu file) into one program: FKL is header only, and its templates and inline functions would get a different definition in each backend under the same name, of which the linker keeps only one.
 
 ## Memory layout
 

@@ -19,7 +19,7 @@ make -j$(nproc)
 - Requires CMake >= 3.28, a C++ host compiler, and (optionally) CUDA
   and/or HIP (ROCm, amdclang++: `-DCMAKE_HIP_COMPILER=/opt/rocm/bin/amdclang++`).
 - Options: `ENABLE_CUDA` (default ON if found), `ENABLE_HIP` (default ON if
-  found), `ENABLE_CPU` (ON), `ENABLE_BENCHMARK` (OFF) for the benchmark targets.
+  found), `ENABLE_CPU` (ON).
   `ENABLE_CPU_MULTITHREAD` (ON when the `thread-pool` submodule is checked out:
   `git submodule update --init`) builds the multithreaded CPU backend,
   `ParArch::CPU_MULTITHREAD`, and its `utest_cpu_multithread*` (`_cpp` only).
@@ -38,7 +38,6 @@ make -j$(nproc)
 cd build/bin/Release
 shopt -s nullglob  # a backend that is not built has no binaries
 for t in *_cu *_hip *_cpp; do
-  case $t in benchmark_*) continue;; esac  # ENABLE_BENCHMARK builds: the benchmarks take far longer
   ./$t >/dev/null 2>&1 && echo "$t OK" || echo "$t FAIL"
 done
 ```
@@ -53,7 +52,6 @@ utests/                    # unit tests (TestCaseBuilder pattern)
   algorithm/image_processing/utest_color_conversion.h ...
   core/...
 tests/                     # larger example-style tests
-benchmarks/                # fusion benchmarks (ENABLE_BENCHMARK=ON)
 ```
 CMake auto-discovers test headers via the SUBDIRLIST macros; a new
 `utest_*.h` in an existing directory is picked up without CMake edits.
@@ -89,8 +87,7 @@ int launch() { RUN_ALL_TESTS }
 
 GitHub workflows build on linux-amd64, linux-arm64 and windows-amd64,
 with a matrix over host compilers and CUDA toolkits (on Linux currently
-12.9 and 13.4). They build the benchmarks (`-DENABLE_BENCHMARK=ON`) but
-leave them out of ctest; no workflow builds HIP. Keep changes
+12.9 and 13.4). No workflow builds HIP. Keep changes
 warning-clean on BOTH nvcc and clang: clang is a first-class compiler for
 FKL (single-step host+device compiles matter for downstream packaging).
 
