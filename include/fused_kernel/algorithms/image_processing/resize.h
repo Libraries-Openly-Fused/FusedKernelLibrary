@@ -41,6 +41,13 @@ namespace fk {
 
     enum class AspectRatio { PRESERVE_AR = 0, IGNORE_AR = 1, PRESERVE_AR_RN_EVEN = 2, PRESERVE_AR_LEFT = 3 };
 
+    // How the destination pixel x is mapped to the source position that the interpolation reads, with scale = src / dst:
+    //   ASYMMETRIC  x * scale. What Resize has always done, and what cv::cuda::resize (INTER_LINEAR) does. The default.
+    //   HALF_PIXEL  (x + 0.5) * scale - 0.5, and not less than 0: the centres of the source and destination pixels line
+    //               up. What cv::resize (INTER_LINEAR) and NPP do.
+    // The two give the same image only when the input is constant.
+    enum class ResizeSampling { ASYMMETRIC = 0, HALF_PIXEL = 1 };
+
     template <AspectRatio AR = AspectRatio::IGNORE_AR, typename T = NullType>
     struct ResizeParams {
         static_assert(!std::is_same_v<T, NullType>, "DefaultType must be different than NullType");
@@ -68,11 +75,11 @@ namespace fk {
         Size dstSize;
     };
 
-    template <AspectRatio AR, typename BackIOp_>
+    template <AspectRatio AR, typename BackIOp_, ResizeSampling SAMPLING = ResizeSampling::ASYMMETRIC>
     struct ResizeComplete {
         static_assert(opIs<TernaryType, BackIOp_>, "BackIOp must be a ternary type for this specialization");
     private:
-        using SelfType = ResizeComplete<AR, BackIOp_>;
+        using SelfType = ResizeComplete<AR, BackIOp_, SAMPLING>;
     public:
         FK_STATIC_STRUCT(ResizeComplete, SelfType)
         using DefaultType = float_<cn<typename BackIOp_::Operation::OutputType>>;
@@ -117,16 +124,23 @@ namespace fk {
         FK_HOST_DEVICE_FUSE auto exec_resize(const Point thread, const ParamsType& params, const BackIOp& backIOp) {
             static_assert(opIs<TernaryType, BackIOp>, "BackIOp must be a ternary type for this specialization");
             
-            const float src_x = thread.x * params.src_conv_factors.x;
-            const float src_y = thread.y * params.src_conv_factors.y;
-            return BackIOp::Operation::exec({ src_x, src_y }, backIOp);
+            if constexpr (SAMPLING == ResizeSampling::HALF_PIXEL) {
+                const float src_x = cxp::max::f((thread.x + 0.5f) * params.src_conv_factors.x - 0.5f, 0.f);
+                const float src_y = cxp::max::f((thread.y + 0.5f) * params.src_conv_factors.y - 0.5f, 0.f);
+                return BackIOp::Operation::exec({ src_x, src_y }, backIOp);
+            } else {
+                const float src_x = thread.x * params.src_conv_factors.x;
+                const float src_y = thread.y * params.src_conv_factors.y;
+                return BackIOp::Operation::exec({ src_x, src_y }, backIOp);
+            }
         }
     };
 
-    template <InterpolationType IType = InterpolationType::INTER_LINEAR, AspectRatio AR = AspectRatio::IGNORE_AR, typename DefaultType = NullType>
+    template <InterpolationType IType = InterpolationType::INTER_LINEAR, AspectRatio AR = AspectRatio::IGNORE_AR,
+              typename DefaultType = NullType, ResizeSampling SAMPLING = ResizeSampling::ASYMMETRIC>
     struct Resize {
     private:
-        using SelfType = Resize<IType, AR, DefaultType>;
+        using SelfType = Resize<IType, AR, DefaultType, SAMPLING>;
     public:
         FK_STATIC_STRUCT(Resize, SelfType)
         using Parent = IncompleteReadBackOperation<NullType,
@@ -136,7 +150,7 @@ namespace fk {
                                                    SelfType>;
         DECLARE_INCOMPLETEREADBACK_PARENT
         template <typename BackIOp_>
-        using NewInstantiableType = ResizeComplete<AR, Ternary<InterpolateComplete<IType, BackIOp_>>>;
+        using NewInstantiableType = ResizeComplete<AR, Ternary<InterpolateComplete<IType, BackIOp_>>, SAMPLING>;
 
         FK_HOST_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return opData.params.dstSize.width;
@@ -158,7 +172,7 @@ namespace fk {
 
         template <typename DefaultType_>
         FK_HOST_FUSE auto build(const Size& dstSize, const DefaultType_& backgroundValue) {
-            return Resize<IType, AR, DefaultType_>::build(IncompleteResizeParams<AR, DefaultType_>{dstSize, backgroundValue}, NullType{});
+            return Resize<IType, AR, DefaultType_, SAMPLING>::build(IncompleteResizeParams<AR, DefaultType_>{dstSize, backgroundValue}, NullType{});
         }
 
         template <typename NewBackIOp>
@@ -233,10 +247,10 @@ namespace fk {
         }
     };
 
-    template <>
-    struct Resize<InterpolationType::INTER_LINEAR, AspectRatio::IGNORE_AR, NullType> {
+    template <ResizeSampling SAMPLING>
+    struct Resize<InterpolationType::INTER_LINEAR, AspectRatio::IGNORE_AR, NullType, SAMPLING> {
     private:
-        using SelfType = Resize<InterpolationType::INTER_LINEAR, AspectRatio::IGNORE_AR>;
+        using SelfType = Resize<InterpolationType::INTER_LINEAR, AspectRatio::IGNORE_AR, NullType, SAMPLING>;
         static constexpr InterpolationType IType{ InterpolationType::INTER_LINEAR };
     public:
         FK_STATIC_STRUCT(Resize, SelfType)
@@ -247,7 +261,7 @@ namespace fk {
                                                    SelfType>;
         DECLARE_INCOMPLETEREADBACK_PARENT
         template <typename NewBackIOp>
-        using NewInstantiableType = ResizeComplete<AspectRatio::IGNORE_AR, Ternary<InterpolateComplete<InterpolationType::INTER_LINEAR, NewBackIOp>>>;
+        using NewInstantiableType = ResizeComplete<AspectRatio::IGNORE_AR, Ternary<InterpolateComplete<InterpolationType::INTER_LINEAR, NewBackIOp>>, SAMPLING>;
 
         FK_HOST_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return opData.params.dstSize.width;
@@ -296,6 +310,10 @@ namespace fk {
             }
         }
     };
+
+    // Resize with the pixel centres aligned, like cv::resize and NPP
+    template <InterpolationType IType = InterpolationType::INTER_LINEAR, AspectRatio AR = AspectRatio::IGNORE_AR, typename DefaultType = NullType>
+    using ResizeHalfPixel = Resize<IType, AR, DefaultType, ResizeSampling::HALF_PIXEL>;
 }; // namespace fk
 
 #endif
