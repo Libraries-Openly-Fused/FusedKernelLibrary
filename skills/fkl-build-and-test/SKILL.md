@@ -8,7 +8,7 @@ description: Build the FusedKernelLibrary repository and run its unit tests — 
 ## Build (verified commands)
 
 ```bash
-git clone https://github.com/Libraries-Openly-Fused/FusedKernelLibrary.git
+git clone --recursive https://github.com/Libraries-Openly-Fused/FusedKernelLibrary.git
 cd FusedKernelLibrary            # LTS-C++17 is the active branch; main is frozen
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=90 \
@@ -20,6 +20,9 @@ make -j$(nproc)
   and/or HIP (ROCm, amdclang++: `-DCMAKE_HIP_COMPILER=/opt/rocm/bin/amdclang++`).
 - Options: `ENABLE_CUDA` (default ON if found), `ENABLE_HIP` (default ON if
   found), `ENABLE_CPU` (ON), `ENABLE_BENCHMARK` (OFF) for the benchmark targets.
+  `ENABLE_CPU_MULTITHREAD` (ON when the `thread-pool` submodule is checked out:
+  `git submodule update --init`) builds the multithreaded CPU backend,
+  `ParArch::CPU_MULTITHREAD`, and its `utest_cpu_multithread*` (`_cpp` only).
   HIP architectures: the local GPU by default, or `-DHIP_ARCH=gfx1200` on the
   first configure of a build directory (`-DCMAKE_HIP_ARCHITECTURES` later).
 - Without CUDA and HIP the CPU backend still builds and tests run on CPU.

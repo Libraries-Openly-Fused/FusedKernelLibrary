@@ -60,6 +60,7 @@ FusedKernelLibrary/
 | Option | Default | Description |
 |---|---|---|
 | `ENABLE_CPU` | ON | Enable tests on CPU backend |
+| `ENABLE_CPU_MULTITHREAD` | ON (if the `thread-pool` submodule is checked out) | Enable the multithreaded CPU backend (`ParArch::CPU_MULTITHREAD`) |
 | `ENABLE_CUDA` | ON (if nvcc found) | Enable tests on CUDA backend |
 | `BUILD_TEST` | ON | Build integration tests under `tests/` |
 | `BUILD_UTEST` | ON | Build unit tests under `utests/` |
