@@ -46,6 +46,21 @@ else()
     set(ENABLE_HIP OFF)
 endif()
 
+# Multithreaded CPU backend (ParArch::CPU_MULTITHREAD), which uses the thread pool of the thread-pool submodule
+if (EXISTS ${PROJECT_SOURCE_DIR}/thread-pool/include/ThreadPool.h)
+    option(ENABLE_CPU_MULTITHREAD "Enable the multithreaded CPU backend (ParArch::CPU_MULTITHREAD)" ON)
+else()
+    message(STATUS "thread-pool submodule not found (git submodule update --init): CPU_MULTITHREAD backend disabled")
+    option(ENABLE_CPU_MULTITHREAD "Enable the multithreaded CPU backend (ParArch::CPU_MULTITHREAD)" OFF)
+endif()
+if (ENABLE_CPU_MULTITHREAD AND NOT EXISTS ${PROJECT_SOURCE_DIR}/thread-pool/include/ThreadPool.h)
+    message(FATAL_ERROR "ENABLE_CPU_MULTITHREAD needs the thread-pool submodule: git submodule update --init")
+endif()
+message(STATUS "CPU_MULTITHREAD backend (ENABLE_CPU_MULTITHREAD): ${ENABLE_CPU_MULTITHREAD}")
+if (NOT ENABLE_CPU_MULTITHREAD AND EXISTS ${PROJECT_SOURCE_DIR}/thread-pool/include/ThreadPool.h)
+    message(STATUS "The thread-pool submodule is checked out: configure with -DENABLE_CPU_MULTITHREAD=ON to enable it")
+endif()
+
 add_subdirectory(include)
 add_subdirectory(lib)
 
