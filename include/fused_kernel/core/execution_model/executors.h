@@ -156,6 +156,9 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
     template <typename DataParallelPattern>
     struct Executor {
         FK_STATIC_STRUCT(Executor, Executor)
+        static_assert(DataParallelPattern::PAR_ARCH != ParArch::CPU_MULTITHREAD,
+                      "ParArch::CPU_MULTITHREAD needs FK_CPU_MULTITHREAD_ENABLED (CMake option ENABLE_CPU_MULTITHREAD, "
+                      "with the thread-pool submodule)");
 #if defined(FK_HIP_BACKEND)
         static_assert(DataParallelPattern::PAR_ARCH == ParArch::GPU_AMD ||
                       DataParallelPattern::PAR_ARCH == ParArch::CPU,
@@ -261,6 +264,97 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         }
         DECLARE_EXECUTOR_PARENT_IMPL
     };
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+    // Enqueues the execution on the stream, which starts it (TransformDPP<ParArch::CPU_MULTITHREAD>::exec) after the
+    // previous executions of the stream. The entry points that take Ptr, Tensor or arrays of Ptr2D keep those buffers
+    // alive until the execution has finished; buffers given to build() as RawPtr must stay valid until sync().
+    template <enum TF TFEN>
+    struct Executor<TransformDPP<ParArch::CPU_MULTITHREAD, TFEN, void>> {
+    private:
+        using Child = Executor<TransformDPP<ParArch::CPU_MULTITHREAD, TFEN>>;
+        using Parent = BaseExecutor<Child>;
+        using MTStream = Stream_<ParArch::CPU_MULTITHREAD>;
+        friend struct BaseExecutor<Child>;
+
+        // The execution owns copies of the details and of the IOps
+        template <typename DPP, typename Details, typename... IOps>
+        FK_HOST_STATIC void enqueueDPP(MTStream& stream, const Details& details, const IOps&... iOps) {
+            stream.enqueue([details, iOps...](const cpu_multithread::Completion& done) {
+                DPP::exec(done, details, iOps...);
+            });
+        }
+
+        template <typename... IOps>
+        FK_HOST_STATIC void executeOperations_helper(MTStream& stream, const IOps&... iOps) {
+            constexpr ParArch PA = ParArch::CPU_MULTITHREAD;
+            const auto tDetails = TransformDPP<PA, TFEN>::build_details(iOps...);
+            using TDPPDetails = std::decay_t<decltype(tDetails)>;
+            if constexpr (TDPPDetails::TFI::ENABLED) {
+                if (!areThreadFusionAccessesAligned<typename TDPPDetails::TFI>(iOps...)) {
+                    // Pointers or pitches not aligned to the thread fusion vector types, e.g. views
+                    // into user memory: use the non thread fused path instead of faulting.
+                    const auto noTFDetails = TransformDPP<PA, TF::DISABLED>::build_details(iOps...);
+                    using NoTFDetails = std::decay_t<decltype(noTFDetails)>;
+                    enqueueDPP<TransformDPP<PA, TF::DISABLED, NoTFDetails, true>>(stream, noTFDetails, iOps...);
+                } else if (!tDetails.threadDivisible) {
+                    enqueueDPP<TransformDPP<PA, TFEN, TDPPDetails, false>>(stream, tDetails, iOps...);
+                } else {
+                    enqueueDPP<TransformDPP<PA, TFEN, TDPPDetails, true>>(stream, tDetails, iOps...);
+                }
+            } else {
+                enqueueDPP<TransformDPP<PA, TFEN, TDPPDetails, true>>(stream, tDetails, iOps...);
+            }
+        }
+    public:
+        FK_STATIC_STRUCT(Executor, Child)
+        FK_HOST_FUSE ParArch parArch() {
+            return ParArch::CPU_MULTITHREAD;
+        }
+
+        // The entry points of DECLARE_EXECUTOR_PARENT_IMPL, keeping their Ptr and Tensor arguments alive
+        template <typename... IOps>
+        static inline void executeOperations(MTStream& stream, const IOps&... iOps) {
+            Parent::executeOperations(stream, iOps...);
+        }
+        template <ND D, typename I, typename... IOps>
+        static inline void executeOperations(const Ptr<D, I>& input, MTStream& stream, const IOps&... iOps) {
+            cpu_multithread::keepAlive(input);
+            Parent::executeOperations(input, stream, iOps...);
+        }
+        template <ND D, typename I, typename O, typename... IOps>
+        static inline void executeOperations(const Ptr<D, I>& input, const Ptr<D, O>& output, MTStream& stream,
+                                             const IOps&... iOps) {
+            cpu_multithread::keepAlive(input, output);
+            Parent::executeOperations(input, output, stream, iOps...);
+        }
+        template <typename I, size_t BATCH, typename... IOps>
+        static inline void executeOperations(const std::array<Ptr2D<I>, BATCH>& input, const int& activeBatch,
+                                             const I& defaultValue, MTStream& stream, const IOps&... iOps) {
+            cpu_multithread::keepAlive(input);
+            Parent::executeOperations(input, activeBatch, defaultValue, stream, iOps...);
+        }
+        template <typename I, size_t BATCH, typename... IOps>
+        static inline void executeOperations(const std::array<Ptr2D<I>, BATCH>& input, MTStream& stream,
+                                             const IOps&... iOps) {
+            cpu_multithread::keepAlive(input);
+            Parent::executeOperations(input, stream, iOps...);
+        }
+        template <typename I, typename O, size_t Batch, typename... IOps>
+        static inline void executeOperations(const std::array<Ptr2D<I>, Batch>& input, const int& activeBatch,
+                                             const I& defaultValue, const Tensor<O>& output, MTStream& stream,
+                                             const IOps&... iOps) {
+            cpu_multithread::keepAlive(input, output);
+            Parent::executeOperations(input, activeBatch, defaultValue, output, stream, iOps...);
+        }
+        template <typename I, typename O, size_t Batch, typename... IOps>
+        static inline void executeOperations(const std::array<Ptr2D<I>, Batch>& input, const Tensor<O>& output,
+                                             MTStream& stream, const IOps&... iOps) {
+            cpu_multithread::keepAlive(input, output);
+            Parent::executeOperations(input, output, stream, iOps...);
+        }
+    };
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 
 #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     struct ComputeBestSolutionBase {
