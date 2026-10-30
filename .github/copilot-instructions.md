@@ -12,7 +12,7 @@
 
 ```
 FusedKernelLibrary/
-├── .github/workflows/       # CI workflows (Linux x86_64, Linux ARM64, Windows x64)
+├── .github/workflows/       # CI workflows (Linux x86_64, Linux ARM64, Linux x86_64 ROCm, Windows x64)
 ├── cmake/                   # All CMake helper modules
 │   ├── cmake_init.cmake     # Global settings, output dirs, config types
 │   ├── cuda_init.cmake      # CUDA language enable + arch detection
@@ -111,9 +111,10 @@ Workflows trigger on **pull requests** targeting branches matching `LTS-C*`. All
 | `cmake-linux-amd64.yml` | `linux, x64, cuda` | `g++-15`, `clang++-21` | 13.4 |
 | `cmake-linux-arm64.yml` | `linux, arm64, cuda` | `g++-13`, `clang++-21` | 12.9, 13.4 |
 | `cmake-linux-ubuntu2404-amd64.yml` | `linux, x64, ubuntu2404` | `g++-13`, `clang++-21` | 12.9 |
+| `cmake-linux-rocm-amd64.yml` | `linux, x64, rocm` | `amdclang++` (ROCm 10.1) for the CPU and the HIP targets | none: HIP on an AMD GPU (gfx1200) |
 | `cmake-windows-amd64.yml` | `windows, x64, cuda` | `cl`, `clang-cl` (LLVM 21.1.0) | 12.9, 13.3 (toolkits the runner no longer has: these jobs build the CPU backend only) |
 
-`CC` and `CXX` are set as environment variables in the "Set reusable strings" step; they select the compiler of the CPU targets (nvcc uses the system g++ as host compiler). The Linux workflows pass nvcc as `-DCMAKE_CUDA_COMPILER`, so a missing toolkit fails the configure step, and configure with `-DENABLE_HIP=OFF`. No workflow builds the HIP backend.
+`CC` and `CXX` are set as environment variables in the "Set reusable strings" step; they select the compiler of the CPU targets (nvcc uses the system g++ as host compiler). The Linux workflows pass nvcc as `-DCMAKE_CUDA_COMPILER`, so a missing toolkit fails the configure step, and configure with `-DENABLE_HIP=OFF`. The ROCm workflow is the one that builds the HIP backend, and runs its tests on an AMD GPU: it configures with `-DENABLE_HIP=ON -DENABLE_CUDA=OFF -DENABLE_CPU=ON -DENABLE_CPU_MULTITHREAD=ON` and compiles both the CPU and the HIP targets with `amdclang++` and `-Werror=c++20-extensions -pedantic-errors -Wno-gnu-anonymous-struct`.
 
 ## Test Infrastructure
 
