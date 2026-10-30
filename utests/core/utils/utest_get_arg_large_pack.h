@@ -28,6 +28,10 @@
 #include <iostream>
 #include <utility>
 
+// This test exists for the claim of the paper about fused kernels of more than a thousand operations, which is measured with nvcc on Linux: it is compiled and executed on
+// Linux only, and compiles to a no-op elsewhere. (MSVC cannot build a chain of that size whatever get_arg does: with CUDA, cl stops on the host stub of the kernel, fatal
+// error C1064, token overflowed internal buffer, a kernel with 1,100 template arguments; without CUDA it runs out of heap space compiling the chain on the CPU, C1002.)
+#if defined(__linux__)
 // Everything is in a namespace: the test harness of main checks that no test header exposes fk::uint3 and friends in the global lookup
 namespace get_arg_large_pack_test {
 using namespace fk;
@@ -135,3 +139,11 @@ int run() {
 int launch() {
     return get_arg_large_pack_test::run();
 }
+#else
+#include <iostream>
+
+int launch() {
+    std::cout << "utest_get_arg_large_pack: compiled and executed on Linux only (see the comment at the top)" << std::endl;
+    return 0;
+}
+#endif
