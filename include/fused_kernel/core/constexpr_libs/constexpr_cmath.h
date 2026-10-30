@@ -260,9 +260,10 @@ namespace cxp {
                     // At run time on the host: one instruction (roundss, cvtss2si...) instead of the branches below, which cost
                     // tens of cycles when the fractions are not predictable. Ties go to even, with the rounding mode to nearest,
                     // as below. The code below returns +0 for -0.5 <= s < 0 where std::nearbyint returns -0: the same value, but not
-                    // the same bits, and the results are the same bits.
+                    // the same bits, and the results are the same bits. The condition is on the input, not on the result
+                    // (rounded == 0 ? 0 : rounded would be -0 == +0 to a compiler that does not keep the sign of zero).
                     const ST rounded = std::nearbyint(s);
-                    return rounded == static_cast<ST>(0) ? static_cast<ST>(0) : rounded;
+                    return (s < static_cast<ST>(0) && s >= static_cast<ST>(-0.5)) ? static_cast<ST>(0) : rounded;
                 }
 #endif
                 ST fl{0};
