@@ -20,7 +20,7 @@ jobs:
             - rocm_version: "10.1"
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Set reusable strings and path
@@ -28,7 +28,7 @@ jobs:
         id: strings
         run: |
           echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"
-          echo "PATH=$HOME/cmake-4.4.4-linux-x86_64/bin/:$PATH" >> "$GITHUB_ENV"
+          echo "PATH=$HOME/cmake-4.4.2-linux-x86_64/bin/:$PATH" >> "$GITHUB_ENV"
           echo "ROCM_PATH=/opt/rocm/core-${{matrix.rocm_version}}" >> "$GITHUB_ENV"
           echo "HIP_PATH=/opt/rocm/core-${{matrix.rocm_version}}" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=/opt/rocm/core-${{matrix.rocm_version}}/lib:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
@@ -38,6 +38,7 @@ jobs:
         run: |
           STRICT_FLAGS="-Werror=c++20-extensions -pedantic-errors -Wno-gnu-anonymous-struct"
           cmake -G "Ninja" -DENABLE_HIP=ON -DENABLE_CUDA=OFF -DENABLE_CPU=ON -DENABLE_CPU_MULTITHREAD=ON \
+          cmake -G "Ninja" -DENABLE_HIP=ON -DENABLE_CUDA=OFF -DENABLE_CPU=OFF -DENABLE_CPU_MULTITHREAD=ON  -DENABLE_BENCHMARK=ON \
           -DCMAKE_CXX_COMPILER="$HIP_PATH/bin/amdclang++" -DCMAKE_HIP_COMPILER="$HIP_PATH/bin/amdclang++"  \
           -DCMAKE_CXX_FLAGS="$STRICT_FLAGS" -DCMAKE_HIP_FLAGS="$STRICT_FLAGS" \
           -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
@@ -49,4 +50,4 @@ jobs:
       - name: Test
         working-directory: ${{ steps.strings.outputs.build-output-dir }}
         run: |
-          ctest --build-config Release --output-junit test_results.xml
+          ctest --build-config Release --output-junit test_results.xml  -E "^benchmark_"

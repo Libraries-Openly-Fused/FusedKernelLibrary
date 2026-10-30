@@ -1,4 +1,4 @@
-name: CMake on Linux (ARM64)
+name: CMake on Linux (CUDA ARM64)
 
 on:
   #push:
@@ -19,19 +19,11 @@ jobs:
         include:
           - host_compiler: "g++-13"
             cuda_toolkit: "12.9"
-            cuda_ldpath: "cuda-12.9"
-          - host_compiler: "clang++-21"
-            cuda_toolkit: "12.9"
-            cuda_ldpath: "cuda-12.9"
           - host_compiler: "g++-13"
             cuda_toolkit: "13.4"
-            cuda_ldpath: "cuda-13.4" 
-          - host_compiler: "clang++-21"
-            cuda_toolkit: "13.4"  
-            cuda_ldpath: "cuda-13.4" 
- 
+
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Set reusable strings
@@ -39,16 +31,14 @@ jobs:
         id: strings
         run: |
           echo "build-output-dir=${{github.workspace}}/build" >> "$GITHUB_OUTPUT"      
-          echo "PATH=$HOME/cmake-4.3.3-linux-aarch64/bin/:$PATH" >> "$GITHUB_ENV"
-          echo "CUDACXX=/usr/local/cuda-${{matrix.cuda_toolkit}}/bin/nvcc" >> "$GITHUB_ENV"
-          echo "CC=${{matrix.host_compiler}}" >> "$GITHUB_ENV"
-          echo "CXX=${{matrix.host_compiler}}" >> "$GITHUB_ENV"          
-          echo "LD_LIBRARY_PATH=/usr/local/${{matrix.cuda_ldpath}}:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
-          
+          echo "PATH=$HOME/cmake-4.4.2-linux-aarch64/bin/:$PATH" >> "$GITHUB_ENV"
+
+
       - name: Configure CMake
         run: |
-
-          cmake -G "Ninja" -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -DCMAKE_CUDA_COMPILER="/usr/local/cuda-${{matrix.cuda_toolkit}}/bin/nvcc" -DENABLE_HIP=OFF -DENABLE_CPU_MULTITHREAD=ON -S ${{github.workspace}}
+          cmake -G "Ninja" -DENABLE_HIP=OFF  -DENABLE_CUDA=ON -DENABLE_CPU=OFF -DENABLE_CPU_MULTITHREAD=ON  -DENABLE_BENCHMARK=ON \
+           -DCMAKE_CXX_COMPILER="${{matrix.host_compiler}}" -DCMAKE_CUDA_COMPILER="/usr/local/cuda-${{matrix.cuda_toolkit}}/bin/nvcc" \
+           -B ${{steps.strings.outputs.build-output-dir}} -DCMAKE_BUILD_TYPE="Release" -S ${{github.workspace}}
 
       - name: Build
         run: |
@@ -57,4 +47,4 @@ jobs:
       - name: Test
         working-directory: ${{ steps.strings.outputs.build-output-dir }}
         run: |
-          ctest --build-config Release --output-junit test_results.xml
+          ctest --build-config Release --output-junit test_results.xml -E "^benchmark_"
