@@ -48,9 +48,21 @@ namespace fk {
     // subject to the capture rules for other streams: it invalidates a global mode capture that the same thread is
     // making on another stream, and on the legacy default stream the capture check fails (gpuErrchk throws) while
     // another stream is being captured. A CPU stream can not write Device or DeviceAndPinned memory: setTo throws
-    // std::runtime_error.
+    // std::runtime_error. With ParArch::CPU_MULTITHREAD, setTo enqueues the fill on the stream and returns, like
+    // executeOperations, and the execution keeps outputPtr alive until it has finished, so outputPtr can be released
+    // before sync(). outputPtr must be in Host or HostPinned memory, since the execution writes ptr() from the CPU: with
+    // Device or DeviceAndPinned memory it throws std::runtime_error and enqueues nothing.
     template <enum ParArch PA, enum ND D, typename T>
     inline void setTo(const T& value, Ptr<D, T>& outputPtr, Stream_<PA>& stream) {
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+        if constexpr (PA == ParArch::CPU_MULTITHREAD) {
+            cpu_multithread::requireHostMemory(outputPtr.getMemType(), "setTo");
+            cpu_multithread::keepAlive(outputPtr);
+            Executor<TransformDPP<PA>>::executeOperations(
+                stream, ReadSet<T>::build(value, outputPtr.dims()), PerThreadWrite<D, T>::build(outputPtr));
+            return;
+        }
+#endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
         RawPtr<D, T> output = outputPtr.ptr();
 #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
         if constexpr (PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD) {
