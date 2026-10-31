@@ -31,9 +31,11 @@ jobs:
       - name: Set reusable strings
         # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
         id: strings
+        shell: powershell -ExecutionPolicy Bypass -command '{0}'
         run: |
           echo "build-output-dir=${{github.workspace}}/build" >> "$env:GITHUB_OUTPUT"          
       - name: Detect visual studio installation
+        shell: powershell -ExecutionPolicy Bypass -command '{0}'
         run: |
           $vsWhere = "${Env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"   
           $vsInstallationPath = & $vsWhere -products * -latest -property installationPath        
@@ -41,6 +43,7 @@ jobs:
           echo "DEV_ARGS=-arch=x64 -vcvars_ver=${{matrix.msvc_env_version}}" >> "$env:GITHUB_ENV"
 
       - name: Configure CMake
+        shell: powershell -ExecutionPolicy Bypass -command '{0}'
         run: |
           Import-Module (Get-ChildItem $env:VS_INSTALLATION_PATH -Recurse -File -Filter Microsoft.VisualStudio.DevShell.dll).FullName           
           Enter-VsDevShell -VsInstallPath  $env:VS_INSTALLATION_PATH  -SkipAutomaticLocation -DevCmdArguments $env:DEV_ARGS             
@@ -51,11 +54,13 @@ jobs:
           (Get-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja) -replace "\\nvcc\\bin\\nvcc.exe", "${env:ProgramFiles}\\NVIDIA GPU Computing Toolkit\\CUDA\\v${{matrix.cuda_version}}\\bin\\nvcc.exe" | Set-Content ${{steps.strings.outputs.build-output-dir}}\CMakeFiles\rules.ninja
 
       - name: Build        
+        shell: powershell -ExecutionPolicy Bypass -command '{0}'
         run: |
           Import-Module (Get-ChildItem $env:VS_INSTALLATION_PATH -Recurse -File -Filter Microsoft.VisualStudio.DevShell.dll).FullName           
           Enter-VsDevShell -VsInstallPath $env:VS_INSTALLATION_PATH -SkipAutomaticLocation -DevCmdArguments $env:DEV_ARGS                 
           cmake --build ${{ steps.strings.outputs.build-output-dir }} --config Release
 
       - name: Test
+        shell: powershell -ExecutionPolicy Bypass -command '{0}'
         working-directory: ${{ steps.strings.outputs.build-output-dir }}               
         run: ctest --build-config Release --output-junit test_results.xml
