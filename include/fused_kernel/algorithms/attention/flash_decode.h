@@ -66,18 +66,20 @@ public:
 
     template <typename IOp>
     FK_DEVICE_FUSE float readElem(const IOp& iop, const int x, const int y, const int z) {
-        return attnToF32(IOp::Operation::exec(Point{ x, y, z }, iop));
+        return low_precision::attnToF32(IOp::Operation::exec(Point{ x, y, z }, iop));
     }
 
     /* Vectorized row loader: lane owns elements [ELEMS*lane, ELEMS*lane+ELEMS).
        Raw bf16 rows load as bfloat162 pairs (4B), fp8/int8 rows as packed
        bytes (ELEMS bytes in one load) — decode is bandwidth-bound, wide
-       loads are the whole game. Generic IOps fall back to per-element. */
+       loads are the whole game. Generic IOps fall back to per-element, and
+       so do the widths the packed loads don't cover: bf16 pairs need an even
+       ELEMS, the byte loads 2 or 4 bytes (HEAD_DIM 64 or 128). */
     template <typename IOp>
     FK_DEVICE_FUSE void loadRow(const IOp& iop, const int lane, const int t,
                                 const int bh, const int seqLen,
                                 float (&out)[ELEMS]) {
-        if constexpr (isRawBf16Read<IOp>) {
+        if constexpr (isRawBf16Read<IOp> && ELEMS % 2 == 0) {
             const auto& prm = iop.params;
             const __nv_bfloat16* base = prm.data
                 + ((long)bh * seqLen + t) * HEAD_DIM + ELEMS * lane;
@@ -88,7 +90,7 @@ public:
                 out[e] = __bfloat162float(pair.x);
                 out[e + 1] = __bfloat162float(pair.y);
             }
-        } else if constexpr (isFp8KVRead<IOp> || isInt8KVRead<IOp>) {
+        } else if constexpr ((isFp8KVRead<IOp> || isInt8KVRead<IOp>) && (ELEMS == 2 || ELEMS == 4)) {
             const auto& prm = iop.params;
             const float sc = prm.scales[(long)bh * seqLen + t];
             const int8_t* base = reinterpret_cast<const int8_t*>(prm.data.data)
