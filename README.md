@@ -205,7 +205,7 @@ FKL is an Apache 2.0 OpenSource project maintained by contributors in their spar
 While we provide no formal guarantees or free support, we actively test against:
 
 **CUDA Builds**
-- **Ubuntu 24.04:** `g++ 13` + CUDA 13.4
+- **Ubuntu 26.04:** `g++ 15` + CUDA 13.4
 - **Windows 11:** Visual Studio 2026 (14.44 toolset) + CUDA 13.0
 - **Windows:** Visual Studio 2026 (14.51 toolset) + CUDA 13.4
 
@@ -213,7 +213,7 @@ While we provide no formal guarantees or free support, we actively test against:
 - **Ubuntu 26.04:** ROCm 10.1.0
 
 **CPU Backend** (single-thread and multithreaded)
-- **Linux:** `g++ 13` or `clang++-23`
+- **Linux:** `g++ 13` (ARM64) or  `g++-15` `clang++-23`
 - **Windows:** Visual Studio 2026 (14.51 toolset)
 
 > **Note on Versioning:** The `main` branch is where active API development happens (minimum C++20, subject to breaking changes). For production stability, please use the `LTS-C++17` branch *(Note: ROCm is not supported on the LTS branch)*.

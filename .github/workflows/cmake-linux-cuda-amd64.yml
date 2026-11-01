@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: [self-hosted, linux, x64, cuda]
+    runs-on: [self-hosted, linux, x64, cuda,ubuntu2604]
 
     strategy:
       # Set fail-fast to false to ensure that feedback is delivered for all matrix combinations.
@@ -17,7 +17,7 @@ jobs:
 
       matrix: #host,cuda,cuda_toolkit
         include:
-          - host_compiler: "g++-13"
+          - host_compiler: "g++-15"
             cuda_toolkit: "13.4"
 
 
