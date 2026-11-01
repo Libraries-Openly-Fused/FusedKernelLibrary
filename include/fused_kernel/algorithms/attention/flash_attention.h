@@ -47,8 +47,8 @@
  * Mapping (SM 12x friendly - no TMEM/tcgen05, per the fa-5090 analysis,
  * correctness-first SIMT baseline before mma.sync tiling):
  *   grid.y = batch*heads; grid.x = ceil(seq_q / WARPS_PER_BLOCK)
- *   1 warp per query row; q and o live in registers spread across lanes
- *   (HEAD_DIM/32 each); dot products warp-reduce via __shfl_xor_sync;
+ *   1 warp (wave32 on HIP) per query row; q and o live in registers spread
+ *   across lanes (HEAD_DIM/32 each); dot products warp-reduce via attnShflXor;
  *   K/V tiles staged cooperatively in shared memory THROUGH the prologue
  *   IOps (tiles hold post-prologue fp32, so the prologue runs exactly
  *   once per element).
@@ -59,6 +59,7 @@
  *   thread.z = batch*head plane
  */
 
+#include <fused_kernel/algorithms/attention/attention_wave.h>
 #include <fused_kernel/algorithms/attention/softmax.h>
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 
@@ -146,7 +147,7 @@ inline auto makeInt8KVRead(const int8_t* data, const float* scales,
     return Int8TokenDequantRead::build(Int8TokenDequantReadParams{ ptr, scales });
 }
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(__HIPCC__)
 
 /* The DPP. QIOp/KIOp/VIOp are INSTANTIABLE Read or ReadBack IOps (possibly
  * fused with compute continuations): the algorithm reads each element of
@@ -162,12 +163,12 @@ private:
 public:
     FK_STATIC_STRUCT(FlashAttentionDPP, SelfType)
 
-    static_assert(HEAD_DIM % 32 == 0, "HEAD_DIM must be a multiple of 32");
+    static_assert(HEAD_DIM % ATTN_WAVE_SIZE == 0, "HEAD_DIM must be a multiple of 32");
     static_assert(isAnyReadType<QIOp>, "Q prologue must be a Read or ReadBack IOp");
     static_assert(isAnyReadType<KIOp>, "K prologue must be a Read or ReadBack IOp");
     static_assert(isAnyReadType<VIOp>, "V prologue must be a Read or ReadBack IOp");
-    static constexpr int ELEMS_PER_LANE = HEAD_DIM / 32;
-    static constexpr int THREADS = WARPS_PER_BLOCK * 32;
+    static constexpr int ELEMS_PER_LANE = HEAD_DIM / ATTN_WAVE_SIZE;
+    static constexpr int THREADS = WARPS_PER_BLOCK * ATTN_WAVE_SIZE;
 
     struct Params {
         QIOp q;                  // prologue Read/ReadBack IOp for Q
@@ -193,8 +194,9 @@ public:
         __shared__ float kTile[BLOCK_N][HEAD_DIM];
         __shared__ float vTile[BLOCK_N][HEAD_DIM];
 
-        const int lane = threadIdx.x & 31;
-        const int warp = threadIdx.x >> 5;
+        attnRequireWave32();
+        const int lane = threadIdx.x % ATTN_WAVE_SIZE;
+        const int warp = threadIdx.x / ATTN_WAVE_SIZE;
         const int qIdx = blockIdx.x * WARPS_PER_BLOCK + warp;
         const int bh = blockIdx.y;
         const bool active = qIdx < p.seq_q;
@@ -204,7 +206,7 @@ public:
         #pragma unroll
         for (int e = 0; e < ELEMS_PER_LANE; ++e) {
             // Q PROLOGUE: read through the IOp, in-register, at load time.
-            qReg[e] = active ? readElem(p.q, lane + 32 * e, qIdx, bh) : 0.f;
+            qReg[e] = active ? readElem(p.q, lane + ATTN_WAVE_SIZE * e, qIdx, bh) : 0.f;
             oAcc[e] = 0.f;
         }
         float m = -FLT_MAX;
@@ -237,11 +239,11 @@ public:
                 float partial = 0.f;
                 #pragma unroll
                 for (int e = 0; e < ELEMS_PER_LANE; ++e) {
-                    partial += qReg[e] * kTile[j][lane + 32 * e];
+                    partial += qReg[e] * kTile[j][lane + ATTN_WAVE_SIZE * e];
                 }
                 #pragma unroll
-                for (int offset = 16; offset > 0; offset >>= 1) {
-                    partial += __shfl_xor_sync(0xffffffffu, partial, offset);
+                for (int offset = ATTN_WAVE_SIZE / 2; offset > 0; offset >>= 1) {
+                    partial += attnShflXor(partial, offset);
                 }
                 const float s = partial * p.scale;
 
@@ -251,7 +253,7 @@ public:
                 l = l * corr + pj;
                 #pragma unroll
                 for (int e = 0; e < ELEMS_PER_LANE; ++e) {
-                    oAcc[e] = oAcc[e] * corr + pj * vTile[j][lane + 32 * e];
+                    oAcc[e] = oAcc[e] * corr + pj * vTile[j][lane + ATTN_WAVE_SIZE * e];
                 }
                 m = mNew;
             }
@@ -265,7 +267,7 @@ public:
                 // EPILOGUE FUSION: the FKL IOp chain runs in-register on the
                 // normalized output, then ONE global write.
                 const float r = (oAcc[e] * invL) | p.epilogue;
-                p.o[oRow + lane + 32 * e] = low_precision::attnFromF32<OT>(r);
+                p.o[oRow + lane + ATTN_WAVE_SIZE * e] = low_precision::attnFromF32<OT>(r);
             }
         }
     }
@@ -285,7 +287,7 @@ template <int HEAD_DIM, int BLOCK_N = 32, int WARPS_PER_BLOCK = 4,
 inline void executeFlashAttention(
         const QIOp& q, const KIOp& k, const VIOp& v, OT* o,
         const int batchHeads, const int seqQ, const int seqK,
-        const bool causal, Stream_<ParArch::GPU_NVIDIA>& stream,
+        const bool causal, Stream_<defaultParArch>& stream,
         const float scaleOverride = -1.f, const EpilogueIOp& epilogue = {}) {
     using DPP = FlashAttentionDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp,
                                   EpilogueIOp, BLOCK_N, WARPS_PER_BLOCK>;
@@ -294,9 +296,15 @@ inline void executeFlashAttention(
     const typename DPP::Params params{ q, k, v, o, seqQ, seqK, scale, causal, epilogue };
     const dim3 grid((seqQ + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK, batchHeads, 1);
     const dim3 block(DPP::THREADS, 1, 1);
+#if defined(__HIPCC__)
+    launchFlashAttentionDPP_Kernel<OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_N, WARPS_PER_BLOCK>
+        <<<grid, block, 0, stream.getHIPStream()>>>(params);
+    gpuErrchk(hipGetLastError());
+#else
     launchFlashAttentionDPP_Kernel<OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_N, WARPS_PER_BLOCK>
         <<<grid, block, 0, stream.getCUDAStream()>>>(params);
     gpuErrchk(cudaGetLastError());
+#endif
 }
 
 /* Pointer convenience API (kept for compatibility): builds the canonical
@@ -310,7 +318,7 @@ inline void executeFlashAttention(
         const std::conditional_t<KVL == KVLayout::INT8_PER_TOKEN, int8_t, T>* k,
         const std::conditional_t<KVL == KVLayout::INT8_PER_TOKEN, int8_t, T>* v,
         T* o, const int batchHeads, const int seqQ, const int seqK,
-        const bool causal, Stream_<ParArch::GPU_NVIDIA>& stream,
+        const bool causal, Stream_<defaultParArch>& stream,
         const float* kScale = nullptr, const float* vScale = nullptr,
         const float scaleOverride = -1.f,
         const EpilogueIOp& epilogue = {}) {
@@ -330,7 +338,7 @@ inline void executeFlashAttention(
     }
 }
 
-#endif // defined(__NVCC__)
+#endif // defined(__NVCC__) || defined(__HIPCC__)
 
 // ---- host-side KV cache compression helper (reference packing) -----------
 // Per-token symmetric int8: scale[t] = max|row|/127; q(x) = round(x/scale).
@@ -361,11 +369,42 @@ inline void quantizeKVCacheHost(const T* dense, int8_t* q8, float* scales,
 // but the e4m3 grid is non-uniform (more precision near 0), which suits
 // attention tails. Storage: data fp8 e4m3, one fp32 scale per token
 // (scale = max|row| / 448, e4m3 max normal = 448).
-#if __has_include(<cuda_fp8.h>)
+// The format is OCP e4m3 (bias 7, max 448) on both backends: on HIP that is
+// __hip_fp8_e4m3, not the FNUZ __hip_fp8_e4m3_fnuz of MI300 (gfx942).
+#if defined(__HIPCC__) && __has_include(<hip/hip_fp8.h>)
+#include <hip/hip_fp8.h>
+#define FK_HAS_FP8 1
+
+namespace fk {
+using attn_fp8_e4m3 = __hip_fp8_e4m3;
+using attn_fp8_storage_t = __hip_fp8_storage_t;
+} // namespace fk
+#elif __has_include(<cuda_fp8.h>)
 #include <cuda_fp8.h>
 #define FK_HAS_FP8 1
 
 namespace fk {
+using attn_fp8_e4m3 = __nv_fp8_e4m3;
+using attn_fp8_storage_t = __nv_fp8_storage_t;
+} // namespace fk
+#endif
+
+#ifdef FK_HAS_FP8
+namespace fk {
+
+// One raw e4m3 byte (int8_t storage) to float.
+__host__ __device__ __forceinline__ float attnFp8ToF32(const int8_t raw) {
+    attn_fp8_e4m3 f8;
+    f8.__x = static_cast<attn_fp8_storage_t>(raw);
+    return static_cast<float>(f8);
+}
+
+// True when attn_fp8_e4m3 decodes as OCP e4m3: 0x7E = 448 (max normal),
+// 0x38 = 1, 0x80 = -0 (FNUZ would give 0x80 = NaN, 0x7E = 240).
+inline bool attnFp8IsOcpE4M3() {
+    const float zero = attnFp8ToF32(static_cast<int8_t>(0x80));
+    return attnFp8ToF32(0x7E) == 448.f && attnFp8ToF32(0x38) == 1.f && zero == 0.f && std::signbit(zero);
+}
 
 struct Fp8TokenDequantReadParams {
     RawPtr<ND::_3D, int8_t> data;   // raw e4m3 bytes (int8_t storage)
@@ -388,14 +427,7 @@ public:
         const int8_t raw = *PtrAccessor<ND::_3D>::cr_point(thread, params.data);
         const int seq = static_cast<int>(params.data.dims.height);
         const float sc = params.scales[(long)thread.z * seq + thread.y];
-#if defined(__CUDA_ARCH__)
-        const __nv_fp8_e4m3* f8 = reinterpret_cast<const __nv_fp8_e4m3*>(&raw);
-        return static_cast<float>(*f8) * sc;
-#else
-        __nv_fp8_e4m3 f8;
-        f8.__x = static_cast<__nv_fp8_storage_t>(raw);
-        return static_cast<float>(f8) * sc;
-#endif
+        return attnFp8ToF32(raw) * sc;
     }
 
     FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
@@ -443,7 +475,7 @@ inline void quantizeKVCacheFp8Host(const T* dense, void* f8out, float* scales,
         scales[t] = sc;
         for (int d = 0; d < headDim; ++d) {
             const float x = low_precision::attnToF32(dense[(long)t * headDim + d]) / sc;
-            const __nv_fp8_e4m3 f8(x);
+            const attn_fp8_e4m3 f8(x);
             out[(long)t * headDim + d] = static_cast<int8_t>(f8.__x);
         }
     }
@@ -451,6 +483,90 @@ inline void quantizeKVCacheFp8Host(const T* dense, void* f8out, float* scales,
 
 } // namespace fk
 
-#endif // __has_include(<cuda_fp8.h>)
+#endif // FK_HAS_FP8
+
+// ============================ bf16 READ, IOp TRAITS ==========================
+// The raw bf16 prologue and the traits the DPPs use to pick a schedule
+// (FlashAttentionMmaDPP) or a load width (FlashDecodeDPP) for a prologue type.
+#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__HIPCC__)
+#include <hip/hip_bf16.h>
+#else
+#include <cuda_bf16.h>
+#endif
+
+namespace fk {
+
+#if defined(__HIPCC__)
+using attn_bf16 = __hip_bfloat16;
+using attn_bf162 = __hip_bfloat162;
+#else
+using attn_bf16 = __nv_bfloat16;
+using attn_bf162 = __nv_bfloat162;
+#endif
+
+// ---- bf16 identity Read IOp (the "raw" prologue) ---------------------------
+struct Bf16AttentionRead {
+private:
+    using Parent = ReadOperation<attn_bf16, RawPtr<ND::_3D, attn_bf16>,
+                                 float, TF::DISABLED, Bf16AttentionRead>;
+    using SelfType = Bf16AttentionRead;
+public:
+    FK_STATIC_STRUCT(Bf16AttentionRead, SelfType)
+    DECLARE_READ_PARENT
+
+    FK_HOST_DEVICE_FUSE float exec(const Point thread, const ParamsType& params) {
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+        return __bfloat162float(*PtrAccessor<ND::_3D>::cr_point(thread, params));
+#else
+        return 0.f;  // host never executes this
+#endif
+    }
+    FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
+        return opData.params.dims.width;
+    }
+    FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
+        return opData.params.dims.height;
+    }
+    FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
+        return opData.params.dims.planes;
+    }
+    FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {
+        return opData.params.dims.pitch;
+    }
+    FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const OperationDataType& opData) {
+        return { num_elems_x(Point{0,0,0}, opData),
+                 num_elems_y(Point{0,0,0}, opData),
+                 num_elems_z(Point{0,0,0}, opData) };
+    }
+};
+
+// bf16 overload of the canonical prologue builder.
+inline auto makeAttentionRead(const attn_bf16* data, const int batchHeads,
+                              const int seq, const int headDim) {
+    const RawPtr<ND::_3D, attn_bf16> ptr{
+        const_cast<attn_bf16*>(data),
+        PtrDims<ND::_3D>(static_cast<uint>(headDim), static_cast<uint>(seq),
+                         static_cast<uint>(batchHeads), 1,
+                         static_cast<uint>(headDim * sizeof(attn_bf16))) };
+    return Bf16AttentionRead::build(ptr);
+}
+
+template <typename IOp>
+constexpr bool isRawBf16Read = std::is_same_v<typename IOp::Operation, Bf16AttentionRead>;
+
+#ifdef FK_HAS_FP8
+template <typename IOp>
+constexpr bool isFp8KVRead = std::is_same_v<typename IOp::Operation, Fp8TokenDequantRead>;
+#else
+template <typename IOp>
+constexpr bool isFp8KVRead = false;
+#endif
+template <typename IOp>
+constexpr bool isInt8KVRead = std::is_same_v<typename IOp::Operation, Int8TokenDequantRead>;
+
+} // namespace fk
+
+#endif // defined(__NVCC__) || defined(__HIPCC__)
 
 #endif // FK_ATTENTION_FLASH_ATTENTION_H
