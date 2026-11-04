@@ -18,7 +18,7 @@ jobs:
       matrix: 
         include:
           - host_compiler: "g++-13"
-            cuda_toolkit: "13.4"
+            cuda_toolkit: "13.5"
 
     steps:
       - uses: actions/checkout@v7
