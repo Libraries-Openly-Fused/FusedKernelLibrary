@@ -21,7 +21,7 @@ jobs:
 
           - host_compiler: "cl"
             msvc_env_version: "14.51"
-            cuda_version: "13.4"
+            cuda_version: "13.5"
 
     steps:
       - uses: actions/checkout@v7
