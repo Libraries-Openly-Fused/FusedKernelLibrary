@@ -30,6 +30,7 @@ endforeach()
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/algorithm/image_processing/utest_saturate)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/core/utils/utest_cuda_vector_utils)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/core/execution_model/utest_chain_check)
  
   
 

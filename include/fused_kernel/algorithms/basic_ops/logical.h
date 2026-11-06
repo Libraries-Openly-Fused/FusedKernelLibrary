@@ -27,7 +27,7 @@ namespace fk {
         using SelfType = IsEven<I>;
     public:
         FK_STATIC_STRUCT(IsEven, SelfType)
-        using Parent = UnaryOperation<I, bool, IsEven<I>>;
+        using Parent = UnaryOperation<I, bool_<cn<I>>, IsEven<I>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE auto exec(const InputType input) {
             return cxp::is_even::f(input);

@@ -113,6 +113,8 @@ DNNs generated with Pytorch usually expect the 3 pixel channels to be split into
 
 You can view and run a similar code in this [FKL Playground](https://colab.research.google.com/drive/1WZd8FcWEKWAuxnJEOTfr0mrWVBtz8bzl?usp=sharing) [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WZd8FcWEKWAuxnJEOTfr0mrWVBtz8bzl?usp=sharing)
 
+`executeOperations<TransformDPP<...>>` checks the chain at compile time (`chain_check.h`), as the executor gets it (the `IncompleteReadBack` operations already fused with what precedes them, an operation fused with `then()` or `fuse()` counting as one): an output type that does not convert to the next input type, a complete Read after the first operation, or batch operations of different `BATCH` stop the build with a `static_assert` that names the operations involved.
+
 ## Fusion and inclusion
 
 The way the FusedKernel library (FKL) is implemented, allows not only to use the already implemented Operations and data types like Ptr2D or Tensor, but also the fusion can be performend using any code that conforms to the FusedKernel interface (the InstantiableOperation structs and the OperationTypes). The operations in FKL can use any data type that the user wants to use, basic types, structs, tuples (we implemented fk::Tuple to be used on GPU code, along with fk::apply and other utilites).
