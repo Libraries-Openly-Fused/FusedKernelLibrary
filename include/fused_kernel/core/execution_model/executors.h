@@ -19,6 +19,7 @@
 
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 #include <fused_kernel/core/execution_model/data_parallel_patterns.h>
+#include <fused_kernel/core/execution_model/operation_model/chain_check.h>
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/algorithms/basic_ops/set.h>
 #include <fused_kernel/core/execution_model/stream.h>
@@ -238,6 +239,15 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         using Parent = BaseExecutor<Child>;
         template <typename... IOps>
         FK_HOST_FUSE void executeOperations_helper(Stream_<ParArch::CPU>& stream, const IOps&... iOps) {
+            if constexpr (chainIsValid<IOps...>) {
+                executeOperations_checked(stream, iOps...);
+            } else {
+                // A wrong chain: chain_check.h reports the IOps involved; nothing else of it is instantiated
+                [[maybe_unused]] constexpr bool reported = reportChain<IOps...>;
+            }
+        }
+        template <typename... IOps>
+        FK_HOST_FUSE void executeOperations_checked(Stream_<ParArch::CPU>& stream, const IOps&... iOps) {
             constexpr ParArch PA = ParArch::CPU;
             const auto tDetails = TransformDPP<PA, TFEN>::build_details(iOps...);
             using TDPPDetails = std::decay_t<decltype(tDetails)>;
@@ -287,6 +297,15 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
 
         template <typename... IOps>
         FK_HOST_STATIC void executeOperations_helper(MTStream& stream, const IOps&... iOps) {
+            if constexpr (chainIsValid<IOps...>) {
+                executeOperations_checked(stream, iOps...);
+            } else {
+                // A wrong chain: chain_check.h reports the IOps involved; nothing else of it is instantiated
+                [[maybe_unused]] constexpr bool reported = reportChain<IOps...>;
+            }
+        }
+        template <typename... IOps>
+        FK_HOST_STATIC void executeOperations_checked(MTStream& stream, const IOps&... iOps) {
             constexpr ParArch PA = ParArch::CPU_MULTITHREAD;
             const auto tDetails = TransformDPP<PA, TFEN>::build_details(iOps...);
             using TDPPDetails = std::decay_t<decltype(tDetails)>;
@@ -451,6 +470,15 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         }
         template <typename... IOps>
         FK_HOST_FUSE void executeOperations_helper(Stream_<ParArch::GPU_NVIDIA>& stream_, const IOps&... iOps) {
+            if constexpr (chainIsValid<IOps...>) {
+                executeOperations_checked(stream_, iOps...);
+            } else {
+                // A wrong chain: chain_check.h reports the IOps involved; nothing else of it is instantiated
+                [[maybe_unused]] constexpr bool reported = reportChain<IOps...>;
+            }
+        }
+        template <typename... IOps>
+        FK_HOST_FUSE void executeOperations_checked(Stream_<ParArch::GPU_NVIDIA>& stream_, const IOps&... iOps) {
             const cudaStream_t stream = stream_.getCUDAStream();
             constexpr ParArch PA = ParArch::GPU_NVIDIA;
             const auto tDetails = TransformDPP<PA, TFEN>::build_details(iOps...);
@@ -560,6 +588,15 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         }
         template <typename... IOps>
         FK_HOST_FUSE void executeOperations_helper(Stream_<ParArch::GPU_AMD>& stream_, const IOps&... iOps) {
+            if constexpr (chainIsValid<IOps...>) {
+                executeOperations_checked(stream_, iOps...);
+            } else {
+                // A wrong chain: chain_check.h reports the IOps involved; nothing else of it is instantiated
+                [[maybe_unused]] constexpr bool reported = reportChain<IOps...>;
+            }
+        }
+        template <typename... IOps>
+        FK_HOST_FUSE void executeOperations_checked(Stream_<ParArch::GPU_AMD>& stream_, const IOps&... iOps) {
             const hipStream_t stream = stream_.getHIPStream();
             constexpr ParArch PA = ParArch::GPU_AMD;
             const auto tDetails = TransformDPP<PA, TFEN>::build_details(iOps...);
