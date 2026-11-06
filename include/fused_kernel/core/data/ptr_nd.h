@@ -17,6 +17,7 @@
 
 #include <fused_kernel/core/utils/utils.h>
 #include <fused_kernel/core/data/rawptr.h>
+#include <fused_kernel/core/data/rect.h>
 #include <fused_kernel/core/data/size.h>
 #if !defined(NVRTC_COMPILER)
 #include <fused_kernel/core/execution_model/stream.h>
@@ -24,6 +25,8 @@
 #include <fused_kernel/core/utils/vector_utils.h>
 
 #include <atomic>
+#include <stdexcept>
+#include <string>
 
 namespace fk {
     enum class MemType { Device, Host, HostPinned, DeviceAndPinned };
@@ -157,6 +160,149 @@ namespace fk {
             }
             dims.plane_pitch = dims.pitch * dims.height;
             dims.color_planes_pitch = dims.plane_pitch * dims.planes;
+        }
+    };
+
+    // The rules of Ptr::crop. The caller chooses the position and the extent of the view, never its strides: a view
+    // can only walk the memory of its parent with the strides of the parent, so check() validates the request and
+    // viewDims() builds the dims of the view with the strides of the buffer it is a view of. A DeviceAndPinned Ptr
+    // has two buffers, with their own strides (the device pitch comes from cudaMallocPitch/hipMallocPitch, the
+    // pinned pitch from the host alignment), and each view takes the strides of its own buffer.
+    namespace ptr_crop {
+        [[noreturn]] inline void fail(const std::string& what) {
+            throw std::runtime_error("Ptr::crop: " + what);
+        }
+
+        // One axis of the view must be non negative, not empty, and inside the parent
+        inline void checkAxis(const char* const axis, const int position, const uint extent, const uint parentExtent) {
+            if (position < 0) {
+                fail(std::string("the position in ") + axis + " is negative (" + std::to_string(position) + ")");
+            }
+            if (extent == 0) {
+                fail(std::string("the extent in ") + axis + " is zero");
+            }
+            if (static_cast<size_t>(position) + extent > parentExtent) {
+                fail(std::string("the view is outside the parent in ") + axis + ": position " +
+                     std::to_string(position) + " + extent " + std::to_string(extent) + " > " +
+                     std::to_string(parentExtent));
+            }
+        }
+
+        // A coordinate the pointer does not have (y of a 1D pointer, z of a 2D pointer) can only be 0
+        inline void checkNoAxis(const char* const axis, const int position) {
+            if (position != 0) {
+                fail(std::string("the pointer has no ") + axis + " dimension, but the position in it is " +
+                     std::to_string(position));
+            }
+        }
+
+        // A stride given by the caller can only repeat the one of the parent (of its device buffer, the one dims()
+        // returns, if it has two). Zero means "not given".
+        inline void checkStride(const char* const stride, const uint given, const uint parent) {
+            if (given != 0 && given != parent) {
+                fail(std::string("the ") + stride + " given (" + std::to_string(given) + ") is not the " + stride +
+                     " of the parent (" + std::to_string(parent) + "). A crop always uses the strides of its parent");
+            }
+        }
+
+        inline uint checkedStride(const char* const stride, const uint parent) {
+            if (parent == 0) {
+                fail(std::string("the parent has no ") + stride + " (it is 0)");
+            }
+            return parent;
+        }
+    } // namespace ptr_crop
+
+    template <enum ND D, typename T>
+    struct PtrCrop;
+
+    template <typename T>
+    struct PtrCrop<ND::_1D, T> {
+        // In a 1D pointer, pitch is the size of the allocation in bytes: the view gets the one of its own width
+        static inline void check(const PtrDims<ND::_1D>& parent, const Point p, const PtrDims<ND::_1D>& requested) {
+            ptr_crop::checkAxis("x", p.x, requested.width, parent.width);
+            ptr_crop::checkNoAxis("y", p.y);
+            ptr_crop::checkNoAxis("z", p.z);
+            if (requested.pitch != 0 && requested.pitch != sizeof(T) * requested.width) {
+                ptr_crop::checkStride("pitch", requested.pitch, parent.pitch);
+            }
+        }
+        static inline PtrDims<ND::_1D> viewDims(const PtrDims<ND::_1D>&, const PtrDims<ND::_1D>& requested) {
+            return PtrDims<ND::_1D>(requested.width, static_cast<uint>(sizeof(T)) * requested.width);
+        }
+    };
+
+    template <typename T>
+    struct PtrCrop<ND::_2D, T> {
+        static inline void check(const PtrDims<ND::_2D>& parent, const Point p, const PtrDims<ND::_2D>& requested) {
+            ptr_crop::checkAxis("x", p.x, requested.width, parent.width);
+            ptr_crop::checkAxis("y", p.y, requested.height, parent.height);
+            ptr_crop::checkNoAxis("z", p.z);
+            ptr_crop::checkedStride("pitch", parent.pitch);
+            ptr_crop::checkStride("pitch", requested.pitch, parent.pitch);
+        }
+        static inline PtrDims<ND::_2D> viewDims(const PtrDims<ND::_2D>& buffer, const PtrDims<ND::_2D>& requested) {
+            return PtrDims<ND::_2D>(requested.width, requested.height, ptr_crop::checkedStride("pitch", buffer.pitch));
+        }
+    };
+
+    template <typename T>
+    struct PtrCrop<ND::_3D, T> {
+        // The stride between planes is plane_pitch * color_planes, so a view with several planes has the color
+        // planes of its parent. A view of one plane can have fewer.
+        static inline void check(const PtrDims<ND::_3D>& parent, const Point p, const PtrDims<ND::_3D>& requested) {
+            ptr_crop::checkAxis("x", p.x, requested.width, parent.width);
+            ptr_crop::checkAxis("y", p.y, requested.height, parent.height);
+            ptr_crop::checkAxis("z", p.z, requested.planes, parent.planes);
+            if (requested.color_planes == 0 || requested.color_planes > parent.color_planes) {
+                ptr_crop::fail("the color planes of the view (" + std::to_string(requested.color_planes) +
+                               ") are zero or more than the ones of the parent (" +
+                               std::to_string(parent.color_planes) + ")");
+            }
+            if (requested.planes > 1 && requested.color_planes != parent.color_planes) {
+                ptr_crop::fail("a view of several planes needs the color planes of the parent (" +
+                               std::to_string(parent.color_planes) + "), not " +
+                               std::to_string(requested.color_planes));
+            }
+            ptr_crop::checkedStride("pitch", parent.pitch);
+            ptr_crop::checkedStride("plane_pitch", parent.plane_pitch);
+            // The PtrDims<ND::_3D> constructor derives plane_pitch from the height of the view, which is not the
+            // plane_pitch of the parent, so only pitch can be compared
+            ptr_crop::checkStride("pitch", requested.pitch, parent.pitch);
+        }
+        static inline PtrDims<ND::_3D> viewDims(const PtrDims<ND::_3D>& buffer, const PtrDims<ND::_3D>& requested) {
+            PtrDims<ND::_3D> dims(requested.width, requested.height, requested.planes, requested.color_planes,
+                                  ptr_crop::checkedStride("pitch", buffer.pitch));
+            dims.plane_pitch = ptr_crop::checkedStride("plane_pitch", buffer.plane_pitch);
+            return dims;
+        }
+    };
+
+    template <typename T>
+    struct PtrCrop<ND::T3D, T> {
+        // The color planes are addressed from the first one with color_planes_pitch, so a view can have fewer
+        static inline void check(const PtrDims<ND::T3D>& parent, const Point p, const PtrDims<ND::T3D>& requested) {
+            ptr_crop::checkAxis("x", p.x, requested.width, parent.width);
+            ptr_crop::checkAxis("y", p.y, requested.height, parent.height);
+            ptr_crop::checkAxis("z", p.z, requested.planes, parent.planes);
+            if (requested.color_planes == 0 || requested.color_planes > parent.color_planes) {
+                ptr_crop::fail("the color planes of the view (" + std::to_string(requested.color_planes) +
+                               ") are zero or more than the ones of the parent (" +
+                               std::to_string(parent.color_planes) + ")");
+            }
+            ptr_crop::checkedStride("pitch", parent.pitch);
+            ptr_crop::checkedStride("plane_pitch", parent.plane_pitch);
+            ptr_crop::checkedStride("color_planes_pitch", parent.color_planes_pitch);
+            ptr_crop::checkStride("pitch", requested.pitch, parent.pitch);
+            ptr_crop::checkStride("plane_pitch", requested.plane_pitch, parent.plane_pitch);
+            ptr_crop::checkStride("color_planes_pitch", requested.color_planes_pitch, parent.color_planes_pitch);
+        }
+        static inline PtrDims<ND::T3D> viewDims(const PtrDims<ND::T3D>& buffer, const PtrDims<ND::T3D>& requested) {
+            PtrDims<ND::T3D> dims(requested.width, requested.height, requested.planes, requested.color_planes);
+            dims.pitch = ptr_crop::checkedStride("pitch", buffer.pitch);
+            dims.plane_pitch = ptr_crop::checkedStride("plane_pitch", buffer.plane_pitch);
+            dims.color_planes_pitch = ptr_crop::checkedStride("color_planes_pitch", buffer.color_planes_pitch);
+            return dims;
         }
     };
 
@@ -513,17 +659,39 @@ namespace fk {
 
         inline constexpr operator RawPtr<D, T>() const { return ptr_a; }
 
-        // The crop shares the allocation: the constructor adds its reference
-        inline constexpr Ptr<D, T> crop(const Point p, const PtrDims<D>& newDims) {
-            T* ptr = At::point(p, ptr_a);
-            const RawPtr<D, T> newRawPtr = { ptr, newDims };
+        // A view of this pointer, starting at p and with the extent of newDims. The crop shares the allocation: the
+        // constructor adds its reference.
+        // The caller only chooses the position and the extent. The strides of the view (pitch, plane_pitch and
+        // color_planes_pitch) are always the ones of this pointer, taken from each of its buffers: the device buffer
+        // and the pinned buffer of a DeviceAndPinned pointer have different pitches, and the crop of each walks its
+        // own buffer. A pitch in newDims is not needed: 0 means "the one of the parent". A pitch that is not 0 and
+        // is not the one of the parent throws, because a view can not have it. The pitch of the parent is the one of
+        // its device buffer, the one dims() returns (the pinned pitch of a DeviceAndPinned pointer is not compared:
+        // the caller has no way to know it). In a 1D pointer the pitch is the size in bytes, and the view gets
+        // sizeof(T) * width.
+        // It throws std::runtime_error (in every build) if the view is empty, has a negative position, or is not
+        // inside this pointer. The crop of a crop is checked against the extent of the crop.
+        inline Ptr<D, T> crop(const Point p, const PtrDims<D>& newDims) const {
+            PtrCrop<D, T>::check(ptr_a.dims, p, newDims);
+            const RawPtr<D, T> newRawPtr = { At::point(p, ptr_a), PtrCrop<D, T>::viewDims(ptr_a.dims, newDims) };
             if (type == MemType::DeviceAndPinned) {
-                T* pinnedPtr = At::point(p, ptr_pinned);
-                RawPtr<D, T> newPinnedRawPtr = { pinnedPtr, newDims };
+                const RawPtr<D, T> newPinnedRawPtr = { At::point(p, ptr_pinned),
+                                                       PtrCrop<D, T>::viewDims(ptr_pinned.dims, newDims) };
                 return { ref, newRawPtr, newPinnedRawPtr, type, deviceID };
             } else {
                 return { ref, newRawPtr, newRawPtr, type, deviceID };
             }
+        }
+
+        // The view of a rectangle of a 2D pointer: the position and the size, nothing else
+        template <ND DN = D, std::enable_if_t<DN == ND::_2D, int> = 0>
+        inline Ptr<ND::_2D, T> crop(const Rect& rect) const {
+            if (rect.width <= 0 || rect.height <= 0) {
+                ptr_crop::fail("the rectangle is empty or has a negative size (" + std::to_string(rect.width) + " x " +
+                               std::to_string(rect.height) + ")");
+            }
+            return crop(Point{ static_cast<int>(rect.x), static_cast<int>(rect.y), 0 },
+                        PtrDims<ND::_2D>(static_cast<uint>(rect.width), static_cast<uint>(rect.height)));
         }
 
         inline constexpr PtrDims<D> dims() const {
@@ -784,7 +952,9 @@ namespace fk {
         inline constexpr Ptr1D<T>(T* data_, const PtrDims<ND::_1D>& dims_, const MemType& type_ = defaultMemType, const int& deviceID_ = 0) :
             Ptr<ND::_1D, T>(data_, dims_, type_, deviceID_) {}
 
-        inline constexpr Ptr1D<T> crop1D(const Point p, const PtrDims<ND::_1D>& newDims) { return Ptr<ND::_1D, T>::crop(p, newDims); }
+        inline Ptr1D<T> crop1D(const Point p, const PtrDims<ND::_1D>& newDims) const { return Ptr<ND::_1D, T>::crop(p, newDims); }
+        // The elements [x, x + width)
+        inline Ptr1D<T> crop1D(const int x, const uint width) const { return crop1D(Point{ x, 0, 0 }, PtrDims<ND::_1D>(width)); }
     };
 
     template <typename T>
@@ -801,7 +971,8 @@ namespace fk {
         inline Ptr2D<T>(T* data_, const uint& width_, const uint& height_, const uint& pitch_, const MemType& type_ = defaultMemType, const int& deviceID_ = 0) :
             Ptr<ND::_2D, T>(data_, PtrDims<ND::_2D>(width_, height_, pitch_), type_, deviceID_) {}
 
-        inline Ptr2D<T> crop2D(const Point p, const PtrDims<ND::_2D>& newDims) { return Ptr<ND::_2D, T>::crop(p, newDims); }
+        inline Ptr2D<T> crop2D(const Point p, const PtrDims<ND::_2D>& newDims) const { return Ptr<ND::_2D, T>::crop(p, newDims); }
+        inline Ptr2D<T> crop2D(const Rect& rect) const { return Ptr<ND::_2D, T>::crop(rect); }
         inline void Alloc(const fk::Size& size, const uint& pitch_ = 0, const MemType& type_ = defaultMemType, const int& deviceID_ = 0) {
             this->freePtr();
             this->allocPtr(PtrDims<ND::_2D>(size.width, size.height, pitch_), type_, deviceID_);
@@ -820,7 +991,7 @@ namespace fk {
         inline constexpr Ptr3D<T>(T* data_, const PtrDims<ND::_3D>& dims_, const MemType& type_ = defaultMemType, const int& deviceID_ = 0) :
             Ptr<ND::_3D, T>(data_, dims_, type_, deviceID_) {}
 
-        inline constexpr Ptr3D<T> crop3D(const Point p, const PtrDims<ND::_3D>& newDims) { return Ptr<ND::_3D, T>::crop(p, newDims); }
+        inline Ptr3D<T> crop3D(const Point p, const PtrDims<ND::_3D>& newDims) const { return Ptr<ND::_3D, T>::crop(p, newDims); }
     };
 
     // A color-plane-transposed 3D pointer PtrT3D
@@ -835,7 +1006,7 @@ namespace fk {
         inline constexpr PtrT3D<T>(T* data_, const PtrDims<ND::T3D>& dims_, const MemType& type_ = defaultMemType, const int& deviceID_ = 0) :
             Ptr<ND::T3D, T>(data_, dims_, type_, deviceID_) {}
 
-        inline constexpr PtrT3D<T> crop3D(const Point p, const PtrDims<ND::T3D>& newDims) { return Ptr<ND::T3D, T>::crop(p, newDims); }
+        inline PtrT3D<T> crop3D(const Point p, const PtrDims<ND::T3D>& newDims) const { return Ptr<ND::T3D, T>::crop(p, newDims); }
     };
 
     // A Tensor pointer
