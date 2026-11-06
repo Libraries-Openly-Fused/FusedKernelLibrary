@@ -227,7 +227,8 @@ namespace fk {
             }
         }
 
-        // A stride given by the caller can only repeat the one of the parent. Zero means "not given".
+        // A stride given by the caller can only repeat the one of the parent (of its device buffer, the one dims()
+        // returns, if it has two). Zero means "not given".
         inline void checkStride(const char* const stride, const uint given, const uint parent) {
             if (given != 0 && given != parent) {
                 fail(std::string("the ") + stride + " given (" + std::to_string(given) + ") is not the " + stride +
@@ -705,8 +706,10 @@ namespace fk {
         // color_planes_pitch) are always the ones of this pointer, taken from each of its buffers: the device buffer
         // and the pinned buffer of a DeviceAndPinned pointer have different pitches, and the crop of each walks its
         // own buffer. A pitch in newDims is not needed: 0 means "the one of the parent". A pitch that is not 0 and
-        // is not the one of the parent throws, because a view can not have it. In a 1D pointer the pitch is the
-        // size in bytes, and the view gets sizeof(T) * width.
+        // is not the one of the parent throws, because a view can not have it. The pitch of the parent is the one of
+        // its device buffer, the one dims() returns (the pinned pitch of a DeviceAndPinned pointer is not compared:
+        // the caller has no way to know it). In a 1D pointer the pitch is the size in bytes, and the view gets
+        // sizeof(T) * width.
         // It throws std::runtime_error (in every build) if the view is empty, has a negative position, or is not
         // inside this pointer. The crop of a crop is checked against the extent of the crop.
         inline Ptr<D, T> crop(const Point p, const PtrDims<D>& newDims) const {
