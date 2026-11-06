@@ -460,12 +460,13 @@ namespace fk {
 
 
     // ##################### BATCH_WRITE #####################
-    template <size_t BATCH, typename Operation = void>
+    template <size_t BATCH_, typename Operation = void>
     struct BatchWrite {
     private:
-        using SelfType = BatchWrite<BATCH, Operation>;
+        using SelfType = BatchWrite<BATCH_, Operation>;
     public:
         FK_STATIC_STRUCT(BatchWrite, SelfType)
+        static constexpr size_t BATCH = BATCH_;
         using Parent = WriteOperation<typename Operation::InputType, typename Operation::ParamsType[BATCH],
                                       typename Operation::WriteDataType,
                                       Operation::THREAD_FUSION ? TF::ENABLED : TF::DISABLED, BatchWrite<BATCH, Operation>>;
