@@ -39,7 +39,18 @@ bool testPtr_2D() {
     fk::Stream stream;
 
     fk::Ptr2D<T> input(width, height);
-    fk::setTo(fk::make_set<T>(2), input, stream);
+    // Every pixel of the input has a different value (not a constant): a crop that does not walk the input with the
+    // pitch of the input reads other pixels, and the output is not the expected one
+    const auto pattern = [](const int x, const int y) {
+        return fk::make_set<T>(static_cast<fk::VBase<T>>((x * 7 + y * 13) % 251));
+    };
+    for (int y = 0; y < static_cast<int>(height); ++y) {
+        for (int x = 0; x < static_cast<int>(width); ++x) {
+            input.at(fk::Point{ x, y, 0 }) = pattern(x, y);
+        }
+    }
+    input.upload(stream);
+    // The pitch of the crop is not given: it is the pitch of the input
     fk::Ptr2D<T> cropedInput = input.crop(startPoint, fk::PtrDims<fk::ND::_2D>(width_crop, height_crop));
     fk::Ptr2D<T> output(width_crop, height_crop);
     fk::Ptr2D<T> outputBig(width, height);
@@ -62,8 +73,9 @@ bool testPtr_2D() {
 
     for (int y = 0; y < output.dims().height; ++y) {
         for (int x = 0; x < output.dims().width; ++x) {
-            const auto result = output.at({ x, y }) != fk::make_set<T>(2);
-            if (cxp::vector_and::f(result)) {
+            const auto expected = pattern(x + startPoint.x, y + startPoint.y);
+            const auto result = output.at({ x, y }) == expected;
+            if (!cxp::vector_and::f(result)) {
                 if constexpr (fk::cn<T> == 1 && !std::is_aggregate_v<T>) {
                     std::cout << "Error in output at (" << x << ", " << y << "): " << static_cast<int>(output.at({ x, y })) << std::endl;
                 } else {
