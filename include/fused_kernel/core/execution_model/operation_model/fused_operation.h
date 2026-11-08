@@ -166,7 +166,7 @@ namespace fk {
         template <size_t... Idx>
         FK_HOST_DEVICE_FUSE void exec_helper(const std::index_sequence<Idx...>&, const Point thread,
                                              const ParamsType &params) {
-            LastType_t<typename ParamsType::Operations>::Operation::exec(thread,
+            LastType_t<IOps...>::Operation::exec(thread,
                 (thread | ... | get_opt<Idx>(params)).input,
                 get_opt<sizeof...(Idx) - 1>(params));
         }
@@ -197,7 +197,7 @@ namespace fk {
         template <size_t... Idx>
         FK_HOST_DEVICE_FUSE void exec_helper(const std::index_sequence<Idx...> &, const Point thread,
                                              const InputType input, const ParamsType &params) {
-            LastType_t<typename ParamsType::Operations>::Operation::exec(
+            LastType_t<IOps...>::Operation::exec(
                 thread, (InputFoldType<>::build(thread, input) | ... | get_opt<Idx>(params)).input,
                 get_opt<ParamsType::size - 1>(params));
         }
