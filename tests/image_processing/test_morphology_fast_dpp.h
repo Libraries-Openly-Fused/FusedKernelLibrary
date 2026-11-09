@@ -83,7 +83,7 @@ Result runCase(const int width, const int height,
     }
 
     Stream_<PA> stream;
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     if constexpr (GPU) {
         input.upload(stream);
         output.upload(stream);
@@ -98,7 +98,7 @@ Result runCase(const int width, const int height,
     const MorphQuadDetails details{
         width, height, runtimeKW, runtimeKH, anchorX, anchorY};
     executeMorphQuad<DPP>(stream, details, read, reduce, write);
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     if constexpr (GPU) output.download(stream);
 #endif
     stream.sync();
@@ -128,7 +128,7 @@ bool verifyCase(const int width, const int height,
     const auto cpu = runCase<ParArch::CPU, ReduceIOp, EX, EY, KW, KH>(
         width, height, runtimeKW, runtimeKH, anchorX, anchorY, kind);
     bool ok = cpu.passed;
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     const auto gpu = runCase<defaultParArch,
                              ReduceIOp, EX, EY, KW, KH>(
         width, height, runtimeKW, runtimeKH, anchorX, anchorY, kind);

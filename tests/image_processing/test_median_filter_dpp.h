@@ -165,7 +165,7 @@ bool runCase(const Details& details, const Selection& selection,
     }
     if (!ran || !compare(cpuOutput, expected, label)) return false;
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     Ptr2D<float> gpuInput(details.width, details.height);
     Ptr2D<float> gpuOutput(details.width, details.height);
     for (int y = 0; y < details.height; ++y)

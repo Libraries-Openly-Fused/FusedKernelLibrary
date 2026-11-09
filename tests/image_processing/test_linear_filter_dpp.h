@@ -224,7 +224,7 @@ bool runCase(const int width, const int height,
     }
 #endif
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     Ptr2D<float> gpuInput(width, height);
     Ptr2D<float> gpuKernel(kernelWidth, kernelHeight);
     Ptr2D<float> gpuOutput(width, height);
