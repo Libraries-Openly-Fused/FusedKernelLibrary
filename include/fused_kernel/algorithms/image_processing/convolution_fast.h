@@ -343,6 +343,167 @@ FK_HOST_STATIC void executeConvQuad(
 }
 #endif // defined(__NVCC__)
 
+#if defined(FK_HIP_BACKEND)
+// The GPU_NVIDIA version above, for HIP (ParArch::GPU_AMD), with the HIP runtime API
+template <typename T, int EX, int EY, int KW, int KH>
+struct ConvQuadDPP<ParArch::GPU_AMD, T, EX, EY, KW, KH> {
+private:
+    using SelfType = ConvQuadDPP<
+        ParArch::GPU_AMD, T, EX, EY, KW, KH>;
+    static constexpr int MAX_KERNEL_WIDTH =
+        KW > 0 ? KW : FK_CONV_MAX_KERNEL_SIDE;
+    static constexpr int MAX_SPAN = EX + MAX_KERNEL_WIDTH - 1;
+
+public:
+    FK_STATIC_STRUCT(ConvQuadDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_AMD;
+    static constexpr int BLOCK_THREADS = 256;
+
+    struct LaunchConfig {
+        unsigned int blocks;
+        unsigned int threads;
+    };
+
+    FK_HOST_DEVICE_FUSE bool accepts(const ConvQuadDetails& details) {
+        return details.template validFor<KW, KH>();
+    }
+
+    FK_HOST_FUSE LaunchConfig launchConfig(const ConvQuadDetails& details) {
+        const int columns = (details.width + EX - 1) / EX;
+        const int rows = (details.height + EY - 1) / EY;
+        const int workItems = columns * rows;
+        return {static_cast<unsigned int>(
+                    (workItems + BLOCK_THREADS - 1) / BLOCK_THREADS),
+                static_cast<unsigned int>(BLOCK_THREADS)};
+    }
+
+    template <typename InIOp, typename ComputeIOps, typename OutIOp>
+    FK_DEVICE_STATIC void exec(const ConvQuadDetails& details,
+                               const InIOp& input,
+                               const ComputeIOps& compute,
+                               const OutIOp& output) {
+        static_assert(isAnyCompleteReadType<InIOp>,
+                      "ConvQuadDPP requires a complete Read IOp");
+        static_assert(isAnyWriteType<OutIOp>,
+                      "ConvQuadDPP requires a Write IOp");
+        static_assert(std::is_same_v<T, float>,
+                      "ConvQuadDPP currently supports float pixels");
+        static_assert(std::is_same_v<
+                          typename InIOp::Operation::OutputType, T>,
+                      "ConvQuadDPP Read IOp must produce T");
+        static_assert(std::is_same_v<
+                          typename OutIOp::Operation::InputType, T>,
+                      "ConvQuadDPP Write IOp must consume T");
+        static_assert(EX > 0 && EY > 0,
+                      "ConvQuadDPP output tile must be positive");
+        static_assert(KW >= 0 && KH >= 0,
+                      "ConvQuadDPP static kernel sizes cannot be negative");
+        static_assert((KW == 0) == (KH == 0),
+                      "ConvQuadDPP sizes are both static or both runtime");
+#if defined(__HIP_DEVICE_COMPILE__)
+        if (!accepts(details)) return;
+        const int kernelWidth = KW > 0 ? KW : details.kernelWidth;
+        const int kernelHeight = KH > 0 ? KH : details.kernelHeight;
+        const auto& multiply = get<0>(compute);
+        const auto& combine = get<1>(compute);
+        const int columns = (details.width + EX - 1) / EX;
+        const int workItem = static_cast<int>(
+            blockIdx.x * blockDim.x + threadIdx.x);
+        const int x0 = (workItem % columns) * EX;
+        const int y0 = (workItem / columns) * EY;
+        if (x0 >= details.width || y0 >= details.height) return;
+
+        const int span = EX + kernelWidth - 1;
+        if (span > MAX_SPAN) return;
+        const int rowsNeeded = EY + kernelHeight - 1;
+        const int firstColumn = x0 - details.anchorX;
+        auto clamp = [](const int value, const int upper) {
+            return value < 0 ? 0 : (value >= upper ? upper - 1 : value);
+        };
+        auto source = [&](const int x, const int y) {
+            return InIOp::Operation::exec(
+                Point{clamp(x, details.width),
+                      clamp(y, details.height), 0}, input);
+        };
+
+        float accumulated[EY][EX];
+        #pragma unroll
+        for (int localY = 0; localY < EY; ++localY) {
+            #pragma unroll
+            for (int localX = 0; localX < EX; ++localX) {
+                accumulated[localY][localX] = 0.f;
+            }
+        }
+
+        #pragma unroll
+        for (int row = 0; row < rowsNeeded; ++row) {
+            float sourceRow[MAX_SPAN];
+            #pragma unroll
+            for (int index = 0; index < span; ++index) {
+                sourceRow[index] = source(
+                    firstColumn + index,
+                    y0 - details.anchorY + row);
+            }
+            #pragma unroll
+            for (int localY = 0; localY < EY; ++localY) {
+                const int ky = row - localY;
+                if (ky < 0 || ky >= kernelHeight ||
+                    y0 + localY >= details.height) continue;
+                #pragma unroll
+                for (int kx = 0; kx < kernelWidth; ++kx) {
+                    const float coefficient =
+                        details.coefficients[ky * kernelWidth + kx];
+                    #pragma unroll
+                    for (int localX = 0; localX < EX; ++localX) {
+                        const float product = make_tuple(
+                            coefficient,
+                            sourceRow[localX + kx]) | multiply;
+                        accumulated[localY][localX] = make_tuple(
+                            accumulated[localY][localX], product) | combine;
+                    }
+                }
+            }
+        }
+
+        #pragma unroll
+        for (int localY = 0; localY < EY; ++localY) {
+            const int y = y0 + localY;
+            if (y >= details.height) break;
+            #pragma unroll
+            for (int localX = 0; localX < EX; ++localX) {
+                const int x = x0 + localX;
+                if (x >= details.width) break;
+                OutIOp::Operation::exec(
+                    Point{x, y, 0}, accumulated[localY][localX], output);
+            }
+        }
+#endif // defined(__HIP_DEVICE_COMPILE__)
+    }
+};
+
+template <typename DPP, typename... IOps>
+__global__ void launchConvQuadDPP_Kernel(
+        const __grid_constant__ ConvQuadDetails details,
+        const __grid_constant__ IOps... iOps) {
+    DPP::exec(details, iOps...);
+}
+
+template <typename DPP, typename... IOps>
+FK_HOST_STATIC void executeConvQuad(
+        Stream_<ParArch::GPU_AMD>& stream,
+        const ConvQuadDetails& details,
+        const IOps&... iOps) {
+    static_assert(DPP::PAR_ARCH == ParArch::GPU_AMD,
+                  "GPU stream requires the matching ConvQuadDPP specialization");
+    if (!DPP::accepts(details)) return;
+    const auto launch = DPP::launchConfig(details);
+    launchConvQuadDPP_Kernel<DPP, IOps...>
+        <<<launch.blocks, launch.threads, 0, stream.getHIPStream()>>>(
+            details, iOps...);
+    gpuErrchk(hipGetLastError());
+}
+#endif // defined(FK_HIP_BACKEND)
+
 template <typename DPP, typename... IOps>
 FK_HOST_FUSE void executeConvQuad(
         Stream_<ParArch::CPU>&,

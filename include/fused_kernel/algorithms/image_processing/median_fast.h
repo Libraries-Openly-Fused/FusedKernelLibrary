@@ -433,6 +433,129 @@ FK_HOST_STATIC void executeMedianQuad(
 }
 #endif // defined(__NVCC__)
 
+#if defined(FK_HIP_BACKEND)
+// The GPU_NVIDIA version above, for HIP (ParArch::GPU_AMD), with the HIP runtime API
+template <typename T, int EX, int EY, int KW, int KH>
+struct MedianQuadDPP<ParArch::GPU_AMD, T, EX, EY, KW, KH> {
+private:
+    using SelfType = MedianQuadDPP<
+        ParArch::GPU_AMD, T, EX, EY, KW, KH>;
+
+public:
+    FK_STATIC_STRUCT(MedianQuadDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_AMD;
+    static constexpr int BLOCK_THREADS = 256;
+
+    struct LaunchConfig {
+        unsigned int blocks;
+        unsigned int threads;
+    };
+
+    FK_HOST_DEVICE_FUSE bool accepts(const MedianQuadDetails& details) {
+        return details.template validFor<KW, KH>();
+    }
+
+    FK_HOST_FUSE LaunchConfig launchConfig(const MedianQuadDetails& details) {
+        const int columns = (details.width + EX - 1) / EX;
+        const int rows = (details.height + EY - 1) / EY;
+        const int workItems = columns * rows;
+        return {static_cast<unsigned int>(
+                    (workItems + BLOCK_THREADS - 1) / BLOCK_THREADS),
+                static_cast<unsigned int>(BLOCK_THREADS)};
+    }
+
+    template <typename InIOp, typename ComputeIOps, typename OutIOp>
+    FK_DEVICE_STATIC void exec(const MedianQuadDetails& details,
+                               const InIOp& input,
+                               const ComputeIOps& compute,
+                               const OutIOp& output) {
+        static_assert(isAnyCompleteReadType<InIOp>,
+                      "MedianQuadDPP requires a complete Read IOp");
+        static_assert(isAnyWriteType<OutIOp>,
+                      "MedianQuadDPP requires a Write IOp");
+        static_assert(std::is_same_v<
+                          typename InIOp::Operation::OutputType, T>,
+                      "MedianQuadDPP Read IOp must produce T");
+        static_assert(std::is_same_v<
+                          typename OutIOp::Operation::InputType, T>,
+                      "MedianQuadDPP Write IOp must consume T");
+        static_assert(EX > 0 && EY > 0,
+                      "MedianQuadDPP output tile must be positive");
+        static_assert(KW >= 0 && KH >= 0,
+                      "MedianQuadDPP static kernel sizes cannot be negative");
+        static_assert((KW == 0) == (KH == 0),
+                      "MedianQuadDPP sizes are both static or both runtime");
+        static_assert(cn<T> == 1,
+                      "MedianQuadDPP currently supports scalar pixel types");
+#if defined(__HIP_DEVICE_COMPILE__)
+        if (!accepts(details)) return;
+        const int kernelWidth = KW > 0 ? KW : details.kernelWidth;
+        const int kernelHeight = KH > 0 ? KH : details.kernelHeight;
+        const int columns = (details.width + EX - 1) / EX;
+        const int workItem = static_cast<int>(
+            blockIdx.x * blockDim.x + threadIdx.x);
+        const int x0 = (workItem % columns) * EX;
+        const int y0 = (workItem / columns) * EY;
+        if (x0 >= details.width || y0 >= details.height) return;
+
+        auto clamp = [](const int value, const int upper) {
+            return value < 0 ? 0 : (value >= upper ? upper - 1 : value);
+        };
+        auto source = [&](const int x, const int y) {
+            return InIOp::Operation::exec(
+                Point{clamp(x, details.width),
+                      clamp(y, details.height), 0}, input);
+        };
+
+        #pragma unroll
+        for (int localY = 0; localY < EY; ++localY) {
+            const int y = y0 + localY;
+            if (y >= details.height) break;
+            #pragma unroll
+            for (int localX = 0; localX < EX; ++localX) {
+                const int x = x0 + localX;
+                if (x >= details.width) break;
+                T values[FK_MEDIAN_SORT_SIZE];
+                int count = 0;
+                for (int ky = 0; ky < kernelHeight; ++ky) {
+                    for (int kx = 0; kx < kernelWidth; ++kx) {
+                        values[count++] = source(
+                            x + kx - details.anchorX,
+                            y + ky - details.anchorY);
+                    }
+                }
+                const T value = median_detail::median(
+                    values, count, kernelWidth, kernelHeight, compute);
+                OutIOp::Operation::exec(Point{x, y, 0}, value, output);
+            }
+        }
+#endif // defined(__HIP_DEVICE_COMPILE__)
+    }
+};
+
+template <typename DPP, typename... IOps>
+__global__ void launchMedianQuadDPP_Kernel(
+        const __grid_constant__ MedianQuadDetails details,
+        const __grid_constant__ IOps... iOps) {
+    DPP::exec(details, iOps...);
+}
+
+template <typename DPP, typename... IOps>
+FK_HOST_STATIC void executeMedianQuad(
+        Stream_<ParArch::GPU_AMD>& stream,
+        const MedianQuadDetails& details,
+        const IOps&... iOps) {
+    static_assert(DPP::PAR_ARCH == ParArch::GPU_AMD,
+                  "GPU stream requires the matching MedianQuadDPP specialization");
+    if (!DPP::accepts(details)) return;
+    const auto launch = DPP::launchConfig(details);
+    launchMedianQuadDPP_Kernel<DPP, IOps...>
+        <<<launch.blocks, launch.threads, 0, stream.getHIPStream()>>>(
+            details, iOps...);
+    gpuErrchk(hipGetLastError());
+}
+#endif // defined(FK_HIP_BACKEND)
+
 template <typename DPP, typename... IOps>
 FK_HOST_FUSE void executeMedianQuad(
         Stream_<ParArch::CPU>&,
