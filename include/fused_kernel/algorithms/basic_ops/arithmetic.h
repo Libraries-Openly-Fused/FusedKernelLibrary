@@ -17,6 +17,7 @@
 
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <fused_kernel/core/utils/vector_utils.h>
+#include <fused_kernel/core/data/tuple.h>
 
 namespace fk {
     template <typename I1, typename I2 = I1, typename O = I1, typename IT = BinaryType>
@@ -48,42 +49,90 @@ namespace fk {
         }
     };
 
-    template <typename I, typename P = I, typename O = I>
-    struct Sub {
+    template <typename I1, typename I2 = I1, typename O = I1, typename IT = BinaryType>
+    struct Sub;
+
+    template <typename I, typename P, typename O>
+    struct Sub<I, P, O, BinaryType> {
     private:
-        using SelfType = Sub<I, P, O>;
+        using SelfType = Sub<I, P, O, BinaryType>;
     public:
         FK_STATIC_STRUCT(Sub, SelfType)
-        using Parent = BinaryOperation<I, P, O, Sub<I, P, O>>;
+        using Parent = BinaryOperation<I, P, O, Sub<I, P, O, BinaryType>>;
         DECLARE_BINARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params) {
             return input - params;
         }
     };
 
-    template <typename I, typename P = I, typename O = I>
-    struct Mul {
+    template <typename I1, typename I2, typename O>
+    struct Sub<I1, I2, O, UnaryType> {
     private:
-        using SelfType = Mul<I, P, O>;
+        using SelfType = Sub<I1, I2, O, UnaryType>;
+    public:
+        FK_STATIC_STRUCT(Sub, SelfType)
+        using Parent = UnaryOperation<Tuple<I1, I2>, O, Sub<I1, I2, O, UnaryType>>;
+        DECLARE_UNARY_PARENT
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
+            return get<0>(input) - get<1>(input);
+        }
+    };
+
+    template <typename I1, typename I2 = I1, typename O = I1, typename IT = BinaryType>
+    struct Mul;
+
+    template <typename I, typename P, typename O>
+    struct Mul<I, P, O, BinaryType> {
+    private:
+        using SelfType = Mul<I, P, O, BinaryType>;
     public:
         FK_STATIC_STRUCT(Mul, SelfType)
-        using Parent = BinaryOperation<I, P, O, Mul<I, P, O>>;
+        using Parent = BinaryOperation<I, P, O, Mul<I, P, O, BinaryType>>;
         DECLARE_BINARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params) {
             return input * params;
         }
     };
 
-    template <typename I, typename P = I, typename O = I>
-    struct Div {
+    template <typename I1, typename I2, typename O>
+    struct Mul<I1, I2, O, UnaryType> {
     private:
-        using SelfType = Div<I, P, O>;
+        using SelfType = Mul<I1, I2, O, UnaryType>;
+    public:
+        FK_STATIC_STRUCT(Mul, SelfType)
+        using Parent = UnaryOperation<Tuple<I1, I2>, O, Mul<I1, I2, O, UnaryType>>;
+        DECLARE_UNARY_PARENT
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
+            return get<0>(input) * get<1>(input);
+        }
+    };
+
+    template <typename I1, typename I2 = I1, typename O = I1, typename IT = BinaryType>
+    struct Div;
+
+    template <typename I, typename P, typename O>
+    struct Div<I, P, O, BinaryType> {
+    private:
+        using SelfType = Div<I, P, O, BinaryType>;
     public:
         FK_STATIC_STRUCT(Div, SelfType)
-        using Parent = BinaryOperation<I, P, O, Div<I, P, O>>;
+        using Parent = BinaryOperation<I, P, O, Div<I, P, O, BinaryType>>;
         DECLARE_BINARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType input, const ParamsType& params) {
             return input / params;
+        }
+    };
+
+    template <typename I1, typename I2, typename O>
+    struct Div<I1, I2, O, UnaryType> {
+    private:
+        using SelfType = Div<I1, I2, O, UnaryType>;
+    public:
+        FK_STATIC_STRUCT(Div, SelfType)
+        using Parent = UnaryOperation<Tuple<I1, I2>, O, Div<I1, I2, O, UnaryType>>;
+        DECLARE_UNARY_PARENT
+        FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
+            return get<0>(input) / get<1>(input);
         }
     };
 } // namespace fk
