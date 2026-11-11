@@ -590,7 +590,16 @@ namespace cxp {
                 } else {
                     // fmin/fminf already implement the IEEE-754 NaN and signed zero rules, and map
                     // to a single FMNMX instruction on device
-                    return std::fmin(s1, s2);
+
+                    //msvc 14.52 
+                    #if defined(__CUDA_ARCH__)
+                    return std::fmin(s1, s2); // FMNMX handles NaN and signed zero on device
+                    #else
+                    if (s1 == s2) {
+                        return signbit::BaseFunc::exec(s1) ? s1 : s2; // -0.0 vs +0.0 → pick -0.0
+                    }
+                    return std::fmin(s1, s2); // NaN (never ==) and ordinary values
+                    #endif      
                 }
             }
         };
