@@ -16,9 +16,9 @@ jobs:
       matrix:
         include:
           - host_compiler: "cl"
-            msvc_env_version: "14.51"
+            msvc_env_version: "14.52"
           - host_compiler: "clang-cl"
-            msvc_env_version: "14.51"
+            msvc_env_version: "14.52"
 
 
     steps:

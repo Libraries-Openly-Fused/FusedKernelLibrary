@@ -20,7 +20,7 @@ jobs:
             cuda_version: "13.0"
 
           - host_compiler: "cl"
-            msvc_env_version: "14.51"
+            msvc_env_version: "14.52"
             cuda_version: "13.5"
 
     steps:
