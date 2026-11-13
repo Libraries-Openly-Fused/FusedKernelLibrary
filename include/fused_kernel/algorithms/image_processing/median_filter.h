@@ -318,6 +318,101 @@ inline bool executeMedianFilter(const DPPDetails& details,
 }
 #endif // defined(__NVCC__)
 
+#if defined(FK_HIP_BACKEND)
+// The GPU_NVIDIA version above, for HIP (ParArch::GPU_AMD), with the HIP runtime API
+template <typename DPPDetails>
+struct MedianFilterDPP<ParArch::GPU_AMD, DPPDetails> {
+private:
+    using SelfType = MedianFilterDPP<ParArch::GPU_AMD, DPPDetails>;
+    using T = typename DPPDetails::ValueType;
+    using Stage = NeighborhoodDPPStage<
+        typename DPPDetails::NeighborhoodPolicy>;
+    using Window = NeighborhoodWindow<T, DPPDetails::WINDOW_CAPACITY>;
+
+public:
+    FK_STATIC_STRUCT(MedianFilterDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_AMD;
+
+    template <typename ReadIOp, typename WriteIOp, typename SelectionIOp>
+    FK_DEVICE_STATIC void exec(const DPPDetails& details,
+                               const ReadIOp& input,
+                               const WriteIOp& output,
+                               const SelectionIOp& selection) {
+        static_assert(isAnyCompleteReadType<ReadIOp>,
+                      "MedianFilterDPP needs a complete Read IOp");
+        static_assert(isAnyWriteType<WriteIOp>,
+                      "MedianFilterDPP needs a Write IOp");
+        static_assert(SelectionIOp::template is<UnaryType>,
+                      "Selection must be a Unary IOp");
+        static_assert(std::is_same_v<typename SelectionIOp::Operation::InputType,
+                                     Window>,
+                      "Selection input must be this DPP's window type");
+        static_assert(std::is_same_v<typename SelectionIOp::Operation::OutputType,
+                                     T>,
+                      "Selection output must match the image value type");
+
+        __shared__ T halo[DPPDetails::MAX_HALO_WIDTH *
+                          DPPDetails::MAX_HALO_HEIGHT];
+        Stage::stageReplicate(
+            details.width, details.height,
+            details.windowWidth, details.windowHeight,
+            details.anchorX, details.anchorY, input, halo);
+        __syncthreads();
+
+        const int tileX = blockIdx.x * DPPDetails::TILE_WIDTH;
+        const int tileY = blockIdx.y * DPPDetails::TILE_HEIGHT;
+        const int ox = tileX + threadIdx.x;
+        const int oy = tileY + threadIdx.y;
+        const int haloWidth = DPPDetails::TILE_WIDTH +
+                              details.windowWidth - 1;
+        if (threadIdx.x < DPPDetails::TILE_WIDTH &&
+            threadIdx.y < DPPDetails::TILE_HEIGHT &&
+            ox < details.width && oy < details.height) {
+            Window window{};
+            for (int wy = 0; wy < details.windowHeight; ++wy)
+                for (int wx = 0; wx < details.windowWidth; ++wx)
+                    window.values[window.count++] = halo[
+                        (threadIdx.y + wy) * haloWidth +
+                        threadIdx.x + wx];
+            const T selected = window | selection;
+            WriteIOp::Operation::exec(
+                Point{ox, oy, 0}, selected, output);
+        }
+    }
+};
+
+template <ParArch PA, typename DPPDetails, typename ReadIOp,
+          typename WriteIOp, typename SelectionIOp>
+__global__ void medianFilterDPPKernel(const DPPDetails details,
+                                      const ReadIOp input,
+                                      const WriteIOp output,
+                                      const SelectionIOp selection) {
+    MedianFilterDPP<PA, DPPDetails>::exec(
+        details, input, output, selection);
+}
+
+template <typename DPPDetails, typename ReadIOp,
+          typename WriteIOp, typename SelectionIOp>
+inline bool executeMedianFilter(const DPPDetails& details,
+                                const ReadIOp& input,
+                                const WriteIOp& output,
+                                const SelectionIOp& selection,
+                                Stream_<ParArch::GPU_AMD>& stream) {
+    if (!DPPDetails::valid(details)) return false;
+    const dim3 block(DPPDetails::TILE_WIDTH,
+                     DPPDetails::TILE_HEIGHT, 1);
+    const dim3 grid((details.width + DPPDetails::TILE_WIDTH - 1) /
+                        DPPDetails::TILE_WIDTH,
+                    (details.height + DPPDetails::TILE_HEIGHT - 1) /
+                        DPPDetails::TILE_HEIGHT,
+                    1);
+    medianFilterDPPKernel<ParArch::GPU_AMD><<<grid, block, 0, stream.getHIPStream()>>>(
+        details, input, output, selection);
+    gpuErrchk(hipGetLastError());
+    return true;
+}
+#endif // defined(FK_HIP_BACKEND)
+
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 // Enqueues MedianFilterDPP<ParArch::CPU_MULTITHREAD> on the stream and
 // returns; returns false, enqueueing nothing, if the details are not valid.

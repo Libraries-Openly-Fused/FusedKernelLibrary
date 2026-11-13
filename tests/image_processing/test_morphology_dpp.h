@@ -179,7 +179,7 @@ bool runCpuCase(const char* name, const Details& details,
                          oracle(original, details, erodePasses));
 }
 
-#if defined(__NVCC__) || defined(FK_CPU_MULTITHREAD_ENABLED)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND) || defined(FK_CPU_MULTITHREAD_ENABLED)
 // Launches the case on stream through the entry point a user would call for
 // these reducers
 template <typename Reducers, typename ReadIOp, typename WriteIOp,
@@ -410,7 +410,7 @@ bool runMtErrors() {
 }
 #endif // FK_CPU_MULTITHREAD_ENABLED
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
 template <typename Reducers>
 bool runGpuCase(const char* name, const Details& details,
                 const Reducers& reducers,
@@ -593,7 +593,7 @@ bool runBatchedCase(const char* name, const Details& details,
     }
 #endif
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     Ptr2D<float> gpuSource(BATCH_SOURCE_W, BATCH_SOURCE_H);
     for (int y = 0; y < BATCH_SOURCE_H; ++y)
         for (int x = 0; x < BATCH_SOURCE_W; ++x)
@@ -633,7 +633,7 @@ bool runCase(const char* name, const Details& details,
     ok = runMtCase(name, details, reducers, erodePasses, inPlace,
                    cpuResult) && ok;
 #endif
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     if (!inPlace)
         ok = runGpuCase(name, details, reducers, erodePasses) && ok;
 #endif
@@ -725,7 +725,7 @@ bool runBoxCase(const char* name, const Details& details) {
     }
 #endif
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     Ptr2D<float> gpuIn(details.width, details.height);
     Ptr2D<float> gpuOut(details.width, details.height);
     for (int y = 0; y < details.height; ++y)
@@ -798,7 +798,7 @@ bool runBatchedBoxCase(const char* name, const Details& details) {
     }
 #endif
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     Ptr2D<float> gpuSource(BATCH_SOURCE_W, BATCH_SOURCE_H);
     for (int y = 0; y < BATCH_SOURCE_H; ++y)
         for (int x = 0; x < BATCH_SOURCE_W; ++x)
@@ -823,7 +823,7 @@ bool runBatchedBoxCase(const char* name, const Details& details) {
     return ok;
 }
 
-#if defined(__NVCC__) || defined(FK_CPU_MULTITHREAD_ENABLED)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND) || defined(FK_CPU_MULTITHREAD_ENABLED)
 // executeBoxBlur rejects invalid details without launching or enqueueing
 bool runBoxInvalid() {
     const Details invalid{10, 10, 9, 3, 4, 1};
@@ -847,7 +847,7 @@ bool runBoxInvalid() {
         ok = false;
     }
 #endif
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     Ptr2D<float> gpuIn(10, 10);
     Ptr2D<float> gpuOut(10, 10);
     Stream stream;
@@ -932,7 +932,7 @@ bool runBoxDouble() {
         ok = closeEnough("CPU_MULTITHREAD", mtOut) && ok;
     }
 #endif
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     Ptr2D<double> gpuIn(details.width, details.height);
     Ptr2D<double> gpuOut(details.width, details.height);
     for (int y = 0; y < details.height; ++y)
@@ -1038,7 +1038,7 @@ bool runBoxVector() {
         ok = false;
     }
 #endif
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     Ptr2D<float3> gpuIn(details.width, details.height);
     Ptr2D<float3> gpuOut(details.width, details.height);
     for (int y = 0; y < details.height; ++y)
@@ -1083,7 +1083,7 @@ bool runPassCase(const char* name, const Details& details,
     mtStream.sync();
     ok = sameBytes(name, mtOut, cpuOut) && ok;
 #endif
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     Ptr2D<float> gpuIn(details.width, details.height);
     Ptr2D<float> gpuOut(details.width, details.height);
     for (int y = 0; y < details.height; ++y)
@@ -1201,7 +1201,7 @@ bool runBoxNoOverflow() {
     mtStream.sync();
     ok = exact("CPU_MULTITHREAD", mtOut) && ok;
 #endif
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     Ptr2D<float> gpuIn(details.width, details.height);
     Ptr2D<float> gpuOut(details.width, details.height);
     for (int y = 0; y < details.height; ++y)
@@ -1273,7 +1273,7 @@ int launch_impl() {
     ok = runBoxNoOverflow() && ok;
     ok = runBoxVector() && ok;
     ok = runFinalizerCases() && ok;
-#if defined(__NVCC__) || defined(FK_CPU_MULTITHREAD_ENABLED)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND) || defined(FK_CPU_MULTITHREAD_ENABLED)
     ok = runBoxInvalid() && ok;
 #endif
 #ifdef FK_CPU_MULTITHREAD_ENABLED

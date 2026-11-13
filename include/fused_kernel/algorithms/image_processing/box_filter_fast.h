@@ -337,6 +337,164 @@ FK_HOST_STATIC void executeBoxFilterQuad(
 }
 #endif // defined(__NVCC__)
 
+#if defined(FK_HIP_BACKEND)
+// The GPU_NVIDIA version above, for HIP (ParArch::GPU_AMD), with the HIP runtime API
+template <typename T, int EX, int EY, int KW, int KH>
+struct BoxFilterQuadDPP<ParArch::GPU_AMD, T, EX, EY, KW, KH> {
+private:
+    using SelfType = BoxFilterQuadDPP<
+        ParArch::GPU_AMD, T, EX, EY, KW, KH>;
+    static constexpr int MAX_RUNTIME_KERNEL_WIDTH = 31;
+    static constexpr int MAX_SPAN =
+        EX + (KW > 0 ? KW : MAX_RUNTIME_KERNEL_WIDTH) - 1;
+
+public:
+    FK_STATIC_STRUCT(BoxFilterQuadDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_AMD;
+    static constexpr int BLOCK_THREADS = 256;
+
+    FK_HOST_DEVICE_FUSE bool accepts(const BoxFilterQuadDetails& details) {
+        return details.template validFor<KW, KH>(
+            MAX_RUNTIME_KERNEL_WIDTH);
+    }
+
+    struct LaunchConfig {
+        unsigned int blocks;
+        unsigned int threads;
+    };
+
+    FK_HOST_FUSE LaunchConfig launchConfig(
+            const BoxFilterQuadDetails& details) {
+        const int columns = (details.width + EX - 1) / EX;
+        const int rows = (details.height + EY - 1) / EY;
+        const int workItems = columns * rows;
+        return {static_cast<unsigned int>(
+                    (workItems + BLOCK_THREADS - 1) / BLOCK_THREADS),
+                static_cast<unsigned int>(BLOCK_THREADS)};
+    }
+
+    template <typename InIOp, typename ComputeIOps, typename OutIOp>
+    FK_DEVICE_STATIC void exec(const BoxFilterQuadDetails& details,
+                               const InIOp& input,
+                               const ComputeIOps& compute,
+                               const OutIOp& output) {
+        static_assert(isAnyCompleteReadType<InIOp>,
+                      "BoxFilterQuadDPP requires a complete Read IOp");
+        static_assert(isAnyWriteType<OutIOp>,
+                      "BoxFilterQuadDPP requires a Write IOp");
+        static_assert(std::is_same_v<
+                          typename InIOp::Operation::OutputType, float>,
+                      "BoxFilterQuadDPP Read IOp must produce float");
+        static_assert(std::is_same_v<
+                          typename OutIOp::Operation::InputType, float>,
+                      "BoxFilterQuadDPP Write IOp must consume float");
+        static_assert(EX > 0 && EY > 0,
+                      "BoxFilterQuadDPP output tile must be positive");
+        static_assert(KW >= 0 && KH >= 0,
+                      "BoxFilterQuadDPP static kernel sizes cannot be negative");
+        static_assert((KW == 0) == (KH == 0),
+                      "BoxFilterQuadDPP kernel dimensions are both static or both runtime");
+        static_assert(cn<T> == 1,
+                      "BoxFilterQuadDPP currently supports scalar pixel types");
+#if defined(__HIP_DEVICE_COMPILE__)
+        if (!accepts(details)) return;
+
+        const int kernelWidth = KW > 0 ? KW : details.kernelWidth;
+        const int kernelHeight = KH > 0 ? KH : details.kernelHeight;
+        const auto& combine = get<0>(compute);
+        const auto& subtract = get<1>(compute);
+        const auto& normalize = get<2>(compute);
+
+        const int columns = (details.width + EX - 1) / EX;
+        const int workItem = static_cast<int>(
+            blockIdx.x * blockDim.x + threadIdx.x);
+        const int x0 = (workItem % columns) * EX;
+        const int y0 = (workItem / columns) * EY;
+        if (x0 >= details.width || y0 >= details.height) return;
+
+        const int span = EX + kernelWidth - 1;
+        if (span > MAX_SPAN) return;
+        const int firstColumn = x0 - details.anchorX;
+
+        auto clamp = [](const int value, const int upper) {
+            return value < 0 ? 0 : (value >= upper ? upper - 1 : value);
+        };
+        auto readSource = [&](const int x, const int y) {
+            return InIOp::Operation::exec(
+                Point{clamp(x, details.width),
+                      clamp(y, details.height), 0}, input);
+        };
+
+        float columnsSum[MAX_SPAN];
+        #pragma unroll
+        for (int index = 0; index < span; ++index) {
+            float sum = 0.f;
+            for (int ky = 0; ky < kernelHeight; ++ky) {
+                sum = make_tuple(
+                    sum, readSource(firstColumn + index,
+                                    y0 + ky - details.anchorY)) | combine;
+            }
+            columnsSum[index] = sum;
+        }
+
+        #pragma unroll
+        for (int localY = 0; localY < EY; ++localY) {
+            const int y = y0 + localY;
+            if (y >= details.height) break;
+            #pragma unroll
+            for (int localX = 0; localX < EX; ++localX) {
+                const int x = x0 + localX;
+                if (x >= details.width) break;
+                float sum = 0.f;
+                for (int kx = 0; kx < kernelWidth; ++kx) {
+                    sum = make_tuple(
+                        sum, columnsSum[localX + kx]) | combine;
+                }
+                const float mean = sum | normalize;
+                OutIOp::Operation::exec(Point{x, y, 0}, mean, output);
+            }
+
+            if (localY + 1 < EY && y + 1 < details.height) {
+                const int top = y - details.anchorY;
+                const int bottom = top + kernelHeight;
+                #pragma unroll
+                for (int index = 0; index < span; ++index) {
+                    const float withBottom = make_tuple(
+                        columnsSum[index],
+                        readSource(firstColumn + index, bottom)) | combine;
+                    columnsSum[index] = make_tuple(
+                        withBottom,
+                        readSource(firstColumn + index, top)) | subtract;
+                }
+            }
+        }
+#endif // defined(__HIP_DEVICE_COMPILE__)
+    }
+};
+
+template <typename DPP, typename... IOps>
+__global__ void launchBoxFilterQuadDPP_Kernel(
+        const __grid_constant__ BoxFilterQuadDetails details,
+        const __grid_constant__ IOps... iOps) {
+    DPP::exec(details, iOps...);
+}
+
+template <typename DPP, typename... IOps>
+FK_HOST_STATIC void executeBoxFilterQuad(
+        Stream_<ParArch::GPU_AMD>& stream,
+        const BoxFilterQuadDetails& details,
+        const IOps&... iOps) {
+    static_assert(DPP::PAR_ARCH == ParArch::GPU_AMD,
+                  "GPU stream requires the matching BoxFilterQuadDPP specialization");
+    if (!DPP::accepts(details)) return;
+    const auto launch = DPP::launchConfig(details);
+    launchBoxFilterQuadDPP_Kernel<DPP, IOps...>
+        <<<launch.blocks, launch.threads, 0, stream.getHIPStream()>>>(
+            details, iOps...);
+    gpuErrchk(hipGetLastError());
+}
+#endif // defined(FK_HIP_BACKEND)
+
 template <typename DPP, typename... IOps>
 FK_HOST_FUSE void executeBoxFilterQuad(
         Stream_<ParArch::CPU>&,
