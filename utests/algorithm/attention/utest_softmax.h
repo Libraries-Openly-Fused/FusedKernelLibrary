@@ -12,12 +12,13 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
-#define __ONLY_CU__ // This file is only generated and compiled with nvcc, not with the host compiler
+#define __ONLY_GPU__ // Generated as _cu and _hip, not as _cpp: the attention DPPs are GPU-only
 #include <tests/main.h>
 
 #include <fused_kernel/algorithms/attention/softmax.h>
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <random>
@@ -27,31 +28,50 @@ namespace fk {
 
 static int failures = 0;
 
+// Row y of the pinned mirror of a pitched Ptr2D.
+static float* pinnedRow(const Ptr2D<float>& image, const int y) {
+    const RawPtr<ND::_2D, float> pinned = image.ptrPinned();
+    return reinterpret_cast<float*>(reinterpret_cast<char*>(pinned.data) + (size_t)y * pinned.dims.pitch);
+}
+
+// Uploads a width x height host image (rows packed) into the pitched Ptr2D.
+static void uploadRows(Ptr2D<float>& image, const std::vector<float>& host, const int width, const int height,
+                       Stream& stream) {
+    for (int y = 0; y < height; ++y) {
+        std::copy(host.begin() + (size_t)y * width, host.begin() + (size_t)(y + 1) * width, pinnedRow(image, y));
+    }
+    image.upload(stream);
+}
+
+// Waits for the stream and returns the image with its rows packed.
+static std::vector<float> downloadRows(Ptr2D<float>& image, const int width, const int height, Stream& stream) {
+    image.download(stream);
+    stream.sync();
+    std::vector<float> host((size_t)width * height);
+    for (int y = 0; y < height; ++y) {
+        const float* row = pinnedRow(image, y);
+        std::copy(row, row + width, host.begin() + (size_t)y * width);
+    }
+    return host;
+}
+
 static void runCase(const char* name, const int width, const int height,
                     const float lo, const float hi, const double tol,
                     const unsigned seed) {
     std::mt19937 rng(seed);
     std::uniform_real_distribution<float> dist(lo, hi);
 
-    Ptr2D<float> input(width, height, 0, MemType::Device);
-    Ptr2D<float> output(width, height, 0, MemType::Device);
+    Ptr2D<float> input(width, height);
+    Ptr2D<float> output(width, height);
 
     std::vector<float> host((size_t)width * height);
     for (auto& v : host) v = dist(rng);
-    gpuErrchk(cudaMemcpy2D(input.ptr().data, input.ptr().dims.pitch,
-                           host.data(), width * sizeof(float),
-                           width * sizeof(float), height, cudaMemcpyHostToDevice));
-
     Stream stream;
+    uploadRows(input, host, width, height, stream);
     const auto inIOp = PerThreadRead<ND::_2D, float>::build(input.ptr());
     const auto outIOp = PerThreadWrite<ND::_2D, float>::build(output.ptr());
     executeSoftmax<256>(inIOp, outIOp, stream);
-    stream.sync();
-
-    std::vector<float> got((size_t)width * height);
-    gpuErrchk(cudaMemcpy2D(got.data(), width * sizeof(float),
-                           output.ptr().data, output.ptr().dims.pitch,
-                           width * sizeof(float), height, cudaMemcpyDeviceToHost));
+    const std::vector<float> got = downloadRows(output, width, height, stream);
 
     double maxErr = 0.0;
     for (int y = 0; y < height; ++y) {
@@ -85,27 +105,19 @@ static void runPrologueCase(const char* name, const int width, const int height,
     std::mt19937 rng(seed);
     std::uniform_real_distribution<float> dist(-4.f, 4.f);
 
-    Ptr2D<float> input(width, height, 0, MemType::Device);
-    Ptr2D<float> output(width, height, 0, MemType::Device);
+    Ptr2D<float> input(width, height);
+    Ptr2D<float> output(width, height);
 
     std::vector<float> host((size_t)width * height);
     for (auto& v : host) v = dist(rng);
-    gpuErrchk(cudaMemcpy2D(input.ptr().data, input.ptr().dims.pitch,
-                           host.data(), width * sizeof(float),
-                           width * sizeof(float), height, cudaMemcpyHostToDevice));
-
     Stream stream;
+    uploadRows(input, host, width, height, stream);
     const auto inIOp = PerThreadRead<ND::_2D, float>::build(input.ptr())
                            .then(Mul<float>::build(2.f))
                            .then(Add<float>::build(1.f));
     const auto outIOp = PerThreadWrite<ND::_2D, float>::build(output.ptr());
     executeSoftmax<256>(inIOp, outIOp, stream);
-    stream.sync();
-
-    std::vector<float> got((size_t)width * height);
-    gpuErrchk(cudaMemcpy2D(got.data(), width * sizeof(float),
-                           output.ptr().data, output.ptr().dims.pitch,
-                           width * sizeof(float), height, cudaMemcpyDeviceToHost));
+    const std::vector<float> got = downloadRows(output, width, height, stream);
 
     double maxErr = 0.0;
     for (int y = 0; y < height; ++y) {

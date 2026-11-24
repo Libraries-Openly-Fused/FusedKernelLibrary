@@ -44,6 +44,8 @@
 #include <cmath>
 #if defined(__NVCC__)
 #include <cuda_fp16.h>
+#elif defined(__HIPCC__)
+#include <hip/hip_fp16.h>
 #endif
 
 namespace fk {
@@ -53,8 +55,11 @@ namespace fk {
 #define FK_COOP_DEVICE_FUSE static __device__ __forceinline__ void
 
     namespace low_precision {
+    // Host and device: the host KV-cache packing helpers (quantizeKVCacheHost...)
+    // call them too, which nvcc accepted for a constexpr __device__ function
+    // and HIP's clang does not.
     template <typename T>
-    FK_DEVICE_CNST float attnToF32(const T &v) {
+    FK_HOST_DEVICE_CNST float attnToF32(const T &v) {
         if constexpr (std::is_same_v<T, __half>) {
             return __half2float(v);
         } else {
@@ -63,7 +68,7 @@ namespace fk {
     }
 
     template <typename T>
-    FK_DEVICE_CNST T attnFromF32(const float &v) {
+    FK_HOST_DEVICE_CNST T attnFromF32(const float &v) {
         if constexpr (std::is_same_v<T, __half>) {
             return __float2half(v);
         } else {
@@ -171,12 +176,17 @@ __global__ void launchDPP_Kernel(const __grid_constant__ DPPDetails details,
 /* IOp-first API: input is the prologue Read/ReadBack IOp. */
 template <int BLOCK_SIZE, typename InIOp, typename OutIOp>
 inline void executeSoftmax(const InIOp& input, const OutIOp& output,
-                           Stream_<ParArch::GPU_NVIDIA>& stream) {
+                           Stream_<defaultParArch>& stream) {
     const SoftmaxDPPDetails<BLOCK_SIZE> details{};
     const dim3 grid(InIOp::Operation::num_elems_y(Point{0,0,0}, input), 1, 1);
     const dim3 block(BLOCK_SIZE, 1, 1);
+#if defined(__HIPCC__)
+    launchDPP_Kernel<SoftmaxDPP><<<grid, block, 0, stream.getHIPStream()>>>(details, input, NullType{}, output);
+    gpuErrchk(hipGetLastError());
+#else
     launchDPP_Kernel<SoftmaxDPP><<<grid, block, 0, stream.getCUDAStream()>>>(details, input, NullType{}, output);
     gpuErrchk(cudaGetLastError());
+#endif
 }
 
 } // namespace fk
