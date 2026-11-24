@@ -19,6 +19,8 @@
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <fused_kernel/core/utils/utils.h>
 
+#include <tuple>
+
 namespace fk {
 
 // What the neighbourhood DPPs (LinearFilterDPP, MedianFilterDPP) take from
@@ -57,6 +59,21 @@ FK_HOST_FUSE bool canRun(const ImageIOp& image, const WriteIOp& output) {
     return active.x > 0 && active.y > 0 && active.z > 0 &&
            WriteIOp::Operation::num_elems_z(Point{0, 0, 0}, output) ==
                active.z;
+}
+
+// The execute functions of the Quad DPPs take their IOps as a pack: the
+// input read first, the write last
+template <typename... IOps>
+FK_HOST_FUSE const auto& firstOf(const IOps&... iOps) {
+    return std::get<0>(std::forward_as_tuple(iOps...));
+}
+template <typename... IOps>
+FK_HOST_FUSE const auto& lastOf(const IOps&... iOps) {
+    return std::get<sizeof...(IOps) - 1>(std::forward_as_tuple(iOps...));
+}
+template <typename... IOps>
+FK_HOST_FUSE bool canRunIOps(const IOps&... iOps) {
+    return canRun(firstOf(iOps...), lastOf(iOps...));
 }
 } // namespace neighborhood_detail
 

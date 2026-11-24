@@ -98,7 +98,7 @@ CaseResult runCase(const int width, const int height,
         .then(Add<unsigned char>::build(WRITE_BIAS))
         .then(PerThreadWrite<ND::_2D, unsigned char>::build(output));
     const BoxFilterQuadDetails details{
-        width, height, runtimeKW, runtimeKH, anchorX, anchorY};
+        runtimeKW, runtimeKH, anchorX, anchorY};
     executeBoxFilterQuad<DPP>(stream, details, read, compute, write);
 #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     if constexpr (GPU) output.download(stream);

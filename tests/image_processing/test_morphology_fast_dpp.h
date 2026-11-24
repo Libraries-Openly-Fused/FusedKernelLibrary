@@ -96,7 +96,7 @@ Result runCase(const int width, const int height,
         .then(PerThreadWrite<ND::_2D, unsigned char>::build(output));
     using DPP = MorphQuadDPP<PA, unsigned char, EX, EY, KW, KH>;
     const MorphQuadDetails details{
-        width, height, runtimeKW, runtimeKH, anchorX, anchorY};
+        runtimeKW, runtimeKH, anchorX, anchorY};
     executeMorphQuad<DPP>(stream, details, read, reduce, write);
 #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     if constexpr (GPU) output.download(stream);
@@ -181,7 +181,7 @@ bool verifyRejectedMultithread(const MorphologyKind kind) {
         .then(PerThreadWrite<ND::_2D, unsigned char>::build(output));
     using DPP = MorphQuadDPP<ParArch::CPU_MULTITHREAD, unsigned char>;
     constexpr int tooWide = DPP::MAX_RUNTIME_KERNEL_WIDTH + 2;
-    const MorphQuadDetails rejected{width, height, tooWide, 3, 0, 1};
+    const MorphQuadDetails rejected{tooWide, 3, 0, 1};
     Stream_<ParArch::CPU_MULTITHREAD> stream;
     executeMorphQuad<DPP>(stream, rejected, read, reduce, write);
     stream.enqueue([=](const cpu_multithread::Completion& done) {
@@ -195,7 +195,7 @@ bool verifyRejectedMultithread(const MorphologyKind kind) {
         }
     }
 
-    const MorphQuadDetails accepted{width, height, 3, 3, 1, 1};
+    const MorphQuadDetails accepted{3, 3, 1, 1};
     stream.enqueue([=](const cpu_multithread::Completion& done) {
         DPP::exec(done, rejected, read, reduce, write);
     });
