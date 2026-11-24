@@ -20,6 +20,10 @@ function(add_hip_to_test TARGET_NAME)
     set_target_hip_arch_flags(${TARGET_NAME})
 endfunction()
 
+function(add_sycl_to_test TARGET_NAME)
+    fkl_add_sycl_to_target(${TARGET_NAME})
+endfunction()
+
 function(configure_test_target_flags TARGET_NAME TEST_SOURCE DIR)
         
         set(TEST_GENERATED_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}_${EXTENSION}/launcher.${EXTENSION}") #use the same name as the target	)			       
@@ -43,6 +47,15 @@ function(configure_test_target_flags TARGET_NAME TEST_SOURCE DIR)
             target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wconversion>)
             
         endif()
+        if (CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
+            # The Intel compilers default to fast floating point math (-fp-model=fast), which does not give the
+            # results the tests expect: exact ones, the same in every backend
+            if (MSVC)
+                target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/fp:precise>)
+            else()
+                target_compile_options(${TARGET_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fp-model=precise>)
+            endif()
+        endif()
 
         add_optimization_flags(${TARGET_NAME})           
 endfunction()
@@ -52,6 +65,8 @@ function (set_ide_target_folder  TARGET_NAME  DIR_PARENT_PATH EXTENSION)
             set(FKL_BACKEND "cuda")
  elseif(${EXTENSION} STREQUAL "hip")
      set(FKL_BACKEND "hip")
+ elseif(${EXTENSION} STREQUAL "sycl")
+     set(FKL_BACKEND "sycl")
         elseif(${EXTENSION} STREQUAL "cpp")  
             set(FKL_BACKEND "cpu")
         else()
@@ -78,6 +93,10 @@ function (add_generated_test_stub TARGET_NAME_EXT TEST_SOURCE DIR)
         elseif (${EXTENSION} STREQUAL "hip")
             set(FKL_BACKEND "hip")
             set_source_files_properties("${TEST_GENERATED_SOURCE}" PROPERTIES LANGUAGE HIP) #set the language of the source file to HIP
+        elseif (${EXTENSION} STREQUAL "sycl")
+            set(FKL_BACKEND "sycl")
+            # SYCL is C++ compiled with -fsycl (add_sycl_to_test): there is no SYCL language in CMake
+            set_source_files_properties("${TEST_GENERATED_SOURCE}" PROPERTIES LANGUAGE CXX)
         elseif (${EXTENSION} STREQUAL "cpp")
             set_source_files_properties("${TEST_GENERATED_SOURCE}" PROPERTIES LANGUAGE CXX) #set the language of the source file to CUDA
         endif()

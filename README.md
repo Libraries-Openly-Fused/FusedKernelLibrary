@@ -6,6 +6,7 @@
   [![C++](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.wikipedia.org/wiki/C%2B%2B20)
   [![CUDA](https://img.shields.io/badge/CUDA-Supported-76B900.svg)](https://developer.nvidia.com/cuda-toolkit)
   [![ROCm](https://img.shields.io/badge/ROCm-10.1.0_Supported-ED1C24.svg)](https://rocm.docs.amd.com/en/latest/)
+  [![SYCL](https://img.shields.io/badge/SYCL-Intel_GPUs-0071C5.svg)](https://www.khronos.org/sycl/)
 </div>
 
 ---
@@ -16,7 +17,7 @@
 
 The **Fused Kernel Library (FKL)** is a C++20 header-only framework designed to perform automatic GPU kernel fusion. Instead of relying on custom external compilers or domain-specific languages, FKL leverages modern C++ capabilities to fuse sequential and parallel operations into a single, highly optimized kernel at compile time. 
 
-Currently supporting **CPU** (single-thread and multithreaded), **CUDA**, and **ROCm** backends (with an architecture designed to easily adopt other GPU languages), FKL transforms memory-bound operations into compute-bound powerhouses by keeping data in registers and eliminating redundant global VRAM reads and writes.
+Currently supporting **CPU** (single-thread and multithreaded), **CUDA**, **ROCm**, and **SYCL** (Intel GPUs) backends (with an architecture designed to easily adopt other GPU languages), FKL transforms memory-bound operations into compute-bound powerhouses by keeping data in registers and eliminating redundant global VRAM reads and writes.
 
 ## ✨ Key Features
 
@@ -140,6 +141,8 @@ void preprocess() {
 
 **On all CPU cores:** the same pipeline runs multithreaded with `executeOperations<TransformDPP<ParArch::CPU_MULTITHREAD>>` on a `Stream_<ParArch::CPU_MULTITHREAD>`, which behaves like a CUDA stream: calls are asynchronous, and `stream.sync()` waits for the work and rethrows its errors. Its data must be in host memory (`MemType::Host`) and stay valid until `sync()`. This backend uses the `thread-pool` git submodule: clone with `git clone --recursive` (or run `git submodule update --init`), otherwise CMake silently disables it (option `ENABLE_CPU_MULTITHREAD`). The attention DPPs are the exception: they remain GPU-only.
 
+**On Intel GPUs:** the same pipeline, unchanged, runs on Intel GPUs when it is compiled as SYCL 2020 (the Intel oneAPI DPC++/C++ compiler: `icx` on Windows, `icpx` on Linux, with `-fsycl`). `Stream` is then an in-order `sycl::queue`, `Ptr2D` and `Tensor` use USM device and host memory, and the fused kernel is compiled for the GPU the first time it runs. Every DPP has its SYCL version except the attention ones, which are CUDA only. FKL's own tests pick it up automatically: configure with `-DCMAKE_CXX_COMPILER=icx` and every test also gets a `_sycl` target (option `ENABLE_SYCL`).
+
 ## 🧘 Developer Experience: Common Myths vs. Reality
 
 | Myth | Reality in FKL |
@@ -184,6 +187,16 @@ target_link_libraries(my_app PRIVATE FKL::FKL)
 
 `FKL::FKL` provides the include directories and requires C++20: your project has to enable CXX (e.g. `project(my_app LANGUAGES CXX CUDA)`), and CMake then compiles your C++, CUDA and HIP sources as C++20, unless you set `CUDA_STANDARD`/`HIP_STANDARD`, which must then be 20 or higher. When FKL was configured with the multithreaded CPU backend (`ENABLE_CPU_MULTITHREAD`, ON when the submodule is checked out), it also adds `FK_CPU_MULTITHREAD_ENABLED` and the threads library. Before 1.0, `find_package(FKL 0.2)` only accepts 0.2.x versions, because a minor version can break the API.
 
+For the SYCL backend there is no CMake language to enable: the C++ compiler of your project has to be the SYCL one (`-DCMAKE_CXX_COMPILER=icx`, or `icpx`), and the targets that use FKL on the GPU are compiled and linked as SYCL:
+
+```cmake
+target_compile_options(my_app PRIVATE -fsycl)
+target_link_options(my_app PRIVATE -fsycl -fsycl-device-code-split=per_kernel
+                    "SHELL:-Xsycl-target-backend \"-cl-fp32-correctly-rounded-divide-sqrt\"")
+```
+
+With `add_subdirectory`, `fkl_add_sycl_to_target(my_app)` does the same. The two extra link options make the GPU compile only the kernels that are launched, and divide single precision numbers with correct rounding, as the other backends do. The Intel compilers also default to fast floating point math: add `/fp:precise` (`-fp-model=precise` with `icpx`) if you need the results of the other backends.
+
 ---
 
 ## 📚 Research & Publications
@@ -211,6 +224,9 @@ While we provide no formal guarantees or free support, we actively test against:
 
 **ROCm Builds (x86_64 only)**
 - **Ubuntu 26.04:** ROCm 10.1.0
+
+**SYCL Builds (Intel GPUs)** — tested by hand, not yet by CI
+- **Windows 11:** Intel oneAPI DPC++/C++ Compiler 2026.0 (`icx`) + Visual Studio 2022 Build Tools (14.44 toolset), on the GPU of a Core Ultra 7 355 (through Level Zero and through OpenCL)
 
 **CPU Backend** (single-thread and multithreaded)
 - **Linux:** `g++ 13` or `clang++-23`

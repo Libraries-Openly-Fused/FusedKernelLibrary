@@ -165,6 +165,37 @@ public:
 };
 #endif // defined(__HIPCC__)
 
+#if defined(FK_SYCL_ENABLED)
+// A SYCL queue has no events to record in it, as the CUDA and HIP streams have: the host waits for what is enqueued
+// in the queue of the stream, and reads its clock
+template <>
+class TimeMarkerOne<fk::ParArch::GPU_INTEL> final : public TimeMarkerInterfaceOne {
+    fk::Stream m_stream;
+    std::array<float, ITERS> m_elapsedTime;
+    std::chrono::time_point<std::chrono::high_resolution_clock> m_start, m_stop;
+public:
+    TimeMarkerOne(fk::Stream stream) : m_stream(stream) {
+        m_elapsedTime.fill(0.f);
+    }
+    ~TimeMarkerOne() = default;
+    void start() final {
+        m_stream.sync();
+        m_start = std::chrono::high_resolution_clock::now();
+    }
+    void stop(BenchmarkResultsNumbersOne& resF, const int& idx) final {
+        m_stream.sync();
+        m_stop = std::chrono::high_resolution_clock::now();
+        m_elapsedTime[idx] = std::chrono::duration<float, std::milli>(m_stop - m_start).count();
+        resF.fkElapsedTimeMax = resF.fkElapsedTimeMax < m_elapsedTime[idx] ? m_elapsedTime[idx] : resF.fkElapsedTimeMax;
+        resF.fkElapsedTimeMin = resF.fkElapsedTimeMin > m_elapsedTime[idx] ? m_elapsedTime[idx] : resF.fkElapsedTimeMin;
+        resF.fkElapsedTimeAcum += m_elapsedTime[idx];
+    }
+    std::array<float, ITERS> getElapsedTime() const final {
+        return m_elapsedTime;
+    }
+};
+#endif // defined(FK_SYCL_ENABLED)
+
 #if defined(NVRTC_ENABLED)
 template <>
 class TimeMarkerOne<fk::ParArch::GPU_NVIDIA_JIT> final : public TimeMarkerInterfaceOne {
@@ -356,6 +387,52 @@ public:
     };
 };
 #endif // defined(__HIPCC__)
+
+#if defined(FK_SYCL_ENABLED)
+// As TimeMarkerOne<fk::ParArch::GPU_INTEL>: the host waits for the queue of the stream, and reads its clock
+template <>
+class TimeMarkerTwo<fk::ParArch::GPU_INTEL> final : public TimeMarkerInterfaceTwo {
+    fk::Stream m_stream;
+    std::array<float, ITERS> m_firstElapsedTime;
+    std::array<float, ITERS> m_secondElapsedTime;
+    std::chrono::time_point<std::chrono::high_resolution_clock> m_start, m_stop;
+public:
+    TimeMarkerTwo(fk::Stream stream) : m_stream(stream) {
+        m_firstElapsedTime.fill(0.f);
+        m_secondElapsedTime.fill(0.f);
+    }
+
+    ~TimeMarkerTwo() = default;
+
+    void startFirst() final {
+        m_stream.sync();
+        m_start = std::chrono::high_resolution_clock::now();
+    };
+    void stopFirstStartSecond(BenchmarkResultsNumbersTwo& resF, const int& idx) final {
+        m_stream.sync();
+        m_stop = std::chrono::high_resolution_clock::now();
+        m_firstElapsedTime[idx] = std::chrono::duration<float, std::milli>(m_stop - m_start).count();
+        resF.firstElapsedTimeMax = resF.firstElapsedTimeMax < m_firstElapsedTime[idx] ? m_firstElapsedTime[idx] : resF.firstElapsedTimeMax;
+        resF.firstElapsedTimeMin = resF.firstElapsedTimeMin > m_firstElapsedTime[idx] ? m_firstElapsedTime[idx] : resF.firstElapsedTimeMin;
+        resF.firstElapsedTimeAcum += m_firstElapsedTime[idx];
+        m_start = std::chrono::high_resolution_clock::now();
+    }
+    void stopSecond(BenchmarkResultsNumbersTwo& resF, const int& idx) final {
+        m_stream.sync();
+        m_stop = std::chrono::high_resolution_clock::now();
+        m_secondElapsedTime[idx] = std::chrono::duration<float, std::milli>(m_stop - m_start).count();
+        resF.secondElapsedTimeMax = resF.secondElapsedTimeMax < m_secondElapsedTime[idx] ? m_secondElapsedTime[idx] : resF.secondElapsedTimeMax;
+        resF.secondElapsedTimeMin = resF.secondElapsedTimeMin > m_secondElapsedTime[idx] ? m_secondElapsedTime[idx] : resF.secondElapsedTimeMin;
+        resF.secondElapsedTimeAcum += m_secondElapsedTime[idx];
+    };
+    std::array<float, ITERS> getFirstElapsedTime() const final {
+        return m_firstElapsedTime;
+    };
+    std::array<float, ITERS> getSecondElapsedTime() const final {
+        return m_secondElapsedTime;
+    };
+};
+#endif // defined(FK_SYCL_ENABLED)
 
 #if defined(NVRTC_ENABLED)
 template <>

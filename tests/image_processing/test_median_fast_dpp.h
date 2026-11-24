@@ -65,7 +65,7 @@ template <ParArch PA, int EX, int EY, int KW, int KH>
 Result runCase(const int width, const int height,
                const int runtimeKW, const int runtimeKH,
                const int anchorX, const int anchorY) {
-    constexpr bool GPU = PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD;
+    constexpr bool GPU = PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD || PA == ParArch::GPU_INTEL;
     const auto memoryType = GPU ? MemType::DeviceAndPinned : MemType::Host;
     Ptr2D<unsigned char> input(static_cast<uint>(width),
                                static_cast<uint>(height), 0, memoryType);
@@ -79,7 +79,7 @@ Result runCase(const int width, const int height,
     }
 
     Stream_<PA> stream;
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
     if constexpr (GPU) {
         input.upload(stream);
         output.upload(stream);
@@ -98,7 +98,7 @@ Result runCase(const int width, const int height,
     const MedianQuadDetails details{
         width, height, runtimeKW, runtimeKH, anchorX, anchorY};
     executeMedianQuad<DPP>(stream, details, read, compare, write);
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
     if constexpr (GPU) output.download(stream);
 #endif
     stream.sync();
@@ -128,7 +128,7 @@ bool verifyCase(const int width, const int height,
     const auto cpu = runCase<ParArch::CPU, EX, EY, KW, KH>(
         width, height, runtimeKW, runtimeKH, anchorX, anchorY);
     bool ok = cpu.passed;
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
     const auto gpu = runCase<defaultParArch, EX, EY, KW, KH>(
         width, height, runtimeKW, runtimeKH, anchorX, anchorY);
     ok = ok && gpu.passed && gpu.output == cpu.output;

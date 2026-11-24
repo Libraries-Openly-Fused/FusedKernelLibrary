@@ -16,6 +16,7 @@
 #define FK_NEIGHBORHOOD_DPP_H
 
 #include <fused_kernel/core/data/point.h>
+#include <fused_kernel/core/execution_model/sycl_kernels.h>
 #include <fused_kernel/core/utils/utils.h>
 
 namespace fk {
@@ -90,6 +91,39 @@ public:
         const int originY = tileY - anchorY;
         const int tid = threadIdx.y * blockDim.x + threadIdx.x;
         const int threads = blockDim.x * blockDim.y;
+        for (int index = tid; index < haloWidth * haloHeight;
+             index += threads) {
+            const int y = index / haloWidth;
+            const int x = index % haloWidth;
+            halo[index] = readReplicate(
+                width, height, input, originX + x, originY + y);
+        }
+    }
+#endif
+
+#if defined(FK_SYCL_ENABLED)
+    // The SYCL version: the thread gets its position in the grid in the
+    // nd_item, and halo is in work-group local memory
+    template <typename ReadIOp>
+    FK_DEVICE_STATIC void stageReplicate(const sycl::nd_item<3>& item,
+                                         const int width,
+                                         const int height,
+                                         const int windowWidth,
+                                         const int windowHeight,
+                                         const int anchorX,
+                                         const int anchorY,
+                                         const ReadIOp& input,
+                                         T* halo) {
+        const gpu_intel::ThreadPosition thread(item);
+        const int haloWidth = Policy::TILE_WIDTH + windowWidth - 1;
+        const int haloHeight = Policy::TILE_HEIGHT + windowHeight - 1;
+        const int tileX = thread.blockIdx.x * Policy::TILE_WIDTH;
+        const int tileY = thread.blockIdx.y * Policy::TILE_HEIGHT;
+        const int originX = tileX - anchorX;
+        const int originY = tileY - anchorY;
+        const int tid = thread.threadIdx.y * thread.blockDim.x +
+                        thread.threadIdx.x;
+        const int threads = thread.blockDim.x * thread.blockDim.y;
         for (int index = tid; index < haloWidth * haloHeight;
              index += threads) {
             const int y = index / haloWidth;

@@ -18,6 +18,10 @@ function (add_shared_target TARGET_BASE_NAME EXTENSION FUNDAMENTAL_TYPE DIR)
     set(SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${TARGET_BASE_NAME}_common.h" 
     ${CMAKE_BINARY_DIR}/generated/${GEN_DIR}/${GEN_DIR}.h
     ${CMAKE_BINARY_DIR}/generated/${GEN_DIR}/${GEN_DIR}.${EXTENSION})    
+    if ("${EXTENSION}" STREQUAL "sycl")
+        # SYCL is C++ compiled with -fsycl (add_sycl_to_test): there is no SYCL language in CMake
+        set_source_files_properties(${CMAKE_BINARY_DIR}/generated/${GEN_DIR}/${GEN_DIR}.${EXTENSION} PROPERTIES LANGUAGE CXX)
+    endif()
 
     add_generated_lib("${TARGET_NAME}_${EXTENSION}" "${SOURCES}"  "${DIR}")                                     
     target_include_directories("${TARGET_NAME}_${EXTENSION}" PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/")   #testcommon       
@@ -40,6 +44,8 @@ function (add_shared_test_lib TARGET_BASE_NAME DIR EXTENSION FUNDAMENTAL_TYPE)
        add_cuda_to_test("${TARGET_NAME}_${EXTENSION}")                   
     elseif ("${EXTENSION}" STREQUAL "hip")
        add_hip_to_test("${TARGET_NAME}_${EXTENSION}")
+    elseif ("${EXTENSION}" STREQUAL "sycl")
+       add_sycl_to_test("${TARGET_NAME}_${EXTENSION}")
     endif()                    
    
 endfunction()

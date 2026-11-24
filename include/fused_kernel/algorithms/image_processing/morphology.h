@@ -20,6 +20,7 @@
 #include <fused_kernel/core/data/tuple.h>
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <fused_kernel/core/execution_model/stream.h>
+#include <fused_kernel/core/execution_model/sycl_kernels.h>
 #include <fused_kernel/core/utils/utils.h>
 
 #include <type_traits>
@@ -793,6 +794,268 @@ inline bool executeBoxBlur(const DPPDetails& details,
         morphology_detail::boxBlurReducers<T, PASSES>(details), stream);
 }
 #endif // defined(__NVCC__) || defined(__HIPCC__)
+
+#if defined(FK_SYCL_ENABLED)
+// The SYCL version: the code of the CUDA one. One block per TILE_WIDTH x
+// TILE_HEIGHT tile of a plane, and one plane of blocks per plane of the input
+// (morphology_detail::planesOf). The two stages are in work-group local
+// memory (the shared memory of the block), sized for the number of passes
+// (DPPDetails::STAGE_ELEMENTS) and allocated when the kernel is enqueued
+// (executeMorphology), and the thread gets its position in the grid in the
+// nd_item.
+template <typename DPPDetails>
+struct MorphologyDPP<ParArch::GPU_INTEL, DPPDetails> {
+private:
+    using SelfType = MorphologyDPP<ParArch::GPU_INTEL, DPPDetails>;
+    using T = typename DPPDetails::ValueType;
+
+    template <typename InputReadIOp>
+    FK_DEVICE_FUSE T readClamped(const DPPDetails& details,
+                                 const InputReadIOp& input,
+                                 const int x, const int y, const int plane) {
+        const int sx = morphology_detail::clamp(x, 0, details.width - 1);
+        const int sy = morphology_detail::clamp(y, 0, details.height - 1);
+        return static_cast<T>(InputReadIOp::Operation::exec(
+            Point{sx, sy, plane}, input));
+    }
+
+public:
+    FK_STATIC_STRUCT(MorphologyDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_INTEL;
+
+    template <typename Reducers>
+    static constexpr bool validReducerCount =
+        isTuple_v<Reducers> && std::decay_t<Reducers>::size >= 1 &&
+        std::decay_t<Reducers>::size <= DPPDetails::MAX_PASSES;
+
+    // Elements of the arrays of T exec needs in local memory, for these
+    // reducers: stage0 and stage1 (a single pass only reads stage0)
+    template <typename Reducers>
+    static constexpr std::array<std::size_t, 2> LOCAL_ELEMENTS{
+        static_cast<std::size_t>(DPPDetails::template STAGE_ELEMENTS<
+            static_cast<int>(std::decay_t<Reducers>::size)>),
+        std::decay_t<Reducers>::size > 1
+            ? static_cast<std::size_t>(DPPDetails::template STAGE_ELEMENTS<
+                  static_cast<int>(std::decay_t<Reducers>::size)>)
+            : std::size_t{1}};
+
+    template <typename InputReadIOp, typename OutputWriteIOp,
+              typename Reducers>
+    FK_DEVICE_STATIC void exec(const sycl::nd_item<3>& item,
+                               T* const stage0,
+                               T* const stage1,
+                               const DPPDetails& details,
+                               const InputReadIOp& input,
+                               const OutputWriteIOp& output,
+                               const Reducers& reducers) {
+        static_assert(validReducerCount<Reducers>,
+                      "MorphologyDPP requires 1 through 4 reducers");
+        static_assert(morphology_detail::reducersAreUnary<0, Reducers>(),
+                      "Morphology reducers must be Unary IOps");
+        static_assert(isAnyCompleteReadType<InputReadIOp>,
+                      "Morphology input must be a complete Read IOp");
+        static_assert(isAnyWriteType<OutputWriteIOp>,
+                      "Morphology output must be a Write IOp");
+        constexpr int PASSES = std::decay_t<Reducers>::size;
+
+        const gpu_intel::ThreadPosition thread(item);
+        const int tileX = thread.blockIdx.x * DPPDetails::TILE_WIDTH;
+        const int tileY = thread.blockIdx.y * DPPDetails::TILE_HEIGHT;
+        const int plane = thread.blockIdx.z;
+        const int tid = thread.threadIdx.y * thread.blockDim.x +
+                        thread.threadIdx.x;
+        const int threads = thread.blockDim.x * thread.blockDim.y;
+        const int initialW = DPPDetails::TILE_WIDTH +
+                             PASSES * (details.maskW - 1);
+        const int initialH = DPPDetails::TILE_HEIGHT +
+                             PASSES * (details.maskH - 1);
+        const int initialX = tileX - PASSES * details.anchorX;
+        const int initialY = tileY - PASSES * details.anchorY;
+
+        for (int index = tid; index < initialW * initialH;
+             index += threads) {
+            const int lx = index % initialW;
+            const int ly = index / initialW;
+            stage0[index] = readClamped(
+                details, input, initialX + lx, initialY + ly, plane);
+        }
+        gpu_intel::syncThreads(item);
+
+        T* source = stage0;
+        T* target = stage1;
+        T finalValue{};
+        #pragma unroll
+        for (int pass = 0; pass < PASSES; ++pass) {
+            const int remainingSource = PASSES - pass;
+            const int remainingTarget = remainingSource - 1;
+            const int sourceW = DPPDetails::TILE_WIDTH +
+                                remainingSource * (details.maskW - 1);
+            const int targetW = DPPDetails::TILE_WIDTH +
+                                remainingTarget * (details.maskW - 1);
+            const int targetH = DPPDetails::TILE_HEIGHT +
+                                remainingTarget * (details.maskH - 1);
+            const int sourceX = tileX -
+                                remainingSource * details.anchorX;
+            const int sourceY = tileY -
+                                remainingSource * details.anchorY;
+            const int targetX = tileX -
+                                remainingTarget * details.anchorX;
+            const int targetY = tileY -
+                                remainingTarget * details.anchorY;
+            const bool finalPass = pass == PASSES - 1;
+            const int targetElements = targetW * targetH;
+
+            for (int index = tid; index < targetElements;
+                 index += threads) {
+                const int lx = index % targetW;
+                const int ly = index / targetW;
+                const int centerX = morphology_detail::clamp(
+                    targetX + lx, 0, details.width - 1);
+                const int centerY = morphology_detail::clamp(
+                    targetY + ly, 0, details.height - 1);
+                bool first = true;
+                T accumulator{};
+                for (int my = 0; my < details.maskH; ++my) {
+                    const int sampleY = morphology_detail::clamp(
+                        centerY + my - details.anchorY,
+                        0, details.height - 1);
+                    const int sourceLY = sampleY - sourceY;
+                    for (int mx = 0; mx < details.maskW; ++mx) {
+                        const int sampleX = morphology_detail::clamp(
+                            centerX + mx - details.anchorX,
+                            0, details.width - 1);
+                        const int sourceLX = sampleX - sourceX;
+                        const T value = source[sourceLY * sourceW + sourceLX];
+                        if (first) {
+                            accumulator = value;
+                            first = false;
+                        } else {
+                            accumulator = morphology_detail::applyReducer(
+                                pass, accumulator, value, reducers);
+                        }
+                    }
+                }
+                accumulator = morphology_detail::applyFinalizer(
+                    pass, accumulator, reducers);
+                if (finalPass)
+                    finalValue = accumulator;
+                else
+                    target[index] = accumulator;
+            }
+            if (!finalPass) {
+                gpu_intel::syncThreads(item);
+                T* temporary = source;
+                source = target;
+                target = temporary;
+            }
+        }
+
+        const int outputX = tileX + thread.threadIdx.x;
+        const int outputY = tileY + thread.threadIdx.y;
+        if (thread.threadIdx.x < DPPDetails::TILE_WIDTH &&
+            thread.threadIdx.y < DPPDetails::TILE_HEIGHT &&
+            outputX < details.width && outputY < details.height) {
+            OutputWriteIOp::Operation::exec(
+                Point{outputX, outputY, plane}, finalValue, output);
+        }
+    }
+};
+
+// Enqueues MorphologyDPP<ParArch::GPU_INTEL> in the queue of the stream and
+// returns; returns false, enqueueing nothing, if the details are not valid.
+template <typename DPPDetails, typename InputReadIOp,
+          typename OutputWriteIOp, typename Reducers>
+inline bool executeMorphology(const DPPDetails& details,
+                              const InputReadIOp& input,
+                              const OutputWriteIOp& output,
+                              const Reducers& reducers,
+                              Stream_<ParArch::GPU_INTEL>& stream) {
+    using DPP = MorphologyDPP<ParArch::GPU_INTEL, DPPDetails>;
+    using T = typename DPPDetails::ValueType;
+    if (!DPPDetails::valid(details)) return false;
+    static_assert(DPP::template validReducerCount<Reducers>,
+                  "MorphologyDPP requires 1 through 4 reducers");
+    const gpu_intel::Dim3 block{
+        static_cast<std::size_t>(DPPDetails::TILE_WIDTH),
+        static_cast<std::size_t>(DPPDetails::TILE_HEIGHT), 1};
+    const gpu_intel::Dim3 grid{
+        static_cast<std::size_t>(
+            (details.width + DPPDetails::TILE_WIDTH - 1) /
+            DPPDetails::TILE_WIDTH),
+        static_cast<std::size_t>(
+            (details.height + DPPDetails::TILE_HEIGHT - 1) /
+            DPPDetails::TILE_HEIGHT),
+        static_cast<std::size_t>(morphology_detail::planesOf(input))};
+    gpu_intel::launchWithLocalMemory<DPP, T>(
+        stream, gpu_intel::gridOf(grid, block),
+        DPP::template LOCAL_ELEMENTS<Reducers>,
+        details, input, output, reducers);
+    return true;
+}
+
+template <typename DPPDetails, typename InputReadIOp,
+          typename OutputWriteIOp>
+inline bool executeErode(const DPPDetails& details,
+                         const InputReadIOp& input,
+                         const OutputWriteIOp& output,
+                         Stream_<ParArch::GPU_INTEL>& stream) {
+    using T = typename DPPDetails::ValueType;
+    return executeMorphology(
+        details, input, output,
+        make_tuple(Min<T, T, T, UnaryType>::build()), stream);
+}
+
+template <typename DPPDetails, typename InputReadIOp,
+          typename OutputWriteIOp>
+inline bool executeDilate(const DPPDetails& details,
+                          const InputReadIOp& input,
+                          const OutputWriteIOp& output,
+                          Stream_<ParArch::GPU_INTEL>& stream) {
+    using T = typename DPPDetails::ValueType;
+    return executeMorphology(
+        details, input, output,
+        make_tuple(Max<T, T, T, UnaryType>::build()), stream);
+}
+
+template <typename DPPDetails, typename InputReadIOp,
+          typename OutputWriteIOp>
+inline bool executeOpen(const DPPDetails& details,
+                        const InputReadIOp& input,
+                        const OutputWriteIOp& output,
+                        Stream_<ParArch::GPU_INTEL>& stream) {
+    using T = typename DPPDetails::ValueType;
+    return executeMorphology(
+        details, input, output,
+        make_tuple(Min<T, T, T, UnaryType>::build(),
+                   Max<T, T, T, UnaryType>::build()), stream);
+}
+
+template <typename DPPDetails, typename InputReadIOp,
+          typename OutputWriteIOp>
+inline bool executeClose(const DPPDetails& details,
+                         const InputReadIOp& input,
+                         const OutputWriteIOp& output,
+                         Stream_<ParArch::GPU_INTEL>& stream) {
+    using T = typename DPPDetails::ValueType;
+    return executeMorphology(
+        details, input, output,
+        make_tuple(Max<T, T, T, UnaryType>::build(),
+                   Min<T, T, T, UnaryType>::build()), stream);
+}
+
+// Box blur, as the CUDA executeBoxBlur
+template <int PASSES = 1, typename DPPDetails, typename InputReadIOp,
+          typename OutputWriteIOp>
+inline bool executeBoxBlur(const DPPDetails& details,
+                           const InputReadIOp& input,
+                           const OutputWriteIOp& output,
+                           Stream_<ParArch::GPU_INTEL>& stream) {
+    using T = typename DPPDetails::ValueType;
+    return executeMorphology(
+        details, input, output,
+        morphology_detail::boxBlurReducers<T, PASSES>(details), stream);
+}
+#endif // defined(FK_SYCL_ENABLED)
 
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 // Enqueues the morphology on the stream and returns; it runs

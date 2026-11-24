@@ -27,6 +27,7 @@ namespace cg = cooperative_groups;
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 #include <fused_kernel/core/execution_model/active_threads.h>
 #include <fused_kernel/core/execution_model/cpu_thread_pool.h>
+#include <fused_kernel/core/execution_model/sycl_kernels.h>
 #include <cmath>
 
 namespace fk { // namespace FusedKernel
@@ -73,6 +74,7 @@ namespace fk { // namespace FusedKernel
     struct TransformDPPBase {
         friend struct TransformDPP<ParArch::GPU_NVIDIA, TFEN, DPPDetails, THREAD_DIVISIBLE>; // Allow TransformDPP to access private members
         friend struct TransformDPP<ParArch::GPU_AMD, TFEN, DPPDetails, THREAD_DIVISIBLE>; // Allow TransformDPP to access private members
+        friend struct TransformDPP<ParArch::GPU_INTEL, TFEN, DPPDetails, THREAD_DIVISIBLE>; // Allow TransformDPP to access private members
         friend struct TransformDPP<ParArch::CPU, TFEN, DPPDetails, THREAD_DIVISIBLE>; // Allow TransformDPPBase to access private members
     private:
         using Details = DPPDetails;
@@ -250,6 +252,45 @@ namespace fk { // namespace FusedKernel
     };
 #endif // defined(__NVCC__)
 
+#if defined(FK_SYCL_ENABLED)
+    // The SYCL version. Its kernel runs on a grid of blocks of threads, as the CUDA one (gpu_intel::gridOf), and every
+    // thread gets its position in the grid in the nd_item, instead of reading blockIdx and threadIdx.
+    template <enum TF TFEN, typename DPPDetails, bool THREAD_DIVISIBLE>
+    struct TransformDPP<ParArch::GPU_INTEL, TFEN, DPPDetails, THREAD_DIVISIBLE,
+                        std::enable_if_t<!std::is_same_v<DPPDetails, void>, void>> {
+    private:
+        using Parent = TransformDPPBase<TFEN, DPPDetails, THREAD_DIVISIBLE>;
+        using Details = DPPDetails;
+    public:
+        static constexpr ParArch PAR_ARCH = ParArch::GPU_INTEL;
+        template <typename FirstIOp>
+        FK_HOST_DEVICE_FUSE ActiveThreads getActiveThreads(const Details& details,
+                                                            const FirstIOp& iOp) {
+            return Parent::getActiveThreads(details, iOp);
+        }
+
+        // Executes the work of a single thread. The caller is responsible for providing
+        // the thread coordinates, which allows other DPPs (like DivergentBatchTransformDPP)
+        // to reuse this implementation while owning the index generation.
+        template <typename... IOps>
+        FK_DEVICE_FUSE void exec_thread(const Point& thread, const Details& details, const IOps&... iOps) {
+            const ActiveThreads activeThreads = getActiveThreads(details, get_arg<0>(iOps...));
+
+            if (thread.x < activeThreads.x && thread.y < activeThreads.y) {
+                Parent::execute_thread(thread, activeThreads, iOps...);
+            }
+        }
+
+        template <typename... IOps>
+        FK_DEVICE_STATIC void exec(const sycl::nd_item<3>& item, const Details& details, const IOps&... iOps) {
+            // x and y are the position of the thread in its plane, and z is the plane: the blocks have one thread in z
+            const Point thread = gpu_intel::globalThread(item);
+
+            exec_thread(thread, details, iOps...);
+        }
+    };
+#endif // defined(FK_SYCL_ENABLED)
+
     template <enum TF TFEN, typename DPPDetails, bool THREAD_DIVISIBLE>
     struct TransformDPP<ParArch::CPU, TFEN, DPPDetails, THREAD_DIVISIBLE, std::enable_if_t<!std::is_same_v<DPPDetails, void>, void>> {
     private:
@@ -334,6 +375,7 @@ namespace fk { // namespace FusedKernel
     struct DivergentBatchTransformDPPBase {
         friend struct DivergentBatchTransformDPP<ParArch::GPU_NVIDIA, SequenceSelector>; // Allow DivergentBatchTransformDPP to access private members
         friend struct DivergentBatchTransformDPP<ParArch::GPU_AMD, SequenceSelector>; // Allow DivergentBatchTransformDPP to access private members
+        friend struct DivergentBatchTransformDPP<ParArch::GPU_INTEL, SequenceSelector>; // Allow DivergentBatchTransformDPP to access private members
         friend struct DivergentBatchTransformDPP<ParArch::CPU, SequenceSelector>; // Allow DivergentBatchTransformDPPBase to access private members
     private:
         // GPU: each thread of the grid executes its own point of the sequence
@@ -400,6 +442,9 @@ namespace fk { // namespace FusedKernel
     struct DivergentBatchTransformDPPDetails<ParArch::GPU_AMD> {};
 
     template <>
+    struct DivergentBatchTransformDPPDetails<ParArch::GPU_INTEL> {};
+
+    template <>
     struct DivergentBatchTransformDPPDetails<ParArch::CPU> {
         uint numPlanes;
     };
@@ -432,6 +477,27 @@ namespace fk { // namespace FusedKernel
         }
     };
 #endif // defined(__NVCC__) || defined(__HIPCC__)
+
+#if defined(FK_SYCL_ENABLED)
+    // The SYCL version: as the CUDA one, each thread of the grid executes its own point of the sequence
+    // SequenceSelector chooses for its plane
+    template <typename SequenceSelector>
+    struct DivergentBatchTransformDPP<ParArch::GPU_INTEL, SequenceSelector> {
+    private:
+        using Parent = DivergentBatchTransformDPPBase<ParArch::GPU_INTEL, SequenceSelector>;
+    public:
+        using DPPDetails = DivergentBatchTransformDPPDetails<ParArch::GPU_INTEL>;
+        static constexpr ParArch PAR_ARCH = ParArch::GPU_INTEL;
+        template <typename... IOpSequenceTypes>
+        FK_DEVICE_STATIC void exec(const sycl::nd_item<3>& item, const DPPDetails&,
+                                   const IOpSequenceTypes&... iOpSequences) {
+            const Point thread = gpu_intel::globalThread(item);
+
+            Parent::template divergent_operate<0>(thread, iOpSequences...);
+        }
+    };
+#endif // defined(FK_SYCL_ENABLED)
+
     template <typename SequenceSelector>
     struct DivergentBatchTransformDPP<ParArch::CPU, SequenceSelector> {
     private:

@@ -22,5 +22,14 @@
 #define _MSC_VER_EXISTS 0
 #endif
 
+// SYCL backend (ParArch::GPU_INTEL). A compiler that compiles the translation unit as SYCL predefines
+// SYCL_LANGUAGE_VERSION (DPC++: icx, icpx or clang++ with -fsycl), as nvcc predefines __NVCC__ and hipcc __HIPCC__.
+// FK_SYCL_ENABLED is what FKL's code checks. Define FK_SYCL_DISABLED to compile a SYCL translation unit without the
+// backend (ParArch::CPU then is the default one).
+#if defined(SYCL_LANGUAGE_VERSION) && !defined(__NVCC__) && !defined(__HIPCC__) && !defined(NVRTC_COMPILER) && \
+    !defined(FK_SYCL_DISABLED)
+#define FK_SYCL_ENABLED 1
+#endif
+
 
 #endif // COMPILER_MACROS_H

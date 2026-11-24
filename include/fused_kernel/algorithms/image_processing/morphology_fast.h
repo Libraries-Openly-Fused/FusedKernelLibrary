@@ -18,6 +18,7 @@
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 #include <fused_kernel/core/execution_model/stream.h>
+#include <fused_kernel/core/execution_model/sycl_kernels.h>
 #include <fused_kernel/core/utils/vector_utils.h>
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 #include <fused_kernel/core/execution_model/cpu_thread_pool.h>
@@ -333,6 +334,143 @@ FK_HOST_FUSE void executeMorphQuad(
 #endif
 }
 #endif // defined(__NVCC__) || defined(__HIPCC__)
+
+#if defined(FK_SYCL_ENABLED)
+// The SYCL version: the per thread code of the CUDA one, where each thread
+// computes a tile of EX x EY output pixels. The thread gets its position in
+// the grid in the nd_item.
+template <typename T, int EX, int EY, int KW, int KH>
+struct MorphQuadDPP<ParArch::GPU_INTEL, T, EX, EY, KW, KH> {
+private:
+    using SelfType = MorphQuadDPP<
+        ParArch::GPU_INTEL, T, EX, EY, KW, KH>;
+    static constexpr int MAX_RUNTIME_KERNEL_WIDTH = 31;
+    static constexpr int MAX_KERNEL_WIDTH =
+        KW > 0 ? KW : MAX_RUNTIME_KERNEL_WIDTH;
+    static constexpr int MAX_SPAN = EX + MAX_KERNEL_WIDTH - 1;
+
+public:
+    FK_STATIC_STRUCT(MorphQuadDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_INTEL;
+    static constexpr int BLOCK_THREADS = 256;
+
+    struct LaunchConfig {
+        unsigned int blocks;
+        unsigned int threads;
+    };
+
+    FK_HOST_DEVICE_FUSE bool accepts(const MorphQuadDetails& details) {
+        return details.template validFor<KW, KH>(
+            MAX_RUNTIME_KERNEL_WIDTH);
+    }
+
+    FK_HOST_FUSE LaunchConfig launchConfig(
+            const MorphQuadDetails& details) {
+        const int columns = (details.width + EX - 1) / EX;
+        const int rows = (details.height + EY - 1) / EY;
+        const int workItems = columns * rows;
+        return {static_cast<unsigned int>(
+                    (workItems + BLOCK_THREADS - 1) / BLOCK_THREADS),
+                static_cast<unsigned int>(BLOCK_THREADS)};
+    }
+
+    template <typename InIOp, typename ReduceIOp, typename OutIOp>
+    FK_DEVICE_STATIC void exec(const sycl::nd_item<3>& item,
+                               const MorphQuadDetails& details,
+                               const InIOp& input,
+                               const ReduceIOp& reduce,
+                               const OutIOp& output) {
+        static_assert(isAnyCompleteReadType<InIOp>,
+                      "MorphQuadDPP requires a complete Read IOp");
+        static_assert(isAnyWriteType<OutIOp>,
+                      "MorphQuadDPP requires a Write IOp");
+        static_assert(std::is_same_v<
+                          typename InIOp::Operation::OutputType, T>,
+                      "MorphQuadDPP Read IOp must produce T");
+        static_assert(std::is_same_v<
+                          typename OutIOp::Operation::InputType, T>,
+                      "MorphQuadDPP Write IOp must consume T");
+        static_assert(EX > 0 && EY > 0,
+                      "MorphQuadDPP output tile must be positive");
+        static_assert(KW >= 0 && KH >= 0,
+                      "MorphQuadDPP static kernel sizes cannot be negative");
+        static_assert((KW == 0) == (KH == 0),
+                      "MorphQuadDPP sizes are both static or both runtime");
+        static_assert(cn<T> == 1,
+                      "MorphQuadDPP currently supports scalar pixel types");
+        if (!accepts(details)) return;
+        const int kernelWidth = KW > 0 ? KW : details.kernelWidth;
+        const int kernelHeight = KH > 0 ? KH : details.kernelHeight;
+        const int columns = (details.width + EX - 1) / EX;
+        // blockIdx.x * blockDim.x + threadIdx.x in CUDA
+        const int workItem = static_cast<int>(item.get_global_id(2));
+        const int x0 = (workItem % columns) * EX;
+        const int y0 = (workItem / columns) * EY;
+        if (x0 >= details.width || y0 >= details.height) return;
+
+        const int span = EX + kernelWidth - 1;
+        if (span > MAX_SPAN) return;
+        const int firstColumn = x0 - details.anchorX;
+        auto clamp = [](const int value, const int upper) {
+            return value < 0 ? 0 : (value >= upper ? upper - 1 : value);
+        };
+        auto source = [&](const int x, const int y) {
+            return InIOp::Operation::exec(
+                Point{clamp(x, details.width),
+                      clamp(y, details.height), 0}, input);
+        };
+
+        #pragma unroll
+        for (int localY = 0; localY < EY; ++localY) {
+            const int y = y0 + localY;
+            if (y >= details.height) break;
+            T columnsReduced[MAX_SPAN];
+            #pragma unroll
+            for (int index = 0; index < span; ++index) {
+                T value = source(firstColumn + index,
+                                 y - details.anchorY);
+                for (int ky = 1; ky < kernelHeight; ++ky) {
+                    value = make_tuple(
+                        value,
+                        source(firstColumn + index,
+                               y + ky - details.anchorY)) | reduce;
+                }
+                columnsReduced[index] = value;
+            }
+
+            #pragma unroll
+            for (int localX = 0; localX < EX; ++localX) {
+                const int x = x0 + localX;
+                if (x >= details.width) break;
+                T value = columnsReduced[localX];
+                for (int kx = 1; kx < kernelWidth; ++kx) {
+                    value = make_tuple(
+                        value, columnsReduced[localX + kx]) | reduce;
+                }
+                OutIOp::Operation::exec(Point{x, y, 0}, value, output);
+            }
+        }
+    }
+};
+
+// Enqueues the kernel in the queue of the stream and returns. As with the
+// CUDA version, the output must not alias the input.
+template <typename DPP, typename... IOps>
+FK_HOST_STATIC void executeMorphQuad(
+        Stream_<ParArch::GPU_INTEL>& stream,
+        const MorphQuadDetails& details,
+        const IOps&... iOps) {
+    static_assert(DPP::PAR_ARCH == ParArch::GPU_INTEL,
+                  "GPU_INTEL stream requires the GPU_INTEL MorphQuadDPP specialization");
+    if (!DPP::accepts(details)) return;
+    const auto launch = DPP::launchConfig(details);
+    gpu_intel::launch<DPP>(
+        stream,
+        gpu_intel::gridOf(gpu_intel::Dim3{launch.blocks},
+                          gpu_intel::Dim3{launch.threads}),
+        details, iOps...);
+}
+#endif // defined(FK_SYCL_ENABLED)
 
 template <typename DPP, typename... IOps>
 FK_HOST_FUSE void executeMorphQuad(

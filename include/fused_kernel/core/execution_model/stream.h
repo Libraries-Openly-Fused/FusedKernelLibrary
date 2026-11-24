@@ -23,6 +23,17 @@
 #include <memory>
 #include <type_traits>
 #endif
+#if defined(FK_SYCL_ENABLED)
+#include <fused_kernel/core/execution_model/sycl_devices.h>
+#include <cstddef>
+#include <cstring>
+#include <deque>
+#include <memory>
+#include <mutex>
+#include <new>
+#include <stdexcept>
+#include <type_traits>
+#endif
 #include <fused_kernel/core/execution_model/cpu_thread_pool.h>
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 #include <any>
@@ -160,6 +171,169 @@ namespace fk {
         }
     };
 #endif
+
+#if defined(FK_SYCL_ENABLED)
+    // A SYCL in-order queue, which behaves like a CUDA stream: the kernels and the copies enqueued in it run in the
+    // order they were enqueued, and sync() waits for all of them and throws the first error they had. The copies of a
+    // Stream_ share the queue, and the last copy to be destroyed waits for the work enqueued in it (errors nobody
+    // synchronized with are lost).
+    //
+    // A default constructed Stream_ has its own queue on device 0 (or on the device given, see gpu_intel::device), in
+    // FKL's context for that device, where the memory of every Ptr of the device is. A Stream_ can also use a queue of
+    // the user, which has to be in order (sycl::property::queue::in_order): the memory given to that Stream_ must
+    // belong to the context of the queue, so to use it with memory allocated by Ptr, make the queue with
+    // gpu_intel::context(deviceID).
+    template <>
+    class Stream_<ParArch::GPU_INTEL> final : public BaseStream {
+        // The parameters of a kernel that do not fit in its arguments (FK_SYCL_MAX_KERNEL_ARGUMENTS_BYTES) are in a
+        // block of device memory, which the queue copies from a block of host memory. Both are released when the
+        // kernel that uses them has finished.
+        struct KernelParams {
+            sycl::event lastUse; // The copy to the device, and then the kernel that uses the parameters
+            void* device{ nullptr };
+            void* host{ nullptr };
+        };
+
+        struct State {
+            // While the stream is alive, releasing memory waits for the work enqueued in its queue (gpu_intel::free)
+            explicit State(const sycl::queue& queue_) : queue(queue_) {
+                gpu_intel::detail::registerQueue(queue);
+            }
+            State(const State&) = delete;
+            State& operator=(const State&) = delete;
+
+            // The last copy of the stream waits for the work enqueued in it, which uses memory that could be released
+            // once the stream is not there to wait for
+            ~State() {
+                try {
+                    queue.wait();
+                } catch (...) {
+                    // Errors nobody synchronized with are lost with the stream
+                }
+                for (const KernelParams& params : pending) {
+                    release(params);
+                }
+                gpu_intel::detail::unregisterQueue(queue);
+            }
+
+            void release(const KernelParams& params) noexcept {
+                try {
+                    if (params.device != nullptr) {
+                        sycl::free(params.device, queue.get_context());
+                    }
+                } catch (...) {
+                    // Nothing to report an error to: this is also called from destructors
+                }
+                ::operator delete(params.host, std::align_val_t(gpu_intel::MEMORY_ALIGNMENT));
+            }
+
+            // Called with the mutex held. The kernels of an in-order queue finish in order.
+            void releaseFinished() {
+                while (!pending.empty() &&
+                       pending.front().lastUse.get_info<sycl::info::event::command_execution_status>() ==
+                           sycl::info::event_command_status::complete) {
+                    release(pending.front());
+                    pending.pop_front();
+                }
+            }
+
+            sycl::queue queue;
+            std::mutex mutex;
+            std::deque<KernelParams> pending;
+        };
+
+        std::shared_ptr<State> m_state;
+
+    public:
+        Stream_() : BaseStream(), m_state(std::make_shared<State>(gpu_intel::makeQueue(0))) {}
+        explicit Stream_(const int deviceID)
+            : BaseStream(), m_state(std::make_shared<State>(gpu_intel::makeQueue(deviceID))) {}
+        Stream_(const Stream_<ParArch::GPU_INTEL>& other) = default;
+        explicit Stream_(const sycl::queue& queue) : BaseStream() {
+            if (!queue.is_in_order()) {
+                throw std::invalid_argument("Stream_<ParArch::GPU_INTEL> needs an in-order queue "
+                                            "(sycl::property::queue::in_order): what is enqueued in a stream runs in "
+                                            "the order it was enqueued");
+            }
+            m_state = std::make_shared<State>(queue);
+        }
+
+        Stream_<ParArch::GPU_INTEL>& operator=(const Stream_<ParArch::GPU_INTEL>& other) = default;
+
+        Stream_(Stream_<ParArch::GPU_INTEL>&&) = delete;
+        Stream_<ParArch::GPU_INTEL>& operator=(Stream_<ParArch::GPU_INTEL>&&) = delete;
+
+        ~Stream_() = default;
+
+        sycl::queue& operator()() const {
+            return m_state->queue;
+        }
+        operator sycl::queue&() const {
+            return m_state->queue;
+        }
+        inline sycl::queue& getSYCLQueue() const {
+            return m_state->queue;
+        }
+        inline void sync() final {
+            State& state = *m_state;
+            state.queue.wait_and_throw();
+            const std::lock_guard<std::mutex> lock(state.mutex);
+            state.releaseFinished();
+        }
+        constexpr inline enum ParArch getParArch() const {
+            return ParArch::GPU_INTEL;
+        };
+        static constexpr inline enum ParArch parArch() {
+            return ParArch::GPU_INTEL;
+        }
+
+        // Copies params to device memory, with a copy enqueued in the stream, and returns where it will be: for the
+        // kernels that get their parameters through a pointer. One kernel, enqueued in this stream after this call,
+        // can use that memory: its event must be given to kernelParamsUsedBy, and the memory is released when it has
+        // finished (it is released after the copy if no kernel is given).
+        template <typename Params>
+        inline const Params* kernelParams(const Params& params) {
+            static_assert(std::is_trivially_copyable_v<Params>,
+                          "The parameters of a kernel must be trivially copyable: they are copied to the device");
+            static_assert(alignof(Params) <= gpu_intel::MEMORY_ALIGNMENT, "Unsupported alignment of kernel parameters");
+            State& state = *m_state;
+            const std::lock_guard<std::mutex> lock(state.mutex);
+            state.releaseFinished();
+            KernelParams block;
+            block.host = ::operator new(sizeof(Params), std::align_val_t(gpu_intel::MEMORY_ALIGNMENT));
+            std::memcpy(block.host, &params, sizeof(Params));
+            // The block is in the list before its copy is enqueued: once enqueued, it must not be released early
+            bool listed = false;
+            try {
+                block.device = sycl::aligned_alloc_device(gpu_intel::MEMORY_ALIGNMENT, sizeof(Params), state.queue);
+                if (block.device == nullptr) {
+                    throw std::runtime_error("ParArch::GPU_INTEL: could not allocate device memory for the "
+                                             "parameters of a kernel");
+                }
+                state.pending.push_back(block);
+                listed = true;
+                state.pending.back().lastUse = state.queue.memcpy(block.device, block.host, sizeof(Params));
+            } catch (...) {
+                if (listed) {
+                    state.pending.pop_back();
+                }
+                state.release(block);
+                throw;
+            }
+            return static_cast<const Params*>(block.device);
+        }
+        inline void kernelParamsUsedBy(const void* const deviceParams, const sycl::event& kernel) {
+            State& state = *m_state;
+            const std::lock_guard<std::mutex> lock(state.mutex);
+            for (auto params = state.pending.rbegin(); params != state.pending.rend(); ++params) {
+                if (params->device == deviceParams) {
+                    params->lastUse = kernel;
+                    return;
+                }
+            }
+        }
+    };
+#endif // defined(FK_SYCL_ENABLED)
 
     template <>
     class Stream_<ParArch::CPU> final : public BaseStream {

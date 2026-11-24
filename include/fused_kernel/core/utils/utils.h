@@ -28,6 +28,8 @@
 #if !defined(__grid_constant__) && __has_attribute(grid_constant)
 #define __grid_constant__ __attribute__((grid_constant))
 #endif
+#elif defined(FK_SYCL_ENABLED)
+#include <sycl/sycl.hpp>
 #endif
 
 #if defined(NVRTC_ENABLED)
@@ -60,6 +62,32 @@
 #define FK_HOST_INLINE constexpr __forceinline__
 #define FK_HOST_DEVICE_STATIC static __forceinline__
 #define FK_RESTRICT __restrict__
+#elif defined(FK_SYCL_ENABLED)
+// SYCL has no __host__ and __device__ qualifiers: the compiler compiles the translation unit twice, once for the host
+// and once for the device (where it defines __SYCL_DEVICE_ONLY__, and only generates the code the kernels use). As
+// with CUDA and HIP, the functions the device can execute are always inlined in the device code, so that the
+// operations of a fused kernel never become function calls. In the host code they are inline functions, as in a
+// build without GPU.
+#if defined(__SYCL_DEVICE_ONLY__)
+#define FK_FORCEINLINE __attribute__((always_inline)) inline
+#else
+#define FK_FORCEINLINE inline
+#endif
+#define FK_DEVICE_FUSE FK_FORCEINLINE static constexpr
+#define FK_DEVICE_STATIC FK_FORCEINLINE static
+#define FK_DEVICE_CNST FK_FORCEINLINE constexpr
+#define FK_HOST_DEVICE_FUSE FK_DEVICE_FUSE
+#define FK_HOST_DEVICE_CNST FK_DEVICE_CNST
+#define FK_HOST_FUSE static constexpr inline
+#define FK_HOST_CNST constexpr inline
+#define FK_HOST_STATIC static inline
+#define FK_HOST_INLINE inline
+#define FK_HOST_DEVICE_STATIC FK_FORCEINLINE static
+#ifdef _MSC_VER
+#define FK_RESTRICT __restrict
+#else
+#define FK_RESTRICT __restrict__
+#endif // _MSC_VER
 #else
 #define FK_DEVICE_FUSE static constexpr inline
 #define FK_DEVICE_STATIC static inline

@@ -8,7 +8,7 @@
 - **Backwards Vertical Fusion**: Read-backwards through a pipeline (like OpenCV Filters), computing only required pixels.
 - **Divergent Horizontal Fusion**: Execute different kernels simultaneously using different SM components.
 
-The library has CPU (single-thread `ParArch::CPU` and multithreaded `ParArch::CPU_MULTITHREAD`), CUDA and HIP backends.
+The library has CPU (single-thread `ParArch::CPU` and multithreaded `ParArch::CPU_MULTITHREAD`), CUDA, HIP and SYCL (`ParArch::GPU_INTEL`, for Intel GPUs: translation units compiled with `-fsycl` by a SYCL compiler such as `icx`/`icpx`, see `AGENTS.md`) backends.
 
 **License**: Apache 2.0  
 **Version**: 0.2.0 (main branch — API may break due to new features)
@@ -70,6 +70,7 @@ cmake --build build --config Release --parallel 32
 | `ENABLE_CPU` | `ON` | Build CPU backend (auto-disabled for MSVC < 2019) |
 | `ENABLE_CPU_MULTITHREAD` | `ON` (if the thread-pool submodule is checked out) | Multithreaded CPU backend; defines `FK_CPU_MULTITHREAD_ENABLED` on the FKL target. Forcing it `ON` without the submodule is a `FATAL_ERROR` |
 | `ENABLE_CUDA` | `ON` (if NVCC found) | Build CUDA backend |
+| `ENABLE_SYCL` | `ON` (if the C++ compiler compiles SYCL with `-fsycl`) | Build SYCL backend (`<TestName>_sycl` targets) |
 | `BUILD_TEST` | `ON` | Build integration tests |
 | `BUILD_UTEST` | `ON` | Build unit tests |
 | `ENABLE_BENCHMARK` | `OFF` | Build benchmark targets |

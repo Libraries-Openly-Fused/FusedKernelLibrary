@@ -20,6 +20,7 @@
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 #include <fused_kernel/core/execution_model/stream.h>
+#include <fused_kernel/core/execution_model/sycl_kernels.h>
 #include <fused_kernel/core/utils/utils.h>
 
 #include <type_traits>
@@ -325,6 +326,109 @@ inline bool executeMedianFilter(const DPPDetails& details,
     return true;
 }
 #endif // defined(__NVCC__) || defined(__HIPCC__)
+
+#if defined(FK_SYCL_ENABLED)
+// The SYCL version: the code of the CUDA one. The halo is in work-group local
+// memory (the shared memory of the block), which is allocated when the kernel
+// is enqueued (executeMedianFilter), and the thread gets its position in the
+// grid in the nd_item.
+template <typename DPPDetails>
+struct MedianFilterDPP<ParArch::GPU_INTEL, DPPDetails> {
+private:
+    using SelfType = MedianFilterDPP<ParArch::GPU_INTEL, DPPDetails>;
+    using T = typename DPPDetails::ValueType;
+    using Stage = NeighborhoodDPPStage<
+        typename DPPDetails::NeighborhoodPolicy>;
+    using Window = NeighborhoodWindow<T, DPPDetails::WINDOW_CAPACITY>;
+
+public:
+    FK_STATIC_STRUCT(MedianFilterDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_INTEL;
+    // Elements of the array of T exec needs in local memory: halo
+    static constexpr std::array<std::size_t, 1> LOCAL_ELEMENTS{
+        static_cast<std::size_t>(DPPDetails::MAX_HALO_WIDTH *
+                                 DPPDetails::MAX_HALO_HEIGHT)};
+
+    template <typename ReadIOp, typename WriteIOp, typename SelectionIOp>
+    FK_DEVICE_STATIC void exec(const sycl::nd_item<3>& item,
+                               T* const halo,
+                               const DPPDetails& details,
+                               const ReadIOp& input,
+                               const WriteIOp& output,
+                               const SelectionIOp& selection) {
+        static_assert(isAnyCompleteReadType<ReadIOp>,
+                      "MedianFilterDPP needs a complete Read IOp");
+        static_assert(isAnyWriteType<WriteIOp>,
+                      "MedianFilterDPP needs a Write IOp");
+        static_assert(SelectionIOp::template is<UnaryType>,
+                      "Selection must be a Unary IOp");
+        static_assert(std::is_same_v<typename SelectionIOp::Operation::InputType,
+                                     Window>,
+                      "Selection input must be this DPP's window type");
+        static_assert(std::is_same_v<typename SelectionIOp::Operation::OutputType,
+                                     T>,
+                      "Selection output must match the image value type");
+
+        Stage::stageReplicate(
+            item, details.width, details.height,
+            details.windowWidth, details.windowHeight,
+            details.anchorX, details.anchorY, input, halo);
+        gpu_intel::syncThreads(item);
+
+        const gpu_intel::ThreadPosition thread(item);
+        const int tileX = thread.blockIdx.x * DPPDetails::TILE_WIDTH;
+        const int tileY = thread.blockIdx.y * DPPDetails::TILE_HEIGHT;
+        const int ox = tileX + thread.threadIdx.x;
+        const int oy = tileY + thread.threadIdx.y;
+        const int haloWidth = DPPDetails::TILE_WIDTH +
+                              details.windowWidth - 1;
+        if (thread.threadIdx.x < DPPDetails::TILE_WIDTH &&
+            thread.threadIdx.y < DPPDetails::TILE_HEIGHT &&
+            ox < details.width && oy < details.height) {
+            Window window{};
+            for (int wy = 0; wy < details.windowHeight; ++wy)
+                for (int wx = 0; wx < details.windowWidth; ++wx)
+                    window.values[window.count++] = halo[
+                        (thread.threadIdx.y + wy) * haloWidth +
+                        thread.threadIdx.x + wx];
+            const T selected = window | selection;
+            WriteIOp::Operation::exec(
+                Point{ox, oy, 0}, selected, output);
+        }
+    }
+};
+
+// Enqueues MedianFilterDPP<ParArch::GPU_INTEL> in the queue of the stream,
+// one block per tile, and returns; returns false, enqueueing nothing, if the
+// details are not valid. As with the CUDA version, the output must not alias
+// the input.
+template <typename DPPDetails, typename ReadIOp,
+          typename WriteIOp, typename SelectionIOp>
+inline bool executeMedianFilter(const DPPDetails& details,
+                                const ReadIOp& input,
+                                const WriteIOp& output,
+                                const SelectionIOp& selection,
+                                Stream_<ParArch::GPU_INTEL>& stream) {
+    using DPP = MedianFilterDPP<ParArch::GPU_INTEL, DPPDetails>;
+    using T = typename DPPDetails::ValueType;
+    if (!DPPDetails::valid(details)) return false;
+    const gpu_intel::Dim3 block{
+        static_cast<std::size_t>(DPPDetails::TILE_WIDTH),
+        static_cast<std::size_t>(DPPDetails::TILE_HEIGHT), 1};
+    const gpu_intel::Dim3 grid{
+        static_cast<std::size_t>(
+            (details.width + DPPDetails::TILE_WIDTH - 1) /
+            DPPDetails::TILE_WIDTH),
+        static_cast<std::size_t>(
+            (details.height + DPPDetails::TILE_HEIGHT - 1) /
+            DPPDetails::TILE_HEIGHT),
+        1};
+    gpu_intel::launchWithLocalMemory<DPP, T>(
+        stream, gpu_intel::gridOf(grid, block), DPP::LOCAL_ELEMENTS,
+        details, input, output, selection);
+    return true;
+}
+#endif // defined(FK_SYCL_ENABLED)
 
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 // Enqueues MedianFilterDPP<ParArch::CPU_MULTITHREAD> on the stream and
