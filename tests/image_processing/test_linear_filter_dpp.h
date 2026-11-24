@@ -64,23 +64,24 @@ std::vector<float> makeKernel(const int width, const int height,
 
 std::vector<float> oracle(const std::vector<float>& input,
                           const std::vector<float>& kernel,
+                          const int width, const int height,
                           const Details& details,
                           const bool fused,
                           const bool fusedKernel,
                           const Arithmetic arithmetic) {
-    std::vector<float> output(details.width * details.height);
-    for (int oy = 0; oy < details.height; ++oy) {
-        for (int ox = 0; ox < details.width; ++ox) {
+    std::vector<float> output(width * height);
+    for (int oy = 0; oy < height; ++oy) {
+        for (int ox = 0; ox < width; ++ox) {
             float accumulator = 0.f;
             for (int ky = 0; ky < details.kernelHeight; ++ky) {
                 for (int kx = 0; kx < details.kernelWidth; ++kx) {
                     int sx = ox + kx - details.anchorX;
                     int sy = oy + ky - details.anchorY;
-                    sx = sx < 0 ? 0 : (sx >= details.width
-                        ? details.width - 1 : sx);
-                    sy = sy < 0 ? 0 : (sy >= details.height
-                        ? details.height - 1 : sy);
-                    float image = input[sy * details.width + sx];
+                    sx = sx < 0 ? 0 : (sx >= width
+                        ? width - 1 : sx);
+                    sy = sy < 0 ? 0 : (sy >= height
+                        ? height - 1 : sy);
+                    float image = input[sy * width + sx];
                     float coeff = kernel[ky * details.kernelWidth + kx];
                     if (fused) image = image * 2.f + 1.f;
                     if (fusedKernel) coeff *= 0.5f;
@@ -90,7 +91,7 @@ std::vector<float> oracle(const std::vector<float>& input,
                         ? accumulator - product : accumulator + product;
                 }
             }
-            output[oy * details.width + ox] =
+            output[oy * width + ox] =
                 fused ? accumulator * 0.25f : accumulator;
         }
     }
@@ -171,11 +172,10 @@ bool runCase(const int width, const int height,
              const Multiply& multiply,
              const Accumulate& accumulate,
              const char* label) {
-    const Details details{width, height, kernelWidth, kernelHeight,
-                          anchorX, anchorY};
+    const Details details{kernelWidth, kernelHeight, anchorX, anchorY};
     const auto input = makeInput(width, height);
     const auto kernel = makeKernel(kernelWidth, kernelHeight, box);
-    const auto expected = oracle(input, kernel, details, fused,
+    const auto expected = oracle(input, kernel, width, height, details, fused,
                                  fusedKernel, arithmetic);
     std::vector<float> cpuOutput(width * height, -999.f);
     const RawPtr<ND::_2D, float> inputPtr{
@@ -302,7 +302,7 @@ int launch_impl() {
                  Arithmetic::MUTATE_ADD_TO_SUB, mul, sub,
                  "mutate-add") && ok;
 
-    const Details invalid{16, 16, 8, 3, 1, 1};
+    const Details invalid{8, 3, 1, 1};
     if (Details::valid(invalid)) ok = false;
 #ifdef FK_CPU_MULTITHREAD_ENABLED
     {
