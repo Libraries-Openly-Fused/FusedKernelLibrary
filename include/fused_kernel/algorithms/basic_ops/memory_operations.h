@@ -98,6 +98,20 @@ namespace fk {
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return opData.params.dims.width;
         }
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
+            if constexpr (D == ND::_1D) {
+                return 1;
+            } else {
+                return opData.params.dims.height;
+            }
+        }
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
+            if constexpr (D == ND::_1D || D == ND::_2D) {
+                return 1;
+            } else {
+                return opData.params.dims.planes;
+            }
+        }
         FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {
             return opData.params.dims.pitch;
         }
@@ -173,6 +187,14 @@ namespace fk {
             return opData.params.dims.width;
         }
 
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
+            return opData.params.dims.height;
+        }
+
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
+            return opData.params.dims.planes;
+        }
+
         FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {
             return opData.params.dims.pitch;
         }
@@ -206,6 +228,12 @@ namespace fk {
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return opData.params.dims.width;
         }
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
+            return opData.params.dims.height;
+        }
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
+            return opData.params.dims.planes;
+        }
         FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {
             return opData.params.dims.pitch;
         }
@@ -234,6 +262,12 @@ namespace fk {
         }
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return opData.params.dims.width;
+        }
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
+            return opData.params.dims.height;
+        }
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
+            return opData.params.dims.planes;
         }
         FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {
             return opData.params.dims.pitch;
@@ -376,6 +410,20 @@ namespace fk {
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return opData.params.x.dims.width;
         }
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
+            if constexpr (D == ND::_1D) {
+                return 1;
+            } else {
+                return opData.params.x.dims.height;
+            }
+        }
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
+            if constexpr (D == ND::_1D || D == ND::_2D) {
+                return 1;
+            } else {
+                return opData.params.x.dims.planes;
+            }
+        }
         FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {
             return opData.params.x.dims.pitch;
         }
@@ -497,6 +545,12 @@ namespace fk {
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opBatch) {
             return Operation::num_elems_x(thread, opBatch.params.opData[thread.z]);
         }
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opBatch) {
+            return Operation::num_elems_y(thread, opBatch.params.opData[thread.z]);
+        }
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opBatch) {
+            return BATCH;
+        }
         FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opBatch) {
             return Operation::pitch(thread, opBatch.params.opData[thread.z]);
         }
@@ -576,6 +630,13 @@ namespace fk {
         }
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params.opData);
+        }
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
+            return Operation::num_elems_y(thread, opData.params.opData);
+        }
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
+            // The planes of the view we were given, as CircularTensorRead::num_elems_z
+            return Operation::num_elems_z(thread, opData.params.opData);
         }
         FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {
             return Operation::pitch(thread, opData.params.opData);
