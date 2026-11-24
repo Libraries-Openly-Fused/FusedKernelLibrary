@@ -1,9 +1,4 @@
-set(HIP_ARCH "gfx1200" CACHE STRING "HIP architecture(s) to build")
-
+# HIP_ARCH and the CMAKE_HIP_ARCHITECTURES it seeds are set in hip_init.cmake, before enable_language(HIP).
 function(set_target_hip_arch_flags TARGET_NAME)
-    if(DEFINED CMAKE_HIP_ARCHITECTURES)
-        set_target_properties(${TARGET_NAME} PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
-    else()
-        set_target_properties(${TARGET_NAME} PROPERTIES HIP_ARCHITECTURES "${HIP_ARCH}")
-    endif()
+    set_target_properties(${TARGET_NAME} PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 endfunction()

@@ -13,11 +13,12 @@
    See the License for the specific language governing permissions and
    limitations under the License. */
 
-#define __ONLY_CU__ // This file is only generated and compiled with nvcc, not with the host compiler
+#define __ONLY_GPU__ // Generated as _cu and _hip, not as _cpp: the attention DPPs are GPU-only
 #include <tests/main.h>
 
 #include <fused_kernel/algorithms/attention/flash_attention.h>
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
+#include <utests/algorithm/attention/attention_test_common.h>
 
 #include <cmath>
 #include <iostream>
@@ -25,48 +26,6 @@
 #include <vector>
 
 namespace fk {
-
-// double-precision CPU oracle: O = softmax(scale * Q K^T [causal]) V
-static void cpuAttention(const std::vector<double>& q, const std::vector<double>& k,
-                         const std::vector<double>& v, std::vector<double>& o,
-                         const int bh, const int seqQ, const int seqK, const int d,
-                         const double scale, const bool causal) {
-    o.assign((size_t)bh * seqQ * d, 0.0);
-    std::vector<double> s(seqK);
-    for (int b = 0; b < bh; ++b) {
-        const double* Q = q.data() + (size_t)b * seqQ * d;
-        const double* K = k.data() + (size_t)b * seqK * d;
-        const double* V = v.data() + (size_t)b * seqK * d;
-        double* O = o.data() + (size_t)b * seqQ * d;
-        for (int i = 0; i < seqQ; ++i) {
-            const int kEnd = causal ? std::min(seqK, i + 1) : seqK;
-            double m = -1e300;
-            for (int j = 0; j < kEnd; ++j) {
-                double dot = 0.0;
-                for (int c = 0; c < d; ++c) dot += Q[(size_t)i*d+c] * K[(size_t)j*d+c];
-                s[j] = dot * scale;
-                m = std::max(m, s[j]);
-            }
-            double l = 0.0;
-            for (int j = 0; j < kEnd; ++j) { s[j] = std::exp(s[j] - m); l += s[j]; }
-            for (int j = 0; j < kEnd; ++j) {
-                const double pj = s[j] / l;
-                for (int c = 0; c < d; ++c) O[(size_t)i*d+c] += pj * V[(size_t)j*d+c];
-            }
-        }
-    }
-}
-
-static int failures = 0;
-
-static void report(const char* name, const double maxErr, const double tol) {
-    if (maxErr > tol) {
-        std::cout << "FAIL " << name << ": maxErr=" << maxErr << " tol=" << tol << std::endl;
-        ++failures;
-    } else {
-        std::cout << "Running test " << name << ": Success!! (maxErr=" << maxErr << ")" << std::endl;
-    }
-}
 
 template <int HEAD_DIM>
 static void testDense(const char* name, const int bh, const int seqQ, const int seqK,
@@ -82,26 +41,15 @@ static void testDense(const char* name, const int bh, const int seqQ, const int 
     cpuAttention(dq, dk, dv, dref, bh, seqQ, seqK, HEAD_DIM,
                  1.0 / std::sqrt((double)HEAD_DIM), causal);
 
-    float *q, *k, *v, *o;
-    gpuErrchk(cudaMalloc(&q, nQ * sizeof(float)));
-    gpuErrchk(cudaMalloc(&k, nK * sizeof(float)));
-    gpuErrchk(cudaMalloc(&v, nK * sizeof(float)));
-    gpuErrchk(cudaMalloc(&o, nQ * sizeof(float)));
-    gpuErrchk(cudaMemcpy(q, hq.data(), nQ * sizeof(float), cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(k, hk.data(), nK * sizeof(float), cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(v, hv.data(), nK * sizeof(float), cudaMemcpyHostToDevice));
-
     Stream stream;
-    executeFlashAttention<float, HEAD_DIM>(q, k, v, o, bh, seqQ, seqK, causal, stream);
-    stream.sync();
-
-    std::vector<float> got(nQ);
-    gpuErrchk(cudaMemcpy(got.data(), o, nQ * sizeof(float), cudaMemcpyDeviceToHost));
-    cudaFree(q); cudaFree(k); cudaFree(v); cudaFree(o);
-
-    double maxErr = 0.0;
-    for (size_t i = 0; i < nQ; ++i) maxErr = std::max(maxErr, std::abs((double)got[i] - dref[i]));
-    report(name, maxErr, tol);
+    auto q = uploadBuffer(hq, stream);
+    auto k = uploadBuffer(hk, stream);
+    auto v = uploadBuffer(hv, stream);
+    auto o = zeroBuffer<float>(nQ, stream);
+    executeFlashAttention<float, HEAD_DIM>(q.ptr().data, k.ptr().data, v.ptr().data, o.ptr().data, bh, seqQ,
+                                           seqK, causal, stream);
+    const std::vector<float> got = downloadBuffer(o, stream);
+    report(name, maxAbsErr(got, dref), tol);
 }
 
 template <int HEAD_DIM>
@@ -131,33 +79,77 @@ static void testInt8KV(const char* name, const int bh, const int seqQ, const int
     cpuAttention(dq, dkD, dvD, dref, bh, seqQ, seqK, HEAD_DIM,
                  1.0 / std::sqrt((double)HEAD_DIM), causal);
 
-    float *q, *o, *dkS, *dvS;
-    int8_t *dk8, *dv8;
-    gpuErrchk(cudaMalloc(&q, nQ * sizeof(float)));
-    gpuErrchk(cudaMalloc(&o, nQ * sizeof(float)));
-    gpuErrchk(cudaMalloc(&dk8, nK));
-    gpuErrchk(cudaMalloc(&dv8, nK));
-    gpuErrchk(cudaMalloc(&dkS, nTok * sizeof(float)));
-    gpuErrchk(cudaMalloc(&dvS, nTok * sizeof(float)));
-    gpuErrchk(cudaMemcpy(q, hq.data(), nQ * sizeof(float), cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(dk8, k8.data(), nK, cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(dv8, v8.data(), nK, cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(dkS, kSc.data(), nTok * sizeof(float), cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(dvS, vSc.data(), nTok * sizeof(float), cudaMemcpyHostToDevice));
+    Stream stream;
+    auto q = uploadBuffer(hq, stream);
+    auto dk8 = uploadBuffer(k8, stream);
+    auto dv8 = uploadBuffer(v8, stream);
+    auto dkS = uploadBuffer(kSc, stream);
+    auto dvS = uploadBuffer(vSc, stream);
+    auto o = zeroBuffer<float>(nQ, stream);
+    executeFlashAttention<float, HEAD_DIM, KVLayout::INT8_PER_TOKEN>(
+        q.ptr().data, dk8.ptr().data, dv8.ptr().data, o.ptr().data, bh, seqQ, seqK, causal, stream,
+        dkS.ptr().data, dvS.ptr().data);
+    const std::vector<float> got = downloadBuffer(o, stream);
+    report(name, maxAbsErr(got, dref), tol);
+}
+
+#ifdef FK_HAS_FP8
+// The oracle decodes with attnFp8ToF32 on the host, so first make sure it is
+// OCP e4m3 and not another 8-bit float (FNUZ, e5m2): a wrong format would
+// otherwise fool the kernel and the oracle alike.
+static void testFp8Format() {
+    if (attnFp8IsOcpE4M3()) {
+        std::cout << "Running test attn_fp8_e4m3 decodes OCP e4m3 (0x7E=448, 0x38=1, 0x80=-0): Success!!"
+                  << std::endl;
+    } else {
+        std::cout << "FAIL attn_fp8_e4m3 is not OCP e4m3: 0x7E=" << attnFp8ToF32(0x7E)
+                  << " 0x38=" << attnFp8ToF32(0x38) << " 0x80=" << attnFp8ToF32(static_cast<int8_t>(0x80))
+                  << std::endl;
+        ++failures;
+    }
+}
+
+template <int HEAD_DIM>
+static void testFp8KV(const char* name, const int bh, const int seqQ, const int seqK,
+                      const bool causal, const double tol, const unsigned seed) {
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> dist(-1.f, 1.f);
+    const size_t nQ = (size_t)bh * seqQ * HEAD_DIM, nK = (size_t)bh * seqK * HEAD_DIM;
+    const size_t nTok = (size_t)bh * seqK;
+    std::vector<float> hq(nQ), hk(nK), hv(nK);
+    for (size_t i = 0; i < nQ; ++i) hq[i] = dist(rng);
+    for (size_t i = 0; i < nK; ++i) hk[i] = dist(rng);
+    for (size_t i = 0; i < nK; ++i) hv[i] = dist(rng);
+
+    // host-side compression (per-token fp8 e4m3)
+    std::vector<int8_t> k8(nK), v8(nK);
+    std::vector<float> kSc(nTok), vSc(nTok);
+    quantizeKVCacheFp8Host(hk.data(), k8.data(), kSc.data(), (int)nTok, HEAD_DIM);
+    quantizeKVCacheFp8Host(hv.data(), v8.data(), vSc.data(), (int)nTok, HEAD_DIM);
+
+    // the oracle sees the DEQUANTIZED values, as in testInt8KV
+    std::vector<double> dq(nQ), dkD(nK), dvD(nK), dref;
+    for (size_t i = 0; i < nQ; ++i) dq[i] = hq[i];
+    for (size_t i = 0; i < nK; ++i) dkD[i] = (double)attnFp8ToF32(k8[i]) * kSc[i / HEAD_DIM];
+    for (size_t i = 0; i < nK; ++i) dvD[i] = (double)attnFp8ToF32(v8[i]) * vSc[i / HEAD_DIM];
+    cpuAttention(dq, dkD, dvD, dref, bh, seqQ, seqK, HEAD_DIM,
+                 1.0 / std::sqrt((double)HEAD_DIM), causal);
 
     Stream stream;
-    executeFlashAttention<float, HEAD_DIM, KVLayout::INT8_PER_TOKEN>(
-        q, dk8, dv8, o, bh, seqQ, seqK, causal, stream, dkS, dvS);
-    stream.sync();
-
-    std::vector<float> got(nQ);
-    gpuErrchk(cudaMemcpy(got.data(), o, nQ * sizeof(float), cudaMemcpyDeviceToHost));
-    cudaFree(q); cudaFree(o); cudaFree(dk8); cudaFree(dv8); cudaFree(dkS); cudaFree(dvS);
-
-    double maxErr = 0.0;
-    for (size_t i = 0; i < nQ; ++i) maxErr = std::max(maxErr, std::abs((double)got[i] - dref[i]));
-    report(name, maxErr, tol);
+    auto q = uploadBuffer(hq, stream);
+    auto dk8 = uploadBuffer(k8, stream);
+    auto dv8 = uploadBuffer(v8, stream);
+    auto dkS = uploadBuffer(kSc, stream);
+    auto dvS = uploadBuffer(vSc, stream);
+    auto o = zeroBuffer<float>(nQ, stream);
+    const auto qIOp = makeAttentionRead(q.ptr().data, bh, seqQ, HEAD_DIM);
+    const auto kIOp = makeFp8KVRead(dk8.ptr().data, dkS.ptr().data, bh, seqK, HEAD_DIM);
+    const auto vIOp = makeFp8KVRead(dv8.ptr().data, dvS.ptr().data, bh, seqK, HEAD_DIM);
+    executeFlashAttention<HEAD_DIM>(qIOp, kIOp, vIOp, o.ptr().data, bh, seqQ, seqK, causal, stream);
+    const std::vector<float> got = downloadBuffer(o, stream);
+    report(name, maxAbsErr(got, dref), tol);
 }
+#endif // FK_HAS_FP8
 
 static void testFusedEpilogue() {
     // attention output | Mul(2) | Add(0.5) fused in-register: compare against
@@ -170,27 +162,20 @@ static void testFusedEpilogue() {
     for (auto* vec : { &hq, &hk, &hv })
         for (auto& x : *vec) x = dist(rng);
 
-    float *q, *k, *v, *o1, *o2;
-    gpuErrchk(cudaMalloc(&q, n * sizeof(float)));
-    gpuErrchk(cudaMalloc(&k, n * sizeof(float)));
-    gpuErrchk(cudaMalloc(&v, n * sizeof(float)));
-    gpuErrchk(cudaMalloc(&o1, n * sizeof(float)));
-    gpuErrchk(cudaMalloc(&o2, n * sizeof(float)));
-    gpuErrchk(cudaMemcpy(q, hq.data(), n * sizeof(float), cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(k, hk.data(), n * sizeof(float), cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(v, hv.data(), n * sizeof(float), cudaMemcpyHostToDevice));
-
     Stream stream;
-    executeFlashAttention<float, HEAD_DIM>(q, k, v, o1, BH, SQ, SK, false, stream);
+    auto q = uploadBuffer(hq, stream);
+    auto k = uploadBuffer(hk, stream);
+    auto v = uploadBuffer(hv, stream);
+    auto o1 = zeroBuffer<float>(n, stream);
+    auto o2 = zeroBuffer<float>(n, stream);
+    executeFlashAttention<float, HEAD_DIM>(q.ptr().data, k.ptr().data, v.ptr().data, o1.ptr().data, BH, SQ, SK,
+                                           false, stream);
     const auto epilogue = Mul<float>::build(2.f).then(Add<float>::build(0.5f));
     executeFlashAttention<float, HEAD_DIM, KVLayout::DENSE, 32, 4>(
-        q, k, v, o2, BH, SQ, SK, false, stream, nullptr, nullptr, -1.f, epilogue);
-    stream.sync();
-
-    std::vector<float> g1(n), g2(n);
-    gpuErrchk(cudaMemcpy(g1.data(), o1, n * sizeof(float), cudaMemcpyDeviceToHost));
-    gpuErrchk(cudaMemcpy(g2.data(), o2, n * sizeof(float), cudaMemcpyDeviceToHost));
-    cudaFree(q); cudaFree(k); cudaFree(v); cudaFree(o1); cudaFree(o2);
+        q.ptr().data, k.ptr().data, v.ptr().data, o2.ptr().data, BH, SQ, SK, false, stream, nullptr, nullptr,
+        -1.f, epilogue);
+    const std::vector<float> g1 = downloadBuffer(o1, stream);
+    const std::vector<float> g2 = downloadBuffer(o2, stream);
 
     double maxErr = 0.0;
     for (size_t i = 0; i < n; ++i)
@@ -213,16 +198,15 @@ static void testFusedPrologue() {
     for (auto& x : hk) x = dist(rng);
     for (auto& x : hv) x = dist(rng);
 
-    float *q, *k, *v, *o;
-    gpuErrchk(cudaMalloc(&q, nQ * sizeof(float)));
-    gpuErrchk(cudaMalloc(&k, nK * sizeof(float)));
-    gpuErrchk(cudaMalloc(&v, nK * sizeof(float)));
-    gpuErrchk(cudaMalloc(&o, nQ * sizeof(float)));
-    gpuErrchk(cudaMemcpy(q, hq.data(), nQ * sizeof(float), cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(k, hk.data(), nK * sizeof(float), cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(v, hv.data(), nK * sizeof(float), cudaMemcpyHostToDevice));
-
     Stream stream;
+    auto qBuf = uploadBuffer(hq, stream);
+    auto kBuf = uploadBuffer(hk, stream);
+    auto vBuf = uploadBuffer(hv, stream);
+    auto oBuf = zeroBuffer<float>(nQ, stream);
+    const float* q = qBuf.ptr().data;
+    const float* k = kBuf.ptr().data;
+    const float* v = vBuf.ptr().data;
+    float* o = oBuf.ptr().data;
     const double scl = 1.0 / std::sqrt((double)HEAD_DIM);
     std::vector<double> dq(nQ), dk(nK), dv(nK), ref;
     for (size_t i = 0; i < nK; ++i) dk[i] = hk[i];
@@ -236,9 +220,7 @@ static void testFusedPrologue() {
         const auto vIOp = makeAttentionRead(v, BH, SK, HEAD_DIM);
         executeFlashAttention<HEAD_DIM>(qIOp, kIOp, vIOp, o, BH, SQ, SK,
                                         false, stream);
-        stream.sync();
-        std::vector<float> got(nQ);
-        gpuErrchk(cudaMemcpy(got.data(), o, nQ * sizeof(float), cudaMemcpyDeviceToHost));
+        const std::vector<float> got = downloadBuffer(oBuf, stream);
         for (size_t i = 0; i < nQ; ++i) dq[i] = 2.0 * hq[i];   // host-applied
         cpuAttention(dq, dk, dv, ref, BH, SQ, SK, HEAD_DIM, scl, false);
         double maxErr = 0.0;
@@ -256,9 +238,7 @@ static void testFusedPrologue() {
                               .then(Add<float>::build(1.f));
         executeFlashAttention<HEAD_DIM>(qIOp, kIOp, vIOp, o, BH, SQ, SK,
                                         false, stream);
-        stream.sync();
-        std::vector<float> got(nQ);
-        gpuErrchk(cudaMemcpy(got.data(), o, nQ * sizeof(float), cudaMemcpyDeviceToHost));
+        const std::vector<float> got = downloadBuffer(oBuf, stream);
         for (size_t i = 0; i < nQ; ++i) dq[i] = hq[i];
         cpuAttention(dq, dk, dv, ref, BH, SQ, SK, HEAD_DIM, scl, false);
         double maxErr = 0.0;
@@ -267,7 +247,6 @@ static void testFusedPrologue() {
         report("FlashAttention V-prologue ReadIOp.then(Mul(3)).then(Add(1))", maxErr, 5e-6);
     }
 
-    cudaFree(q); cudaFree(k); cudaFree(v); cudaFree(o);
 }
 
 int launch_impl() {
@@ -277,6 +256,12 @@ int launch_impl() {
     testDense<128>("FA dense d128 b1 s64", 1, 64, 64, false, 5e-6, 4);
     testInt8KV<64>("FA int8-KV d64 b2 s64 causal", 2, 64, 64, true, 5e-6, 5);
     testInt8KV<64>("FA int8-KV d64 ragged s50/s100", 2, 50, 100, false, 5e-6, 6);
+#ifdef FK_HAS_FP8
+    testFp8Format();
+    testFp8KV<64>("FA fp8-KV d64 b2 s64 causal", 2, 64, 64, true, 5e-6, 7);
+    testFp8KV<64>("FA fp8-KV d64 ragged s50/s100", 2, 50, 100, false, 5e-6, 8);
+    testFp8KV<128>("FA fp8-KV d128 b1 s64", 1, 64, 64, false, 5e-6, 9);
+#endif
     testFusedEpilogue();
     testFusedPrologue();
     if (failures == 0) { return 0; }
