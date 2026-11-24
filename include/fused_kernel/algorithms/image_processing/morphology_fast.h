@@ -15,6 +15,7 @@
 #ifndef FK_MORPHOLOGY_FAST_H
 #define FK_MORPHOLOGY_FAST_H
 
+#include <fused_kernel/algorithms/image_processing/neighborhood.h>
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 #include <fused_kernel/core/execution_model/stream.h>
@@ -29,9 +30,13 @@
 
 namespace fk {
 
+// The window and its anchor. The images come from the input read: their
+// number is z of its active threads (the batch of a batched read, the
+// planes of a 3D read, 1 for a 2D read), and image z is filtered at its own
+// size (the read's num_elems at z), read and written at Point{x, y, z}.
+// The write must have as many planes as the read has images; otherwise the
+// execute functions return false and nothing is written.
 struct MorphQuadDetails {
-    int width;
-    int height;
     int kernelWidth;
     int kernelHeight;
     int anchorX;
@@ -46,8 +51,7 @@ struct MorphQuadDetails {
             STATIC_KH > 0 ? STATIC_KH : kernelHeight;
         const bool runtimeWidthSupported =
             STATIC_KW > 0 || effectiveWidth <= maxRuntimeKernelWidth;
-        return width > 0 && height > 0 &&
-               effectiveWidth > 0 && effectiveHeight > 0 &&
+        return effectiveWidth > 0 && effectiveHeight > 0 &&
                runtimeWidthSupported &&
                anchorX >= 0 && anchorX < effectiveWidth &&
                anchorY >= 0 && anchorY < effectiveHeight;
@@ -77,11 +81,11 @@ public:
             MAX_RUNTIME_KERNEL_WIDTH);
     }
 
-    // Computes the output row y, with 0 <= y < details.height. Does nothing
-    // unless accepts(details). Also used by
+    // Computes row y of image z (y >= 0); a row past the height of image z
+    // computes nothing. Does nothing unless accepts(details). Also used by
     // MorphQuadDPP<ParArch::CPU_MULTITHREAD>.
     template <typename InIOp, typename ReduceIOp, typename OutIOp>
-    FK_HOST_FUSE void exec_row(const int y,
+    FK_HOST_FUSE void exec_row(const int z, const int y,
                                const MorphQuadDetails& details,
                                const InIOp& input,
                                const ReduceIOp& reduce,
@@ -102,19 +106,20 @@ public:
                       "MorphQuadDPP static kernel sizes cannot be negative");
         static_assert((KW == 0) == (KH == 0),
                       "MorphQuadDPP sizes are both static or both runtime");
-        static_assert(cn<T> == 1,
-                      "MorphQuadDPP currently supports scalar pixel types");
         if (!accepts(details)) return;
 
+        const int width = neighborhood_detail::widthOf(input, z);
+        const int height = neighborhood_detail::heightOf(input, z);
+        if (y >= height) return;
         const int kernelWidth = KW > 0 ? KW : details.kernelWidth;
         const int kernelHeight = KH > 0 ? KH : details.kernelHeight;
         auto source = [&](const int x, const int y) {
             return InIOp::Operation::exec(
-                Point{clamp(x, details.width),
-                      clamp(y, details.height), 0}, input);
+                Point{clamp(x, width),
+                      clamp(y, height), z}, input);
         };
 
-        for (int x = 0; x < details.width; ++x) {
+        for (int x = 0; x < width; ++x) {
             T value = source(x - details.anchorX,
                              y - details.anchorY);
             for (int ky = 0; ky < kernelHeight; ++ky) {
@@ -126,7 +131,7 @@ public:
                                y + ky - details.anchorY)) | reduce;
                 }
             }
-            OutIOp::Operation::exec(Point{x, y, 0}, value, output);
+            OutIOp::Operation::exec(Point{x, y, z}, value, output);
         }
     }
 
@@ -135,17 +140,22 @@ public:
                            const InIOp& input,
                            const ReduceIOp& reduce,
                            const OutIOp& output) {
-        if (!accepts(details)) return;
-
-        for (int y = 0; y < details.height; ++y) {
-            exec_row(y, details, input, reduce, output);
+        if (!accepts(details) ||
+            !neighborhood_detail::canRun(input, output)) return;
+        const int planes = static_cast<int>(
+            neighborhood_detail::activeThreadsOf(input).z);
+        for (int z = 0; z < planes; ++z) {
+            const int height = neighborhood_detail::heightOf(input, z);
+            for (int y = 0; y < height; ++y) {
+                exec_row(z, y, details, input, reduce, output);
+            }
         }
     }
 };
 
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
-// Runs the per row code of MorphQuadDPP<ParArch::CPU>, one chunk per output
-// row, on cpuThreadPool(). As with the GPU version, the output must not alias
+// Runs the per row code of MorphQuadDPP<ParArch::CPU>, one chunk per row of
+// every image (images x the largest height), on cpuThreadPool(). As with the GPU version, the output must not alias
 // the input: rows are written while other rows still read their neighbours.
 template <typename T, int EX, int EY, int KW, int KH>
 struct MorphQuadDPP<ParArch::CPU_MULTITHREAD, T, EX, EY, KW, KH> {
@@ -172,14 +182,17 @@ public:
                              const InIOp& input,
                              const ReduceIOp& reduce,
                              const OutIOp& output) {
-        if (!accepts(details)) {
-            done();
-            return;
-        }
-        cpu_multithread::enqueueChunks(
-            static_cast<std::size_t>(details.height),
-            [details, input, reduce, output](const std::size_t row) {
-                CPUDPP::exec_row(static_cast<int>(row), details,
+        const bool run = accepts(details) &&
+                         neighborhood_detail::canRun(input, output);
+        const ActiveThreads active =
+            neighborhood_detail::activeThreadsOf(input);
+        const std::size_t rows = static_cast<std::size_t>(active.y);
+        const std::size_t chunks =
+            run ? rows * static_cast<std::size_t>(active.z) : 0;
+        cpu_multithread::enqueueChunks(chunks,
+            [details, input, reduce, output, rows](const std::size_t chunk) {
+                CPUDPP::exec_row(static_cast<int>(chunk / rows),
+                                 static_cast<int>(chunk % rows), details,
                                  input, reduce, output);
             }, done);
     }
@@ -205,6 +218,7 @@ public:
     struct LaunchConfig {
         unsigned int blocks;
         unsigned int threads;
+        unsigned int planes;
     };
 
     FK_HOST_DEVICE_FUSE bool accepts(const MorphQuadDetails& details) {
@@ -212,14 +226,15 @@ public:
             MAX_RUNTIME_KERNEL_WIDTH);
     }
 
-    FK_HOST_FUSE LaunchConfig launchConfig(
-            const MorphQuadDetails& details) {
-        const int columns = (details.width + EX - 1) / EX;
-        const int rows = (details.height + EY - 1) / EY;
+    // The work items cover the largest image (active.x x active.y), and
+    // there is one grid plane per image (active.z)
+    FK_HOST_FUSE LaunchConfig launchConfig(const ActiveThreads& active) {
+        const int columns = (static_cast<int>(active.x) + EX - 1) / EX;
+        const int rows = (static_cast<int>(active.y) + EY - 1) / EY;
         const int workItems = columns * rows;
         return {static_cast<unsigned int>(
                     (workItems + BLOCK_THREADS - 1) / BLOCK_THREADS),
-                static_cast<unsigned int>(BLOCK_THREADS)};
+                static_cast<unsigned int>(BLOCK_THREADS), active.z};
     }
 
     template <typename InIOp, typename ReduceIOp, typename OutIOp>
@@ -243,18 +258,21 @@ public:
                       "MorphQuadDPP static kernel sizes cannot be negative");
         static_assert((KW == 0) == (KH == 0),
                       "MorphQuadDPP sizes are both static or both runtime");
-        static_assert(cn<T> == 1,
-                      "MorphQuadDPP currently supports scalar pixel types");
 #if defined(__CUDA_ARCH__)
         if (!accepts(details)) return;
+        // Image z = blockIdx.z, at its own size
+        const int z = static_cast<int>(blockIdx.z);
+        const int width = neighborhood_detail::widthOf(input, z);
+        const int height = neighborhood_detail::heightOf(input, z);
+        if (width <= 0 || height <= 0) return;
         const int kernelWidth = KW > 0 ? KW : details.kernelWidth;
         const int kernelHeight = KH > 0 ? KH : details.kernelHeight;
-        const int columns = (details.width + EX - 1) / EX;
+        const int columns = (width + EX - 1) / EX;
         const int workItem = static_cast<int>(
             blockIdx.x * blockDim.x + threadIdx.x);
         const int x0 = (workItem % columns) * EX;
         const int y0 = (workItem / columns) * EY;
-        if (x0 >= details.width || y0 >= details.height) return;
+        if (x0 >= width || y0 >= height) return;
 
         const int span = EX + kernelWidth - 1;
         if (span > MAX_SPAN) return;
@@ -264,14 +282,14 @@ public:
         };
         auto source = [&](const int x, const int y) {
             return InIOp::Operation::exec(
-                Point{clamp(x, details.width),
-                      clamp(y, details.height), 0}, input);
+                Point{clamp(x, width),
+                      clamp(y, height), z}, input);
         };
 
         #pragma unroll
         for (int localY = 0; localY < EY; ++localY) {
             const int y = y0 + localY;
-            if (y >= details.height) break;
+            if (y >= height) break;
             T columnsReduced[MAX_SPAN];
             #pragma unroll
             for (int index = 0; index < span; ++index) {
@@ -289,13 +307,13 @@ public:
             #pragma unroll
             for (int localX = 0; localX < EX; ++localX) {
                 const int x = x0 + localX;
-                if (x >= details.width) break;
+                if (x >= width) break;
                 T value = columnsReduced[localX];
                 for (int kx = 1; kx < kernelWidth; ++kx) {
                     value = make_tuple(
                         value, columnsReduced[localX + kx]) | reduce;
                 }
-                OutIOp::Operation::exec(Point{x, y, 0}, value, output);
+                OutIOp::Operation::exec(Point{x, y, z}, value, output);
             }
         }
 #endif // defined(__CUDA_ARCH__)
@@ -310,18 +328,21 @@ __global__ void launchMorphQuadDPP_Kernel(
 }
 
 template <typename DPP, typename... IOps>
-FK_HOST_STATIC void executeMorphQuad(
+FK_HOST_STATIC bool executeMorphQuad(
         Stream_<ParArch::GPU_NVIDIA>& stream,
         const MorphQuadDetails& details,
         const IOps&... iOps) {
     static_assert(DPP::PAR_ARCH == ParArch::GPU_NVIDIA,
                   "GPU stream requires the matching MorphQuadDPP specialization");
-    if (!DPP::accepts(details)) return;
-    const auto launch = DPP::launchConfig(details);
+    if (!DPP::accepts(details) ||
+        !neighborhood_detail::canRunIOps(iOps...)) return false;
+    const auto launch = DPP::launchConfig(
+        neighborhood_detail::activeThreadsOf(neighborhood_detail::firstOf(iOps...)));
     launchMorphQuadDPP_Kernel<DPP, IOps...>
-        <<<launch.blocks, launch.threads, 0, stream.getCUDAStream()>>>(
+        <<<dim3(launch.blocks, 1, launch.planes), launch.threads, 0, stream.getCUDAStream()>>>(
             details, iOps...);
     gpuErrchk(cudaGetLastError());
+    return true;
 }
 #endif // defined(__NVCC__)
 
@@ -345,6 +366,7 @@ public:
     struct LaunchConfig {
         unsigned int blocks;
         unsigned int threads;
+        unsigned int planes;
     };
 
     FK_HOST_DEVICE_FUSE bool accepts(const MorphQuadDetails& details) {
@@ -352,14 +374,15 @@ public:
             MAX_RUNTIME_KERNEL_WIDTH);
     }
 
-    FK_HOST_FUSE LaunchConfig launchConfig(
-            const MorphQuadDetails& details) {
-        const int columns = (details.width + EX - 1) / EX;
-        const int rows = (details.height + EY - 1) / EY;
+    // The work items cover the largest image (active.x x active.y), and
+    // there is one grid plane per image (active.z)
+    FK_HOST_FUSE LaunchConfig launchConfig(const ActiveThreads& active) {
+        const int columns = (static_cast<int>(active.x) + EX - 1) / EX;
+        const int rows = (static_cast<int>(active.y) + EY - 1) / EY;
         const int workItems = columns * rows;
         return {static_cast<unsigned int>(
                     (workItems + BLOCK_THREADS - 1) / BLOCK_THREADS),
-                static_cast<unsigned int>(BLOCK_THREADS)};
+                static_cast<unsigned int>(BLOCK_THREADS), active.z};
     }
 
     template <typename InIOp, typename ReduceIOp, typename OutIOp>
@@ -383,18 +406,21 @@ public:
                       "MorphQuadDPP static kernel sizes cannot be negative");
         static_assert((KW == 0) == (KH == 0),
                       "MorphQuadDPP sizes are both static or both runtime");
-        static_assert(cn<T> == 1,
-                      "MorphQuadDPP currently supports scalar pixel types");
 #if defined(__HIP_DEVICE_COMPILE__)
         if (!accepts(details)) return;
+        // Image z = blockIdx.z, at its own size
+        const int z = static_cast<int>(blockIdx.z);
+        const int width = neighborhood_detail::widthOf(input, z);
+        const int height = neighborhood_detail::heightOf(input, z);
+        if (width <= 0 || height <= 0) return;
         const int kernelWidth = KW > 0 ? KW : details.kernelWidth;
         const int kernelHeight = KH > 0 ? KH : details.kernelHeight;
-        const int columns = (details.width + EX - 1) / EX;
+        const int columns = (width + EX - 1) / EX;
         const int workItem = static_cast<int>(
             blockIdx.x * blockDim.x + threadIdx.x);
         const int x0 = (workItem % columns) * EX;
         const int y0 = (workItem / columns) * EY;
-        if (x0 >= details.width || y0 >= details.height) return;
+        if (x0 >= width || y0 >= height) return;
 
         const int span = EX + kernelWidth - 1;
         if (span > MAX_SPAN) return;
@@ -404,14 +430,14 @@ public:
         };
         auto source = [&](const int x, const int y) {
             return InIOp::Operation::exec(
-                Point{clamp(x, details.width),
-                      clamp(y, details.height), 0}, input);
+                Point{clamp(x, width),
+                      clamp(y, height), z}, input);
         };
 
         #pragma unroll
         for (int localY = 0; localY < EY; ++localY) {
             const int y = y0 + localY;
-            if (y >= details.height) break;
+            if (y >= height) break;
             T columnsReduced[MAX_SPAN];
             #pragma unroll
             for (int index = 0; index < span; ++index) {
@@ -429,13 +455,13 @@ public:
             #pragma unroll
             for (int localX = 0; localX < EX; ++localX) {
                 const int x = x0 + localX;
-                if (x >= details.width) break;
+                if (x >= width) break;
                 T value = columnsReduced[localX];
                 for (int kx = 1; kx < kernelWidth; ++kx) {
                     value = make_tuple(
                         value, columnsReduced[localX + kx]) | reduce;
                 }
-                OutIOp::Operation::exec(Point{x, y, 0}, value, output);
+                OutIOp::Operation::exec(Point{x, y, z}, value, output);
             }
         }
 #endif // defined(__HIP_DEVICE_COMPILE__)
@@ -450,29 +476,35 @@ __global__ void launchMorphQuadDPP_Kernel(
 }
 
 template <typename DPP, typename... IOps>
-FK_HOST_STATIC void executeMorphQuad(
+FK_HOST_STATIC bool executeMorphQuad(
         Stream_<ParArch::GPU_AMD>& stream,
         const MorphQuadDetails& details,
         const IOps&... iOps) {
     static_assert(DPP::PAR_ARCH == ParArch::GPU_AMD,
                   "GPU stream requires the matching MorphQuadDPP specialization");
-    if (!DPP::accepts(details)) return;
-    const auto launch = DPP::launchConfig(details);
+    if (!DPP::accepts(details) ||
+        !neighborhood_detail::canRunIOps(iOps...)) return false;
+    const auto launch = DPP::launchConfig(
+        neighborhood_detail::activeThreadsOf(neighborhood_detail::firstOf(iOps...)));
     launchMorphQuadDPP_Kernel<DPP, IOps...>
-        <<<launch.blocks, launch.threads, 0, stream.getHIPStream()>>>(
+        <<<dim3(launch.blocks, 1, launch.planes), launch.threads, 0, stream.getHIPStream()>>>(
             details, iOps...);
     gpuErrchk(hipGetLastError());
+    return true;
 }
 #endif // defined(FK_HIP_BACKEND)
 
 template <typename DPP, typename... IOps>
-FK_HOST_FUSE void executeMorphQuad(
+FK_HOST_FUSE bool executeMorphQuad(
         Stream_<ParArch::CPU>&,
         const MorphQuadDetails& details,
         const IOps&... iOps) {
     static_assert(DPP::PAR_ARCH == ParArch::CPU,
                   "CPU stream requires the CPU MorphQuadDPP specialization");
+    if (!DPP::accepts(details) ||
+        !neighborhood_detail::canRunIOps(iOps...)) return false;
     DPP::exec(details, iOps...);
+    return true;
 }
 
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
@@ -480,18 +512,20 @@ FK_HOST_FUSE void executeMorphQuad(
 // executions of the stream, and returns. The buffers of the IOps must stay
 // valid until stream.sync(), and the output must not alias the input.
 template <typename DPP, typename... IOps>
-FK_HOST_STATIC void executeMorphQuad(
+FK_HOST_STATIC bool executeMorphQuad(
         Stream_<ParArch::CPU_MULTITHREAD>& stream,
         const MorphQuadDetails& details,
         const IOps&... iOps) {
     static_assert(DPP::PAR_ARCH == ParArch::CPU_MULTITHREAD,
                   "CPU_MULTITHREAD stream requires the CPU_MULTITHREAD "
                   "MorphQuadDPP specialization");
-    if (!DPP::accepts(details)) return;
+    if (!DPP::accepts(details) ||
+        !neighborhood_detail::canRunIOps(iOps...)) return false;
     stream.enqueue([details, iOps...](
                        const cpu_multithread::Completion& done) {
         DPP::exec(done, details, iOps...);
     });
+    return true;
 }
 #endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 

@@ -94,7 +94,7 @@ Result runCase(const int width, const int height,
     const int kernelHeight = KH > 0 ? KH : runtimeKH;
     const auto coefficients = makeCoefficients(kernelWidth, kernelHeight);
     ConvQuadDetails details{
-        width, height, runtimeKW, runtimeKH, anchorX, anchorY, {}};
+        runtimeKW, runtimeKH, anchorX, anchorY, {}};
     std::copy(coefficients.begin(), coefficients.end(), details.coefficients);
 
     Stream_<PA> stream;

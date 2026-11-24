@@ -193,6 +193,19 @@ namespace fk {
             exec_helper(std::make_index_sequence<ParamsType::size - 1>{}, thread, input, params);
         }
 
+        // The sizes of the write, the last IOp, as the fused read forwards those of its first IOp
+        FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType &opData) {
+            return LastType_t<IOps...>::Operation::num_elems_x(thread, get_opt<ParamsType::size - 1>(opData.params));
+        }
+
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType &opData) {
+            return LastType_t<IOps...>::Operation::num_elems_y(thread, get_opt<ParamsType::size - 1>(opData.params));
+        }
+
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType &opData) {
+            return LastType_t<IOps...>::Operation::num_elems_z(thread, get_opt<ParamsType::size - 1>(opData.params));
+        }
+
       private:
         template <size_t... Idx>
         FK_HOST_DEVICE_FUSE void exec_helper(const std::index_sequence<Idx...> &, const Point thread,

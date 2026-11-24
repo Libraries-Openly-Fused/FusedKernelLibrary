@@ -40,24 +40,25 @@ float inputValue(const int x, const int y) {
 }
 
 std::vector<float> oracle(const std::vector<float>& input,
+                          const int width, const int height,
                           const Details& details,
                           const SelectionKind kind,
                           const bool fused) {
-    std::vector<float> output(details.width * details.height);
+    std::vector<float> output(width * height);
     std::vector<float> values;
     values.reserve(details.windowWidth * details.windowHeight);
-    for (int oy = 0; oy < details.height; ++oy) {
-        for (int ox = 0; ox < details.width; ++ox) {
+    for (int oy = 0; oy < height; ++oy) {
+        for (int ox = 0; ox < width; ++ox) {
             values.clear();
             for (int wy = 0; wy < details.windowHeight; ++wy) {
                 for (int wx = 0; wx < details.windowWidth; ++wx) {
                     int sx = ox + wx - details.anchorX;
                     int sy = oy + wy - details.anchorY;
-                    sx = sx < 0 ? 0 : (sx >= details.width
-                        ? details.width - 1 : sx);
-                    sy = sy < 0 ? 0 : (sy >= details.height
-                        ? details.height - 1 : sy);
-                    float value = input[sy * details.width + sx];
+                    sx = sx < 0 ? 0 : (sx >= width
+                        ? width - 1 : sx);
+                    sy = sy < 0 ? 0 : (sy >= height
+                        ? height - 1 : sy);
+                    float value = input[sy * width + sx];
                     if (fused) value = value * 2.f + 1.f;
                     values.push_back(value);
                 }
@@ -65,7 +66,7 @@ std::vector<float> oracle(const std::vector<float>& input,
             std::sort(values.begin(), values.end());
             float selected = kind == SelectionKind::MEDIAN
                 ? values[values.size() / 2] : values.front();
-            output[oy * details.width + ox] =
+            output[oy * width + ox] =
                 fused ? selected * 0.5f : selected;
         }
     }
@@ -134,23 +135,24 @@ bool runCpu(const Details& details, const Read& read, const Write& write,
 }
 
 template <typename Selection>
-bool runCase(const Details& details, const Selection& selection,
+bool runCase(const int width, const int height,
+             const Details& details, const Selection& selection,
              const SelectionKind kind, const bool fused,
              const char* label) {
-    std::vector<float> input(details.width * details.height);
-    for (int y = 0; y < details.height; ++y)
-        for (int x = 0; x < details.width; ++x)
-            input[y * details.width + x] = inputValue(x, y);
-    const auto expected = oracle(input, details, kind, fused);
+    std::vector<float> input(width * height);
+    for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width; ++x)
+            input[y * width + x] = inputValue(x, y);
+    const auto expected = oracle(input, width, height, details, kind, fused);
     std::vector<float> cpuOutput(input.size(), -999.f);
     const RawPtr<ND::_2D, float> inputPtr{
         input.data(), PtrDims<ND::_2D>(
-            details.width, details.height,
-            details.width * sizeof(float))};
+            width, height,
+            width * sizeof(float))};
     const RawPtr<ND::_2D, float> outputPtr{
         cpuOutput.data(), PtrDims<ND::_2D>(
-            details.width, details.height,
-            details.width * sizeof(float))};
+            width, height,
+            width * sizeof(float))};
     const auto readBase = PerThreadRead<ND::_2D, float>::build(inputPtr);
     const auto writeBase = PerThreadWrite<ND::_2D, float>::build(outputPtr);
     bool ran = false;
@@ -166,11 +168,11 @@ bool runCase(const Details& details, const Selection& selection,
     if (!ran || !compare(cpuOutput, expected, label)) return false;
 
 #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
-    Ptr2D<float> gpuInput(details.width, details.height);
-    Ptr2D<float> gpuOutput(details.width, details.height);
-    for (int y = 0; y < details.height; ++y)
-        for (int x = 0; x < details.width; ++x)
-            gpuInput.at(Point{x, y, 0}) = input[y * details.width + x];
+    Ptr2D<float> gpuInput(width, height);
+    Ptr2D<float> gpuOutput(width, height);
+    for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width; ++x)
+            gpuInput.at(Point{x, y, 0}) = input[y * width + x];
     Stream stream;
     gpuInput.upload(stream);
     const auto gpuReadBase =
@@ -192,9 +194,9 @@ bool runCase(const Details& details, const Selection& selection,
     gpuOutput.download(stream);
     stream.sync();
     std::vector<float> result(input.size());
-    for (int y = 0; y < details.height; ++y)
-        for (int x = 0; x < details.width; ++x)
-            result[y * details.width + x] =
+    for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width; ++x)
+            result[y * width + x] =
                 gpuOutput.at(Point{x, y, 0});
     if (!compare(result, expected, label)) return false;
 #endif
@@ -208,16 +210,16 @@ int launch_impl() {
     const auto median = MedianWindowSelect<float, 49>::build();
     const auto minimum = MinimumWindowSelect<float, 49>::build();
     bool ok = true;
-    ok = runCase(Details{37, 19, 3, 3, 1, 1}, median,
+    ok = runCase(37, 19, Details{3, 3, 1, 1}, median,
                  SelectionKind::MEDIAN, false, "median3") && ok;
-    ok = runCase(Details{35, 17, 5, 5, 2, 2}, median,
+    ok = runCase(35, 17, Details{5, 5, 2, 2}, median,
                  SelectionKind::MEDIAN, false, "median5") && ok;
-    ok = runCase(Details{33, 21, 7, 3, 5, 1}, median,
+    ok = runCase(33, 21, Details{7, 3, 5, 1}, median,
                  SelectionKind::MEDIAN, true, "median7x3-fused") && ok;
-    ok = runCase(Details{31, 15, 3, 5, 0, 3}, minimum,
+    ok = runCase(31, 15, Details{3, 5, 0, 3}, minimum,
                  SelectionKind::MINIMUM, false, "minimum-selection") && ok;
 
-    const Details evenWindow{16, 16, 4, 3, 1, 1};
+    const Details evenWindow{4, 3, 1, 1};
     if (Details::valid(evenWindow)) ok = false;
 #ifdef FK_CPU_MULTITHREAD_ENABLED
     {

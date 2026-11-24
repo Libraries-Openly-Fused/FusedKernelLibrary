@@ -96,7 +96,7 @@ Result runCase(const int width, const int height,
         .then(PerThreadWrite<ND::_2D, unsigned char>::build(output));
     using DPP = MedianQuadDPP<PA, unsigned char, EX, EY, KW, KH>;
     const MedianQuadDetails details{
-        width, height, runtimeKW, runtimeKH, anchorX, anchorY};
+        runtimeKW, runtimeKH, anchorX, anchorY};
     executeMedianQuad<DPP>(stream, details, read, compare, write);
 #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     if constexpr (GPU) output.download(stream);
@@ -180,7 +180,7 @@ bool verifyRejectedMultithread() {
     const auto write = Add<unsigned char>::build(WRITE_BIAS)
         .then(PerThreadWrite<ND::_2D, unsigned char>::build(output));
     using DPP = MedianQuadDPP<ParArch::CPU_MULTITHREAD, unsigned char>;
-    const MedianQuadDetails rejected{width, height, 9, 9, 4, 4};
+    const MedianQuadDetails rejected{9, 9, 4, 4};
     Stream_<ParArch::CPU_MULTITHREAD> stream;
     executeMedianQuad<DPP>(stream, rejected, read, compare, write);
     stream.enqueue([=](const cpu_multithread::Completion& done) {
@@ -194,7 +194,7 @@ bool verifyRejectedMultithread() {
         }
     }
 
-    const MedianQuadDetails accepted{width, height, 3, 3, 1, 1};
+    const MedianQuadDetails accepted{3, 3, 1, 1};
     stream.enqueue([=](const cpu_multithread::Completion& done) {
         DPP::exec(done, rejected, read, compare, write);
     });

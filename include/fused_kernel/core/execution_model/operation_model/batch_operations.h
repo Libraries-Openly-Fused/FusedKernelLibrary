@@ -485,6 +485,12 @@ namespace fk {
         FK_HOST_DEVICE_FUSE uint num_elems_x(const Point thread, const OperationDataType& opData) {
             return Operation::num_elems_x(thread, opData.params[thread.z]);
         }
+        FK_HOST_DEVICE_FUSE uint num_elems_y(const Point thread, const OperationDataType& opData) {
+            return Operation::num_elems_y(thread, opData.params[thread.z]);
+        }
+        FK_HOST_DEVICE_FUSE uint num_elems_z(const Point thread, const OperationDataType& opData) {
+            return BATCH;
+        }
         FK_HOST_DEVICE_FUSE uint pitch(const Point thread, const OperationDataType& opData) {
             return Operation::pitch(thread, opData.params[thread.z]);
         }
