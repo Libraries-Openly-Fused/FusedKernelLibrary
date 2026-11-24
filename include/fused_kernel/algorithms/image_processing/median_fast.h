@@ -208,9 +208,10 @@ public:
         return details.template validFor<KW, KH>();
     }
 
-    // Computes the output row y, with 0 <= y; a row past the height of image z computes nothing. Does nothing
-    // unless accepts(details): a larger kernel would overflow the per pixel
-    // sort buffer. Also used by MedianQuadDPP<ParArch::CPU_MULTITHREAD>.
+    // Computes row y of image z (y >= 0); a row past the height of image z
+    // computes nothing. Does nothing unless accepts(details): a larger kernel
+    // would overflow the per pixel sort buffer. Also used by
+    // MedianQuadDPP<ParArch::CPU_MULTITHREAD>.
     template <typename InIOp, typename ComputeIOps, typename OutIOp>
     FK_HOST_STATIC void exec_row(const int z, const int y,
                                  const MedianQuadDetails& details,
@@ -281,8 +282,8 @@ public:
 };
 
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
-// Runs the per row code of MedianQuadDPP<ParArch::CPU>, one chunk per output
-// row, on cpuThreadPool(). As with the GPU version, the output must not alias
+// Runs the per row code of MedianQuadDPP<ParArch::CPU>, one chunk per row of
+// every image (images x the largest height), on cpuThreadPool(). As with the GPU version, the output must not alias
 // the input: rows are written while other rows still read their neighbours.
 template <typename T, int EX, int EY, int KW, int KH>
 struct MedianQuadDPP<ParArch::CPU_MULTITHREAD, T, EX, EY, KW, KH> {
@@ -384,6 +385,7 @@ public:
         const int z = static_cast<int>(blockIdx.z);
         const int width = neighborhood_detail::widthOf(input, z);
         const int height = neighborhood_detail::heightOf(input, z);
+        if (width <= 0 || height <= 0) return;
         const int kernelWidth = KW > 0 ? KW : details.kernelWidth;
         const int kernelHeight = KH > 0 ? KH : details.kernelHeight;
         const int columns = (width + EX - 1) / EX;
@@ -515,6 +517,7 @@ public:
         const int z = static_cast<int>(blockIdx.z);
         const int width = neighborhood_detail::widthOf(input, z);
         const int height = neighborhood_detail::heightOf(input, z);
+        if (width <= 0 || height <= 0) return;
         const int kernelWidth = KW > 0 ? KW : details.kernelWidth;
         const int kernelHeight = KH > 0 ? KH : details.kernelHeight;
         const int columns = (width + EX - 1) / EX;

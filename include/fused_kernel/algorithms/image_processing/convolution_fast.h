@@ -84,9 +84,10 @@ public:
         return details.template validFor<KW, KH>();
     }
 
-    // Computes the output pixels of row y. Used by exec() and by the
-    // CPU_MULTITHREAD specialization (one row per chunk). Expects
-    // accepts(details) and 0 <= y; a row past the height of image z computes nothing.
+    // Computes the output pixels of row y of image z. Used by exec() and by
+    // the CPU_MULTITHREAD specialization (one row of one image per chunk).
+    // Expects accepts(details) and y >= 0; a row past the height of image z
+    // computes nothing.
     template <typename InIOp, typename ComputeIOps, typename OutIOp>
     FK_HOST_FUSE void exec_row(const int z, const int y,
                                const ConvQuadDetails& details,
@@ -159,8 +160,9 @@ public:
 
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 // Runs the rows of ConvQuadDPP<ParArch::CPU> on cpuThreadPool(), one chunk per
-// output row. As on the GPU, the output must not alias the input: a row reads
-// the input rows around it, which other chunks may be writing.
+// row of every image (images x the largest height). As on the GPU, the output
+// must not alias the input: a row reads the input rows around it, which other
+// chunks may be writing.
 template <typename T, int EX, int EY, int KW, int KH>
 struct ConvQuadDPP<ParArch::CPU_MULTITHREAD, T, EX, EY, KW, KH> {
 private:
@@ -270,6 +272,7 @@ public:
         const int z = static_cast<int>(blockIdx.z);
         const int width = neighborhood_detail::widthOf(input, z);
         const int height = neighborhood_detail::heightOf(input, z);
+        if (width <= 0 || height <= 0) return;
         const int kernelWidth = KW > 0 ? KW : details.kernelWidth;
         const int kernelHeight = KH > 0 ? KH : details.kernelHeight;
         const auto& multiply = get<0>(compute);
@@ -443,6 +446,7 @@ public:
         const int z = static_cast<int>(blockIdx.z);
         const int width = neighborhood_detail::widthOf(input, z);
         const int height = neighborhood_detail::heightOf(input, z);
+        if (width <= 0 || height <= 0) return;
         const int kernelWidth = KW > 0 ? KW : details.kernelWidth;
         const int kernelHeight = KH > 0 ? KH : details.kernelHeight;
         const auto& multiply = get<0>(compute);
