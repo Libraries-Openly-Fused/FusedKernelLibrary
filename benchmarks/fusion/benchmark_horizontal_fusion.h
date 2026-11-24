@@ -273,7 +273,7 @@ bool benchmark_Horizontal_Fusion_NO_CPU_OVERHEAD_CUDAGraphs(const size_t& NUM_EL
             gpuErrchk(cudaGraphDestroy(subGraph));
         }
         cudaGraphExec_t graphExec;
-        gpuErrchk(cudaGraphInstantiate(&graphExec, mainGraph, NULL, NULL, 0));
+        gpuErrchk(cudaGraphInstantiate(&graphExec, mainGraph, 0));
         for (int i=0; i<BATCH; ++i) {
             gpuErrchk(cudaGraphDestroyNode(subGraphNodes[i]));
         }

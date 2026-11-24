@@ -197,47 +197,91 @@ makeSlidingWindowBlockMask(const int batchHeads, const int seqQ, const int seqK,
 #define FK_ENABLE_FP8_QK 0
 #endif
 
+/* CUDA 13 dropped Maxwell/Pascal/Volta, so its oldest target is Turing (sm_75),
+ * which `CUDA_ARCH=all` includes. ldmatrix, cp.async and bf16 mma.sync need
+ * sm_80+: in device passes for older archs the PTX helpers below compile to a
+ * trap and the kernel body is skipped, and the host launcher refuses to run on
+ * a device below compute capability 8.0. */
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 800
+#define FK_ATTENTION_MMA_UNSUPPORTED_ARCH 1
+#else
+#define FK_ATTENTION_MMA_UNSUPPORTED_ARCH 0
+#endif
+
 namespace attention_mma_detail {
 __device__ __forceinline__ void ldmatrix_x4(uint regs[4], uint addr) {
+#if FK_ATTENTION_MMA_UNSUPPORTED_ARCH
+    (void)regs; (void)addr;
+    __trap();
+#else
     asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];"
                  : "=r"(regs[0]), "=r"(regs[1]), "=r"(regs[2]), "=r"(regs[3])
                  : "r"(addr));
+#endif
 }
 
 __device__ __forceinline__ void ldmatrix_x4_trans(uint regs[4], uint addr) {
+#if FK_ATTENTION_MMA_UNSUPPORTED_ARCH
+    (void)regs; (void)addr;
+    __trap();
+#else
     asm volatile("ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 {%0, %1, %2, %3}, [%4];"
                  : "=r"(regs[0]), "=r"(regs[1]), "=r"(regs[2]), "=r"(regs[3])
                  : "r"(addr));
+#endif
 }
 
 __device__ __forceinline__ void mma_m16n8k16(const uint A[4], const uint B[2],
                                              float D[4]) {
+#if FK_ATTENTION_MMA_UNSUPPORTED_ARCH
+    (void)A; (void)B; (void)D;
+    __trap();
+#else
     asm volatile("mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
                  "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%10, %11, %12, %13};"
                  : "=f"(D[0]), "=f"(D[1]), "=f"(D[2]), "=f"(D[3])
                  : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]),
                    "r"(B[0]), "r"(B[1]),
                    "f"(D[0]), "f"(D[1]), "f"(D[2]), "f"(D[3]));
+#endif
 }
 
 // 16-byte async copy; srcSize=0 zero-fills (tail/ragged guard).
 __device__ __forceinline__ void cp_async_16(uint dst, const void* src,
                                             const int srcSize) {
+#if FK_ATTENTION_MMA_UNSUPPORTED_ARCH
+    (void)dst; (void)src; (void)srcSize;
+    __trap();
+#else
     asm volatile("cp.async.cg.shared.global [%0], [%1], 16, %2;"
                  :: "r"(dst), "l"(src), "r"(srcSize));
+#endif
 }
 // 8-byte async copy (ca path; cg only supports 16B).
 __device__ __forceinline__ void cp_async_8(uint dst, const void* src,
                                            const int srcSize) {
+#if FK_ATTENTION_MMA_UNSUPPORTED_ARCH
+    (void)dst; (void)src; (void)srcSize;
+    __trap();
+#else
     asm volatile("cp.async.ca.shared.global [%0], [%1], 8, %2;"
                  :: "r"(dst), "l"(src), "r"(srcSize));
+#endif
 }
 __device__ __forceinline__ void cp_async_commit() {
+#if FK_ATTENTION_MMA_UNSUPPORTED_ARCH
+    __trap();
+#else
     asm volatile("cp.async.commit_group;");
+#endif
 }
 template <int N>
 __device__ __forceinline__ void cp_async_wait() {
+#if FK_ATTENTION_MMA_UNSUPPORTED_ARCH
+    __trap();
+#else
     asm volatile("cp.async.wait_group %0;" :: "n"(N));
+#endif
 }
 
 struct alignas(16) Bf16x8 { __nv_bfloat162 h[4]; };
@@ -1877,9 +1921,13 @@ __global__ void launchFlashAttentionMmaDPP_Kernel(
         const __grid_constant__ typename FlashAttentionMmaDPP<
             OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp,
             BLOCK_Q, BLOCK_KV, NUM_WARPS, ScoreModOp>::Params params) {
+#if FK_ATTENTION_MMA_UNSUPPORTED_ARCH
+    __trap(); // needs sm_80+; the host launcher rejects older devices first
+#else
     FlashAttentionMmaDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp,
                          BLOCK_Q, BLOCK_KV, NUM_WARPS,
                          ScoreModOp>::template exec<SPLIT_KV>(params);
+#endif
 }
 
 /* IOp-first API. The DPP auto-selects cp.async streaming (raw bf16
@@ -1898,6 +1946,18 @@ inline void executeFlashAttentionMma(
         const bool causal, Stream_<ParArch::GPU_NVIDIA>& stream,
         const float scaleOverride = -1.f, const EpilogueIOp& epilogue = {},
         const ScoreModOp& scoreMod = {}, const BlockSparsity& sparse = {}) {
+    {
+        int device = 0;
+        int ccMajor = 0;
+        gpuErrchk(cudaGetDevice(&device));
+        gpuErrchk(cudaDeviceGetAttribute(&ccMajor, cudaDevAttrComputeCapabilityMajor, device));
+        if (ccMajor < 8) {
+            throw std::runtime_error(
+                "executeFlashAttentionMma needs a GPU with compute capability 8.0 or "
+                "newer (bf16 mma.sync, ldmatrix, cp.async); this device is " +
+                std::to_string(ccMajor) + ".x");
+        }
+    }
     constexpr bool RAW = isRawBf16Read<KIOp> && isRawBf16Read<VIOp>;
     // RAW auto-tile is REGIME-DEPENDENT. Swept exhaustively with REAL data
     // (benchmarks/sweep_tiles.cu, bh in {8,32,64} x s in {2048,4096,8192}
