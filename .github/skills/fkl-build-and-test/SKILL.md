@@ -73,8 +73,8 @@ is `ParArch::GPU_INTEL`. The `_cpp` targets are built by the same compiler witho
 
 ```powershell
 # Windows. The oneAPI environment (icx, sycl-ls, the SYCL runtime DLLs) includes the Visual Studio one.
-# With the Build Tools instead of Visual Studio, tell setvars.bat where they are first:
-#   set "VS2022INSTALLDIR=C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools"
+# With the Build Tools instead of Visual Studio, tell setvars.bat where they are first (it warns otherwise):
+#   $env:VS2022INSTALLDIR = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools"
 cmd.exe "/K" '"C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64 vs2022 && powershell'
 cmake -G "Ninja" -B ..\build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=icx -DENABLE_CUDA=OFF -DENABLE_HIP=OFF -S .
 cmake --build ..\build --config Release
@@ -87,6 +87,13 @@ source /opt/intel/oneapi/setvars.sh
 cmake -G "Ninja" -B ../build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=icpx -S .
 ```
 
+- CMake does not load the oneAPI environment: the shell that runs the configure, the build and the tests has to have
+  it, as with `Enter-VsDevShell` (the installers register nothing globally, so a new terminal has none of it).
+  Without it `icx` is not found; given by its full path it compiles, but does not link (`LNK1104: cannot open file
+  'libircmt.lib'`). With the oneAPI environment but not the Visual Studio one (the warning of `setvars.bat`), the
+  configure fails with `LNK1104: cannot open file 'kernel32.lib'`. And a `_sycl` executable started from another
+  terminal exits with 0xC0000135: it does not find the SYCL runtime (`sycl9.dll` in oneAPI 2026.0), which is in the
+  `PATH` of the environment.
 - `sycl-ls` lists the devices the SYCL runtime sees. The backend uses the best one (an Intel GPU through Level Zero if
   there is one). `ONEAPI_DEVICE_SELECTOR` restricts them: `opencl:gpu` runs the tests through OpenCL, and `opencl:cpu`
   on the CPU, without a GPU.
