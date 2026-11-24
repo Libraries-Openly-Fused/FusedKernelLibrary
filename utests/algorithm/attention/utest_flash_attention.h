@@ -18,6 +18,7 @@
 
 #include <fused_kernel/algorithms/attention/flash_attention.h>
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
+#include <utests/algorithm/attention/attention_test_common.h>
 
 #include <cmath>
 #include <iostream>
@@ -25,48 +26,6 @@
 #include <vector>
 
 namespace fk {
-
-// double-precision CPU oracle: O = softmax(scale * Q K^T [causal]) V
-static void cpuAttention(const std::vector<double>& q, const std::vector<double>& k,
-                         const std::vector<double>& v, std::vector<double>& o,
-                         const int bh, const int seqQ, const int seqK, const int d,
-                         const double scale, const bool causal) {
-    o.assign((size_t)bh * seqQ * d, 0.0);
-    std::vector<double> s(seqK);
-    for (int b = 0; b < bh; ++b) {
-        const double* Q = q.data() + (size_t)b * seqQ * d;
-        const double* K = k.data() + (size_t)b * seqK * d;
-        const double* V = v.data() + (size_t)b * seqK * d;
-        double* O = o.data() + (size_t)b * seqQ * d;
-        for (int i = 0; i < seqQ; ++i) {
-            const int kEnd = causal ? std::min(seqK, i + 1) : seqK;
-            double m = -1e300;
-            for (int j = 0; j < kEnd; ++j) {
-                double dot = 0.0;
-                for (int c = 0; c < d; ++c) dot += Q[(size_t)i*d+c] * K[(size_t)j*d+c];
-                s[j] = dot * scale;
-                m = std::max(m, s[j]);
-            }
-            double l = 0.0;
-            for (int j = 0; j < kEnd; ++j) { s[j] = std::exp(s[j] - m); l += s[j]; }
-            for (int j = 0; j < kEnd; ++j) {
-                const double pj = s[j] / l;
-                for (int c = 0; c < d; ++c) O[(size_t)i*d+c] += pj * V[(size_t)j*d+c];
-            }
-        }
-    }
-}
-
-static int failures = 0;
-
-static void report(const char* name, const double maxErr, const double tol) {
-    if (maxErr > tol) {
-        std::cout << "FAIL " << name << ": maxErr=" << maxErr << " tol=" << tol << std::endl;
-        ++failures;
-    } else {
-        std::cout << "Running test " << name << ": Success!! (maxErr=" << maxErr << ")" << std::endl;
-    }
-}
 
 template <int HEAD_DIM>
 static void testDense(const char* name, const int bh, const int seqQ, const int seqK,
@@ -158,6 +117,56 @@ static void testInt8KV(const char* name, const int bh, const int seqQ, const int
     for (size_t i = 0; i < nQ; ++i) maxErr = std::max(maxErr, std::abs((double)got[i] - dref[i]));
     report(name, maxErr, tol);
 }
+
+#ifdef FK_HAS_FP8
+// host decode of one e4m3 byte, for the oracle
+static double fp8ToDouble(const int8_t byte) {
+    __nv_fp8_e4m3 f8;
+    f8.__x = static_cast<__nv_fp8_storage_t>(byte);
+    return static_cast<double>(static_cast<float>(f8));
+}
+
+template <int HEAD_DIM>
+static void testFp8KV(const char* name, const int bh, const int seqQ, const int seqK,
+                      const bool causal, const double tol, const unsigned seed) {
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> dist(-1.f, 1.f);
+    const size_t nQ = (size_t)bh * seqQ * HEAD_DIM, nK = (size_t)bh * seqK * HEAD_DIM;
+    const size_t nTok = (size_t)bh * seqK;
+    std::vector<float> hq(nQ), hk(nK), hv(nK);
+    for (size_t i = 0; i < nQ; ++i) hq[i] = dist(rng);
+    for (size_t i = 0; i < nK; ++i) hk[i] = dist(rng);
+    for (size_t i = 0; i < nK; ++i) hv[i] = dist(rng);
+
+    // host-side compression (per-token fp8 e4m3)
+    std::vector<int8_t> k8(nK), v8(nK);
+    std::vector<float> kSc(nTok), vSc(nTok);
+    quantizeKVCacheFp8Host(hk.data(), k8.data(), kSc.data(), (int)nTok, HEAD_DIM);
+    quantizeKVCacheFp8Host(hv.data(), v8.data(), vSc.data(), (int)nTok, HEAD_DIM);
+
+    // the oracle sees the DEQUANTIZED values, as in testInt8KV
+    std::vector<double> dq(nQ), dkD(nK), dvD(nK), dref;
+    for (size_t i = 0; i < nQ; ++i) dq[i] = hq[i];
+    for (size_t i = 0; i < nK; ++i) dkD[i] = fp8ToDouble(k8[i]) * kSc[i / HEAD_DIM];
+    for (size_t i = 0; i < nK; ++i) dvD[i] = fp8ToDouble(v8[i]) * vSc[i / HEAD_DIM];
+    cpuAttention(dq, dkD, dvD, dref, bh, seqQ, seqK, HEAD_DIM,
+                 1.0 / std::sqrt((double)HEAD_DIM), causal);
+
+    Stream stream;
+    auto q = uploadBuffer(hq, stream);
+    auto dk8 = uploadBuffer(k8, stream);
+    auto dv8 = uploadBuffer(v8, stream);
+    auto dkS = uploadBuffer(kSc, stream);
+    auto dvS = uploadBuffer(vSc, stream);
+    auto o = zeroBuffer<float>(nQ, stream);
+    const auto qIOp = makeAttentionRead(q.ptr().data, bh, seqQ, HEAD_DIM);
+    const auto kIOp = makeFp8KVRead(dk8.ptr().data, dkS.ptr().data, bh, seqK, HEAD_DIM);
+    const auto vIOp = makeFp8KVRead(dv8.ptr().data, dvS.ptr().data, bh, seqK, HEAD_DIM);
+    executeFlashAttention<HEAD_DIM>(qIOp, kIOp, vIOp, o.ptr().data, bh, seqQ, seqK, causal, stream);
+    const std::vector<float> got = downloadBuffer(o, stream);
+    report(name, maxAbsErr(got, dref), tol);
+}
+#endif // FK_HAS_FP8
 
 static void testFusedEpilogue() {
     // attention output | Mul(2) | Add(0.5) fused in-register: compare against
@@ -277,6 +286,11 @@ int launch_impl() {
     testDense<128>("FA dense d128 b1 s64", 1, 64, 64, false, 5e-6, 4);
     testInt8KV<64>("FA int8-KV d64 b2 s64 causal", 2, 64, 64, true, 5e-6, 5);
     testInt8KV<64>("FA int8-KV d64 ragged s50/s100", 2, 50, 100, false, 5e-6, 6);
+#ifdef FK_HAS_FP8
+    testFp8KV<64>("FA fp8-KV d64 b2 s64 causal", 2, 64, 64, true, 5e-6, 7);
+    testFp8KV<64>("FA fp8-KV d64 ragged s50/s100", 2, 50, 100, false, 5e-6, 8);
+    testFp8KV<128>("FA fp8-KV d128 b1 s64", 1, 64, 64, false, 5e-6, 9);
+#endif
     testFusedEpilogue();
     testFusedPrologue();
     if (failures == 0) { return 0; }
