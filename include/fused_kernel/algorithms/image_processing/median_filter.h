@@ -59,10 +59,18 @@ public:
     // An insertion sort made of compare-and-swap steps of neighbours, with
     // cxp::min and cxp::max, which work per channel on vector types: one
     // code path for scalar and vector T, and every channel is sorted on its
-    // own. For a scalar T, and values that are not NaN, it orders the window
-    // as an insertion sort with operator> does: min(left, right) and
+    // own. Every step runs: there is no early exit, as no single comparison
+    // can end the pass for all the channels.
+    // For a scalar T, and values that are not NaN, it orders the window as
+    // an insertion sort with operator> does: min(left, right) and
     // max(right, left) leave two equal values (-0 and +0 among them) in
     // place.
+    // NaN: cxp::min(a, b) is a <= b ? a : b and cxp::max(a, b) is
+    // a >= b ? a : b, and both comparisons are false when a or b is NaN, so a
+    // step with a NaN swaps its two values (no value is lost or duplicated).
+    // A window with a NaN is therefore ordered differently from an insertion
+    // sort with operator>, which never moves a value past a NaN, and the
+    // selected value can differ.
     FK_HOST_DEVICE_FUSE OutputType exec(InputType window) {
         for (int i = 1; i < window.count; ++i) {
             for (int j = i; j > 0; --j) {
@@ -77,7 +85,9 @@ public:
 };
 
 /** Alternate selection Operation used to prove orchestration is generic:
- * the minimum, per channel for vector types (cxp::min). */
+ * the minimum, per channel for vector types (cxp::min). With a NaN in the
+ * window the result can differ from a comparison with operator<: cxp::min(a,
+ * b) gives b when either is NaN. */
 template <typename T, int CAPACITY>
 struct MinimumWindowSelect {
 private:
