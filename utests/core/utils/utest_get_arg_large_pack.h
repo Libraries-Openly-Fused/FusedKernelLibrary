@@ -75,7 +75,7 @@ cudaFuncAttributes kernelAttributes(const IOps&... iOps) {
     constexpr ParArch PA = ParArch::GPU_NVIDIA;
     using Details = std::decay_t<decltype(TransformDPP<PA, TF::DISABLED>::build_details(iOps...))>;
     // The address of the specialization as a const void*: nvcc does not match a function pointer type with the const parameters of the pack
-    const void* kernel = reinterpret_cast<const void*>(&launchTransformDPP_Kernel<PA, TF::DISABLED, true, Details, IOps...>);
+    const void* kernel = reinterpret_cast<const void*>(&launchDPP_Kernel<TransformDPP<PA, TF::DISABLED, Details, true>, Details, IOps...>);
     cudaFuncAttributes attributes{};
     gpuErrchk(cudaFuncGetAttributes(&attributes, kernel));
     return attributes;
