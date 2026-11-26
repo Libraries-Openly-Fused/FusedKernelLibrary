@@ -292,17 +292,27 @@ __device__ __forceinline__ void mma_fp8_m16n8k32(const uint A[4],
 
 } // namespace attention_mma_detail
 
-template <typename OT, int HEAD_DIM,
+template <ParArch PA, typename OT, int HEAD_DIM,
           typename QIOp, typename KIOp, typename VIOp,
           typename EpilogueIOp = AttentionIdentityEpilogue,
           int BLOCK_Q = (HEAD_DIM <= 64 ? 128 : 64), int BLOCK_KV = 32,
           int NUM_WARPS = 4, typename ScoreModOp = NoScoreMod>
-struct FlashAttentionMmaDPP {
+struct FlashAttentionMmaDPP;
+
+template <typename OT, int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp,
+          typename EpilogueIOp, int BLOCK_Q, int BLOCK_KV, int NUM_WARPS, typename ScoreModOp>
+struct FlashAttentionMmaDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_Q, BLOCK_KV,
+                            NUM_WARPS, ScoreModOp> {
 private:
-    using SelfType = FlashAttentionMmaDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp,
+    using SelfType = FlashAttentionMmaDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp,
                                           EpilogueIOp, BLOCK_Q, BLOCK_KV, NUM_WARPS,
                                           ScoreModOp>;
 public:
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
+    // The tiles and the warps of the type, for the executor and flashAttentionMmaSplits
+    static constexpr int TILE_Q = BLOCK_Q;
+    static constexpr int TILE_KV = BLOCK_KV;
+    static constexpr int WARPS = NUM_WARPS;
     static constexpr bool HAS_SCORE_MOD = !std::is_same_v<ScoreModOp, NoScoreMod>;
     // ALiBi SPECIALIZATION: the bias -slope*(q-k) = -slope*q + slope*k is
     // linear, and the per-row term -slope*q is CONSTANT within a row, so it
@@ -1829,226 +1839,364 @@ public:
     }
 };
 
-/* split-KV combine: one block per (bh, row-chunk); exact online-softmax
-   merge of `splits` unnormalized partials. expBase: 2^x when the producer
-   kernel ran log2-domain softmax, e^x otherwise. */
-template <typename OT, int HEAD_DIM, bool LOG2D>
-__global__ void flashFwdSplitCombineKernel(const float* __restrict__ partial,
-                                           OT* __restrict__ o,
-                                           const int seqQ, const int splits) {
-    const int bh = blockIdx.y;
-    const int row = blockIdx.x * blockDim.y + threadIdx.y;
-    if (row >= seqQ) return;
-    const float* base = partial
-        + ((long)bh * seqQ + row) * (long)splits * (HEAD_DIM + 2);
-    // global max over splits (uniform across the row's threads)
-    float gm = -FLT_MAX;
-    for (int s = 0; s < splits; ++s)
-        gm = fmaxf(gm, base[s * (HEAD_DIM + 2) + HEAD_DIM]);
-    // each thread owns HEAD_DIM/32 columns
-    float acc[HEAD_DIM / 32] = {};
-    float l = 0.f;
-    for (int s = 0; s < splits; ++s) {
-        const float* ps = base + s * (HEAD_DIM + 2);
-        const float m = ps[HEAD_DIM];
-        if (m == -FLT_MAX) continue;            // empty chunk
-        const float w = LOG2D ? exp2f(m - gm) : __expf(m - gm);
-        l += ps[HEAD_DIM + 1] * w;
+/* FlashAttentionSplitCombineDPP: the split-KV combine. One block of 32 x 4
+   threads per (bh, 4 rows); exact online-softmax merge of `splits`
+   unnormalized partials, then the epilogue, as on the unsplit path.
+   LOG2D: the partials' row maxima are in the log2 domain (2^x) when the
+   producer ran log2-domain softmax, e^x otherwise; the split DPP's
+   CombineDPP pairs them. */
+template <ParArch PA, typename OT, int HEAD_DIM, bool LOG2D,
+          typename EpilogueIOp = AttentionIdentityEpilogue>
+struct FlashAttentionSplitCombineDPP;
+
+template <typename OT, int HEAD_DIM, bool LOG2D, typename EpilogueIOp>
+struct FlashAttentionSplitCombineDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, LOG2D, EpilogueIOp> {
+private:
+    using SelfType = FlashAttentionSplitCombineDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, LOG2D, EpilogueIOp>;
+public:
+    FK_STATIC_STRUCT(FlashAttentionSplitCombineDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
+    static_assert(HEAD_DIM % 32 == 0, "HEAD_DIM must be a multiple of 32");
+
+    struct Params {
+        const float* partial;    // [bh, seq_q, splits, HEAD_DIM+2], fp32
+        OT* o;                   // (batch*heads, seq_q, HEAD_DIM) output
+        int seq_q;
+        int splits;
+        EpilogueIOp epilogue;    // fused IOp chain on the output (pre-write)
+    };
+
+    static __device__ __forceinline__ void exec(const Params& p) {
+        // the parameters of the combine kernel this DPP replaces, which were
+        // __restrict__: the partials and the output do not alias
+        const float* __restrict__ partial = p.partial;
+        OT* __restrict__ o = p.o;
+        const int seqQ = p.seq_q;
+        const int splits = p.splits;
+        const int bh = blockIdx.y;
+        const int row = blockIdx.x * blockDim.y + threadIdx.y;
+        if (row >= seqQ) return;
+        const float* base = partial
+            + ((long)bh * seqQ + row) * (long)splits * (HEAD_DIM + 2);
+        // global max over splits (uniform across the row's threads)
+        float gm = -FLT_MAX;
+        for (int s = 0; s < splits; ++s)
+            gm = fmaxf(gm, base[s * (HEAD_DIM + 2) + HEAD_DIM]);
+        // each thread owns HEAD_DIM/32 columns
+        float acc[HEAD_DIM / 32] = {};
+        float l = 0.f;
+        for (int s = 0; s < splits; ++s) {
+            const float* ps = base + s * (HEAD_DIM + 2);
+            const float m = ps[HEAD_DIM];
+            if (m == -FLT_MAX) continue;            // empty chunk
+            const float w = LOG2D ? exp2f(m - gm) : __expf(m - gm);
+            l += ps[HEAD_DIM + 1] * w;
+            #pragma unroll
+            for (int c = 0; c < HEAD_DIM / 32; ++c)
+                acc[c] += ps[threadIdx.x + c * 32] * w;
+        }
+        const float inv = l > 0.f ? 1.f / l : 0.f;
+        OT* dst = o + ((long)bh * seqQ + row) * HEAD_DIM;
         #pragma unroll
-        for (int c = 0; c < HEAD_DIM / 32; ++c)
-            acc[c] += ps[threadIdx.x + c * 32] * w;
-    }
-    const float inv = l > 0.f ? 1.f / l : 0.f;
-    OT* dst = o + ((long)bh * seqQ + row) * HEAD_DIM;
-    #pragma unroll
-    for (int c = 0; c < HEAD_DIM / 32; ++c) {
-        if constexpr (std::is_same_v<OT, __nv_bfloat16>) {
-            dst[threadIdx.x + c * 32] = __float2bfloat16(acc[c] * inv);
-        } else {
-            dst[threadIdx.x + c * 32] = static_cast<OT>(acc[c] * inv);
+        for (int c = 0; c < HEAD_DIM / 32; ++c) {
+            // the epilogue on the merged value, as writeOut applies it on the
+            // unsplit path (QA2); the identity epilogue returns the value itself
+            const float r = (acc[c] * inv) | p.epilogue;
+            if constexpr (std::is_same_v<OT, __nv_bfloat16>) {
+                dst[threadIdx.x + c * 32] = __float2bfloat16(r);
+            } else {
+                dst[threadIdx.x + c * 32] = static_cast<OT>(r);
+            }
         }
     }
-}
+};
+
+/* FlashAttentionMmaSplitKVDPP: the split-KV producer of FlashAttentionMmaDPP
+   with the same template arguments (its exec<true>). blockIdx.z takes an
+   equal chunk of each q-block's KV range and the kernel writes the
+   UNNORMALIZED partials (oAcc, m, l) to Params::partial, sized
+   flashAttentionMmaPartialFloats(batchHeads, seqQ, splits, HEAD_DIM); then
+   CombineDPP merges them into o. For under-filled grids (bh * numQ well under
+   one resident wave), as flashAttentionMmaSplits decides. */
+template <ParArch PA, typename OT, int HEAD_DIM,
+          typename QIOp, typename KIOp, typename VIOp,
+          typename EpilogueIOp = AttentionIdentityEpilogue,
+          int BLOCK_Q = (HEAD_DIM <= 64 ? 128 : 64), int BLOCK_KV = 32,
+          int NUM_WARPS = 4, typename ScoreModOp = NoScoreMod>
+struct FlashAttentionMmaSplitKVDPP;
 
 template <typename OT, int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp,
-          typename EpilogueIOp, int BLOCK_Q, int BLOCK_KV, int NUM_WARPS,
-          typename ScoreModOp, bool SPLIT_KV = false>
-__global__ void launchFlashAttentionMmaDPP_Kernel(
-        const __grid_constant__ typename FlashAttentionMmaDPP<
-            OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp,
-            BLOCK_Q, BLOCK_KV, NUM_WARPS, ScoreModOp>::Params params) {
-    FlashAttentionMmaDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp,
-                         BLOCK_Q, BLOCK_KV, NUM_WARPS,
-                         ScoreModOp>::template exec<SPLIT_KV>(params);
-}
+          typename EpilogueIOp, int BLOCK_Q, int BLOCK_KV, int NUM_WARPS, typename ScoreModOp>
+struct FlashAttentionMmaSplitKVDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_Q,
+                                   BLOCK_KV, NUM_WARPS, ScoreModOp> {
+private:
+    using SelfType = FlashAttentionMmaSplitKVDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp,
+                                                 BLOCK_Q, BLOCK_KV, NUM_WARPS, ScoreModOp>;
+public:
+    FK_STATIC_STRUCT(FlashAttentionMmaSplitKVDPP, SelfType)
+    using MmaDPP = FlashAttentionMmaDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_Q,
+                                        BLOCK_KV, NUM_WARPS, ScoreModOp>;
+    using Params = typename MmaDPP::Params;
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
+    static constexpr int THREADS = MmaDPP::THREADS;
+    static constexpr int SMEM_BYTES = MmaDPP::SMEM_BYTES;
+    static constexpr int TILE_Q = MmaDPP::TILE_Q;
+    static constexpr bool LOG2_DOMAIN = MmaDPP::LOG2_DOMAIN;
+    // the combine that merges this producer's partials: the same log domain
+    // and the same epilogue
+    using CombineDPP = FlashAttentionSplitCombineDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, LOG2_DOMAIN, EpilogueIOp>;
 
-/* IOp-first API. The DPP auto-selects cp.async streaming (raw bf16
- * prologues) or register prefetch (fused prologues) at compile time, and
- * auto-tunes tile sizes per schedule (pass BLOCK_Q/BLOCK_KV > 0 to
- * override): raw path prefers BQ64/BKV64 (deep cp.async overlap; with the
- * S/P union d128 fits at 174 regs and BKV64 beats BKV32 by ~13%),
- * fused-prologue path prefers BQ128/BKV32 (register headroom). */
-template <int HEAD_DIM, int BLOCK_Q = 0, int BLOCK_KV = 0, int NUM_WARPS = 4,
-          typename OT = float, typename QIOp, typename KIOp, typename VIOp,
-          typename EpilogueIOp = AttentionIdentityEpilogue,
-          typename ScoreModOp = NoScoreMod>
-inline void executeFlashAttentionMma(
-        const QIOp& q, const KIOp& k, const VIOp& v, OT* o,
-        const int batchHeads, const int seqQ, const int seqK,
-        const bool causal, Stream_<ParArch::GPU_NVIDIA>& stream,
-        const float scaleOverride = -1.f, const EpilogueIOp& epilogue = {},
-        const ScoreModOp& scoreMod = {}, const BlockSparsity& sparse = {}) {
+    static __device__ __forceinline__ void exec(const Params& p) {
+        MmaDPP::template exec<true>(p);
+    }
+};
+
+namespace attention_mma_detail {
+template <typename DPP>
+inline void setDynamicSharedMemory() {
+    // the kernel of DPP needs more than the default 48 KB of dynamic shared
+    // memory: allow it (this launches nothing)
+    if constexpr (DPP::SMEM_BYTES > 48000) {
+        gpuErrchk(cudaFuncSetAttribute(launchDPP_Kernel<DPP, typename DPP::Params>,
+                                       cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                       DPP::SMEM_BYTES));
+    }
+}
+} // namespace attention_mma_detail
+
+/* The tiles of the automatic choice of the IOp-first API before the executors
+ * (executeFlashAttentionMma<HEAD_DIM, 0, 0, numWarps>), for the caller to name
+ * the FlashAttentionMmaDPP with them: the executors take the tiles from the
+ * type only. Raw bf16 K and V reads (cp.async streaming) prefer BQ64/BKV64
+ * (deep cp.async overlap; with the S/P union d128 fits at 174 regs and BKV64
+ * beats BKV32 by ~13%), the fused-prologue path BQ128/BKV32 at HEAD_DIM <= 64
+ * and BQ64/BKV32 above (register headroom). The raw choice is
+ * REGIME-DEPENDENT. Swept exhaustively with REAL data (benchmarks/
+ * sweep_tiles.cu, bh in {8,32,64} x s in {2048,4096,8192} x {causal,dense},
+ * RTX PRO 6000):
+ *  d64 dense:  BQ128 (WARP_Q=32 -> mq=2, two independent mma chains; kernel is
+ *              ILP-limited) once the grid stays saturated: bh*seqQ >= 64K.
+ *              Below that BQ64's extra blocks win.
+ *  d64 causal: effective work is halved -> BQ128 only at seqQ>=8192, or
+ *              seqQ>=4096 when bh>=64 (reversed raster keeps balance).
+ *              ROUND-8 RESWEEP (spikes/resweep_r8.cu + guard_r8.cu, post
+ *              density rounds): mid-range CAUSAL prefers a WIDER KV tile —
+ *              BQ64/BKV128 amortizes the per-tile softmax bookkeeping over 2x
+ *              the columns (bh8 s4096 +33%, bh8 s1024 +29%, bh32 s4096 +7%;
+ *              only bh32 s512 regresses -3.5%). Dense keeps BQ64/BKV64 (BKV128
+ *              measured slower on every dense shape).
+ *  d128:       ROUND-8 RESWEEP: the old NW8 rule (bh*seqQ>=256K -> BQ128/
+ *              BKV64/NW8) went STALE after the density rounds — BQ64/BKV64 now
+ *              beats it on every swept shape below s16384 (bh64 s4096: 341 vs
+ *              321 TF; bh32 s8192 causal: 326 vs 300). The deep-wide tile
+ *              BQ128/BKV128/NW8 (96KB smem, 1 CTA/SM) wins only at s>=16384
+ *              where per-CTA work is huge (bh32 dense 337 vs 311; bh32 causal
+ *              322 vs 300); s8192 is parity (+-1%). Rule: seqQ >= 16384 ->
+ *              BQ128/BKV128/NW8; else plain BQ64/BKV64.
+ * Block-sparse masks fix their own tile granularity: a tile is chosen only
+ * when the mask granularity divides it (sliding-window masks at s8192 DO want
+ * the BQ128 pick: 1.11x vs 1.01x). numWarps is returned as given, except for
+ * the BQ128/BKV128 pick (8 warps). */
+struct FlashAttentionMmaTiles {
+    int blockQ;
+    int blockKV;
+    int numWarps;
+};
+
+template <int HEAD_DIM, typename KIOp, typename VIOp>
+inline FlashAttentionMmaTiles flashAttentionMmaTiles(const int batchHeads, const int seqQ, const bool causal,
+                                                     const BlockSparsity& sparse = {}, const int numWarps = 4) {
     constexpr bool RAW = isRawBf16Read<KIOp> && isRawBf16Read<VIOp>;
-    // RAW auto-tile is REGIME-DEPENDENT. Swept exhaustively with REAL data
-    // (benchmarks/sweep_tiles.cu, bh in {8,32,64} x s in {2048,4096,8192}
-    // x {causal,dense}, RTX PRO 6000):
-    //  d64 dense:  BQ128 (WARP_Q=32 -> mq=2, two independent mma chains;
-    //              kernel is ILP-limited) once the grid stays saturated:
-    //              bh*seqQ >= 64K. Below that BQ64's extra blocks win.
-    //  d64 causal: effective work is halved -> BQ128 only at seqQ>=8192,
-    //              or seqQ>=4096 when bh>=64 (reversed raster keeps balance).
-    //  d128 long:  BQ128/BKV64/NW8 at seqQ>=8192 && bh>=32 (+3..8%); bh8
-    //              stays BQ64 (BQ128 loses 9% there).
-    // Explicit BLOCK_Q/BLOCK_KV template args bypass the heuristic.
-    if constexpr (BLOCK_Q == 0 && BLOCK_KV == 0 && RAW) {
-      // block-sparse masks fix their own tile granularity — only reroute
-      // when the mask granularity divides the candidate tile (sliding-
-      // window masks at s8192 DO want the BQ128 pick: 1.11x vs 1.01x).
-      const auto maskFits = [&](const int bq, const int bkv) {
-          return sparse.mask == nullptr ||
-                 (sparse.maskBQ % bq == 0 && sparse.maskBKV % bkv == 0);
-      };
+    if constexpr (RAW) {
+        const auto maskFits = [&](const int bq, const int bkv) {
+            return sparse.mask == nullptr ||
+                   (sparse.maskBQ % bq == 0 && sparse.maskBKV % bkv == 0);
+        };
         if constexpr (HEAD_DIM <= 64) {
             const bool wantBQ128 =
                 causal ? (seqQ >= 8192 || (seqQ >= 4096 && batchHeads >= 64))
                        : ((long)batchHeads * seqQ >= 65536);
             if (wantBQ128 && maskFits(128, 64)) {
-                executeFlashAttentionMma<HEAD_DIM, 128, 64, NUM_WARPS>(
-                    q, k, v, o, batchHeads, seqQ, seqK, causal, stream,
-                    scaleOverride, epilogue, scoreMod, sparse);
-                return;
+                return { 128, 64, numWarps };
             }
-            // ROUND-8 RESWEEP (spikes/resweep_r8.cu + guard_r8.cu, post
-            // density rounds): mid-range CAUSAL prefers a WIDER KV tile —
-            // BQ64/BKV128 amortizes the per-tile softmax bookkeeping over
-            // 2x the columns (bh8 s4096 +33%, bh8 s1024 +29%, bh32 s4096
-            // +7%; only bh32 s512 regresses -3.5%). Dense keeps BQ64/BKV64
-            // (BKV128 measured slower on every dense shape).
             if (causal && seqQ >= 1024 && maskFits(64, 128)) {
-                executeFlashAttentionMma<HEAD_DIM, 64, 128, NUM_WARPS>(
-                    q, k, v, o, batchHeads, seqQ, seqK, causal, stream,
-                    scaleOverride, epilogue, scoreMod, sparse);
-                return;
+                return { 64, 128, numWarps };
             }
         } else if constexpr (HEAD_DIM == 128) {
-            // ROUND-8 RESWEEP: the old NW8 rule (bh*seqQ>=256K -> BQ128/
-            // BKV64/NW8) went STALE after the density rounds — BQ64/BKV64
-            // now beats it on every swept shape below s16384 (bh64 s4096:
-            // 341 vs 321 TF; bh32 s8192 causal: 326 vs 300). The deep-wide
-            // tile BQ128/BKV128/NW8 (96KB smem, 1 CTA/SM) wins only at
-            // s>=16384 where per-CTA work is huge (bh32 dense 337 vs 311;
-            // bh32 causal 322 vs 300); s8192 is parity (+-1%). Rule:
-            // seqQ >= 16384 -> BQ128/BKV128/NW8; else plain BQ64/BKV64.
             if (seqQ >= 16384 && maskFits(128, 128)) {
-                executeFlashAttentionMma<HEAD_DIM, 128, 128, 8>(
-                    q, k, v, o, batchHeads, seqQ, seqK, causal, stream,
-                    scaleOverride, epilogue, scoreMod, sparse);
-                return;
+                return { 128, 128, 8 };
             }
         }
-    }
-    constexpr int BQ = BLOCK_Q > 0 ? BLOCK_Q
-                                   : (RAW ? 64 : (HEAD_DIM <= 64 ? 128 : 64));
-    constexpr int BKV = BLOCK_KV > 0 ? BLOCK_KV : (RAW ? 64 : 32);
-    using DPP = FlashAttentionMmaDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp,
-                                     EpilogueIOp, BQ, BKV, NUM_WARPS, ScoreModOp>;
-    const float scale = scaleOverride > 0.f ? scaleOverride
-                                            : rsqrtf(static_cast<float>(HEAD_DIM));
-    if (sparse.mask != nullptr) {
-        // block-sparse mask granularity must contain whole kernel tiles
-        if (sparse.maskBQ % BQ != 0 || sparse.maskBKV % BKV != 0) {
-            throw std::invalid_argument(
-                "BlockSparsity: maskBQ/maskBKV must be multiples of the kernel "
-                "tiles (BQ=" + std::to_string(BQ) + ", BKV=" + std::to_string(BKV) + ")");
-        }
-    }
-    typename DPP::Params params{ q, k, v, o, seqQ, seqK, scale, causal,
-                                 epilogue, scoreMod, sparse };
-    const int numQ = (seqQ + BQ - 1) / BQ;
-    const dim3 block(DPP::THREADS, 1, 1);
-    const int smemBytes = DPP::SMEM_BYTES;
-    auto* kernel = launchFlashAttentionMmaDPP_Kernel<OT, HEAD_DIM, QIOp, KIOp, VIOp,
-                                                     EpilogueIOp, BQ, BKV, NUM_WARPS,
-                                                     ScoreModOp>;
-    if (smemBytes > 48000) {
-        gpuErrchk(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
-                                       smemBytes));
-    }
-    // SPLIT-KV FORWARD for under-saturated grids (ncu, d128 bh8 s2048: FA
-    // launches 5.45 waves via splits while we ran 0.68 — SMs idle). When
-    // numQ*bh covers < ~70% of one resident wave, split the KV range across
-    // blockIdx.z, write unnormalized partials, and reduce with an exact
-    // online-softmax combine kernel. Disabled for block-sparse (the sparse
-    // iteration trim already reshapes the range per q-block).
-    int splits = 1;
-    float* partial = nullptr;
-    if (sparse.mask == nullptr) {
-        static const int wave = [&] {
-            int bpm = 0, dev = 0, sms = 0;
-            cudaOccupancyMaxActiveBlocksPerMultiprocessor(&bpm, kernel,
-                                                          DPP::THREADS, smemBytes);
-            cudaGetDevice(&dev);
-            cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, dev);
-            return (bpm > 0 ? bpm : 1) * sms;
-        }();
-        const long gridBlocks = (long)numQ * batchHeads;
-        // average KV iterations per q-block (causal averages ~half the row)
-        const int avgIter = ::max(1, (int)(((long)(causal ? seqK / 2 : seqK)) / BKV));
-        // THRESHOLD (measured per regime): causal benefits up to ~0.7 wave
-        // (the triangular tail leaves SMs idle even at 0.68 wave: d128 bh8
-        // s2048 causal 0.76->0.94 with splits); dense only below ~0.45 wave
-        // (at 0.68 wave the fp32 partial traffic costs more than the idle
-        // SMs: d64 bh32 s2048 dense 0.88->0.71 when split at 0.68 wave).
-        const long num = gridBlocks * 10;
-        const bool under = causal ? (num < (long)wave * 7)
-                                  : (num < (long)wave * 9 / 2);
-        if (under && avgIter >= 8) {
-            const int bySat  = (int)((wave + gridBlocks - 1) / gridBlocks);
-            const int byWork = avgIter / 4;   // keep >=4 KV tiles per chunk
-            splits = ::min(::min(bySat, byWork), 16);
-            splits = ::max(splits, 1);
-        }
-        if (splits > 1) {
-            const size_t bytes = (size_t)batchHeads * seqQ * splits
-                                 * (HEAD_DIM + 2) * sizeof(float);
-            gpuErrchk(cudaMallocAsync(&partial, bytes, stream.getCUDAStream()));
-            params.partial = partial;
-            params.splits = splits;
-        }
-    }
-    const dim3 grid(numQ, batchHeads, splits);
-    if (splits > 1) {
-        auto* splitKernel = launchFlashAttentionMmaDPP_Kernel<
-            OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BQ, BKV, NUM_WARPS,
-            ScoreModOp, /*SPLIT_KV=*/true>;
-        if (smemBytes > 48000) {
-            gpuErrchk(cudaFuncSetAttribute(splitKernel,
-                cudaFuncAttributeMaxDynamicSharedMemorySize, smemBytes));
-        }
-        splitKernel<<<grid, block, smemBytes, stream.getCUDAStream()>>>(params);
-        gpuErrchk(cudaGetLastError());
-        // combine: 32 threads per row (HEAD_DIM/32 cols each), 4 rows/block
-        const dim3 cblock(32, 4, 1);
-        const dim3 cgrid((seqQ + 3) / 4, batchHeads, 1);
-        flashFwdSplitCombineKernel<OT, HEAD_DIM, DPP::LOG2_DOMAIN>
-            <<<cgrid, cblock, 0, stream.getCUDAStream()>>>(partial, o, seqQ, splits);
-        gpuErrchk(cudaGetLastError());
-        gpuErrchk(cudaFreeAsync(partial, stream.getCUDAStream()));
+        return { 64, 64, numWarps };
     } else {
-        kernel<<<grid, block, smemBytes, stream.getCUDAStream()>>>(params);
-        gpuErrchk(cudaGetLastError());
+        (void)batchHeads; (void)seqQ; (void)causal; (void)sparse;
+        return { HEAD_DIM <= 64 ? 128 : 64, 32, numWarps };
     }
 }
+
+/* The split-KV decision of the IOp-first API before the executors, for the
+ * MmaDPP the caller has chosen: 1 = no split (executeOperations<MmaDPP>),
+ * more = executeOperations<FlashAttentionMmaSplitKVDPP<same arguments>> with
+ * that many splits, then its CombineDPP. Always 1 with a block-sparse mask
+ * (the sparse iteration trim already reshapes the range per q-block).
+ * SPLIT-KV FORWARD for under-saturated grids (ncu, d128 bh8 s2048: FA launches
+ * 5.45 waves via splits while we ran 0.68 — SMs idle): when numQ*bh covers
+ * < ~70% of one resident wave, split the KV range. THRESHOLD (measured per
+ * regime): causal benefits up to ~0.7 wave (the triangular tail leaves SMs
+ * idle even at 0.68 wave: d128 bh8 s2048 causal 0.76->0.94 with splits); dense
+ * only below ~0.45 wave (at 0.68 wave the fp32 partial traffic costs more than
+ * the idle SMs: d64 bh32 s2048 dense 0.88->0.71 when split at 0.68 wave). The
+ * resident wave (blocks per SM of MmaDPP's kernel x SMs of the current
+ * device) is measured once per MmaDPP type. */
+template <typename MmaDPP>
+inline int flashAttentionMmaSplits(const int batchHeads, const int seqQ, const int seqK, const bool causal,
+                                   const BlockSparsity& sparse = {}) {
+    if (sparse.mask != nullptr) {
+        return 1;
+    }
+    static const int wave = [] {
+        // once per MmaDPP type, before the occupancy query: the executor sets the attribute again before each launch
+        attention_mma_detail::setDynamicSharedMemory<MmaDPP>();
+        int bpm = 0, dev = 0, sms = 0;
+        cudaOccupancyMaxActiveBlocksPerMultiprocessor(&bpm, launchDPP_Kernel<MmaDPP, typename MmaDPP::Params>,
+                                                      MmaDPP::THREADS, MmaDPP::SMEM_BYTES);
+        cudaGetDevice(&dev);
+        cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, dev);
+        return (bpm > 0 ? bpm : 1) * sms;
+    }();
+    const int numQ = (seqQ + MmaDPP::TILE_Q - 1) / MmaDPP::TILE_Q;
+    const long gridBlocks = (long)numQ * batchHeads;
+    // average KV iterations per q-block (causal averages ~half the row)
+    const int avgIter = ::max(1, (int)(((long)(causal ? seqK / 2 : seqK)) / MmaDPP::TILE_KV));
+    const long num = gridBlocks * 10;
+    const bool under = causal ? (num < (long)wave * 7)
+                              : (num < (long)wave * 9 / 2);
+    int splits = 1;
+    if (under && avgIter >= 8) {
+        const int bySat  = (int)((wave + gridBlocks - 1) / gridBlocks);
+        const int byWork = avgIter / 4;   // keep >=4 KV tiles per chunk
+        splits = ::min(::min(bySat, byWork), 16);
+        splits = ::max(splits, 1);
+    }
+    return splits;
+}
+
+// The floats of the partial buffer of FlashAttentionMmaSplitKVDPP: [bh, seq_q, splits, HEAD_DIM+2]
+inline size_t flashAttentionMmaPartialFloats(const int batchHeads, const int seqQ, const int splits,
+                                             const int headDim) {
+    return (size_t)batchHeads * seqQ * splits * (headDim + 2);
+}
+
+/* The executor of FlashAttentionMmaDPP, one kernel and no split (the tiles,
+ * the warps and the score mod come from the type; flashAttentionMmaTiles and
+ * flashAttentionMmaSplits give the automatic choice):
+ *   executeOperations<FlashAttentionMmaDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_Q,
+ *                                          BLOCK_KV, NUM_WARPS, ScoreModOp>>(stream, q, k, v, o, batchHeads, seqQ,
+ *       seqK, causal [, scaleOverride = -1 (rsqrt(HEAD_DIM)), epilogue = {}, scoreMod = {}, sparse = {}])
+ * The DPP selects cp.async streaming (raw bf16 prologues) or register
+ * prefetch (fused prologues) at compile time. A block-sparse mask whose
+ * granularity is not a multiple of the tiles throws std::invalid_argument. */
+template <typename OT, int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp,
+          typename EpilogueIOp, int BLOCK_Q, int BLOCK_KV, int NUM_WARPS, typename ScoreModOp>
+struct Executor<FlashAttentionMmaDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_Q,
+                                     BLOCK_KV, NUM_WARPS, ScoreModOp>> {
+private:
+    using DPP = FlashAttentionMmaDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_Q,
+                                     BLOCK_KV, NUM_WARPS, ScoreModOp>;
+    using SelfType = Executor<DPP>;
+public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_NVIDIA; }
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_NVIDIA>& stream, const QIOp& q, const KIOp& k,
+                                          const VIOp& v, OT* o, const int batchHeads, const int seqQ,
+                                          const int seqK, const bool causal, const float scaleOverride = -1.f,
+                                          const EpilogueIOp& epilogue = {}, const ScoreModOp& scoreMod = {},
+                                          const BlockSparsity& sparse = {}) {
+        if (sparse.mask != nullptr) {
+            // block-sparse mask granularity must contain whole kernel tiles
+            if (sparse.maskBQ % BLOCK_Q != 0 || sparse.maskBKV % BLOCK_KV != 0) {
+                throw std::invalid_argument(
+                    "BlockSparsity: maskBQ/maskBKV must be multiples of the kernel "
+                    "tiles (BQ=" + std::to_string(BLOCK_Q) + ", BKV=" + std::to_string(BLOCK_KV) + ")");
+            }
+        }
+        const float scale = scaleOverride > 0.f ? scaleOverride
+                                                : rsqrtf(static_cast<float>(HEAD_DIM));
+        const typename DPP::Params params{ q, k, v, o, seqQ, seqK, scale, causal,
+                                           epilogue, scoreMod, sparse };
+        const int numQ = (seqQ + BLOCK_Q - 1) / BLOCK_Q;
+        const dim3 grid(numQ, batchHeads, 1);
+        const dim3 block(DPP::THREADS, 1, 1);
+        attention_mma_detail::setDynamicSharedMemory<DPP>();
+        launchDPP_Kernel<DPP><<<grid, block, DPP::SMEM_BYTES, stream.getCUDAStream()>>>(params);
+        gpuErrchk(cudaGetLastError());
+    }
+};
+
+/* The executor of FlashAttentionMmaSplitKVDPP, one kernel:
+ *   executeOperations<FlashAttentionMmaSplitKVDPP<...the MmaDPP's arguments...>>(stream, q, k, v, partial, splits,
+ *       batchHeads, seqQ, seqK, causal [, scaleOverride = -1 (rsqrt(HEAD_DIM)), epilogue = {}, scoreMod = {}])
+ * partial: the caller's buffer of flashAttentionMmaPartialFloats(batchHeads, seqQ, splits, HEAD_DIM) floats; then
+ * executeOperations<typename SplitDPP::CombineDPP>(stream, partial, o, batchHeads, seqQ, splits, epilogue) writes o.
+ * No block sparsity on this path. A null partial buffer or splits < 1 throw std::invalid_argument. */
+template <typename OT, int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp,
+          typename EpilogueIOp, int BLOCK_Q, int BLOCK_KV, int NUM_WARPS, typename ScoreModOp>
+struct Executor<FlashAttentionMmaSplitKVDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp,
+                                            BLOCK_Q, BLOCK_KV, NUM_WARPS, ScoreModOp>> {
+private:
+    using DPP = FlashAttentionMmaSplitKVDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp,
+                                            BLOCK_Q, BLOCK_KV, NUM_WARPS, ScoreModOp>;
+    using SelfType = Executor<DPP>;
+public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_NVIDIA; }
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_NVIDIA>& stream, const QIOp& q, const KIOp& k,
+                                          const VIOp& v, float* partial, const int splits, const int batchHeads,
+                                          const int seqQ, const int seqK, const bool causal,
+                                          const float scaleOverride = -1.f, const EpilogueIOp& epilogue = {},
+                                          const ScoreModOp& scoreMod = {}) {
+        executor_detail::requireArguments(partial != nullptr && splits >= 1, "FlashAttentionMmaSplitKVDPP",
+            "the partial buffer is null, or splits < 1");
+        const float scale = scaleOverride > 0.f ? scaleOverride
+                                                : rsqrtf(static_cast<float>(HEAD_DIM));
+        typename DPP::Params params{ q, k, v, nullptr, seqQ, seqK, scale, causal,
+                                     epilogue, scoreMod, BlockSparsity{} };
+        params.partial = partial;
+        params.splits = splits;
+        const int numQ = (seqQ + BLOCK_Q - 1) / BLOCK_Q;
+        const dim3 grid(numQ, batchHeads, splits);
+        const dim3 block(DPP::THREADS, 1, 1);
+        attention_mma_detail::setDynamicSharedMemory<DPP>();
+        launchDPP_Kernel<DPP><<<grid, block, DPP::SMEM_BYTES, stream.getCUDAStream()>>>(params);
+        gpuErrchk(cudaGetLastError());
+    }
+};
+
+/* The executor of FlashAttentionSplitCombineDPP, one kernel:
+ *   executeOperations<FlashAttentionSplitCombineDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, LOG2D, EpilogueIOp>>(stream,
+ *       partial, o, batchHeads, seqQ, splits [, epilogue = {}])
+ * (the split DPP's CombineDPP has the right LOG2D and EpilogueIOp). 32 threads per row (HEAD_DIM/32 columns each),
+ * 4 rows per block. A null partial buffer or splits < 1 throw std::invalid_argument. */
+template <typename OT, int HEAD_DIM, bool LOG2D, typename EpilogueIOp>
+struct Executor<FlashAttentionSplitCombineDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, LOG2D, EpilogueIOp>> {
+private:
+    using DPP = FlashAttentionSplitCombineDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, LOG2D, EpilogueIOp>;
+    using SelfType = Executor<DPP>;
+public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_NVIDIA; }
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_NVIDIA>& stream, const float* partial, OT* o,
+                                          const int batchHeads, const int seqQ, const int splits,
+                                          const EpilogueIOp& epilogue = {}) {
+        executor_detail::requireArguments(partial != nullptr && splits >= 1, "FlashAttentionSplitCombineDPP",
+            "the partial buffer is null, or splits < 1");
+        const typename DPP::Params params{ partial, o, seqQ, splits, epilogue };
+        const dim3 block(32, 4, 1);
+        const dim3 grid((seqQ + 3) / 4, batchHeads, 1);
+        launchDPP_Kernel<DPP><<<grid, block, 0, stream.getCUDAStream()>>>(params);
+        gpuErrchk(cudaGetLastError());
+    }
+};
 
 } // namespace fk
 

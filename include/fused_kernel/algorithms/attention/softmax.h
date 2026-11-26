@@ -39,6 +39,7 @@
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 #include <fused_kernel/core/utils/utils.h>
 #include <fused_kernel/core/constexpr_libs/constexpr_cmath.h>
+#include <fused_kernel/fused_kernel.h>
 
 #include <cfloat>
 #include <cmath>
@@ -100,12 +101,18 @@ struct SoftmaxDPPDetails {
     static constexpr int BLOCK_SIZE = BLOCK_SIZE_;
 };
 
-/* InIOp is an INSTANTIABLE Read or ReadBack IOp (possibly a fusion
- * read.then(compute...)): the prologue. Every element enters the
- * algorithm through InIOp::Operation::exec(thread, iop). */
-struct SoftmaxDPP {
+/* The row softmax: one block of DPPDetails::BLOCK_SIZE threads per row of the input. InIOp is an INSTANTIABLE Read
+ * or ReadBack IOp (possibly a fusion read.then(compute...)): the prologue. Every element enters the algorithm through
+ * InIOp::Operation::exec(thread, iop), and every result leaves through the OutIOp (a Write IOp, possibly
+ * compute.then(write)). GPU only, as the other attention DPPs. */
+template <ParArch PA, typename DPPDetails = SoftmaxDPPDetails<256>>
+struct SoftmaxDPP;
+
+#if defined(__NVCC__)
+template <typename DPPDetails>
+struct SoftmaxDPP<ParArch::GPU_NVIDIA, DPPDetails> {
 private:
-    using SelfType = SoftmaxDPP;
+    using SelfType = SoftmaxDPP<ParArch::GPU_NVIDIA, DPPDetails>;
     struct OnlineSoftmaxState {
         float m; // running max
         float l; // running sum of exp(x - m)
@@ -120,17 +127,18 @@ private:
 
   public:
     FK_STATIC_STRUCT(SoftmaxDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
 
-    template <typename SoftmaxDetails, typename InIOp, typename OutIOp>
-    FK_COOP_DEVICE_FUSE exec(const SoftmaxDetails& p, const InIOp& input, const OutIOp& output) {
-        __shared__ OnlineSoftmaxState states[SoftmaxDetails::BLOCK_SIZE];
+    template <typename InIOp, typename OutIOp>
+    FK_COOP_DEVICE_FUSE exec(const DPPDetails& p, const InIOp& input, const OutIOp& output) {
+        __shared__ OnlineSoftmaxState states[DPPDetails::BLOCK_SIZE];
 
         const int row = blockIdx.x;
         const int tid = threadIdx.x;
         const int width = InIOp::Operation::num_elems_x(Point{0,0,0}, input);
 
         OnlineSoftmaxState st{ -FLT_MAX, 0.f };
-        for (int x = tid; x < width; x += SoftmaxDetails::BLOCK_SIZE) {
+        for (int x = tid; x < width; x += DPPDetails::BLOCK_SIZE) {
             // PROLOGUE: element read through the IOp (pass 1)
             const float v = InIOp::Operation::exec(Point{ x, row, 0 }, input);
             const float m = cxp::max::f(st.m, v);
@@ -140,7 +148,7 @@ private:
         states[tid] = st;
         __syncthreads();
 
-        for (int stride = SoftmaxDetails::BLOCK_SIZE / 2; stride > 0; stride >>= 1) {
+        for (int stride = DPPDetails::BLOCK_SIZE / 2; stride > 0; stride >>= 1) {
             if (tid < stride) {
                 states[tid] = mergeSoftmaxStates(states[tid], states[tid + stride]);
             }
@@ -149,35 +157,36 @@ private:
         const float m = states[0].m;
         const float invL = 1.f / states[0].l;
 
-        for (int x = tid; x < width; x += SoftmaxDetails::BLOCK_SIZE) {
+        for (int x = tid; x < width; x += DPPDetails::BLOCK_SIZE) {
             const float result = cxp::expf::f(InIOp::Operation::exec(Point{x, row, 0}, input) - m) * invL;
             OutIOp::Operation::exec(Point{x, row, 0}, result, output);
         }
     }
 };
 
-template <typename DPP, typename DPPDetails, typename InIOp, typename ComputeIOp, typename OutIOp>
-__global__ void launchDPP_Kernel(const __grid_constant__ DPPDetails details,
-                                        const __grid_constant__ InIOp input,
-                                        const __grid_constant__ ComputeIOp compute,
-                                        const __grid_constant__ OutIOp output) {
-    if constexpr (std::is_same_v<ComputeIOp, NullType>) {
-        DPP::exec(details, input, output);
-    } else {
-        DPP::exec(details, input, compute, output);
-    }
-}
+// The executor of SoftmaxDPP:
+//   executeOperations<SoftmaxDPP<ParArch::GPU_NVIDIA, SoftmaxDPPDetails<BLOCK_SIZE>>>(stream, details, inIOp, outIOp)
+// One block of BLOCK_SIZE threads per row: the rows are InIOp's num_elems_y, the row length its num_elems_x. It
+// launches launchDPP_Kernel<SoftmaxDPP<...>, DPPDetails, InIOp, OutIOp> (Oscar's decision, 2026-11-26).
+template <typename DPPDetails>
+struct Executor<SoftmaxDPP<ParArch::GPU_NVIDIA, DPPDetails>> {
+  private:
+    using DPP = SoftmaxDPP<ParArch::GPU_NVIDIA, DPPDetails>;
+    using SelfType = Executor<DPP>;
 
-/* IOp-first API: input is the prologue Read/ReadBack IOp. */
-template <int BLOCK_SIZE, typename InIOp, typename OutIOp>
-inline void executeSoftmax(const InIOp& input, const OutIOp& output,
-                           Stream_<ParArch::GPU_NVIDIA>& stream) {
-    const SoftmaxDPPDetails<BLOCK_SIZE> details{};
-    const dim3 grid(InIOp::Operation::num_elems_y(Point{0,0,0}, input), 1, 1);
-    const dim3 block(BLOCK_SIZE, 1, 1);
-    launchDPP_Kernel<SoftmaxDPP><<<grid, block, 0, stream.getCUDAStream()>>>(details, input, NullType{}, output);
-    gpuErrchk(cudaGetLastError());
-}
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_NVIDIA; }
+    template <typename InIOp, typename OutIOp>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_NVIDIA>& stream, const DPPDetails& details,
+                                          const InIOp& input, const OutIOp& output) {
+        const dim3 grid(InIOp::Operation::num_elems_y(Point{0, 0, 0}, input), 1, 1);
+        const dim3 block(DPPDetails::BLOCK_SIZE, 1, 1);
+        launchDPP_Kernel<DPP><<<grid, block, 0, stream.getCUDAStream()>>>(details, input, output);
+        gpuErrchk(cudaGetLastError());
+    }
+};
+#endif // defined(__NVCC__)
 
 } // namespace fk
 

@@ -60,6 +60,7 @@
  */
 
 #include <fused_kernel/algorithms/attention/softmax.h>
+#include <fused_kernel/fused_kernel.h>
 #include <fused_kernel/algorithms/basic_ops/memory_operations.h>
 
 namespace fk {
@@ -151,16 +152,21 @@ inline auto makeInt8KVRead(const int8_t* data, const float* scales,
 /* The DPP. QIOp/KIOp/VIOp are INSTANTIABLE Read or ReadBack IOps (possibly
  * fused with compute continuations): the algorithm reads each element of
  * Q, K and V exclusively through IOp::Operation::exec(thread, iop). */
-template <typename OT, int HEAD_DIM,
+template <ParArch PA, typename OT, int HEAD_DIM,
           typename QIOp, typename KIOp, typename VIOp,
           typename EpilogueIOp = AttentionIdentityEpilogue,
           int BLOCK_N = 32, int WARPS_PER_BLOCK = 4>
-struct FlashAttentionDPP {
+struct FlashAttentionDPP;
+
+template <typename OT, int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp,
+          typename EpilogueIOp, int BLOCK_N, int WARPS_PER_BLOCK>
+struct FlashAttentionDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_N, WARPS_PER_BLOCK> {
 private:
-    using SelfType = FlashAttentionDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp,
+    using SelfType = FlashAttentionDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp,
                                        EpilogueIOp, BLOCK_N, WARPS_PER_BLOCK>;
 public:
     FK_STATIC_STRUCT(FlashAttentionDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
 
     static_assert(HEAD_DIM % 32 == 0, "HEAD_DIM must be a multiple of 32");
     static_assert(isAnyReadType<QIOp>, "Q prologue must be a Read or ReadBack IOp");
@@ -271,64 +277,36 @@ public:
     }
 };
 
+// The executor of FlashAttentionDPP:
+//   executeOperations<FlashAttentionDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_N,
+//                                       WARPS_PER_BLOCK>>(stream, q, k, v, o, batchHeads, seqQ, seqK, causal
+//                                                         [, scaleOverride = -1 (rsqrt(HEAD_DIM)), epilogue = {}])
+// q, k and v are the prologue Read or ReadBack IOps (makeAttentionRead, makeInt8KVRead, ... optionally fused with
+// .then(...)). One warp per query row, WARPS_PER_BLOCK rows per block.
 template <typename OT, int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp,
           typename EpilogueIOp, int BLOCK_N, int WARPS_PER_BLOCK>
-__global__ void launchFlashAttentionDPP_Kernel(
-        const __grid_constant__ typename FlashAttentionDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_N, WARPS_PER_BLOCK>::Params params) {
-    FlashAttentionDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_N, WARPS_PER_BLOCK>::exec(params);
-}
-
-/* IOp-first API: pass Q/K/V as Read/ReadBack IOps (the prologues). */
-template <int HEAD_DIM, int BLOCK_N = 32, int WARPS_PER_BLOCK = 4,
-          typename OT = float, typename QIOp, typename KIOp, typename VIOp,
-          typename EpilogueIOp = AttentionIdentityEpilogue>
-inline void executeFlashAttention(
-        const QIOp& q, const KIOp& k, const VIOp& v, OT* o,
-        const int batchHeads, const int seqQ, const int seqK,
-        const bool causal, Stream_<ParArch::GPU_NVIDIA>& stream,
-        const float scaleOverride = -1.f, const EpilogueIOp& epilogue = {}) {
-    using DPP = FlashAttentionDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp,
-                                  EpilogueIOp, BLOCK_N, WARPS_PER_BLOCK>;
-    const float scale = scaleOverride > 0.f ? scaleOverride
-                                            : rsqrtf(static_cast<float>(HEAD_DIM));
-    const typename DPP::Params params{ q, k, v, o, seqQ, seqK, scale, causal, epilogue };
-    const dim3 grid((seqQ + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK, batchHeads, 1);
-    const dim3 block(DPP::THREADS, 1, 1);
-    launchFlashAttentionDPP_Kernel<OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_N, WARPS_PER_BLOCK>
-        <<<grid, block, 0, stream.getCUDAStream()>>>(params);
-    gpuErrchk(cudaGetLastError());
-}
-
-/* Pointer convenience API (kept for compatibility): builds the canonical
- * prologue Read IOps and forwards. KVLayout::INT8_PER_TOKEN selects the
- * Int8TokenDequantRead prologue for K and V. */
-template <typename T, int HEAD_DIM, KVLayout KVL = KVLayout::DENSE,
-          int BLOCK_N = 32, int WARPS_PER_BLOCK = 4,
-          typename EpilogueIOp = AttentionIdentityEpilogue>
-inline void executeFlashAttention(
-        const T* q,
-        const std::conditional_t<KVL == KVLayout::INT8_PER_TOKEN, int8_t, T>* k,
-        const std::conditional_t<KVL == KVLayout::INT8_PER_TOKEN, int8_t, T>* v,
-        T* o, const int batchHeads, const int seqQ, const int seqK,
-        const bool causal, Stream_<ParArch::GPU_NVIDIA>& stream,
-        const float* kScale = nullptr, const float* vScale = nullptr,
-        const float scaleOverride = -1.f,
-        const EpilogueIOp& epilogue = {}) {
-    const auto qIOp = makeAttentionRead(q, batchHeads, seqQ, HEAD_DIM);
-    if constexpr (KVL == KVLayout::INT8_PER_TOKEN) {
-        const auto kIOp = makeInt8KVRead(k, kScale, batchHeads, seqK, HEAD_DIM);
-        const auto vIOp = makeInt8KVRead(v, vScale, batchHeads, seqK, HEAD_DIM);
-        executeFlashAttention<HEAD_DIM, BLOCK_N, WARPS_PER_BLOCK>(
-            qIOp, kIOp, vIOp, o, batchHeads, seqQ, seqK, causal, stream,
-            scaleOverride, epilogue);
-    } else {
-        const auto kIOp = makeAttentionRead(k, batchHeads, seqK, HEAD_DIM);
-        const auto vIOp = makeAttentionRead(v, batchHeads, seqK, HEAD_DIM);
-        executeFlashAttention<HEAD_DIM, BLOCK_N, WARPS_PER_BLOCK>(
-            qIOp, kIOp, vIOp, o, batchHeads, seqQ, seqK, causal, stream,
-            scaleOverride, epilogue);
+struct Executor<FlashAttentionDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_N,
+                                  WARPS_PER_BLOCK>> {
+private:
+    using DPP = FlashAttentionDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp, EpilogueIOp, BLOCK_N,
+                                  WARPS_PER_BLOCK>;
+    using SelfType = Executor<DPP>;
+public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_NVIDIA; }
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_NVIDIA>& stream, const QIOp& q, const KIOp& k,
+                                          const VIOp& v, OT* o, const int batchHeads, const int seqQ,
+                                          const int seqK, const bool causal, const float scaleOverride = -1.f,
+                                          const EpilogueIOp& epilogue = {}) {
+        const float scale = scaleOverride > 0.f ? scaleOverride
+                                                : rsqrtf(static_cast<float>(HEAD_DIM));
+        const typename DPP::Params params{ q, k, v, o, seqQ, seqK, scale, causal, epilogue };
+        const dim3 grid((seqQ + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK, batchHeads, 1);
+        const dim3 block(DPP::THREADS, 1, 1);
+        launchDPP_Kernel<DPP><<<grid, block, 0, stream.getCUDAStream()>>>(params);
+        gpuErrchk(cudaGetLastError());
     }
-}
+};
 
 #endif // defined(__NVCC__)
 
