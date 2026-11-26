@@ -70,7 +70,7 @@ public:
 
     template <typename IOp>
     FK_DEVICE_FUSE float readElem(const IOp& iop, const int x, const int y, const int z) {
-        return attnToF32(IOp::Operation::exec(Point{ x, y, z }, iop));
+        return low_precision::attnToF32(IOp::Operation::exec(Point{ x, y, z }, iop));
     }
 
     /* Vectorized row loader: lane owns elements [ELEMS*lane, ELEMS*lane+ELEMS).
