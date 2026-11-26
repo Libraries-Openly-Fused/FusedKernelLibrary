@@ -17,6 +17,7 @@
 
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/image_processing/neighborhood.h>
+#include <fused_kernel/fused_kernel.h>
 #include <fused_kernel/core/data/point.h>
 #include <fused_kernel/core/data/tuple.h>
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
@@ -281,107 +282,98 @@ public:
     }
 };
 
-template <ParArch PA, typename DPPDetails, typename ReadIOps,
-          typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp>
-__global__ void linearFilterDPPKernel(const DPPDetails details,
-                                      const ReadIOps reads,
-                                      const MultiplyIOp multiply,
-                                      const AccumulateIOp accumulate,
-                                      const WriteIOp output) {
-    LinearFilterDPP<PA, DPPDetails>::exec(
-        details, reads, multiply, accumulate, output);
-}
-
-template <typename DPPDetails, typename ReadIOps,
-          typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp, ParArch PA>
-    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
-inline bool executeLinearFilter(const DPPDetails& details,
-                                const ReadIOps& reads,
-                                const MultiplyIOp& multiply,
-                                const AccumulateIOp& accumulate,
-                                const WriteIOp& output,
-                                Stream_<PA>& stream) {
-    if (!DPPDetails::valid(details)) return false;
-    const dim3 block(DPPDetails::TILE_WIDTH,
-                     DPPDetails::TILE_HEIGHT, 1);
-    const dim3 grid((details.width + DPPDetails::TILE_WIDTH - 1) /
-                        DPPDetails::TILE_WIDTH,
-                    (details.height + DPPDetails::TILE_HEIGHT - 1) /
-                        DPPDetails::TILE_HEIGHT,
-                    1);
-#if defined(__HIPCC__)
-    linearFilterDPPKernel<PA><<<grid, block, 0, stream.getHIPStream()>>>(
-        details, reads, multiply, accumulate, output);
-    gpuErrchk(hipGetLastError());
-#else
-    linearFilterDPPKernel<PA><<<grid, block, 0, stream.getCUDAStream()>>>(
-        details, reads, multiply, accumulate, output);
-    gpuErrchk(cudaGetLastError());
-#endif
-    return true;
-}
-
-template <typename DPPDetails, typename ImageRead, typename WriteIOp, ParArch PA>
-    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
-inline bool executeBoxFilter(const DPPDetails& details,
-                             const ImageRead& image,
-                             const WriteIOp& output,
-                             const typename DPPDetails::ValueType scale,
-                             Stream_<PA>& stream) {
-    using T = typename DPPDetails::ValueType;
-    if (!DPPDetails::valid(details)) return false;
-    const T coefficient = scale /
-        static_cast<T>(details.kernelWidth * details.kernelHeight);
-    const auto coefficientRead = ConstantFilterRead<T>::build(coefficient);
-    const auto multiply = Mul<T, T, T, UnaryType>::build();
-    const auto accumulate = Add<T, T, T, UnaryType>::build();
-    return executeLinearFilter(
-        details, make_tuple(image, coefficientRead),
-        multiply, accumulate, output, stream);
-}
 #endif // defined(__NVCC__) || defined(__HIPCC__)
 
-#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
-// Enqueues LinearFilterDPP<ParArch::CPU_MULTITHREAD> on the stream and
-// returns; returns false, enqueueing nothing, if the details are not valid.
-// The execution keeps copies of the IOps. As with a GPU stream, the buffers
-// they read and write must stay valid until it has finished (sync()), and
-// the output must not alias the image or the coefficients.
-template <typename DPPDetails, typename ReadIOps,
-          typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp>
-inline bool executeLinearFilter(const DPPDetails& details,
-                                const ReadIOps& reads,
-                                const MultiplyIOp& multiply,
-                                const AccumulateIOp& accumulate,
-                                const WriteIOp& output,
-                                Stream_<ParArch::CPU_MULTITHREAD>& stream) {
-    if (!DPPDetails::valid(details)) return false;
-    stream.enqueue([=](const cpu_multithread::Completion& done) {
-        LinearFilterDPP<ParArch::CPU_MULTITHREAD, DPPDetails>::exec(
-            done, details, reads, multiply, accumulate, output);
-    });
-    return true;
+namespace linear_filter_detail {
+// The check of the executors: valid details (a non empty image, a kernel of 1 to MAX_KERNEL_WIDTH x MAX_KERNEL_HEIGHT,
+// the anchor inside it)
+template <typename DPPDetails>
+FK_HOST_FUSE void checkArguments(const DPPDetails& details) {
+    executor_detail::requireArguments(DPPDetails::valid(details), "LinearFilterDPP",
+        "invalid details: the image must not be empty, and the kernel must be 1 to MAX_KERNEL_WIDTH x "
+        "MAX_KERNEL_HEIGHT, with the anchor inside it");
 }
+} // namespace linear_filter_detail
 
-template <typename DPPDetails, typename ImageRead, typename WriteIOp>
-inline bool executeBoxFilter(const DPPDetails& details,
-                             const ImageRead& image,
-                             const WriteIOp& output,
-                             const typename DPPDetails::ValueType scale,
-                             Stream_<ParArch::CPU_MULTITHREAD>& stream) {
-    using T = typename DPPDetails::ValueType;
-    if (!DPPDetails::valid(details)) return false;
-    const T coefficient = scale /
-        static_cast<T>(details.kernelWidth * details.kernelHeight);
-    const auto coefficientRead = ConstantFilterRead<T>::build(coefficient);
-    const auto multiply = Mul<T, T, T, UnaryType>::build();
-    const auto accumulate = Add<T, T, T, UnaryType>::build();
-    // executeLinearFilter copies these locals into the execution
-    return executeLinearFilter(
-        details, make_tuple(image, coefficientRead),
-        multiply, accumulate, output, stream);
-}
+// The executors of LinearFilterDPP, one per back-end:
+//   executeOperations<LinearFilterDPP<PA, DPPDetails>>(stream, details, reads, multiply, accumulate, output)
+// with reads = make_tuple(image read, coefficient read). Invalid details throw std::invalid_argument before anything is
+// launched or enqueued (Oscar's decision, 2026-11-26). A box filter is the coefficient read
+// ConstantFilterRead<T>::build(scale / (kernelWidth * kernelHeight)) with Mul<T, T, T, UnaryType> and
+// Add<T, T, T, UnaryType>, where T is DPPDetails::ValueType.
+template <typename DPPDetails>
+struct Executor<LinearFilterDPP<ParArch::CPU, DPPDetails>> {
+  private:
+    using DPP = LinearFilterDPP<ParArch::CPU, DPPDetails>;
+    using SelfType = Executor<DPP>;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::CPU; }
+    // Computes the filter before it returns
+    template <typename ReadIOps, typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::CPU>&, const DPPDetails& details, const ReadIOps& reads,
+                                          const MultiplyIOp& multiply, const AccumulateIOp& accumulate,
+                                          const WriteIOp& output) {
+        linear_filter_detail::checkArguments(details);
+        DPP::exec(details, reads, multiply, accumulate, output);
+    }
+};
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+template <typename DPPDetails>
+struct Executor<LinearFilterDPP<ParArch::CPU_MULTITHREAD, DPPDetails>> {
+  private:
+    using DPP = LinearFilterDPP<ParArch::CPU_MULTITHREAD, DPPDetails>;
+    using SelfType = Executor<DPP>;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::CPU_MULTITHREAD; }
+    // Enqueues LinearFilterDPP<ParArch::CPU_MULTITHREAD> on the stream and returns. The execution keeps copies of the
+    // IOps. As with a GPU stream, the buffers they read and write must stay valid until it has finished (sync()), and the
+    // output must not alias the image or the coefficients.
+    template <typename ReadIOps, typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::CPU_MULTITHREAD>& stream, const DPPDetails& details,
+                                          const ReadIOps& reads, const MultiplyIOp& multiply,
+                                          const AccumulateIOp& accumulate, const WriteIOp& output) {
+        linear_filter_detail::checkArguments(details);
+        stream.enqueue([=](const cpu_multithread::Completion& done) {
+            DPP::exec(done, details, reads, multiply, accumulate, output);
+        });
+    }
+};
 #endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+
+#if defined(__NVCC__) || defined(__HIPCC__)
+template <ParArch PA, typename DPPDetails>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
+struct Executor<LinearFilterDPP<PA, DPPDetails>> {
+  private:
+    using DPP = LinearFilterDPP<PA, DPPDetails>;
+    using SelfType = Executor<DPP>;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return PA; }
+    template <typename ReadIOps, typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp>
+    FK_HOST_STATIC void executeOperations(Stream_<PA>& stream, const DPPDetails& details, const ReadIOps& reads,
+                                          const MultiplyIOp& multiply, const AccumulateIOp& accumulate,
+                                          const WriteIOp& output) {
+        linear_filter_detail::checkArguments(details);
+        const dim3 block(DPPDetails::TILE_WIDTH, DPPDetails::TILE_HEIGHT, 1);
+        const dim3 grid((details.width + DPPDetails::TILE_WIDTH - 1) / DPPDetails::TILE_WIDTH,
+                        (details.height + DPPDetails::TILE_HEIGHT - 1) / DPPDetails::TILE_HEIGHT, 1);
+#if defined(__HIPCC__)
+        launchDPP_Kernel<DPP><<<grid, block, 0, stream.getHIPStream()>>>(details, reads, multiply, accumulate, output);
+        gpuErrchk(hipGetLastError());
+#else
+        launchDPP_Kernel<DPP><<<grid, block, 0, stream.getCUDAStream()>>>(details, reads, multiply, accumulate, output);
+        gpuErrchk(cudaGetLastError());
+#endif
+    }
+};
+#endif // defined(__NVCC__) || defined(__HIPCC__)
 
 } // namespace fk
 

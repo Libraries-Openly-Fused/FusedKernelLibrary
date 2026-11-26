@@ -16,6 +16,7 @@
 #define FK_MEDIAN_FILTER_DPP_H
 
 #include <fused_kernel/algorithms/image_processing/neighborhood.h>
+#include <fused_kernel/fused_kernel.h>
 #include <fused_kernel/core/data/point.h>
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
@@ -287,66 +288,94 @@ public:
     }
 };
 
-template <ParArch PA, typename DPPDetails, typename ReadIOp,
-          typename WriteIOp, typename SelectionIOp>
-__global__ void medianFilterDPPKernel(const DPPDetails details,
-                                      const ReadIOp input,
-                                      const WriteIOp output,
-                                      const SelectionIOp selection) {
-    MedianFilterDPP<PA, DPPDetails>::exec(
-        details, input, output, selection);
-}
-
-template <typename DPPDetails, typename ReadIOp,
-          typename WriteIOp, typename SelectionIOp, ParArch PA>
-    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
-inline bool executeMedianFilter(const DPPDetails& details,
-                                const ReadIOp& input,
-                                const WriteIOp& output,
-                                const SelectionIOp& selection,
-                                Stream_<PA>& stream) {
-    if (!DPPDetails::valid(details)) return false;
-    const dim3 block(DPPDetails::TILE_WIDTH,
-                     DPPDetails::TILE_HEIGHT, 1);
-    const dim3 grid((details.width + DPPDetails::TILE_WIDTH - 1) /
-                        DPPDetails::TILE_WIDTH,
-                    (details.height + DPPDetails::TILE_HEIGHT - 1) /
-                        DPPDetails::TILE_HEIGHT,
-                    1);
-#if defined(__HIPCC__)
-    medianFilterDPPKernel<PA><<<grid, block, 0, stream.getHIPStream()>>>(
-        details, input, output, selection);
-    gpuErrchk(hipGetLastError());
-#else
-    medianFilterDPPKernel<PA><<<grid, block, 0, stream.getCUDAStream()>>>(
-        details, input, output, selection);
-    gpuErrchk(cudaGetLastError());
-#endif
-    return true;
-}
 #endif // defined(__NVCC__) || defined(__HIPCC__)
 
-#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
-// Enqueues MedianFilterDPP<ParArch::CPU_MULTITHREAD> on the stream and
-// returns; returns false, enqueueing nothing, if the details are not valid.
-// The execution keeps copies of the IOps. As with a GPU stream, the buffers
-// they read and write must stay valid until it has finished (sync()), and
-// the output must not alias the input.
-template <typename DPPDetails, typename ReadIOp,
-          typename WriteIOp, typename SelectionIOp>
-inline bool executeMedianFilter(const DPPDetails& details,
-                                const ReadIOp& input,
-                                const WriteIOp& output,
-                                const SelectionIOp& selection,
-                                Stream_<ParArch::CPU_MULTITHREAD>& stream) {
-    if (!DPPDetails::valid(details)) return false;
-    stream.enqueue([=](const cpu_multithread::Completion& done) {
-        MedianFilterDPP<ParArch::CPU_MULTITHREAD, DPPDetails>::exec(
-            done, details, input, output, selection);
-    });
-    return true;
+namespace median_filter_detail {
+// The check of the executors: valid details (a non empty image, an odd window of 1 to MAX_WINDOW_WIDTH x
+// MAX_WINDOW_HEIGHT, the anchor inside it)
+template <typename DPPDetails>
+FK_HOST_FUSE void checkArguments(const DPPDetails& details) {
+    executor_detail::requireArguments(DPPDetails::valid(details), "MedianFilterDPP",
+        "invalid details: the image must not be empty, and the window must be odd, 1 to MAX_WINDOW_WIDTH x "
+        "MAX_WINDOW_HEIGHT, with the anchor inside it");
 }
+} // namespace median_filter_detail
+
+// The executors of MedianFilterDPP, one per back-end:
+//   executeOperations<MedianFilterDPP<PA, DPPDetails>>(stream, details, input, output, selection)
+// with selection the window selection IOp (median or minimum). Invalid details throw std::invalid_argument before
+// anything is launched or enqueued (Oscar's decision, 2026-11-26).
+template <typename DPPDetails>
+struct Executor<MedianFilterDPP<ParArch::CPU, DPPDetails>> {
+  private:
+    using DPP = MedianFilterDPP<ParArch::CPU, DPPDetails>;
+    using SelfType = Executor<DPP>;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::CPU; }
+    // Computes the filter before it returns
+    template <typename ReadIOp, typename WriteIOp, typename SelectionIOp>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::CPU>&, const DPPDetails& details, const ReadIOp& input,
+                                          const WriteIOp& output, const SelectionIOp& selection) {
+        median_filter_detail::checkArguments(details);
+        DPP::exec(details, input, output, selection);
+    }
+};
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+template <typename DPPDetails>
+struct Executor<MedianFilterDPP<ParArch::CPU_MULTITHREAD, DPPDetails>> {
+  private:
+    using DPP = MedianFilterDPP<ParArch::CPU_MULTITHREAD, DPPDetails>;
+    using SelfType = Executor<DPP>;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::CPU_MULTITHREAD; }
+    // Enqueues MedianFilterDPP<ParArch::CPU_MULTITHREAD> on the stream and returns. The execution keeps copies of the
+    // IOps. As with a GPU stream, the buffers they read and write must stay valid until it has finished (sync()), and the
+    // output must not alias the input.
+    template <typename ReadIOp, typename WriteIOp, typename SelectionIOp>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::CPU_MULTITHREAD>& stream, const DPPDetails& details,
+                                          const ReadIOp& input, const WriteIOp& output,
+                                          const SelectionIOp& selection) {
+        median_filter_detail::checkArguments(details);
+        stream.enqueue([=](const cpu_multithread::Completion& done) {
+            DPP::exec(done, details, input, output, selection);
+        });
+    }
+};
 #endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+
+#if defined(__NVCC__) || defined(__HIPCC__)
+template <ParArch PA, typename DPPDetails>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
+struct Executor<MedianFilterDPP<PA, DPPDetails>> {
+  private:
+    using DPP = MedianFilterDPP<PA, DPPDetails>;
+    using SelfType = Executor<DPP>;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return PA; }
+    template <typename ReadIOp, typename WriteIOp, typename SelectionIOp>
+    FK_HOST_STATIC void executeOperations(Stream_<PA>& stream, const DPPDetails& details, const ReadIOp& input,
+                                          const WriteIOp& output, const SelectionIOp& selection) {
+        median_filter_detail::checkArguments(details);
+        const dim3 block(DPPDetails::TILE_WIDTH, DPPDetails::TILE_HEIGHT, 1);
+        const dim3 grid((details.width + DPPDetails::TILE_WIDTH - 1) / DPPDetails::TILE_WIDTH,
+                        (details.height + DPPDetails::TILE_HEIGHT - 1) / DPPDetails::TILE_HEIGHT, 1);
+#if defined(__HIPCC__)
+        launchDPP_Kernel<DPP><<<grid, block, 0, stream.getHIPStream()>>>(details, input, output, selection);
+        gpuErrchk(hipGetLastError());
+#else
+        launchDPP_Kernel<DPP><<<grid, block, 0, stream.getCUDAStream()>>>(details, input, output, selection);
+        gpuErrchk(cudaGetLastError());
+#endif
+    }
+};
+#endif // defined(__NVCC__) || defined(__HIPCC__)
 
 } // namespace fk
 

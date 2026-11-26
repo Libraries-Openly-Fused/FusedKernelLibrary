@@ -18,6 +18,7 @@
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 #include <fused_kernel/core/execution_model/stream.h>
+#include <fused_kernel/fused_kernel.h>
 #include <fused_kernel/core/utils/vector_utils.h>
 #include <fused_kernel/core/utils/vlimits.h>
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
@@ -411,66 +412,85 @@ public:
     }
 };
 
-template <typename DPP, typename... IOps>
-__global__ void launchMedianQuadDPP_Kernel(
-        const __grid_constant__ MedianQuadDetails details,
-        const __grid_constant__ IOps... iOps) {
-    DPP::exec(details, iOps...);
-}
-
-template <typename DPP, typename... IOps, ParArch PA>
-    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
-FK_HOST_FUSE void executeMedianQuad(
-        Stream_<PA>& stream,
-        const MedianQuadDetails& details,
-        const IOps&... iOps) {
-    static_assert(DPP::PAR_ARCH == PA,
-                  "GPU stream requires the matching MedianQuadDPP specialization");
-    if (!DPP::accepts(details)) return;
-    const auto launch = DPP::launchConfig(details);
-#if defined(__HIPCC__)
-    launchMedianQuadDPP_Kernel<DPP, IOps...>
-        <<<launch.blocks, launch.threads, 0, stream.getHIPStream()>>>(
-            details, iOps...);
-    gpuErrchk(hipGetLastError());
-#else
-    launchMedianQuadDPP_Kernel<DPP, IOps...>
-        <<<launch.blocks, launch.threads, 0, stream.getCUDAStream()>>>(
-            details, iOps...);
-    gpuErrchk(cudaGetLastError());
-#endif
-}
 #endif // defined(__NVCC__) || defined(__HIPCC__)
 
-template <typename DPP, typename... IOps>
-FK_HOST_FUSE void executeMedianQuad(
-        Stream_<ParArch::CPU>&,
-        const MedianQuadDetails& details,
-        const IOps&... iOps) {
-    static_assert(DPP::PAR_ARCH == ParArch::CPU,
-                  "CPU stream requires the CPU MedianQuadDPP specialization");
-    DPP::exec(details, iOps...);
+namespace median_quad_detail {
+// The check of the executors: details the DPP accepts (DPP::accepts)
+template <typename DPP>
+FK_HOST_FUSE void checkArguments(const MedianQuadDetails& details) {
+    executor_detail::requireArguments(DPP::accepts(details), "MedianQuadDPP", "details it does not accept (DPP::accepts)");
 }
+} // namespace median_quad_detail
+
+// The executors of MedianQuadDPP, one per back-end:
+//   executeOperations<MedianQuadDPP<PA, T, EX, EY, KW, KH>>(stream, details, input, ..., output)
+// Details the DPP does not accept throw std::invalid_argument before anything is launched or enqueued (Oscar's
+// decision, 2026-11-26).
+template <typename T, int EX, int EY, int KW, int KH>
+struct Executor<MedianQuadDPP<ParArch::CPU, T, EX, EY, KW, KH>> {
+  private:
+    using DPP = MedianQuadDPP<ParArch::CPU, T, EX, EY, KW, KH>;
+    using SelfType = Executor<DPP>;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::CPU; }
+    // Computes the filter before it returns
+    template <typename... IOps>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::CPU>&, const MedianQuadDetails& details, const IOps&... iOps) {
+        median_quad_detail::checkArguments<DPP>(details);
+        DPP::exec(details, iOps...);
+    }
+};
 
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
-// Enqueues the execution on the stream, which starts it after the previous
-// executions of the stream, and returns. The buffers of the IOps must stay
-// valid until stream.sync(), and the output must not alias the input.
-template <typename DPP, typename... IOps>
-FK_HOST_STATIC void executeMedianQuad(
-        Stream_<ParArch::CPU_MULTITHREAD>& stream,
-        const MedianQuadDetails& details,
-        const IOps&... iOps) {
-    static_assert(DPP::PAR_ARCH == ParArch::CPU_MULTITHREAD,
-                  "CPU_MULTITHREAD stream requires the CPU_MULTITHREAD "
-                  "MedianQuadDPP specialization");
-    if (!DPP::accepts(details)) return;
-    stream.enqueue([details, iOps...](
-                       const cpu_multithread::Completion& done) {
-        DPP::exec(done, details, iOps...);
-    });
-}
+template <typename T, int EX, int EY, int KW, int KH>
+struct Executor<MedianQuadDPP<ParArch::CPU_MULTITHREAD, T, EX, EY, KW, KH>> {
+  private:
+    using DPP = MedianQuadDPP<ParArch::CPU_MULTITHREAD, T, EX, EY, KW, KH>;
+    using SelfType = Executor<DPP>;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::CPU_MULTITHREAD; }
+    // Enqueues the execution on the stream and returns. The buffers the IOps use must stay valid until it has finished
+    // (for instance, until stream.sync()), and the output must not alias the input.
+    template <typename... IOps>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::CPU_MULTITHREAD>& stream, const MedianQuadDetails& details,
+                                          const IOps&... iOps) {
+        median_quad_detail::checkArguments<DPP>(details);
+        stream.enqueue([details, iOps...](const cpu_multithread::Completion& done) {
+            DPP::exec(done, details, iOps...);
+        });
+    }
+};
 #endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+
+#if defined(__NVCC__) || defined(__HIPCC__)
+template <ParArch PA, typename T, int EX, int EY, int KW, int KH>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
+struct Executor<MedianQuadDPP<PA, T, EX, EY, KW, KH>> {
+  private:
+    using DPP = MedianQuadDPP<PA, T, EX, EY, KW, KH>;
+    using SelfType = Executor<DPP>;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return PA; }
+    template <typename... IOps>
+    FK_HOST_STATIC void executeOperations(Stream_<PA>& stream, const MedianQuadDetails& details, const IOps&... iOps) {
+        median_quad_detail::checkArguments<DPP>(details);
+        const auto launch = DPP::launchConfig(details);
+#if defined(__HIPCC__)
+        launchDPP_Kernel<DPP><<<launch.blocks, launch.threads, 0, stream.getHIPStream()>>>(details, iOps...);
+        gpuErrchk(hipGetLastError());
+#else
+        launchDPP_Kernel<DPP><<<launch.blocks, launch.threads, 0, stream.getCUDAStream()>>>(details, iOps...);
+        gpuErrchk(cudaGetLastError());
+#endif
+    }
+};
+#endif // defined(__NVCC__) || defined(__HIPCC__)
 
 } // namespace fk
 
