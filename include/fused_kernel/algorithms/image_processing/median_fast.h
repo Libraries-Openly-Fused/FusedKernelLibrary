@@ -547,7 +547,7 @@ namespace median_quad_detail {
 template <typename DPP, typename... IOps>
 FK_HOST_FUSE void checkArguments(const MedianQuadDetails& details, const IOps&... iOps) {
     executor_detail::requireArguments(DPP::accepts(details), "MedianQuadDPP",
-        "details it does not accept (the kernel size, or its maximum at run time)");
+        "details it does not accept (DPP::accepts: the kernel size and the anchor)");
     executor_detail::requireArguments(neighborhood_detail::canRunIOps(iOps...), "MedianQuadDPP",
         "the input read is empty, or the write's planes differ from the read's images");
 }
