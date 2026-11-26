@@ -2037,8 +2037,9 @@ inline int flashAttentionMmaSplits(const int batchHeads, const int seqQ, const i
     if (sparse.mask != nullptr) {
         return 1;
     }
-    attention_mma_detail::setDynamicSharedMemory<MmaDPP>();
     static const int wave = [] {
+        // once per MmaDPP type, before the occupancy query: the executor sets the attribute again before each launch
+        attention_mma_detail::setDynamicSharedMemory<MmaDPP>();
         int bpm = 0, dev = 0, sms = 0;
         cudaOccupancyMaxActiveBlocksPerMultiprocessor(&bpm, launchDPP_Kernel<MmaDPP, typename MmaDPP::Params>,
                                                       MmaDPP::THREADS, MmaDPP::SMEM_BYTES);
