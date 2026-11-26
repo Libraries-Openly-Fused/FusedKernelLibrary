@@ -25,6 +25,10 @@
 #include <fused_kernel/core/execution_model/stream.h>
 
 #include <cstdint>
+#if !defined(NVRTC_COMPILER)
+#include <stdexcept>
+#include <string>
+#endif
 
 #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
 #include <fused_kernel/core/execution_model/executor_details/executor_kernels.h>
@@ -170,6 +174,19 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                       "Only GPU_NVIDIA and CPU supported");
 #endif
     };
+#endif
+
+#if !defined(NVRTC_COMPILER)
+    namespace executor_detail {
+        // The executors of the DPPs that take details check them, and their IOps, on the host before anything is
+        // launched or enqueued: an invalid argument throws std::invalid_argument, naming the DPP and what is wrong
+        // (Oscar's decision, 2026-11-26)
+        inline void requireArguments(const bool valid, const char* dpp, const char* what) {
+            if (!valid) {
+                throw std::invalid_argument(std::string(dpp) + ": " + what);
+            }
+        }
+    } // namespace executor_detail
 #endif
 
     // Thread fusion reads and writes whole BiggerType vectors, so the pointer and the pitches
@@ -465,7 +482,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
 
             const dim3 block{ ctx_block.x, ctx_block.y, 1 };
             const dim3 grid = computeGrid(activeThreads, block);
-            launchTransformDPP_Kernel<ParArch::GPU_NVIDIA, TFEN_, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
+            launchDPP_Kernel<TransformDPP<ParArch::GPU_NVIDIA, TFEN_, TDPPDetails, true>><<<grid, block, 0, stream>>>(tDetails, iOps...);
             gpuErrchk(cudaGetLastError());
         }
         template <typename... IOps>
@@ -482,7 +499,8 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             const cudaStream_t stream = stream_.getCUDAStream();
             constexpr ParArch PA = ParArch::GPU_NVIDIA;
             const auto tDetails = TransformDPP<PA, TFEN>::build_details(iOps...);
-            if constexpr (decltype(tDetails)::TFI::ENABLED) {
+            using TDPPDetails = std::decay_t<decltype(tDetails)>;
+            if constexpr (TDPPDetails::TFI::ENABLED) {
                 if (!areThreadFusionAccessesAligned<typename std::decay_t<decltype(tDetails)>::TFI>(iOps...)) {
                     // Pointers or pitches not aligned to the thread fusion vector types, e.g. device tensors
                     // with odd widths or views into user memory: launch the non thread fused kernel instead
@@ -497,10 +515,10 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                 const dim3 block{ ctx_block.x, ctx_block.y, 1 };
                 const dim3 grid = computeGrid(activeThreads, block);
                 if (!tDetails.threadDivisible) {
-                    launchTransformDPP_Kernel<ParArch::GPU_NVIDIA, TFEN, false><<<grid, block, 0, stream>>>(tDetails, iOps...);
+                    launchDPP_Kernel<TransformDPP<ParArch::GPU_NVIDIA, TFEN, TDPPDetails, false>><<<grid, block, 0, stream>>>(tDetails, iOps...);
                     gpuErrchk(cudaGetLastError());
                 } else {
-                    launchTransformDPP_Kernel<ParArch::GPU_NVIDIA, TFEN, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
+                    launchDPP_Kernel<TransformDPP<ParArch::GPU_NVIDIA, TFEN, TDPPDetails, true>><<<grid, block, 0, stream>>>(tDetails, iOps...);
                     gpuErrchk(cudaGetLastError());
                 }
             } else {
@@ -547,7 +565,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
 
             const dim3 block(cxp::min::f(activeThreads.x, 32u), cxp::min::f(activeThreads.y, 8u));
             const dim3 grid = computeGrid(activeThreads, block);
-            launchDivergentBatchTransformDPP_Kernel<ParArch::GPU_NVIDIA, SequenceSelector><<<grid, block, 0, stream.getCUDAStream()>>>(details, iOpSequences...);
+            launchDPP_Kernel<DPPType><<<grid, block, 0, stream.getCUDAStream()>>>(details, iOpSequences...);
             gpuErrchk(cudaGetLastError());
         }
 
@@ -583,7 +601,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
 
             const dim3 block{ ctx_block.x, ctx_block.y, 1 };
             const dim3 grid = computeGrid(activeThreads, block);
-            launchTransformDPP_Kernel<ParArch::GPU_AMD, TFEN_, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
+            launchDPP_Kernel<TransformDPP<ParArch::GPU_AMD, TFEN_, TDPPDetails, true>><<<grid, block, 0, stream>>>(tDetails, iOps...);
             gpuErrchk(hipGetLastError());
         }
         template <typename... IOps>
@@ -600,7 +618,8 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             const hipStream_t stream = stream_.getHIPStream();
             constexpr ParArch PA = ParArch::GPU_AMD;
             const auto tDetails = TransformDPP<PA, TFEN>::build_details(iOps...);
-            if constexpr (decltype(tDetails)::TFI::ENABLED) {
+            using TDPPDetails = std::decay_t<decltype(tDetails)>;
+            if constexpr (TDPPDetails::TFI::ENABLED) {
                 if (!areThreadFusionAccessesAligned<typename std::decay_t<decltype(tDetails)>::TFI>(iOps...)) {
                     // Pointers or pitches not aligned to the thread fusion vector types, e.g. device tensors
                     // with odd widths or views into user memory: launch the non thread fused kernel instead
@@ -615,10 +634,10 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                 const dim3 block{ ctx_block.x, ctx_block.y, 1 };
                 const dim3 grid = computeGrid(activeThreads, block);
                 if (!tDetails.threadDivisible) {
-                    launchTransformDPP_Kernel<ParArch::GPU_AMD, TFEN, false><<<grid, block, 0, stream>>>(tDetails, iOps...);
+                    launchDPP_Kernel<TransformDPP<ParArch::GPU_AMD, TFEN, TDPPDetails, false>><<<grid, block, 0, stream>>>(tDetails, iOps...);
                     gpuErrchk(hipGetLastError());
                 } else {
-                    launchTransformDPP_Kernel<ParArch::GPU_AMD, TFEN, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
+                    launchDPP_Kernel<TransformDPP<ParArch::GPU_AMD, TFEN, TDPPDetails, true>><<<grid, block, 0, stream>>>(tDetails, iOps...);
                     gpuErrchk(hipGetLastError());
                 }
             } else {
@@ -665,7 +684,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
 
             const dim3 block(cxp::min::f(activeThreads.x, 32u), cxp::min::f(activeThreads.y, 8u));
             const dim3 grid = computeGrid(activeThreads, block);
-            launchDivergentBatchTransformDPP_Kernel<ParArch::GPU_AMD, SequenceSelector><<<grid, block, 0, stream.getHIPStream()>>>(details, iOpSequences...);
+            launchDPP_Kernel<DPPType><<<grid, block, 0, stream.getHIPStream()>>>(details, iOpSequences...);
             gpuErrchk(hipGetLastError());
         }
 

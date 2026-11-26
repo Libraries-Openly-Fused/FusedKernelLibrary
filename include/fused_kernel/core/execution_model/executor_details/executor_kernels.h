@@ -17,16 +17,14 @@
 
 #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
 namespace fk {
-template <ParArch PA, typename SequenceSelector, typename DPPDetails, typename... IOpSequences>
-__global__ void launchDivergentBatchTransformDPP_Kernel(const __grid_constant__ DPPDetails details,
-                                                        const __grid_constant__ IOpSequences... iOpSequences) {
-    DivergentBatchTransformDPP<PA, SequenceSelector>::exec(details, iOpSequences...);
-}
-
-template <ParArch PA, TF TFEN, bool THREAD_DIVISIBLE, typename TDPPDetails, typename... IOps>
-__global__ void launchTransformDPP_Kernel(const __grid_constant__ TDPPDetails tDPPDetails,
-                                          const __grid_constant__ IOps... operations) {
-    TransformDPP<PA, TFEN, TDPPDetails, THREAD_DIVISIBLE>::exec(tDPPDetails, operations...);
+// The kernel of every DPP: executeOperations<DPP>(stream, ...) launches launchDPP_Kernel<DPP> with the DPP's details (or
+// Params) and IOps, and the kernel only calls DPP::exec with them. The DPP is the first template argument, so the kernel's
+// name says which DPP it runs; DPPDetails and IOps are deduced from the launch arguments. Every parameter is
+// __grid_constant__: read in place from the parameter space, never copied to a local (Oscar's decision, 2026-11-26).
+template <typename DPP, typename DPPDetails, typename... IOps>
+__global__ void launchDPP_Kernel(const __grid_constant__ DPPDetails details,
+                                 const __grid_constant__ IOps... iOps) {
+    DPP::exec(details, iOps...);
 }
 
 } // namespace fk
