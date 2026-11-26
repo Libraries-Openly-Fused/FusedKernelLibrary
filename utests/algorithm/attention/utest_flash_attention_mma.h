@@ -157,29 +157,31 @@ static void testMma(const char* name, const int bh, const int seqQ, const int se
     report((base + " MMA vs SIMT").c_str(), errMmaSimt, tolSimt);
 }
 
-/* The split-KV pair against the unsplit DPP: FlashAttentionMmaSplitKVDPP writes the unnormalized partials of `splits` KV
- * chunks, its CombineDPP merges them and applies the epilogue, as the unsplit FlashAttentionMmaDPP does in its single
- * write. Both run the same tiles on the same bf16 inputs, with the epilogue o * 2 + 0.5 and with the identity; the split
- * only changes the order of the fp32 sums, so the outputs agree to within accumulation rounding, while an epilogue the
- * combine dropped would differ by about |o + 0.5| (the bound below is far under that). The shapes are under-filled
- * (bh * numQ is a few blocks and every q-block has at least 8 KV tiles), so flashAttentionMmaSplits splits them. */
+/* The split-KV pair: FlashAttentionMmaSplitKVDPP writes the unnormalized partials of `splits` KV chunks and its CombineDPP
+ * merges them and applies the epilogue, as the unsplit FlashAttentionMmaDPP does in its single write. On the bf16-rounded inputs,
+ * against the double oracle, with the bound of the unsplit kernel (tol): the split only changes the maximum each probability is
+ * computed against before its bf16 rounding, so its error is of the same order. With the epilogue o * 2 + 0.5 the output must be
+ * within 2 * tol of 2 * oracle + 0.5 (the unsplit DPP's too): an epilogue the combine dropped would miss it by about |o + 0.5|, far more.
+ * The shapes are under-filled (bh * numQ is a few blocks and every q-block has at least 8 KV tiles), so flashAttentionMmaSplits must
+ * split them. */
 template <int HEAD_DIM>
-static void testMmaSplit(const char* name, const int bh, const int seqQ, const int seqK, const bool causal,
+static void testMmaSplit(const char* name, const int bh, const int seqQ, const int seqK, const bool causal, const double tol,
                          const unsigned seed) {
-    constexpr double TOL = 1e-4;
     std::mt19937 rng(seed);
     std::uniform_real_distribution<float> dist(-1.f, 1.f);
     const size_t nQ = (size_t)bh * seqQ * HEAD_DIM, nK = (size_t)bh * seqK * HEAD_DIM;
     std::vector<__nv_bfloat16> hbq(nQ), hbk(nK), hbv(nK);
-    for (auto& x : hbq) x = __float2bfloat16(dist(rng));
-    for (auto& x : hbk) x = __float2bfloat16(dist(rng));
-    for (auto& x : hbv) x = __float2bfloat16(dist(rng));
+    std::vector<double> dq(nQ), dk(nK), dv(nK), dref;
+    for (size_t i = 0; i < nQ; ++i) { hbq[i] = __float2bfloat16(dist(rng)); dq[i] = __bfloat162float(hbq[i]); }
+    for (size_t i = 0; i < nK; ++i) { hbk[i] = __float2bfloat16(dist(rng)); dk[i] = __bfloat162float(hbk[i]); }
+    for (size_t i = 0; i < nK; ++i) { hbv[i] = __float2bfloat16(dist(rng)); dv[i] = __bfloat162float(hbv[i]); }
+    cpuAttention(dq, dk, dv, dref, bh, seqQ, seqK, HEAD_DIM, 1.0 / std::sqrt((double)HEAD_DIM), causal);
     __nv_bfloat16 *bq, *bk, *bv;
-    float *oRef, *oSplit, *oRefId, *oSplitId;
+    float *oRef, *oSplit, *oSplitId;
     gpuErrchk(cudaMalloc(&bq, nQ * sizeof(__nv_bfloat16)));
     gpuErrchk(cudaMalloc(&bk, nK * sizeof(__nv_bfloat16)));
     gpuErrchk(cudaMalloc(&bv, nK * sizeof(__nv_bfloat16)));
-    for (float** p : {&oRef, &oSplit, &oRefId, &oSplitId}) {
+    for (float** p : {&oRef, &oSplit, &oSplitId}) {
         gpuErrchk(cudaMalloc(p, nQ * sizeof(float)));
         gpuErrchk(cudaMemset(*p, 0xff, nQ * sizeof(float)));   // NaN pattern: an element not written fails the comparison
     }
@@ -195,8 +197,6 @@ static void testMmaSplit(const char* name, const int bh, const int seqQ, const i
     using Epi = std::decay_t<decltype(epilogue)>;
     using MmaDPP = FlashAttentionMmaDPP<ParArch::GPU_NVIDIA, float, HEAD_DIM, Raw, Raw, Raw, Epi, 64, 64, 4>;
     using SplitDPP = FlashAttentionMmaSplitKVDPP<ParArch::GPU_NVIDIA, float, HEAD_DIM, Raw, Raw, Raw, Epi, 64, 64, 4>;
-    using MmaIdDPP = FlashAttentionMmaDPP<ParArch::GPU_NVIDIA, float, HEAD_DIM, Raw, Raw, Raw,
-                                          AttentionIdentityEpilogue, 64, 64, 4>;
     using SplitIdDPP = FlashAttentionMmaSplitKVDPP<ParArch::GPU_NVIDIA, float, HEAD_DIM, Raw, Raw, Raw,
                                                    AttentionIdentityEpilogue, 64, 64, 4>;
     static_assert(std::is_same_v<typename SplitDPP::CombineDPP,
@@ -216,31 +216,27 @@ static void testMmaSplit(const char* name, const int bh, const int seqQ, const i
     executeOperations<MmaDPP>(stream, qRaw, kRaw, vRaw, oRef, bh, seqQ, seqK, causal, -1.f, epilogue);
     executeOperations<SplitDPP>(stream, qRaw, kRaw, vRaw, partial, s, bh, seqQ, seqK, causal, -1.f, epilogue);
     executeOperations<typename SplitDPP::CombineDPP>(stream, partial, oSplit, bh, seqQ, s, epilogue);
-    executeOperations<MmaIdDPP>(stream, qRaw, kRaw, vRaw, oRefId, bh, seqQ, seqK, causal);
     executeOperations<SplitIdDPP>(stream, qRaw, kRaw, vRaw, partial, s, bh, seqQ, seqK, causal);
     executeOperations<typename SplitIdDPP::CombineDPP>(stream, partial, oSplitId, bh, seqQ, s);
     stream.sync();
     gpuErrchk(cudaGetLastError());
 
-    std::vector<float> ref(nQ), split(nQ), refId(nQ), splitId(nQ);
+    std::vector<float> ref(nQ), split(nQ), splitId(nQ);
     gpuErrchk(cudaMemcpy(ref.data(), oRef, nQ * sizeof(float), cudaMemcpyDeviceToHost));
     gpuErrchk(cudaMemcpy(split.data(), oSplit, nQ * sizeof(float), cudaMemcpyDeviceToHost));
-    gpuErrchk(cudaMemcpy(refId.data(), oRefId, nQ * sizeof(float), cudaMemcpyDeviceToHost));
     gpuErrchk(cudaMemcpy(splitId.data(), oSplitId, nQ * sizeof(float), cudaMemcpyDeviceToHost));
-    cudaFree(bq); cudaFree(bk); cudaFree(bv); cudaFree(oRef); cudaFree(oSplit); cudaFree(oRefId); cudaFree(oSplitId);
-    cudaFree(partial);
-    double err = 0.0, errId = 0.0, errEpi = 0.0;
+    cudaFree(bq); cudaFree(bk); cudaFree(bv); cudaFree(oRef); cudaFree(oSplit); cudaFree(oSplitId); cudaFree(partial);
+    double errSplitId = 0.0, errSplit = 0.0, errRef = 0.0;
     for (size_t i = 0; i < nQ; ++i) {
-        err = std::max(err, std::isnan(split[i]) || std::isnan(ref[i]) ? 1e300 : std::abs((double)split[i] - ref[i]));
-        errId = std::max(errId, std::isnan(splitId[i]) || std::isnan(refId[i]) ? 1e300
-                                                                              : std::abs((double)splitId[i] - refId[i]));
-        // the epilogue of the unsplit DPP is o * 2 + 0.5 of its identity output (in fp32, so up to rounding)
-        errEpi = std::max(errEpi, std::abs((double)ref[i] - (2.0 * refId[i] + 0.5)));
+        const double withEpilogue = 2.0 * dref[i] + 0.5;
+        errSplitId = std::max(errSplitId, std::isnan(splitId[i]) ? 1e300 : std::abs((double)splitId[i] - dref[i]));
+        errSplit = std::max(errSplit, std::isnan(split[i]) ? 1e300 : std::abs((double)split[i] - withEpilogue));
+        errRef = std::max(errRef, std::isnan(ref[i]) ? 1e300 : std::abs((double)ref[i] - withEpilogue));
     }
     const std::string base = name;
-    report((base + " split + combine vs unsplit, epilogue o*2+0.5").c_str(), err, TOL);
-    report((base + " split + combine vs unsplit, identity epilogue").c_str(), errId, TOL);
-    report((base + " unsplit epilogue vs identity * 2 + 0.5").c_str(), errEpi, TOL);
+    report((base + " split + combine vs double oracle").c_str(), errSplitId, tol);
+    report((base + " split + combine, epilogue o*2+0.5, vs 2*oracle+0.5").c_str(), errSplit, 2 * tol);
+    report((base + " unsplit, epilogue o*2+0.5, vs 2*oracle+0.5").c_str(), errRef, 2 * tol);
 }
 
 int launch() {
@@ -261,9 +257,9 @@ int launch() {
     testMma<128>("FA-MMA dense d128 b1 s128", 1, 128, 128, false, TOL, TOL, 15);
     testMma<128>("FA-MMA causal d128 b2 s200", 2, 200, 200, true, TOL, TOL, 16);
     testMma<128>("FA-MMA dense d128 ragged s70/s300", 2, 70, 300, false, TOL, TOL, 17);
-    testMmaSplit<64>("FA-MMA split-KV d64 b2 s64->s1024", 2, 64, 1024, false, 21);
-    testMmaSplit<64>("FA-MMA split-KV causal d64 b1 s1024", 1, 1024, 1024, true, 22);
-    testMmaSplit<128>("FA-MMA split-KV d128 ragged b2 s70->s1500", 2, 70, 1500, false, 23);
+    testMmaSplit<64>("FA-MMA split-KV d64 b2 s64->s1024", 2, 64, 1024, false, TOL, 21);
+    testMmaSplit<64>("FA-MMA split-KV causal d64 b1 s1024", 1, 1024, 1024, true, TOL, 22);
+    testMmaSplit<128>("FA-MMA split-KV d128 ragged b2 s70->s1500", 2, 70, 1500, false, TOL, 23);
     if (failures == 0) { return 0; }
     std::cout << failures << " FlashAttentionMmaDPP check(s) FAILED" << std::endl;
     return -1;
