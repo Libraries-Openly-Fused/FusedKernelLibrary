@@ -22,6 +22,7 @@
 #include <cmath>
 #include <iostream>
 #include <random>
+#include <type_traits>
 #include <vector>
 
 using namespace fk;
@@ -92,7 +93,12 @@ static void testDense(const char* name, const int bh, const int seqQ, const int 
     gpuErrchk(cudaMemcpy(v, hv.data(), nK * sizeof(float), cudaMemcpyHostToDevice));
 
     Stream stream;
-    executeFlashAttention<float, HEAD_DIM>(q, k, v, o, bh, seqQ, seqK, causal, stream);
+    const auto qRead = makeAttentionRead(q, bh, seqQ, HEAD_DIM);
+    const auto kRead = makeAttentionRead(k, bh, seqK, HEAD_DIM);
+    const auto vRead = makeAttentionRead(v, bh, seqK, HEAD_DIM);
+    executeOperations<FlashAttentionDPP<ParArch::GPU_NVIDIA, float, HEAD_DIM, std::decay_t<decltype(qRead)>,
+                                        std::decay_t<decltype(kRead)>, std::decay_t<decltype(vRead)>>>(
+        stream, qRead, kRead, vRead, o, bh, seqQ, seqK, causal);
     stream.sync();
 
     std::vector<float> got(nQ);
@@ -146,8 +152,13 @@ static void testInt8KV(const char* name, const int bh, const int seqQ, const int
     gpuErrchk(cudaMemcpy(dvS, vSc.data(), nTok * sizeof(float), cudaMemcpyHostToDevice));
 
     Stream stream;
-    executeFlashAttention<float, HEAD_DIM, KVLayout::INT8_PER_TOKEN>(
-        q, dk8, dv8, o, bh, seqQ, seqK, causal, stream, dkS, dvS);
+    // K and V as int8 with one fp32 scale per token, dequantised by their read
+    const auto qRead = makeAttentionRead(q, bh, seqQ, HEAD_DIM);
+    const auto kRead = makeInt8KVRead(dk8, dkS, bh, seqK, HEAD_DIM);
+    const auto vRead = makeInt8KVRead(dv8, dvS, bh, seqK, HEAD_DIM);
+    executeOperations<FlashAttentionDPP<ParArch::GPU_NVIDIA, float, HEAD_DIM, std::decay_t<decltype(qRead)>,
+                                        std::decay_t<decltype(kRead)>, std::decay_t<decltype(vRead)>>>(
+        stream, qRead, kRead, vRead, o, bh, seqQ, seqK, causal);
     stream.sync();
 
     std::vector<float> got(nQ);
@@ -181,10 +192,18 @@ static void testFusedEpilogue() {
     gpuErrchk(cudaMemcpy(v, hv.data(), n * sizeof(float), cudaMemcpyHostToDevice));
 
     Stream stream;
-    executeFlashAttention<float, HEAD_DIM>(q, k, v, o1, BH, SQ, SK, false, stream);
+    const auto qRead = makeAttentionRead(q, BH, SQ, HEAD_DIM);
+    const auto kRead = makeAttentionRead(k, BH, SK, HEAD_DIM);
+    const auto vRead = makeAttentionRead(v, BH, SK, HEAD_DIM);
+    using QRead = std::decay_t<decltype(qRead)>;
+    using KRead = std::decay_t<decltype(kRead)>;
+    using VRead = std::decay_t<decltype(vRead)>;
+    executeOperations<FlashAttentionDPP<ParArch::GPU_NVIDIA, float, HEAD_DIM, QRead, KRead, VRead>>(
+        stream, qRead, kRead, vRead, o1, BH, SQ, SK, false);
     const auto epilogue = Mul<float>::build(2.f).then(Add<float>::build(0.5f));
-    executeFlashAttention<float, HEAD_DIM, KVLayout::DENSE, 32, 4>(
-        q, k, v, o2, BH, SQ, SK, false, stream, nullptr, nullptr, -1.f, epilogue);
+    executeOperations<FlashAttentionDPP<ParArch::GPU_NVIDIA, float, HEAD_DIM, QRead, KRead, VRead,
+                                        std::decay_t<decltype(epilogue)>, 32, 4>>(
+        stream, qRead, kRead, vRead, o2, BH, SQ, SK, false, -1.f, epilogue);
     stream.sync();
 
     std::vector<float> g1(n), g2(n);
@@ -234,8 +253,9 @@ static void testFusedPrologue() {
                               .then(Mul<float>::build(2.f));
         const auto kIOp = makeAttentionRead(k, BH, SK, HEAD_DIM);
         const auto vIOp = makeAttentionRead(v, BH, SK, HEAD_DIM);
-        executeFlashAttention<HEAD_DIM>(qIOp, kIOp, vIOp, o, BH, SQ, SK,
-                                        false, stream);
+        executeOperations<FlashAttentionDPP<ParArch::GPU_NVIDIA, float, HEAD_DIM, std::decay_t<decltype(qIOp)>,
+                                            std::decay_t<decltype(kIOp)>, std::decay_t<decltype(vIOp)>>>(
+            stream, qIOp, kIOp, vIOp, o, BH, SQ, SK, false);
         stream.sync();
         std::vector<float> got(nQ);
         gpuErrchk(cudaMemcpy(got.data(), o, nQ * sizeof(float), cudaMemcpyDeviceToHost));
@@ -254,8 +274,9 @@ static void testFusedPrologue() {
         const auto vIOp = makeAttentionRead(v, BH, SK, HEAD_DIM)
                               .then(Mul<float>::build(3.f))
                               .then(Add<float>::build(1.f));
-        executeFlashAttention<HEAD_DIM>(qIOp, kIOp, vIOp, o, BH, SQ, SK,
-                                        false, stream);
+        executeOperations<FlashAttentionDPP<ParArch::GPU_NVIDIA, float, HEAD_DIM, std::decay_t<decltype(qIOp)>,
+                                            std::decay_t<decltype(kIOp)>, std::decay_t<decltype(vIOp)>>>(
+            stream, qIOp, kIOp, vIOp, o, BH, SQ, SK, false);
         stream.sync();
         std::vector<float> got(nQ);
         gpuErrchk(cudaMemcpy(got.data(), o, nQ * sizeof(float), cudaMemcpyDeviceToHost));

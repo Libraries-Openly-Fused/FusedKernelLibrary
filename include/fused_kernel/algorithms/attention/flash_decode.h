@@ -41,13 +41,17 @@
 
 namespace fk {
 
-template <typename OT, int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp,
+template <ParArch PA, typename OT, int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp,
           int NUM_WARPS = 8>
-struct FlashDecodeDPP {
+struct FlashDecodeDPP;
+
+template <typename OT, int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp, int NUM_WARPS>
+struct FlashDecodeDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp, NUM_WARPS> {
 private:
-    using SelfType = FlashDecodeDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp, NUM_WARPS>;
+    using SelfType = FlashDecodeDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp, NUM_WARPS>;
 public:
     FK_STATIC_STRUCT(FlashDecodeDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
 
     static_assert(HEAD_DIM % 32 == 0, "HEAD_DIM must be a multiple of 32");
     static constexpr int THREADS = NUM_WARPS * 32;
@@ -248,14 +252,6 @@ public:
     }
 };
 
-template <typename OT, int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp,
-          int NUM_WARPS>
-__global__ void launchFlashDecodeDPP_Kernel(
-        const __grid_constant__ typename FlashDecodeDPP<
-            OT, HEAD_DIM, QIOp, KIOp, VIOp, NUM_WARPS>::Params params) {
-    FlashDecodeDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp, NUM_WARPS>::exec(params);
-}
-
 // split-merge: one block per bh row; exact online-softmax combine.
 template <typename OT, int HEAD_DIM>
 __global__ void flashDecodeMerge_Kernel(const float* partial, OT* o,
@@ -302,35 +298,43 @@ inline size_t flashDecodeWorkspaceFloats(const int batchHeads, const int splits,
     return (size_t)batchHeads * splits * (headDim + 2) + batchHeads;
 }
 
-template <int HEAD_DIM, int NUM_WARPS = 8, typename OT = float,
-          typename QIOp, typename KIOp, typename VIOp>
-inline void executeFlashDecode(
-        const QIOp& q, const KIOp& k, const VIOp& v, OT* o,
-        float* workspace /* flashDecodeWorkspaceFloats(); zeroed at alloc;
-                            nullptr ok if splits==1 */,
-        const int batchHeads, const int seqK,
-        Stream_<ParArch::GPU_NVIDIA>& stream,
-        const float scaleOverride = -1.f, const int splitsOverride = 0) {
-    using DPP = FlashDecodeDPP<OT, HEAD_DIM, QIOp, KIOp, VIOp, NUM_WARPS>;
-    const float scale = scaleOverride > 0.f ? scaleOverride
-                                            : rsqrtf(static_cast<float>(HEAD_DIM));
-    const int splits = splitsOverride > 0 ? splitsOverride
-                                          : flashDecodeSplits(batchHeads, seqK);
-    // counters live after the partials (reinterpreted as uint32)
-    unsigned int* counters = (splits > 1)
-        ? reinterpret_cast<unsigned int*>(
-              workspace + (size_t)batchHeads * splits * (HEAD_DIM + 2))
-        : nullptr;
-    const typename DPP::Params params{ q, k, v, workspace, counters, o,
-                                       seqK, splits, scale };
-    const dim3 grid(splits, batchHeads, 1);
-    // single kernel: the split merge is FUSED (last-CTA-arrives pattern) —
-    // profiling showed the separate 1.4us merge kernel + launch gap was pure
-    // overhead at decode latencies.
-    launchFlashDecodeDPP_Kernel<OT, HEAD_DIM, QIOp, KIOp, VIOp, NUM_WARPS>
-        <<<grid, DPP::THREADS, 0, stream.getCUDAStream()>>>(params);
-    gpuErrchk(cudaGetLastError());
-}
+// The executor of FlashDecodeDPP:
+//   executeOperations<FlashDecodeDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp, NUM_WARPS>>(stream, q, k, v,
+//       o, workspace, batchHeads, seqK [, scaleOverride = -1 (rsqrt(HEAD_DIM)), splitsOverride = 0 (flashDecodeSplits)])
+// One kernel: the split merge is fused (the last CTA of a row to arrive merges it). workspace holds
+// flashDecodeWorkspaceFloats(batchHeads, splits, HEAD_DIM) floats, zeroed once after its allocation; nullptr is fine
+// with one split.
+template <typename OT, int HEAD_DIM, typename QIOp, typename KIOp, typename VIOp, int NUM_WARPS>
+struct Executor<FlashDecodeDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp, NUM_WARPS>> {
+private:
+    using DPP = FlashDecodeDPP<ParArch::GPU_NVIDIA, OT, HEAD_DIM, QIOp, KIOp, VIOp, NUM_WARPS>;
+    using SelfType = Executor<DPP>;
+public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_NVIDIA; }
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_NVIDIA>& stream, const QIOp& q, const KIOp& k,
+                                          const VIOp& v, OT* o, float* workspace, const int batchHeads,
+                                          const int seqK, const float scaleOverride = -1.f,
+                                          const int splitsOverride = 0) {
+        const float scale = scaleOverride > 0.f ? scaleOverride
+                                                : rsqrtf(static_cast<float>(HEAD_DIM));
+        const int splits = splitsOverride > 0 ? splitsOverride
+                                              : flashDecodeSplits(batchHeads, seqK);
+        // counters live after the partials (reinterpreted as uint32)
+        unsigned int* counters = (splits > 1)
+            ? reinterpret_cast<unsigned int*>(
+                  workspace + (size_t)batchHeads * splits * (HEAD_DIM + 2))
+            : nullptr;
+        const typename DPP::Params params{ q, k, v, workspace, counters, o,
+                                           seqK, splits, scale };
+        const dim3 grid(splits, batchHeads, 1);
+        // single kernel: the split merge is FUSED (last-CTA-arrives pattern) —
+        // profiling showed the separate 1.4us merge kernel + launch gap was pure
+        // overhead at decode latencies.
+        launchDPP_Kernel<DPP><<<grid, DPP::THREADS, 0, stream.getCUDAStream()>>>(params);
+        gpuErrchk(cudaGetLastError());
+    }
+};
 
 } // namespace fk
 
