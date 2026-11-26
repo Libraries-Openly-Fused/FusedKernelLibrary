@@ -22,6 +22,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <stdexcept>
 #include <vector>
 
 namespace fk {
@@ -34,6 +35,25 @@ using AddIOp = decltype(Add<float, float, float, UnaryType>::build());
 using SubIOp = decltype(Sub<float, float, float, UnaryType>::build());
 
 enum class Arithmetic { NORMAL, MUTATE_MUL_TO_ADD, MUTATE_ADD_TO_SUB };
+
+// Whether run() throws std::invalid_argument, as the executors do for invalid arguments before running anything
+template <typename Run>
+bool throwsInvalidArgument(const Run& run) {
+    try {
+        run();
+    } catch (const std::invalid_argument&) {
+        return true;
+    }
+    return false;
+}
+
+// The arguments after the details of a box filter of the image read: the coefficient read is a constant
+// 1 / (kernelWidth * kernelHeight), multiplied by the image values and accumulated with Add
+template <typename ImageRead>
+auto boxFilterReads(const Details& details, const ImageRead& image) {
+    return make_tuple(image, ConstantFilterRead<float>::build(
+        1.f / static_cast<float>(details.kernelWidth * details.kernelHeight)));
+}
 
 float inputValue(const int x, const int y) {
     return static_cast<float>((x * 5 + y * 7) % 19 - 9) * 0.125f;
@@ -108,12 +128,12 @@ bool sameAsCpu(std::vector<float>& output, const Launch& launch,
     const std::vector<float> cpuResult = output;
     std::fill(output.begin(), output.end(), -999.f);
     Stream_<ParArch::CPU_MULTITHREAD> stream;
-    const bool launched = launch(stream);
+    launch(stream);
     stream.sync();
     // The per row code is the CPU one; the results may differ in the last bits
     // only, where the compiler contracts a * b + c into a fused multiply-add
     // differently
-    bool same = launched;
+    bool same = true;
     for (std::size_t i = 0; i < output.size() && same; ++i) {
         const float scale = std::max(1.f, std::fabs(cpuResult[i]));
         same = std::fabs(output[i] - cpuResult[i]) <= 1e-5f * scale;
@@ -128,19 +148,20 @@ bool sameAsCpu(std::vector<float>& output, const Launch& launch,
 #endif
 
 // Runs the filter on ParArch::CPU, writing to output, and then the same IOps
-// through executeLinearFilter on a CPU_MULTITHREAD stream, if enabled
+// on a CPU_MULTITHREAD stream, if enabled
 template <typename ImageRead, typename KernelRead,
           typename Multiply, typename Accumulate, typename Write>
 bool runCpu(const Details& details, const ImageRead& image,
             const KernelRead& kernel, const Multiply& multiply,
             const Accumulate& accumulate, const Write& write,
             std::vector<float>& output, const char* label) {
-    LinearFilterDPP<ParArch::CPU, Details>::exec(
-        details, make_tuple(image, kernel), multiply, accumulate, write);
+    Stream_<ParArch::CPU> cpuStream;
+    executeOperations<LinearFilterDPP<ParArch::CPU, Details>>(
+        cpuStream, details, make_tuple(image, kernel), multiply, accumulate, write);
 #ifdef FK_CPU_MULTITHREAD_ENABLED
     return sameAsCpu(output, [&](Stream_<ParArch::CPU_MULTITHREAD>& stream) {
-        return executeLinearFilter(details, make_tuple(image, kernel),
-                                   multiply, accumulate, write, stream);
+        executeOperations<LinearFilterDPP<ParArch::CPU_MULTITHREAD, Details>>(
+            stream, details, make_tuple(image, kernel), multiply, accumulate, write);
     }, label);
 #else
     (void)output;
@@ -213,12 +234,14 @@ bool runCase(const int width, const int height,
 #ifdef FK_CPU_MULTITHREAD_ENABLED
     if (box && !fused && !fusedKernel &&
         arithmetic == Arithmetic::NORMAL) {
-        // executeBoxFilter builds a constant coefficient Read with the value
-        // of the box kernel buffer, so it must give the same bits too
+        // A constant coefficient Read with the value of the box kernel buffer
+        // must give the same bits too
         const auto launchBox =
             [&](Stream_<ParArch::CPU_MULTITHREAD>& stream) {
-                return executeBoxFilter(details, imageBase, writeBase,
-                                        1.f, stream);
+                executeOperations<LinearFilterDPP<ParArch::CPU_MULTITHREAD, Details>>(
+                    stream, details, boxFilterReads(details, imageBase),
+                    Mul<float, float, float, UnaryType>::build(),
+                    Add<float, float, float, UnaryType>::build(), writeBase);
             };
         if (!sameAsCpu(cpuOutput, launchBox, label)) return false;
     }
@@ -244,32 +267,33 @@ bool runCase(const int width, const int height,
         PerThreadRead<ND::_2D, float>::build(gpuKernel);
     const auto gpuWriteBase =
         PerThreadWrite<ND::_2D, float>::build(gpuOutput);
-    bool launched = false;
+    using GpuDPP = LinearFilterDPP<defaultParArch, Details>;
     if (box && !fused && !fusedKernel &&
         arithmetic == Arithmetic::NORMAL) {
-        launched = executeBoxFilter(details, gpuImageBase, gpuWriteBase,
-                                    1.f, stream);
+        executeOperations<GpuDPP>(stream, details,
+            boxFilterReads(details, gpuImageBase),
+            Mul<float, float, float, UnaryType>::build(),
+            Add<float, float, float, UnaryType>::build(), gpuWriteBase);
     } else if (fused) {
         const auto imageRead = gpuImageBase.then(Mul<float>::build(2.f))
                                            .then(Add<float>::build(1.f));
         const auto kernelRead =
             gpuKernelBase.then(Mul<float>::build(0.5f));
         const auto write = Mul<float>::build(0.25f).then(gpuWriteBase);
-        launched = executeLinearFilter(
+        executeOperations<GpuDPP>(stream,
             details, make_tuple(imageRead, kernelRead),
-            multiply, accumulate, write, stream);
+            multiply, accumulate, write);
     } else if (fusedKernel) {
         const auto kernelRead =
             gpuKernelBase.then(Mul<float>::build(0.5f));
-        launched = executeLinearFilter(
+        executeOperations<GpuDPP>(stream,
             details, make_tuple(gpuImageBase, kernelRead),
-            multiply, accumulate, gpuWriteBase, stream);
+            multiply, accumulate, gpuWriteBase);
     } else {
-        launched = executeLinearFilter(
+        executeOperations<GpuDPP>(stream,
             details, make_tuple(gpuImageBase, gpuKernelBase),
-            multiply, accumulate, gpuWriteBase, stream);
+            multiply, accumulate, gpuWriteBase);
     }
-    if (!launched) return false;
     gpuOutput.download(stream);
     stream.sync();
     std::vector<float> result(width * height);
@@ -304,37 +328,75 @@ int launch_impl() {
 
     const Details invalid{8, 3, 1, 1};
     if (Details::valid(invalid)) ok = false;
-#ifdef FK_CPU_MULTITHREAD_ENABLED
     {
-        // With invalid details the CPU_MULTITHREAD entry points enqueue
-        // nothing and return false, and the DPP writes nothing
+        // Invalid details, or a write with other planes than the read has
+        // images, throw std::invalid_argument on every back-end before
+        // anything runs or is enqueued, so nothing is written
         std::vector<float> image(16 * 16, 1.f);
-        std::vector<float> output(16 * 16, -999.f);
+        std::vector<float> output(2 * 16 * 16, -999.f);
         const PtrDims<ND::_2D> dims(16, 16, 16 * sizeof(float));
         const auto imageRead = PerThreadRead<ND::_2D, float>::build(
             RawPtr<ND::_2D, float>{image.data(), dims});
         const auto write = PerThreadWrite<ND::_2D, float>::build(
             RawPtr<ND::_2D, float>{output.data(), dims});
+        const auto twoPlaneWrite = PerThreadWrite<ND::_3D, float>::build(
+            RawPtr<ND::_3D, float>{output.data(),
+                PtrDims<ND::_3D>(16, 16, 2, 1, 16 * sizeof(float))});
         const auto reads =
             make_tuple(imageRead, ConstantFilterRead<float>::build(1.f));
-        Stream_<ParArch::CPU_MULTITHREAD> stream;
-        if (executeLinearFilter(invalid, reads, mul, add, write, stream) ||
-            executeBoxFilter(invalid, imageRead, write, 1.f, stream)) {
-            std::printf("CPU_MULTITHREAD accepted invalid details\n");
+        const Details valid{3, 3, 1, 1};
+        Stream_<ParArch::CPU> cpuStream;
+        if (!throwsInvalidArgument([&] {
+                executeOperations<LinearFilterDPP<ParArch::CPU, Details>>(
+                    cpuStream, invalid, reads, mul, add, write); }) ||
+            !throwsInvalidArgument([&] {
+                executeOperations<LinearFilterDPP<ParArch::CPU, Details>>(
+                    cpuStream, valid, reads, mul, add, twoPlaneWrite); })) {
+            std::printf("CPU accepted invalid arguments\n");
             ok = false;
         }
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+        Stream_<ParArch::CPU_MULTITHREAD> stream;
+        if (!throwsInvalidArgument([&] {
+                executeOperations<LinearFilterDPP<ParArch::CPU_MULTITHREAD, Details>>(
+                    stream, invalid, reads, mul, add, write); }) ||
+            !throwsInvalidArgument([&] {
+                executeOperations<LinearFilterDPP<ParArch::CPU_MULTITHREAD, Details>>(
+                    stream, invalid, boxFilterReads(invalid, imageRead), mul, add, write); }) ||
+            !throwsInvalidArgument([&] {
+                executeOperations<LinearFilterDPP<ParArch::CPU_MULTITHREAD, Details>>(
+                    stream, valid, reads, mul, add, twoPlaneWrite); })) {
+            std::printf("CPU_MULTITHREAD accepted invalid arguments\n");
+            ok = false;
+        }
+        // The DPP itself writes nothing with invalid details either
         stream.enqueue([=](const cpu_multithread::Completion& done) {
             LinearFilterDPP<ParArch::CPU_MULTITHREAD, Details>::exec(
                 done, invalid, reads, mul, add, write);
         });
         stream.sync();
+#endif
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
+        // The GPU executor checks on the host, before the launch: the
+        // pointers are never dereferenced
+        Stream gpuStream;
+        if (!throwsInvalidArgument([&] {
+                executeOperations<LinearFilterDPP<defaultParArch, Details>>(
+                    gpuStream, invalid, reads, mul, add, write); }) ||
+            !throwsInvalidArgument([&] {
+                executeOperations<LinearFilterDPP<defaultParArch, Details>>(
+                    gpuStream, valid, reads, mul, add, twoPlaneWrite); })) {
+            std::printf("GPU accepted invalid arguments\n");
+            ok = false;
+        }
+        gpuStream.sync();
+#endif
         if (std::any_of(output.begin(), output.end(),
                         [](const float value) { return value != -999.f; })) {
-            std::printf("CPU_MULTITHREAD wrote with invalid details\n");
+            std::printf("A filter wrote with invalid arguments\n");
             ok = false;
         }
     }
-#endif
     if (ok) std::printf("LinearFilterDPP contracts: PASS\n");
     return ok ? 0 : -1;
 }

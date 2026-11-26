@@ -20,7 +20,8 @@
 //   writes nothing outside each image;
 // - uchar3 and float3 images give, in every channel, the outputs of the
 //   scalar filter of that channel (the selections work per channel);
-// - a write whose planes differ from the read's images is rejected.
+// - a write whose planes differ from the read's images is rejected: the
+//   executors throw std::invalid_argument and nothing is written.
 // Every case runs on ParArch::CPU, on CPU_MULTITHREAD when it is enabled, and
 // on the GPU of the build.
 
@@ -37,6 +38,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <stdexcept>
 #include <vector>
 
 namespace fk {
@@ -78,13 +80,14 @@ struct Backend {
               typename Selection>
     bool median(const Details& details, const Read& read, const Write& write,
                 const Selection& selection) {
-        if constexpr (PA == ParArch::CPU) {
-            MedianFilterDPP<ParArch::CPU, Details>::exec(details, read, write,
-                                                         selection);
+        // true if the filter ran (or was enqueued or launched), false if the
+        // executor rejected the arguments with std::invalid_argument
+        try {
+            executeOperations<MedianFilterDPP<PA, Details>>(
+                stream, details, read, write, selection);
             return true;
-        } else {
-            return executeMedianFilter(details, read, write, selection,
-                                       stream);
+        } catch (const std::invalid_argument&) {
+            return false;
         }
     }
 };
@@ -389,7 +392,8 @@ bool planeMismatch() {
         MedianWindowSelect<float, Details::WINDOW_CAPACITY>::build());
     backend.download(twoPlanes);
     backend.sync();
-    bool ok = PA == ParArch::CPU || !ran;
+    // every back-end's executor must reject it (std::invalid_argument)
+    bool ok = !ran;
     for (int z = 0; z < 2; ++z)
         for (int y = 0; y < MAX_H; ++y)
             for (int x = 0; x < MAX_W; ++x)

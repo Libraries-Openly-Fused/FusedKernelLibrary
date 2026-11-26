@@ -159,6 +159,29 @@ bool matchesOracle(const char* backend, const char* name,
     return true;
 }
 
+// Runs MorphologyDPP<PA, D> on stream through executeOperations: true if it
+// ran (or was enqueued or launched), false if the executor rejected the
+// arguments with std::invalid_argument
+template <ParArch PA, typename D, typename ReadIOp, typename WriteIOp,
+          typename Reducers>
+bool runMorphology(Stream_<PA>& stream, const D& details, const ReadIOp& read,
+                   const WriteIOp& write, const Reducers& reducers) {
+    try {
+        executeOperations<MorphologyDPP<PA, D>>(stream, details, read, write,
+                                                reducers);
+        return true;
+    } catch (const std::invalid_argument&) {
+        return false;
+    }
+}
+
+// The stream of the ParArch::CPU executions: they run before
+// executeOperations returns
+Stream_<ParArch::CPU>& hostStream() {
+    static Stream_<ParArch::CPU> stream;
+    return stream;
+}
+
 // Runs the case with MorphologyDPP<ParArch::CPU> and returns its output in
 // result. With inPlace, the output is written over the input.
 template <typename Reducers>
@@ -171,8 +194,8 @@ bool runCpuCase(const char* name, const Details& details,
     std::vector<float> output(input.size(), -777.f);
     std::vector<float>& target = inPlace ? input : output;
 
-    MorphologyDPP<ParArch::CPU, Details>::exec(
-        details, makeRead(hostPtr(input, details)),
+    executeOperations<MorphologyDPP<ParArch::CPU, Details>>(
+        hostStream(), details, makeRead(hostPtr(input, details)),
         makeWrite(hostPtr(target, details)), reducers);
     result = target;
     return matchesOracle("CPU", name, target,
@@ -180,26 +203,13 @@ bool runCpuCase(const char* name, const Details& details,
 }
 
 #if defined(__NVCC__) || defined(FK_HIP_BACKEND) || defined(FK_CPU_MULTITHREAD_ENABLED)
-// Launches the case on stream through the entry point a user would call for
-// these reducers
+// Launches the case on stream through executeOperations
 template <typename Reducers, typename ReadIOp, typename WriteIOp,
           ParArch PA>
 bool executeCase(const Details& details, const ReadIOp& read,
                  const WriteIOp& write, const Reducers& reducers,
                  Stream_<PA>& stream) {
-    if constexpr (std::is_same_v<Reducers, Tuple<MinIOp>>) {
-        return executeErode(details, read, write, stream);
-    } else if constexpr (std::is_same_v<Reducers, Tuple<MaxIOp>>) {
-        return executeDilate(details, read, write, stream);
-    } else if constexpr (std::is_same_v<Reducers,
-                                        Tuple<MinIOp, MaxIOp>>) {
-        return executeOpen(details, read, write, stream);
-    } else if constexpr (std::is_same_v<Reducers,
-                                        Tuple<MaxIOp, MinIOp>>) {
-        return executeClose(details, read, write, stream);
-    } else {
-        return executeMorphology(details, read, write, reducers, stream);
-    }
+    return runMorphology(stream, details, read, write, reducers);
 }
 #endif
 
@@ -241,7 +251,7 @@ bool runMtCase(const char* name, const Details& details,
         makeWrite(hostPtr(target, details)), reducers, stream);
     stream.sync();
     if (!launched) {
-        std::printf("CPU_MULTITHREAD %s launcher rejected valid details\n",
+        std::printf("CPU_MULTITHREAD %s executor rejected valid details\n",
                     name);
         return false;
     }
@@ -264,11 +274,11 @@ bool runMtChained() {
     std::vector<float> cpuB(original.size(), -777.f);
     std::vector<float> cpuC(original.size(), -777.f);
     using CPUDPP = MorphologyDPP<ParArch::CPU, Details>;
-    CPUDPP::exec(details, makeRead(hostPtr(cpuA, details)),
+    executeOperations<CPUDPP>(hostStream(), details, makeRead(hostPtr(cpuA, details)),
                  makeWrite(hostPtr(cpuB, details)), make_tuple(minOp));
-    CPUDPP::exec(details, makeRead(hostPtr(cpuB, details)),
+    executeOperations<CPUDPP>(hostStream(), details, makeRead(hostPtr(cpuB, details)),
                  makeWrite(hostPtr(cpuC, details)), make_tuple(maxOp));
-    CPUDPP::exec(closeDetails, makeRead(hostPtr(cpuC, details)),
+    executeOperations<CPUDPP>(hostStream(), closeDetails, makeRead(hostPtr(cpuC, details)),
                  makeWrite(hostPtr(cpuC, details)),
                  make_tuple(maxOp, minOp));
 
@@ -276,17 +286,20 @@ bool runMtChained() {
     std::vector<float> b(original.size(), -777.f);
     std::vector<float> c(original.size(), -777.f);
     MTStream stream;
-    bool launched = executeErode(details, makeRead(hostPtr(a, details)),
-                                 makeWrite(hostPtr(b, details)), stream);
-    launched = executeDilate(details, makeRead(hostPtr(b, details)),
-                             makeWrite(hostPtr(c, details)), stream) &&
+    bool launched = runMorphology(stream, details, makeRead(hostPtr(a, details)),
+                                  makeWrite(hostPtr(b, details)),
+                                  make_tuple(MinReducer::build()));
+    launched = runMorphology(stream, details, makeRead(hostPtr(b, details)),
+                             makeWrite(hostPtr(c, details)),
+                             make_tuple(MaxReducer::build())) &&
                launched;
-    launched = executeClose(closeDetails, makeRead(hostPtr(c, details)),
-                            makeWrite(hostPtr(c, details)), stream) &&
+    launched = runMorphology(stream, closeDetails, makeRead(hostPtr(c, details)),
+                             makeWrite(hostPtr(c, details)),
+                             make_tuple(MaxReducer::build(), MinReducer::build())) &&
                launched;
     stream.sync();
     if (!launched) {
-        std::printf("CPU_MULTITHREAD chained launcher rejected valid "
+        std::printf("CPU_MULTITHREAD chained executor rejected valid "
                     "details\n");
         return false;
     }
@@ -300,7 +313,7 @@ bool runMtChained() {
                          expectedC);
 }
 
-// Invalid details are rejected by every entry point, enqueueing nothing
+// Invalid details are rejected by the executor, enqueueing nothing
 bool runMtInvalid() {
     const Details invalid{10, 10, 9, 3, 4, 1};
     std::vector<float> input(100, 1.f);
@@ -308,14 +321,15 @@ bool runMtInvalid() {
     const auto read = makeRead(hostPtr(input, invalid));
     const auto write = makeWrite(hostPtr(output, invalid));
     MTStream stream;
-    bool launched = executeErode(invalid, read, write, stream);
-    launched = executeDilate(invalid, read, write, stream) || launched;
-    launched = executeOpen(invalid, read, write, stream) || launched;
-    launched = executeClose(invalid, read, write, stream) || launched;
-    launched = executeMorphology(
-                   invalid, read, write,
-                   make_tuple(MinReducer::build(), MaxReducer::build(),
-                              MinReducer::build()), stream) || launched;
+    bool launched = runMorphology(stream, invalid, read, write, make_tuple(MinReducer::build()));
+    launched = runMorphology(stream, invalid, read, write, make_tuple(MaxReducer::build())) || launched;
+    launched = runMorphology(stream, invalid, read, write,
+                             make_tuple(MinReducer::build(), MaxReducer::build())) || launched;
+    launched = runMorphology(stream, invalid, read, write,
+                             make_tuple(MaxReducer::build(), MinReducer::build())) || launched;
+    launched = runMorphology(stream, invalid, read, write,
+                             make_tuple(MinReducer::build(), MaxReducer::build(),
+                              MinReducer::build())) || launched;
     stream.sync();
     const bool untouched = std::all_of(
         output.begin(), output.end(),
@@ -372,22 +386,23 @@ bool runMtErrors() {
     std::vector<float> input = makeInput(details);
     input[pixelIndex(20, 11, details.width)] = 13.f;
     std::vector<float> output(input.size(), -777.f);
-    executeOpen(details,
-                PerThreadRead<ND::_2D, float>::build(hostPtr(input, details))
+    runMorphology(stream, details,
+                  PerThreadRead<ND::_2D, float>::build(hostPtr(input, details))
                     .then(ThrowOn13::build()),
-                makeWrite(hostPtr(output, details)), stream);
+                  makeWrite(hostPtr(output, details)),
+                  make_tuple(MinReducer::build(), MaxReducer::build()));
     const bool loadThrew = syncThrowsOnce(stream);
     const bool untouched = std::all_of(
         output.begin(), output.end(),
         [](const float value) { return value == -777.f; });
 
     std::vector<float> thirteens(input.size(), 13.f);
-    executeErode(details,
-                 PerThreadRead<ND::_2D, float>::build(
+    runMorphology(stream, details,
+                  PerThreadRead<ND::_2D, float>::build(
                      hostPtr(thirteens, details)),
-                 ThrowOn13::build().then(PerThreadWrite<ND::_2D, float>::build(
+                  ThrowOn13::build().then(PerThreadWrite<ND::_2D, float>::build(
                      hostPtr(output, details))),
-                 stream);
+                  make_tuple(MinReducer::build()));
     const bool writeThrew = syncThrowsOnce(stream);
 
     std::vector<float> cpuResult;
@@ -397,8 +412,8 @@ bool runMtErrors() {
     const std::vector<float> original = makeInput(details);
     std::vector<float> source = original;
     std::fill(output.begin(), output.end(), -777.f);
-    executeDilate(details, makeRead(hostPtr(source, details)),
-                  makeWrite(hostPtr(output, details)), stream);
+    runMorphology(stream, details, makeRead(hostPtr(source, details)),
+                  makeWrite(hostPtr(output, details)), make_tuple(MaxReducer::build()));
     stream.sync();
     if (!loadThrew || !untouched || !writeThrew) {
         std::printf("CPU_MULTITHREAD morphology errors: load threw=%d, "
@@ -429,7 +444,7 @@ bool runGpuCase(const char* name, const Details& details,
     const bool launched = executeCase(details, makeRead(input),
                                       makeWrite(output), reducers, stream);
     if (!launched) {
-        std::printf("GPU %s launcher rejected valid details\n", name);
+        std::printf("GPU %s executor rejected valid details\n", name);
         return false;
     }
     output.download(stream);
@@ -571,8 +586,8 @@ bool runBatchedCase(const char* name, const Details& details,
     }
 
     Tensor<float> cpuOut(BATCH_W, BATCH_H, BATCH, 1, MemType::Host);
-    MorphologyDPP<ParArch::CPU, Details>::exec(
-        details, read, makeBatchWrite(cpuOut.ptr()), reducers);
+    executeOperations<MorphologyDPP<ParArch::CPU, Details>>(
+        hostStream(), details, read, makeBatchWrite(cpuOut.ptr()), reducers);
     const std::vector<float> cpuResult = tensorValues(cpuOut);
     bool ok = batchMatches("CPU", name, cpuResult, expected);
 
@@ -583,7 +598,7 @@ bool runBatchedCase(const char* name, const Details& details,
         details, read, makeBatchWrite(mtOut.ptr()), reducers, mtStream);
     mtStream.sync();
     if (!mtLaunched) {
-        std::printf("CPU_MULTITHREAD batched %s launcher rejected valid "
+        std::printf("CPU_MULTITHREAD batched %s executor rejected valid "
                     "details\n", name);
         ok = false;
     } else {
@@ -608,7 +623,7 @@ bool runBatchedCase(const char* name, const Details& details,
     gpuOut.download(stream);
     stream.sync();
     if (!gpuLaunched) {
-        std::printf("GPU batched %s launcher rejected valid details\n",
+        std::printf("GPU batched %s executor rejected valid details\n",
                     name);
         ok = false;
     } else {
@@ -640,7 +655,7 @@ bool runCase(const char* name, const Details& details,
     return ok;
 }
 
-// Box blur (executeBoxBlur): PASSES passes of the mean of the window, each
+// Box blur (boxBlurReducers): PASSES passes of the mean of the window, each
 // replicating the border of the image it reads, through the same read
 // (2 x + 1) and write (x / 2) as the other cases; sums in double
 std::vector<float> boxOracle(const std::vector<float>& original,
@@ -693,8 +708,8 @@ bool boxMatches(const char* backend, const char* name,
 }
 
 // The box blur on ParArch::CPU (MorphologyDPP with the reducers and the write
-// of executeBoxBlur), on CPU_MULTITHREAD (executeBoxBlur, bit-identical to
-// CPU) if enabled, and on the GPU (executeBoxBlur) if compiled for it
+// of boxBlurReducers), on CPU_MULTITHREAD (bit-identical to CPU) if
+// enabled, and on the GPU if compiled for it
 template <int PASSES>
 bool runBoxCase(const char* name, const Details& details) {
     const std::vector<float> original = makeInput(details);
@@ -703,21 +718,21 @@ bool runBoxCase(const char* name, const Details& details) {
                   details.maskH, details.anchorX, details.anchorY, PASSES);
     std::vector<float> input = original;
     std::vector<float> cpuOut(input.size(), -777.f);
-    MorphologyDPP<ParArch::CPU, Details>::exec(
-        details, makeRead(hostPtr(input, details)),
+    executeOperations<MorphologyDPP<ParArch::CPU, Details>>(
+        hostStream(), details, makeRead(hostPtr(input, details)),
         makeWrite(hostPtr(cpuOut, details)),
-        morphology_detail::boxBlurReducers<float, PASSES>(details));
+        boxBlurReducers<float, PASSES>(details));
     bool ok = boxMatches("CPU", name, cpuOut, expected);
 
 #ifdef FK_CPU_MULTITHREAD_ENABLED
     std::vector<float> mtOut(input.size(), -777.f);
     MTStream mtStream;
-    const bool mtLaunched = executeBoxBlur<PASSES>(
-        details, makeRead(hostPtr(input, details)),
-        makeWrite(hostPtr(mtOut, details)), mtStream);
+    const bool mtLaunched = runMorphology(mtStream, details, makeRead(hostPtr(input, details)),
+                                          makeWrite(hostPtr(mtOut, details)),
+                                          boxBlurReducers<float, PASSES>(details));
     mtStream.sync();
     if (!mtLaunched) {
-        std::printf("CPU_MULTITHREAD box %s launcher rejected valid "
+        std::printf("CPU_MULTITHREAD box %s executor rejected valid "
                     "details\n", name);
         ok = false;
     } else {
@@ -733,12 +748,12 @@ bool runBoxCase(const char* name, const Details& details) {
             gpuIn.at(Point{x, y, 0}) = original[pixelIndex(x, y, details.width)];
     Stream stream;
     gpuIn.upload(stream);
-    const bool gpuLaunched = executeBoxBlur<PASSES>(
-        details, makeRead(gpuIn), makeWrite(gpuOut), stream);
+    const bool gpuLaunched = runMorphology(stream, details, makeRead(gpuIn), makeWrite(gpuOut),
+                                           boxBlurReducers<float, PASSES>(details));
     gpuOut.download(stream);
     stream.sync();
     if (!gpuLaunched) {
-        std::printf("GPU box %s launcher rejected valid details\n", name);
+        std::printf("GPU box %s executor rejected valid details\n", name);
         ok = false;
     } else {
         std::vector<float> got(original.size());
@@ -777,20 +792,20 @@ bool runBatchedBoxCase(const char* name, const Details& details) {
 
     const auto read = makeBatchRead(batchSourcePtr(source));
     Tensor<float> cpuOut(BATCH_W, BATCH_H, BATCH, 1, MemType::Host);
-    MorphologyDPP<ParArch::CPU, Details>::exec(
-        details, read, makeBatchWrite(cpuOut.ptr()),
-        morphology_detail::boxBlurReducers<float, PASSES>(details));
+    executeOperations<MorphologyDPP<ParArch::CPU, Details>>(
+        hostStream(), details, read, makeBatchWrite(cpuOut.ptr()),
+        boxBlurReducers<float, PASSES>(details));
     const std::vector<float> cpuResult = tensorValues(cpuOut);
     bool ok = batchMatches("CPU", name, cpuResult, expected);
 
 #ifdef FK_CPU_MULTITHREAD_ENABLED
     Tensor<float> mtOut(BATCH_W, BATCH_H, BATCH, 1, MemType::Host);
     MTStream mtStream;
-    const bool mtLaunched = executeBoxBlur<PASSES>(
-        details, read, makeBatchWrite(mtOut.ptr()), mtStream);
+    const bool mtLaunched = runMorphology(mtStream, details, read, makeBatchWrite(mtOut.ptr()),
+                                          boxBlurReducers<float, PASSES>(details));
     mtStream.sync();
     if (!mtLaunched) {
-        std::printf("CPU_MULTITHREAD batched box %s launcher rejected valid "
+        std::printf("CPU_MULTITHREAD batched box %s executor rejected valid "
                     "details\n", name);
         ok = false;
     } else {
@@ -807,13 +822,13 @@ bool runBatchedBoxCase(const char* name, const Details& details) {
     Tensor<float> gpuOut(BATCH_W, BATCH_H, BATCH);
     Stream stream;
     gpuSource.upload(stream);
-    const bool gpuLaunched = executeBoxBlur<PASSES>(
-        details, makeBatchRead(gpuSource.ptr()),
-        makeBatchWrite(gpuOut.ptr()), stream);
+    const bool gpuLaunched = runMorphology(stream, details, makeBatchRead(gpuSource.ptr()),
+                                           makeBatchWrite(gpuOut.ptr()),
+                                           boxBlurReducers<float, PASSES>(details));
     gpuOut.download(stream);
     stream.sync();
     if (!gpuLaunched) {
-        std::printf("GPU batched box %s launcher rejected valid details\n",
+        std::printf("GPU batched box %s executor rejected valid details\n",
                     name);
         ok = false;
     } else {
@@ -824,7 +839,8 @@ bool runBatchedBoxCase(const char* name, const Details& details) {
 }
 
 #if defined(__NVCC__) || defined(FK_HIP_BACKEND) || defined(FK_CPU_MULTITHREAD_ENABLED)
-// executeBoxBlur rejects invalid details without launching or enqueueing
+// The executors reject invalid box blur details (std::invalid_argument)
+// without launching or enqueueing
 bool runBoxInvalid() {
     const Details invalid{10, 10, 9, 3, 4, 1};
     bool ok = true;
@@ -832,12 +848,12 @@ bool runBoxInvalid() {
     std::vector<float> input(100, 1.f);
     std::vector<float> output(100, -777.f);
     MTStream mtStream;
-    bool launched = executeBoxBlur(invalid, makeRead(hostPtr(input, invalid)),
-                                   makeWrite(hostPtr(output, invalid)),
-                                   mtStream);
-    launched = executeBoxBlur<2>(invalid, makeRead(hostPtr(input, invalid)),
-                                 makeWrite(hostPtr(output, invalid)),
-                                 mtStream) || launched;
+    bool launched = runMorphology(mtStream, invalid, makeRead(hostPtr(input, invalid)),
+                                  makeWrite(hostPtr(output, invalid)),
+                                  boxBlurReducers<float, 1>(invalid));
+    launched = runMorphology(mtStream, invalid, makeRead(hostPtr(input, invalid)),
+                             makeWrite(hostPtr(output, invalid)),
+                             boxBlurReducers<float, 2>(invalid)) || launched;
     mtStream.sync();
     const bool untouched = std::all_of(
         output.begin(), output.end(),
@@ -851,7 +867,8 @@ bool runBoxInvalid() {
     Ptr2D<float> gpuIn(10, 10);
     Ptr2D<float> gpuOut(10, 10);
     Stream stream;
-    if (executeBoxBlur(invalid, makeRead(gpuIn), makeWrite(gpuOut), stream)) {
+    if (runMorphology(stream, invalid, makeRead(gpuIn), makeWrite(gpuOut),
+                      boxBlurReducers<float, 1>(invalid))) {
         std::printf("GPU invalid box details accepted\n");
         ok = false;
     }
@@ -910,22 +927,23 @@ bool runBoxDouble() {
     const RawPtr<ND::_2D, double> outPtr{
         cpuOut.data(),
         PtrDims<ND::_2D>(width, height, width * sizeof(double))};
-    MorphologyDPP<ParArch::CPU, DoubleDetails>::exec(
-        details, PerThreadRead<ND::_2D, double>::build(inPtr),
+    executeOperations<MorphologyDPP<ParArch::CPU, DoubleDetails>>(
+        hostStream(), details, PerThreadRead<ND::_2D, double>::build(inPtr),
         PerThreadWrite<ND::_2D, double>::build(outPtr),
-        morphology_detail::boxBlurReducers<double, 2>(details));
+        boxBlurReducers<double, 2>(details));
     bool ok = closeEnough("CPU", cpuOut);
 #ifdef FK_CPU_MULTITHREAD_ENABLED
     std::vector<double> mtOut(input.size(), -777.);
     const RawPtr<ND::_2D, double> mtPtr{
         mtOut.data(), PtrDims<ND::_2D>(width, height, width * sizeof(double))};
     MTStream mtStream;
-    const bool mtLaunched = executeBoxBlur<2>(
-        details, PerThreadRead<ND::_2D, double>::build(inPtr),
-        PerThreadWrite<ND::_2D, double>::build(mtPtr), mtStream);
+    const bool mtLaunched = runMorphology(mtStream, details,
+                                          PerThreadRead<ND::_2D, double>::build(inPtr),
+                                          PerThreadWrite<ND::_2D, double>::build(mtPtr),
+                                          boxBlurReducers<double, 2>(details));
     mtStream.sync();
     if (!mtLaunched) {
-        std::printf("CPU_MULTITHREAD box double launcher rejected valid "
+        std::printf("CPU_MULTITHREAD box double executor rejected valid "
                     "details\n");
         ok = false;
     } else {
@@ -940,13 +958,14 @@ bool runBoxDouble() {
             gpuIn.at(Point{x, y, 0}) = input[pixelIndex(x, y, details.width)];
     Stream stream;
     gpuIn.upload(stream);
-    const bool launched = executeBoxBlur<2>(
-        details, PerThreadRead<ND::_2D, double>::build(gpuIn.ptr()),
-        PerThreadWrite<ND::_2D, double>::build(gpuOut.ptr()), stream);
+    const bool launched = runMorphology(stream, details,
+                                        PerThreadRead<ND::_2D, double>::build(gpuIn.ptr()),
+                                        PerThreadWrite<ND::_2D, double>::build(gpuOut.ptr()),
+                                        boxBlurReducers<double, 2>(details));
     gpuOut.download(stream);
     stream.sync();
     if (!launched) {
-        std::printf("GPU box double launcher rejected valid details\n");
+        std::printf("GPU box double executor rejected valid details\n");
         ok = false;
     } else {
         std::vector<double> got(input.size());
@@ -960,7 +979,7 @@ bool runBoxDouble() {
 }
 
 static_assert(std::is_same_v<
-    decltype(morphology_detail::boxBlurReducers<float, 2>(Details{})),
+    decltype(boxBlurReducers<float, 2>(Details{})),
     Tuple<MorphologyPass<decltype(Add<float, float, float, UnaryType>::build()),
                          decltype(Mul<float>::build(1.f))>,
           MorphologyPass<decltype(Add<float, float, float, UnaryType>::build()),
@@ -1022,16 +1041,18 @@ bool runBoxVector() {
         return RawPtr<ND::_2D, float3>{data.data(), PtrDims<ND::_2D>(width, height, width * sizeof(float3))};
     };
     std::vector<float3> cpuOut(pixels);
-    MorphologyDPP<ParArch::CPU, VectorDetails>::exec(
-        details, PerThreadRead<ND::_2D, float3>::build(ptrOf(input)),
+    executeOperations<MorphologyDPP<ParArch::CPU, VectorDetails>>(
+        hostStream(), details, PerThreadRead<ND::_2D, float3>::build(ptrOf(input)),
         PerThreadWrite<ND::_2D, float3>::build(ptrOf(cpuOut)),
-        morphology_detail::boxBlurReducers<float3, 2>(details));
+        boxBlurReducers<float3, 2>(details));
     bool ok = close("CPU", cpuOut);
 #ifdef FK_CPU_MULTITHREAD_ENABLED
     std::vector<float3> mtOut(pixels);
     MTStream mtStream;
-    const bool mtLaunched = executeBoxBlur<2>(details, PerThreadRead<ND::_2D, float3>::build(ptrOf(input)),
-                                              PerThreadWrite<ND::_2D, float3>::build(ptrOf(mtOut)), mtStream);
+    const bool mtLaunched = runMorphology(mtStream, details,
+                                          PerThreadRead<ND::_2D, float3>::build(ptrOf(input)),
+                                          PerThreadWrite<ND::_2D, float3>::build(ptrOf(mtOut)),
+                                          boxBlurReducers<float3, 2>(details));
     mtStream.sync();
     if (!mtLaunched || std::memcmp(mtOut.data(), cpuOut.data(), pixels * sizeof(float3)) != 0) {
         std::printf("CPU_MULTITHREAD box float3 differs from ParArch::CPU (launched %d)\n", mtLaunched);
@@ -1045,12 +1066,14 @@ bool runBoxVector() {
         for (int x = 0; x < details.width; ++x) gpuIn.at(Point{x, y, 0}) = input[pixelIndex(x, y, details.width)];
     Stream stream;
     gpuIn.upload(stream);
-    const bool launched = executeBoxBlur<2>(details, PerThreadRead<ND::_2D, float3>::build(gpuIn.ptr()),
-                                            PerThreadWrite<ND::_2D, float3>::build(gpuOut.ptr()), stream);
+    const bool launched = runMorphology(stream, details,
+                                        PerThreadRead<ND::_2D, float3>::build(gpuIn.ptr()),
+                                        PerThreadWrite<ND::_2D, float3>::build(gpuOut.ptr()),
+                                        boxBlurReducers<float3, 2>(details));
     gpuOut.download(stream);
     stream.sync();
     if (!launched) {
-        std::printf("GPU box float3 launcher rejected valid details\n");
+        std::printf("GPU box float3 executor rejected valid details\n");
         ok = false;
     } else {
         std::vector<float3> got(pixels);
@@ -1063,7 +1086,7 @@ bool runBoxVector() {
 }
 
 // Runs reducers (MorphologyPasses and plain reducers) with MorphologyDPP on
-// ParArch::CPU, and through executeMorphology on CPU_MULTITHREAD
+// ParArch::CPU, and through executeOperations on CPU_MULTITHREAD
 // (bit-identical to CPU) and the GPU, against expected
 template <typename Reducers>
 bool runPassCase(const char* name, const Details& details,
@@ -1071,15 +1094,15 @@ bool runPassCase(const char* name, const Details& details,
     const std::vector<float> original = makeInput(details);
     std::vector<float> input = original;
     std::vector<float> cpuOut(input.size(), -777.f);
-    MorphologyDPP<ParArch::CPU, Details>::exec(
-        details, makeRead(hostPtr(input, details)),
+    executeOperations<MorphologyDPP<ParArch::CPU, Details>>(
+        hostStream(), details, makeRead(hostPtr(input, details)),
         makeWrite(hostPtr(cpuOut, details)), reducers);
     bool ok = matchesOracle("CPU", name, cpuOut, expected);
 #ifdef FK_CPU_MULTITHREAD_ENABLED
     std::vector<float> mtOut(input.size(), -777.f);
     MTStream mtStream;
-    executeMorphology(details, makeRead(hostPtr(input, details)),
-                      makeWrite(hostPtr(mtOut, details)), reducers, mtStream);
+    runMorphology(mtStream, details, makeRead(hostPtr(input, details)),
+                  makeWrite(hostPtr(mtOut, details)), reducers);
     mtStream.sync();
     ok = sameBytes(name, mtOut, cpuOut) && ok;
 #endif
@@ -1091,8 +1114,7 @@ bool runPassCase(const char* name, const Details& details,
             gpuIn.at(Point{x, y, 0}) = original[pixelIndex(x, y, details.width)];
     Stream stream;
     gpuIn.upload(stream);
-    executeMorphology(details, makeRead(gpuIn), makeWrite(gpuOut), reducers,
-                      stream);
+    runMorphology(stream, details, makeRead(gpuIn), makeWrite(gpuOut), reducers);
     gpuOut.download(stream);
     stream.sync();
     std::vector<float> got(original.size());
@@ -1187,17 +1209,17 @@ bool runBoxNoOverflow() {
         return true;
     };
     std::vector<float> cpuOut(input.size(), -777.f);
-    MorphologyDPP<ParArch::CPU, Details>::exec(
-        details, read,
+    executeOperations<MorphologyDPP<ParArch::CPU, Details>>(
+        hostStream(), details, read,
         PerThreadWrite<ND::_2D, float>::build(hostPtr(cpuOut, details)),
-        morphology_detail::boxBlurReducers<float, 4>(details));
+        boxBlurReducers<float, 4>(details));
     bool ok = exact("CPU", cpuOut);
 #ifdef FK_CPU_MULTITHREAD_ENABLED
     std::vector<float> mtOut(input.size(), -777.f);
     MTStream mtStream;
-    executeBoxBlur<4>(details, read,
-                      PerThreadWrite<ND::_2D, float>::build(hostPtr(mtOut, details)),
-                      mtStream);
+    runMorphology(mtStream, details, read,
+                  PerThreadWrite<ND::_2D, float>::build(hostPtr(mtOut, details)),
+                  boxBlurReducers<float, 4>(details));
     mtStream.sync();
     ok = exact("CPU_MULTITHREAD", mtOut) && ok;
 #endif
@@ -1208,8 +1230,9 @@ bool runBoxNoOverflow() {
         for (int x = 0; x < details.width; ++x) gpuIn.at(Point{x, y, 0}) = big;
     Stream stream;
     gpuIn.upload(stream);
-    executeBoxBlur<4>(details, PerThreadRead<ND::_2D, float>::build(gpuIn.ptr()),
-                      PerThreadWrite<ND::_2D, float>::build(gpuOut.ptr()), stream);
+    runMorphology(stream, details, PerThreadRead<ND::_2D, float>::build(gpuIn.ptr()),
+                  PerThreadWrite<ND::_2D, float>::build(gpuOut.ptr()),
+                  boxBlurReducers<float, 4>(details));
     gpuOut.download(stream);
     stream.sync();
     std::vector<float> got(input.size());

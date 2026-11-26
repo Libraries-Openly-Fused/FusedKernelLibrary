@@ -30,8 +30,8 @@
 //   contracts a * b + c into a fused multiply-add differently). DivergentBatchTransformDPP has no CPU executor in this
 //   branch.
 // - the image processing DPPs (algorithms/image_processing/: morphology.h, linear_filter.h, median_filter.h and the
-//   *_fast.h DPPs): their CPU_MULTITHREAD version, with its Stream_<ParArch::CPU_MULTITHREAD>& entry functions, is in
-//   their own header. It runs the per row code of their ParArch::CPU version, so the results are the same in the same
+//   *_fast.h DPPs): their CPU_MULTITHREAD version, with its Executor (executeOperations on a
+//   Stream_<ParArch::CPU_MULTITHREAD>&), is in their own header. It runs the per row code of their ParArch::CPU version, so the results are the same in the same
 //   way. These headers are not included here.
 //
 // Memory: as with the host buffers of cudaMemcpyAsync, the buffers an execution reads or writes must stay valid until

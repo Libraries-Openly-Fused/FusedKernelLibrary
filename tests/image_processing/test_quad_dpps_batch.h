@@ -21,7 +21,7 @@
 // - vector images give, in every channel, the outputs of the scalar DPP of
 //   that channel;
 // - a write whose planes differ from the read's images is rejected: the
-//   execute functions return false and nothing is written.
+//   executors throw std::invalid_argument and nothing is written.
 // Every case runs on ParArch::CPU, on CPU_MULTITHREAD when it is enabled, and
 // on the GPU of the build.
 
@@ -40,6 +40,7 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <stdexcept>
 #include <vector>
 
 namespace fk {
@@ -93,6 +94,19 @@ constexpr const char* quadName(const Quad quad) {
 template <Quad Q, ParArch PA, typename T>
 struct QuadOf;
 
+// Runs DPP through executeOperations: true if it ran (or was enqueued or
+// launched), false if the executor rejected the arguments with
+// std::invalid_argument
+template <typename DPP, ParArch PA, typename Details, typename... IOps>
+bool runQuad(Stream_<PA>& stream, const Details& details, const IOps&... iOps) {
+    try {
+        executeOperations<DPP>(stream, details, iOps...);
+        return true;
+    } catch (const std::invalid_argument&) {
+        return false;
+    }
+}
+
 template <ParArch PA, typename T>
 struct QuadOf<Quad::Morph, PA, T> {
     using DPP = MorphQuadDPP<PA, T>;
@@ -103,9 +117,8 @@ struct QuadOf<Quad::Morph, PA, T> {
     template <typename... IOps>
     static bool execute(Stream_<PA>& stream, const int kw, const int kh,
                         const IOps&... iOps) {
-        return executeMorphQuad<DPP>(stream,
-                                     MorphQuadDetails{kw, kh, kw / 2, kh / 2},
-                                     iOps...);
+        return runQuad<DPP>(stream, MorphQuadDetails{kw, kh, kw / 2, kh / 2},
+                            iOps...);
     }
 };
 
@@ -120,9 +133,8 @@ struct QuadOf<Quad::Median, PA, T> {
     template <typename... IOps>
     static bool execute(Stream_<PA>& stream, const int kw, const int kh,
                         const IOps&... iOps) {
-        return executeMedianQuad<DPP>(stream,
-                                      MedianQuadDetails{kw, kh, kw / 2, kh / 2},
-                                      iOps...);
+        return runQuad<DPP>(stream, MedianQuadDetails{kw, kh, kw / 2, kh / 2},
+                            iOps...);
     }
 };
 
@@ -141,7 +153,7 @@ struct QuadOf<Quad::Box, PA, T> {
     template <typename... IOps>
     static bool execute(Stream_<PA>& stream, const int kw, const int kh,
                         const IOps&... iOps) {
-        return executeBoxFilterQuad<DPP>(
+        return runQuad<DPP>(
             stream, BoxFilterQuadDetails{kw, kh, kw / 2, kh / 2}, iOps...);
     }
 };
@@ -161,7 +173,7 @@ struct QuadOf<Quad::Conv, PA, T> {
         for (int i = 0; i < kw * kh; ++i)
             details.coefficients[i] =
                 static_cast<float>((i * 7) % 11 - 5) * 0.0625f;
-        return executeConvQuad<DPP>(stream, details, iOps...);
+        return runQuad<DPP>(stream, details, iOps...);
     }
 };
 
