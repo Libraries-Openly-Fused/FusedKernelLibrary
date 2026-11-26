@@ -112,7 +112,7 @@ Result runCase(const int width, const int height,
     const auto write = Add<float>::build(WRITE_BIAS)
         .then(PerThreadWrite<ND::_2D, float>::build(output));
     using DPP = ConvQuadDPP<PA, float, EX, EY, KW, KH>;
-    executeConvQuad<DPP>(stream, details, read, compute, write);
+    executeOperations<DPP>(stream, details, read, compute, write);
 #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     if constexpr (GPU) output.download(stream);
 #endif

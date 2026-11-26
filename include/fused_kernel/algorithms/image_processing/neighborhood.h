@@ -51,8 +51,9 @@ FK_HOST_DEVICE_FUSE int heightOf(const ImageIOp& image, const int z) {
 // Image z is read and written at Point{x, y, z}, so the write must have as
 // many planes (its num_elems_z) as the read has images: a 2D write for a 2D
 // read, a batch or tensor of B planes for B images. It is checked at run
-// time for every read and write; the execute functions return false, and
-// nothing is written, when the planes differ or there is nothing to compute
+// time for every read and write: the executors throw std::invalid_argument,
+// and nothing is written, when the planes differ or there is nothing to
+// compute
 template <typename ImageIOp, typename WriteIOp>
 FK_HOST_FUSE bool canRun(const ImageIOp& image, const WriteIOp& output) {
     const ActiveThreads active = activeThreadsOf(image);
@@ -61,8 +62,8 @@ FK_HOST_FUSE bool canRun(const ImageIOp& image, const WriteIOp& output) {
                active.z;
 }
 
-// The execute functions of the Quad DPPs take their IOps as a pack: the
-// input read first, the write last
+// The executors of the Quad DPPs take their IOps as a pack: the input read
+// first, the write last
 template <typename... IOps>
 FK_HOST_FUSE const auto& firstOf(const IOps&... iOps) {
     return std::get<0>(std::forward_as_tuple(iOps...));

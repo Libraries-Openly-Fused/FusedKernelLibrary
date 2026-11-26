@@ -15,6 +15,7 @@
 #ifndef FK_LINEAR_FILTER_DPP_H
 #define FK_LINEAR_FILTER_DPP_H
 
+#include <fused_kernel/fused_kernel.h>
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/image_processing/neighborhood.h>
 #include <fused_kernel/core/data/point.h>
@@ -44,7 +45,7 @@ namespace fk {
 // - One set of coefficients, read at Point{kx, ky, 0}, filters every image.
 // - The write must have as many planes as the read has images
 //   (neighborhood_detail::canRun); otherwise nothing is computed, and the
-//   execute functions return false.
+//   executors throw std::invalid_argument.
 // - The image values are ValueType; the products, the accumulator and the
 //   value written are AccumulatorType, float with the channels of ValueType.
 //   The DPP converts nothing: the write receives AccumulatorType, and a cast
@@ -340,61 +341,6 @@ public:
     }
 };
 
-template <ParArch PA, typename DPPDetails, typename ReadIOps,
-          typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp>
-__global__ void linearFilterDPPKernel(const DPPDetails details,
-                                      const ReadIOps reads,
-                                      const MultiplyIOp multiply,
-                                      const AccumulateIOp accumulate,
-                                      const WriteIOp output) {
-    LinearFilterDPP<PA, DPPDetails>::exec(
-        details, reads, multiply, accumulate, output);
-}
-
-template <typename DPPDetails, typename ReadIOps,
-          typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp>
-inline bool executeLinearFilter(const DPPDetails& details,
-                                const ReadIOps& reads,
-                                const MultiplyIOp& multiply,
-                                const AccumulateIOp& accumulate,
-                                const WriteIOp& output,
-                                Stream_<ParArch::GPU_NVIDIA>& stream) {
-    const auto& image = get<0>(reads);
-    if (!DPPDetails::valid(details) ||
-        !neighborhood_detail::canRun(image, output)) return false;
-    // x and y cover the largest image, z the images
-    const ActiveThreads active = neighborhood_detail::activeThreadsOf(image);
-    const dim3 block(DPPDetails::TILE_WIDTH,
-                     DPPDetails::TILE_HEIGHT, 1);
-    const dim3 grid(ceilDiv(active.x, DPPDetails::TILE_WIDTH),
-                    ceilDiv(active.y, DPPDetails::TILE_HEIGHT),
-                    active.z);
-    linearFilterDPPKernel<ParArch::GPU_NVIDIA><<<grid, block, 0, stream.getCUDAStream()>>>(
-        details, reads, multiply, accumulate, output);
-    gpuErrchk(cudaGetLastError());
-    return true;
-}
-
-template <typename DPPDetails, typename ImageRead, typename WriteIOp>
-inline bool executeBoxFilter(const DPPDetails& details,
-                             const ImageRead& image,
-                             const WriteIOp& output,
-                             const float scale,
-                             Stream_<ParArch::GPU_NVIDIA>& stream) {
-    using T = typename DPPDetails::ValueType;
-    using Acc = typename DPPDetails::AccumulatorType;
-    if (!DPPDetails::valid(details)) return false;
-    // One scale for every channel: the coefficient is scale / (kernel
-    // size) in every channel of the accumulator type
-    const Acc coefficient = make_set<Acc>(scale /
-        static_cast<float>(details.kernelWidth * details.kernelHeight));
-    const auto coefficientRead = ConstantFilterRead<Acc>::build(coefficient);
-    const auto multiply = Mul<T, Acc, Acc, UnaryType>::build();
-    const auto accumulate = Add<Acc, Acc, Acc, UnaryType>::build();
-    return executeLinearFilter(
-        details, make_tuple(image, coefficientRead),
-        multiply, accumulate, output, stream);
-}
 #endif // defined(__NVCC__)
 
 #if defined(FK_HIP_BACKEND)
@@ -484,109 +430,120 @@ public:
     }
 };
 
-template <ParArch PA, typename DPPDetails, typename ReadIOps,
-          typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp>
-__global__ void linearFilterDPPKernel(const DPPDetails details,
-                                      const ReadIOps reads,
-                                      const MultiplyIOp multiply,
-                                      const AccumulateIOp accumulate,
-                                      const WriteIOp output) {
-    LinearFilterDPP<PA, DPPDetails>::exec(
-        details, reads, multiply, accumulate, output);
-}
-
-template <typename DPPDetails, typename ReadIOps,
-          typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp>
-inline bool executeLinearFilter(const DPPDetails& details,
-                                const ReadIOps& reads,
-                                const MultiplyIOp& multiply,
-                                const AccumulateIOp& accumulate,
-                                const WriteIOp& output,
-                                Stream_<ParArch::GPU_AMD>& stream) {
-    const auto& image = get<0>(reads);
-    if (!DPPDetails::valid(details) ||
-        !neighborhood_detail::canRun(image, output)) return false;
-    // x and y cover the largest image, z the images
-    const ActiveThreads active = neighborhood_detail::activeThreadsOf(image);
-    const dim3 block(DPPDetails::TILE_WIDTH,
-                     DPPDetails::TILE_HEIGHT, 1);
-    const dim3 grid(ceilDiv(active.x, DPPDetails::TILE_WIDTH),
-                    ceilDiv(active.y, DPPDetails::TILE_HEIGHT),
-                    active.z);
-    linearFilterDPPKernel<ParArch::GPU_AMD><<<grid, block, 0, stream.getHIPStream()>>>(
-        details, reads, multiply, accumulate, output);
-    gpuErrchk(hipGetLastError());
-    return true;
-}
-
-template <typename DPPDetails, typename ImageRead, typename WriteIOp>
-inline bool executeBoxFilter(const DPPDetails& details,
-                             const ImageRead& image,
-                             const WriteIOp& output,
-                             const float scale,
-                             Stream_<ParArch::GPU_AMD>& stream) {
-    using T = typename DPPDetails::ValueType;
-    using Acc = typename DPPDetails::AccumulatorType;
-    if (!DPPDetails::valid(details)) return false;
-    // One scale for every channel: the coefficient is scale / (kernel
-    // size) in every channel of the accumulator type
-    const Acc coefficient = make_set<Acc>(scale /
-        static_cast<float>(details.kernelWidth * details.kernelHeight));
-    const auto coefficientRead = ConstantFilterRead<Acc>::build(coefficient);
-    const auto multiply = Mul<T, Acc, Acc, UnaryType>::build();
-    const auto accumulate = Add<Acc, Acc, Acc, UnaryType>::build();
-    return executeLinearFilter(
-        details, make_tuple(image, coefficientRead),
-        multiply, accumulate, output, stream);
-}
 #endif // defined(FK_HIP_BACKEND)
 
-#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
-// Enqueues LinearFilterDPP<ParArch::CPU_MULTITHREAD> on the stream and
-// returns; returns false, enqueueing nothing, if the details are not valid
-// or the write's planes differ from the read's images.
-// The execution keeps copies of the IOps. As with a GPU stream, the buffers
-// they read and write must stay valid until it has finished (sync()), and
-// the output must not alias the image or the coefficients.
-template <typename DPPDetails, typename ReadIOps,
-          typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp>
-inline bool executeLinearFilter(const DPPDetails& details,
-                                const ReadIOps& reads,
-                                const MultiplyIOp& multiply,
-                                const AccumulateIOp& accumulate,
-                                const WriteIOp& output,
-                                Stream_<ParArch::CPU_MULTITHREAD>& stream) {
-    if (!DPPDetails::valid(details) ||
-        !neighborhood_detail::canRun(get<0>(reads), output)) return false;
-    stream.enqueue([=](const cpu_multithread::Completion& done) {
-        LinearFilterDPP<ParArch::CPU_MULTITHREAD, DPPDetails>::exec(
-            done, details, reads, multiply, accumulate, output);
-    });
-    return true;
+namespace linear_filter_detail {
+// The checks of the executors: valid details, a non empty image read and a write with as many planes as the read has
+// images (neighborhood_detail::canRun)
+template <typename DPPDetails, typename ReadIOps, typename WriteIOp>
+FK_HOST_FUSE void checkArguments(const DPPDetails& details, const ReadIOps& reads, const WriteIOp& output) {
+    executor_detail::requireArguments(DPPDetails::valid(details), "LinearFilterDPP",
+        "invalid details: the kernel must be 1 to MAX_KERNEL_WIDTH x MAX_KERNEL_HEIGHT, with the anchor inside it");
+    executor_detail::requireArguments(neighborhood_detail::canRun(get<0>(reads), output), "LinearFilterDPP",
+        "the image read is empty, or the write's planes differ from the image read's images");
 }
+} // namespace linear_filter_detail
 
-template <typename DPPDetails, typename ImageRead, typename WriteIOp>
-inline bool executeBoxFilter(const DPPDetails& details,
-                             const ImageRead& image,
-                             const WriteIOp& output,
-                             const float scale,
-                             Stream_<ParArch::CPU_MULTITHREAD>& stream) {
-    using T = typename DPPDetails::ValueType;
-    using Acc = typename DPPDetails::AccumulatorType;
-    if (!DPPDetails::valid(details)) return false;
-    // One scale for every channel: the coefficient is scale / (kernel
-    // size) in every channel of the accumulator type
-    const Acc coefficient = make_set<Acc>(scale /
-        static_cast<float>(details.kernelWidth * details.kernelHeight));
-    const auto coefficientRead = ConstantFilterRead<Acc>::build(coefficient);
-    const auto multiply = Mul<T, Acc, Acc, UnaryType>::build();
-    const auto accumulate = Add<Acc, Acc, Acc, UnaryType>::build();
-    // executeLinearFilter copies these locals into the execution
-    return executeLinearFilter(
-        details, make_tuple(image, coefficientRead),
-        multiply, accumulate, output, stream);
-}
+// The executors of LinearFilterDPP, one per back-end:
+//   executeOperations<LinearFilterDPP<PA, DPPDetails>>(stream, details, reads, multiply, accumulate, output)
+// with reads = make_tuple(image read, coefficient read). Invalid details, an empty image read, or a write whose planes
+// differ from the read's images throw std::invalid_argument before anything is launched or enqueued (Oscar's
+// decision, 2026-11-26). A box filter is the coefficient read ConstantFilterRead<AccumulatorType>::build(make_set<
+// AccumulatorType>(scale / (kernelWidth * kernelHeight))), with Mul<ValueType, AccumulatorType, AccumulatorType,
+// UnaryType> and Add<AccumulatorType, AccumulatorType, AccumulatorType, UnaryType>.
+template <typename DPPDetails>
+struct Executor<LinearFilterDPP<ParArch::CPU, DPPDetails>> {
+private:
+    using DPP = LinearFilterDPP<ParArch::CPU, DPPDetails>;
+    using SelfType = Executor<DPP>;
+public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::CPU; }
+    // Computes the filter before it returns
+    template <typename ReadIOps, typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::CPU>&, const DPPDetails& details,
+                                          const ReadIOps& reads, const MultiplyIOp& multiply,
+                                          const AccumulateIOp& accumulate, const WriteIOp& output) {
+        linear_filter_detail::checkArguments(details, reads, output);
+        DPP::exec(details, reads, multiply, accumulate, output);
+    }
+};
+
+#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+template <typename DPPDetails>
+struct Executor<LinearFilterDPP<ParArch::CPU_MULTITHREAD, DPPDetails>> {
+private:
+    using DPP = LinearFilterDPP<ParArch::CPU_MULTITHREAD, DPPDetails>;
+    using SelfType = Executor<DPP>;
+public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::CPU_MULTITHREAD; }
+    // Enqueues LinearFilterDPP<ParArch::CPU_MULTITHREAD> on the stream and returns. The execution keeps
+    // copies of the IOps; as with a GPU stream, the buffers they read and write must stay valid until it
+    // has finished (sync()), and the output must not alias the image or the coefficients.
+    template <typename ReadIOps, typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::CPU_MULTITHREAD>& stream, const DPPDetails& details,
+                                          const ReadIOps& reads, const MultiplyIOp& multiply,
+                                          const AccumulateIOp& accumulate, const WriteIOp& output) {
+        linear_filter_detail::checkArguments(details, reads, output);
+        stream.enqueue([=](const cpu_multithread::Completion& done) {
+            DPP::exec(done, details, reads, multiply, accumulate, output);
+        });
+    }
+};
 #endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+
+#if defined(__NVCC__)
+template <typename DPPDetails>
+struct Executor<LinearFilterDPP<ParArch::GPU_NVIDIA, DPPDetails>> {
+private:
+    using DPP = LinearFilterDPP<ParArch::GPU_NVIDIA, DPPDetails>;
+    using SelfType = Executor<DPP>;
+public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_NVIDIA; }
+    template <typename ReadIOps, typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_NVIDIA>& stream, const DPPDetails& details,
+                                          const ReadIOps& reads, const MultiplyIOp& multiply,
+                                          const AccumulateIOp& accumulate, const WriteIOp& output) {
+        linear_filter_detail::checkArguments(details, reads, output);
+        // x and y cover the largest image, z the images
+        const ActiveThreads active = neighborhood_detail::activeThreadsOf(get<0>(reads));
+        const dim3 block(DPPDetails::TILE_WIDTH, DPPDetails::TILE_HEIGHT, 1);
+        const dim3 grid(ceilDiv(active.x, DPPDetails::TILE_WIDTH),
+                        ceilDiv(active.y, DPPDetails::TILE_HEIGHT), active.z);
+        launchDPP_Kernel<DPP><<<grid, block, 0, stream.getCUDAStream()>>>(
+            details, reads, multiply, accumulate, output);
+        gpuErrchk(cudaGetLastError());
+    }
+};
+#endif // defined(__NVCC__)
+
+#if defined(FK_HIP_BACKEND)
+template <typename DPPDetails>
+struct Executor<LinearFilterDPP<ParArch::GPU_AMD, DPPDetails>> {
+private:
+    using DPP = LinearFilterDPP<ParArch::GPU_AMD, DPPDetails>;
+    using SelfType = Executor<DPP>;
+public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_AMD; }
+    template <typename ReadIOps, typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_AMD>& stream, const DPPDetails& details,
+                                          const ReadIOps& reads, const MultiplyIOp& multiply,
+                                          const AccumulateIOp& accumulate, const WriteIOp& output) {
+        linear_filter_detail::checkArguments(details, reads, output);
+        // x and y cover the largest image, z the images
+        const ActiveThreads active = neighborhood_detail::activeThreadsOf(get<0>(reads));
+        const dim3 block(DPPDetails::TILE_WIDTH, DPPDetails::TILE_HEIGHT, 1);
+        const dim3 grid(ceilDiv(active.x, DPPDetails::TILE_WIDTH),
+                        ceilDiv(active.y, DPPDetails::TILE_HEIGHT), active.z);
+        launchDPP_Kernel<DPP><<<grid, block, 0, stream.getHIPStream()>>>(
+            details, reads, multiply, accumulate, output);
+        gpuErrchk(hipGetLastError());
+    }
+};
+#endif // defined(FK_HIP_BACKEND)
 
 } // namespace fk
 

@@ -21,6 +21,7 @@
 #include <cmath>
 #include <iostream>
 #include <random>
+#include <type_traits>
 #include <vector>
 
 using namespace fk;
@@ -43,7 +44,10 @@ static void runCase(const char* name, const int width, const int height,
                            width * sizeof(float), height, cudaMemcpyHostToDevice));
 
     Stream stream;
-    executeSoftmax<float>(input, output, stream);
+    // the canonical PerThreadRead prologue of the input
+    const auto inRead = PerThreadRead<ND::_2D, float>::build(input.ptr());
+    executeOperations<SoftmaxDPP<ParArch::GPU_NVIDIA, std::decay_t<decltype(inRead)>, float>>(
+        stream, inRead, output, static_cast<int>(input.dims().height), static_cast<int>(input.dims().width));
     stream.sync();
 
     std::vector<float> got((size_t)width * height);
@@ -96,7 +100,8 @@ static void runPrologueCase(const char* name, const int width, const int height,
     const auto inIOp = PerThreadRead<ND::_2D, float>::build(input.ptr())
                            .then(Mul<float>::build(2.f))
                            .then(Add<float>::build(1.f));
-    executeSoftmax(inIOp, output, height, width, stream);
+    executeOperations<SoftmaxDPP<ParArch::GPU_NVIDIA, std::decay_t<decltype(inIOp)>, float>>(
+        stream, inIOp, output, height, width);
     stream.sync();
 
     std::vector<float> got((size_t)width * height);

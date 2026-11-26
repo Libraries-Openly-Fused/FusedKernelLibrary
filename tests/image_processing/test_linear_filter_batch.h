@@ -20,10 +20,10 @@
 // - a 3D read with a 3D write gives the outputs of one call per plane;
 // - uchar and uchar3 images with float and float3 coefficients accumulate in
 //   float and float3, against a host reference;
-// - executeBoxFilter for float, float3, float4 and uchar3 gives the outputs of
-//   executeLinearFilter with explicit 1 / 9 coefficients;
+// - a box filter (a constant coefficient read of 1 / 9) for float, float3,
+//   float4 and uchar3 gives the outputs of explicit 1 / 9 coefficients;
 // - a write whose planes differ from the read's images is rejected: the
-//   execute functions return false and nothing is written.
+//   executors throw std::invalid_argument and nothing is written.
 // Every case runs on ParArch::CPU, on CPU_MULTITHREAD when it is enabled, and
 // on the GPU of the build.
 
@@ -40,6 +40,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <stdexcept>
 #include <vector>
 
 namespace fk {
@@ -56,8 +57,7 @@ template <ParArch PA>
 constexpr const char* NAME = PA == ParArch::CPU ? "CPU"
     : (PA == ParArch::CPU_MULTITHREAD ? "CPU_MULTITHREAD" : "GPU");
 
-// Runs the filter on one back-end: ParArch::CPU through the DPP's exec, the
-// others through executeLinearFilter / executeBoxFilter
+// Runs the filter on one back-end, through executeOperations
 template <ParArch PA>
 struct Backend {
     Stream_<PA> stream;
@@ -84,13 +84,14 @@ struct Backend {
     bool linear(const Details& details, const Reads& reads,
                 const Multiply& multiply, const Accumulate& accumulate,
                 const Write& write) {
-        if constexpr (PA == ParArch::CPU) {
-            LinearFilterDPP<ParArch::CPU, Details>::exec(
-                details, reads, multiply, accumulate, write);
+        // true if the filter ran (or was enqueued or launched), false if the
+        // executor rejected the arguments with std::invalid_argument
+        try {
+            executeOperations<LinearFilterDPP<PA, Details>>(
+                stream, details, reads, multiply, accumulate, write);
             return true;
-        } else {
-            return executeLinearFilter(details, reads, multiply, accumulate,
-                                       write, stream);
+        } catch (const std::invalid_argument&) {
+            return false;
         }
     }
 };
@@ -495,13 +496,11 @@ bool vectorBatch(const char* name) {
     return ok;
 }
 
-// 4. executeBoxFilter (one float scale for every channel) against
-//    executeLinearFilter with an explicit kernel of scale / 9 in every channel
+// 4. A box filter, a constant coefficient read of 1 / 9 in every channel,
+//    against an explicit kernel of 1 / 9 in every channel
 template <ParArch PA, typename T>
 bool boxFilter(const char* name) {
-    if constexpr (PA == ParArch::CPU) {
-        return true; // there is no executeBoxFilter for ParArch::CPU
-    } else {
+    {
         using Details = LinearFilterDPPDetails<T>;
         using Acc = typename Details::AccumulatorType;
         const Details details{3, 3, 1, 1};
@@ -517,9 +516,12 @@ bool boxFilter(const char* name) {
         backend.upload(linearOutput);
         backend.upload(kernel);
         const auto read = PerThreadRead<ND::_2D, T>::build(input);
-        bool ok = executeBoxFilter(details, read,
-                                   PerThreadWrite<ND::_2D, Acc>::build(boxOutput),
-                                   1.f, backend.stream);
+        const auto boxCoefficient = ConstantFilterRead<Acc>::build(make_set<Acc>(
+            1.f / static_cast<float>(details.kernelWidth * details.kernelHeight)));
+        bool ok = backend.linear(details, make_tuple(read, boxCoefficient),
+                                 Mul<T, Acc, Acc, UnaryType>::build(),
+                                 Add<Acc, Acc, Acc, UnaryType>::build(),
+                                 PerThreadWrite<ND::_2D, Acc>::build(boxOutput));
         ok = backend.linear(details,
                             make_tuple(read, PerThreadRead<ND::_2D, Acc>::build(kernel)),
                             Mul<T, Acc, Acc, UnaryType>::build(),
@@ -533,14 +535,14 @@ bool boxFilter(const char* name) {
                 ok = sameBits(boxOutput.at(Point{x, y, 0}),
                               linearOutput.at(Point{x, y, 0})) &&
                      !sameBits(boxOutput.at(Point{x, y, 0}), sentinel<Acc>());
-        std::printf("executeBoxFilter %s %s %s\n", name, NAME<PA>,
+        std::printf("box filter %s %s %s\n", name, NAME<PA>,
                     ok ? "PASS" : "FAIL");
         return ok;
     }
 }
 
 // 5. A write whose planes differ from the read's images: nothing is written,
-//    and the execute functions return false
+//    and the executors throw std::invalid_argument
 template <ParArch PA>
 bool planeMismatch() {
     using Details = LinearFilterDPPDetails<float>;
@@ -581,8 +583,8 @@ bool planeMismatch() {
     backend.download(image);
     for (auto& output : twoOutputs) backend.download(output);
     backend.sync();
-    // ParArch::CPU's exec returns nothing; the others must return false
-    bool ok = PA == ParArch::CPU || !ran;
+    // every back-end's executor must reject the three (std::invalid_argument)
+    bool ok = !ran;
     for (int y = 0; y < H; ++y) {
         for (int x = 0; x < W; ++x) {
             ok = ok && image.at(Point{x, y, 0}) == SENTINEL &&

@@ -15,6 +15,7 @@
 #ifndef FK_BOX_FILTER_FAST_H
 #define FK_BOX_FILTER_FAST_H
 
+#include <fused_kernel/fused_kernel.h>
 #include <fused_kernel/algorithms/basic_ops/arithmetic.h>
 #include <fused_kernel/algorithms/image_processing/neighborhood.h>
 #include <fused_kernel/core/data/point.h>
@@ -36,7 +37,7 @@ namespace fk {
 // planes of a 3D read, 1 for a 2D read), and image z is filtered at its own
 // size (the read's num_elems at z), read and written at Point{x, y, z}.
 // The write must have as many planes as the read has images; otherwise the
-// execute functions return false and nothing is written.
+// executor throws std::invalid_argument and nothing is written.
 struct BoxFilterQuadDetails {
     int kernelWidth;
     int kernelHeight;
@@ -347,30 +348,6 @@ public:
     }
 };
 
-template <typename DPP, typename... IOps>
-__global__ void launchBoxFilterQuadDPP_Kernel(
-        const __grid_constant__ BoxFilterQuadDetails details,
-        const __grid_constant__ IOps... iOps) {
-    DPP::exec(details, iOps...);
-}
-
-template <typename DPP, typename... IOps>
-FK_HOST_STATIC bool executeBoxFilterQuad(
-        Stream_<ParArch::GPU_NVIDIA>& stream,
-        const BoxFilterQuadDetails& details,
-        const IOps&... iOps) {
-    static_assert(DPP::PAR_ARCH == ParArch::GPU_NVIDIA,
-                  "GPU stream requires the matching BoxFilterQuadDPP specialization");
-    if (!DPP::accepts(details) ||
-        !neighborhood_detail::canRunIOps(iOps...)) return false;
-    const auto launch = DPP::launchConfig(
-        neighborhood_detail::activeThreadsOf(neighborhood_detail::firstOf(iOps...)));
-    launchBoxFilterQuadDPP_Kernel<DPP, IOps...>
-        <<<dim3(launch.blocks, 1, launch.planes), launch.threads, 0, stream.getCUDAStream()>>>(
-            details, iOps...);
-    gpuErrchk(cudaGetLastError());
-    return true;
-}
 #endif // defined(__NVCC__)
 
 #if defined(FK_HIP_BACKEND)
@@ -518,64 +495,106 @@ public:
     }
 };
 
-template <typename DPP, typename... IOps>
-__global__ void launchBoxFilterQuadDPP_Kernel(
-        const __grid_constant__ BoxFilterQuadDetails details,
-        const __grid_constant__ IOps... iOps) {
-    DPP::exec(details, iOps...);
-}
-
-template <typename DPP, typename... IOps>
-FK_HOST_STATIC bool executeBoxFilterQuad(
-        Stream_<ParArch::GPU_AMD>& stream,
-        const BoxFilterQuadDetails& details,
-        const IOps&... iOps) {
-    static_assert(DPP::PAR_ARCH == ParArch::GPU_AMD,
-                  "GPU stream requires the matching BoxFilterQuadDPP specialization");
-    if (!DPP::accepts(details) ||
-        !neighborhood_detail::canRunIOps(iOps...)) return false;
-    const auto launch = DPP::launchConfig(
-        neighborhood_detail::activeThreadsOf(neighborhood_detail::firstOf(iOps...)));
-    launchBoxFilterQuadDPP_Kernel<DPP, IOps...>
-        <<<dim3(launch.blocks, 1, launch.planes), launch.threads, 0, stream.getHIPStream()>>>(
-            details, iOps...);
-    gpuErrchk(hipGetLastError());
-    return true;
-}
 #endif // defined(FK_HIP_BACKEND)
 
+namespace box_filter_quad_detail {
+// The checks of the executors: details the DPP accepts, a non empty read and a write with as many planes as the read
+// has images (neighborhood_detail::canRunIOps)
 template <typename DPP, typename... IOps>
-FK_HOST_FUSE bool executeBoxFilterQuad(
-        Stream_<ParArch::CPU>&,
-        const BoxFilterQuadDetails& details,
-        const IOps&... iOps) {
-    static_assert(DPP::PAR_ARCH == ParArch::CPU,
-                  "CPU stream requires the CPU BoxFilterQuadDPP specialization");
-    if (!DPP::accepts(details) ||
-        !neighborhood_detail::canRunIOps(iOps...)) return false;
-    DPP::exec(details, iOps...);
-    return true;
+FK_HOST_FUSE void checkArguments(const BoxFilterQuadDetails& details, const IOps&... iOps) {
+    executor_detail::requireArguments(DPP::accepts(details), "BoxFilterQuadDPP",
+        "details it does not accept (DPP::accepts: the kernel size and the anchor)");
+    executor_detail::requireArguments(neighborhood_detail::canRunIOps(iOps...), "BoxFilterQuadDPP",
+        "the input read is empty, or the write's planes differ from the read's images");
 }
+} // namespace box_filter_quad_detail
+
+// The executors of BoxFilterQuadDPP, one per back-end:
+//   executeOperations<BoxFilterQuadDPP<PA, T, EX, EY, KW, KH>>(stream, details, input, ..., output)
+// Details the DPP does not accept, an empty input read, or a write whose planes differ from the read's images throw
+// std::invalid_argument before anything is launched or enqueued (Oscar's decision, 2026-11-26).
+template <typename T, int EX, int EY, int KW, int KH>
+struct Executor<BoxFilterQuadDPP<ParArch::CPU, T, EX, EY, KW, KH>> {
+private:
+    using DPP = BoxFilterQuadDPP<ParArch::CPU, T, EX, EY, KW, KH>;
+    using SelfType = Executor<DPP>;
+public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::CPU; }
+    // Computes the filter before it returns
+    template <typename... IOps>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::CPU>&, const BoxFilterQuadDetails& details,
+                                          const IOps&... iOps) {
+        box_filter_quad_detail::checkArguments<DPP>(details, iOps...);
+        DPP::exec(details, iOps...);
+    }
+};
 
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
-// Enqueues the execution on the stream and returns. The buffers the IOps use
-// must stay valid until it has finished (for instance, until stream.sync()),
-// and the output must not alias the input.
-template <typename DPP, typename... IOps>
-FK_HOST_STATIC bool executeBoxFilterQuad(
-        Stream_<ParArch::CPU_MULTITHREAD>& stream,
-        const BoxFilterQuadDetails& details,
-        const IOps&... iOps) {
-    static_assert(DPP::PAR_ARCH == ParArch::CPU_MULTITHREAD,
-                  "CPU_MULTITHREAD stream requires the CPU_MULTITHREAD BoxFilterQuadDPP specialization");
-    if (!DPP::accepts(details) ||
-        !neighborhood_detail::canRunIOps(iOps...)) return false;
-    stream.enqueue([details, iOps...](const cpu_multithread::Completion& done) {
-        DPP::exec(done, details, iOps...);
-    });
-    return true;
-}
+template <typename T, int EX, int EY, int KW, int KH>
+struct Executor<BoxFilterQuadDPP<ParArch::CPU_MULTITHREAD, T, EX, EY, KW, KH>> {
+private:
+    using DPP = BoxFilterQuadDPP<ParArch::CPU_MULTITHREAD, T, EX, EY, KW, KH>;
+    using SelfType = Executor<DPP>;
+public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::CPU_MULTITHREAD; }
+    // Enqueues the execution on the stream and returns. The buffers the IOps use must stay valid until
+    // it has finished (for instance, until stream.sync()), and the output must not alias the input.
+    template <typename... IOps>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::CPU_MULTITHREAD>& stream, const BoxFilterQuadDetails& details,
+                                          const IOps&... iOps) {
+        box_filter_quad_detail::checkArguments<DPP>(details, iOps...);
+        stream.enqueue([details, iOps...](const cpu_multithread::Completion& done) {
+            DPP::exec(done, details, iOps...);
+        });
+    }
+};
 #endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+
+#if defined(__NVCC__)
+template <typename T, int EX, int EY, int KW, int KH>
+struct Executor<BoxFilterQuadDPP<ParArch::GPU_NVIDIA, T, EX, EY, KW, KH>> {
+private:
+    using DPP = BoxFilterQuadDPP<ParArch::GPU_NVIDIA, T, EX, EY, KW, KH>;
+    using SelfType = Executor<DPP>;
+public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_NVIDIA; }
+    template <typename... IOps>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_NVIDIA>& stream, const BoxFilterQuadDetails& details,
+                                          const IOps&... iOps) {
+        box_filter_quad_detail::checkArguments<DPP>(details, iOps...);
+        const auto launch = DPP::launchConfig(
+            neighborhood_detail::activeThreadsOf(neighborhood_detail::firstOf(iOps...)));
+        launchDPP_Kernel<DPP><<<dim3(launch.blocks, 1, launch.planes), launch.threads, 0, stream.getCUDAStream()>>>(
+            details, iOps...);
+        gpuErrchk(cudaGetLastError());
+    }
+};
+#endif // defined(__NVCC__)
+
+#if defined(FK_HIP_BACKEND)
+template <typename T, int EX, int EY, int KW, int KH>
+struct Executor<BoxFilterQuadDPP<ParArch::GPU_AMD, T, EX, EY, KW, KH>> {
+private:
+    using DPP = BoxFilterQuadDPP<ParArch::GPU_AMD, T, EX, EY, KW, KH>;
+    using SelfType = Executor<DPP>;
+public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_AMD; }
+    template <typename... IOps>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_AMD>& stream, const BoxFilterQuadDetails& details,
+                                          const IOps&... iOps) {
+        box_filter_quad_detail::checkArguments<DPP>(details, iOps...);
+        const auto launch = DPP::launchConfig(
+            neighborhood_detail::activeThreadsOf(neighborhood_detail::firstOf(iOps...)));
+        launchDPP_Kernel<DPP><<<dim3(launch.blocks, 1, launch.planes), launch.threads, 0, stream.getHIPStream()>>>(
+            details, iOps...);
+        gpuErrchk(hipGetLastError());
+    }
+};
+#endif // defined(FK_HIP_BACKEND)
 
 } // namespace fk
 

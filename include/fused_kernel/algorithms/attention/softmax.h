@@ -33,6 +33,7 @@
  * Element addressing: thread.x = column, thread.y = row, thread.z = 0.
  */
 
+#include <fused_kernel/fused_kernel.h>
 #include <fused_kernel/core/data/ptr_nd.h>
 #include <fused_kernel/core/execution_model/stream.h>
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
@@ -117,12 +118,16 @@ OnlineSoftmaxState mergeSoftmaxStates(const OnlineSoftmaxState& a,
 /* InIOp is an INSTANTIABLE Read or ReadBack IOp (possibly a fusion
  * read.then(compute...)): the prologue. Every element enters the
  * algorithm through InIOp::Operation::exec(thread, iop). */
-template <typename InIOp, typename OT, int BLOCK_SIZE = 256>
-struct SoftmaxDPP {
+template <ParArch PA, typename InIOp, typename OT, int BLOCK_SIZE = 256>
+struct SoftmaxDPP;
+
+template <typename InIOp, typename OT, int BLOCK_SIZE>
+struct SoftmaxDPP<ParArch::GPU_NVIDIA, InIOp, OT, BLOCK_SIZE> {
 private:
-    using SelfType = SoftmaxDPP<InIOp, OT, BLOCK_SIZE>;
+    using SelfType = SoftmaxDPP<ParArch::GPU_NVIDIA, InIOp, OT, BLOCK_SIZE>;
 public:
     FK_STATIC_STRUCT(SoftmaxDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_NVIDIA;
 
     static_assert(isAnyReadType<InIOp>, "Softmax prologue must be a Read or ReadBack IOp");
 
@@ -172,33 +177,27 @@ public:
     }
 };
 
+// The executor of SoftmaxDPP:
+//   executeOperations<SoftmaxDPP<ParArch::GPU_NVIDIA, InIOp, OT, BLOCK_SIZE>>(stream, input, output, rows, width)
+// One block of BLOCK_SIZE threads per row of output. input is the prologue Read or ReadBack IOp (for a Ptr2D<T> in,
+// PerThreadRead<ND::_2D, T>::build(in.ptr()), with rows = in.dims().height and width = in.dims().width).
 template <typename InIOp, typename OT, int BLOCK_SIZE>
-__global__ void launchSoftmaxDPP_Kernel(const __grid_constant__ typename SoftmaxDPP<InIOp, OT, BLOCK_SIZE>::Params params) {
-    SoftmaxDPP<InIOp, OT, BLOCK_SIZE>::exec(params);
-}
-
-/* IOp-first API: input is the prologue Read/ReadBack IOp. */
-template <int BLOCK_SIZE = 256, typename InIOp, typename OT>
-inline void executeSoftmax(const InIOp& input, const Ptr2D<OT>& output,
-                           const int rows, const int width,
-                           Stream_<ParArch::GPU_NVIDIA>& stream) {
-    using DPP = SoftmaxDPP<InIOp, OT, BLOCK_SIZE>;
-    const typename DPP::Params params{ input, output.ptr(), width };
-    const dim3 grid(rows, 1, 1);
-    const dim3 block(BLOCK_SIZE, 1, 1);
-    launchSoftmaxDPP_Kernel<InIOp, OT, BLOCK_SIZE><<<grid, block, 0, stream.getCUDAStream()>>>(params);
-    gpuErrchk(cudaGetLastError());
-}
-
-/* Pointer convenience API (back-compat): canonical PerThreadRead prologue. */
-template <typename T, int BLOCK_SIZE = 256>
-inline void executeSoftmax(const Ptr2D<T>& input, const Ptr2D<T>& output,
-                           Stream_<ParArch::GPU_NVIDIA>& stream) {
-    const auto inIOp = PerThreadRead<ND::_2D, T>::build(input.ptr());
-    executeSoftmax<BLOCK_SIZE>(inIOp, output,
-                               static_cast<int>(input.dims().height),
-                               static_cast<int>(input.dims().width), stream);
-}
+struct Executor<SoftmaxDPP<ParArch::GPU_NVIDIA, InIOp, OT, BLOCK_SIZE>> {
+private:
+    using DPP = SoftmaxDPP<ParArch::GPU_NVIDIA, InIOp, OT, BLOCK_SIZE>;
+    using SelfType = Executor<DPP>;
+public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_NVIDIA; }
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_NVIDIA>& stream, const InIOp& input,
+                                          const Ptr2D<OT>& output, const int rows, const int width) {
+        const typename DPP::Params params{ input, output.ptr(), width };
+        const dim3 grid(rows, 1, 1);
+        const dim3 block(BLOCK_SIZE, 1, 1);
+        launchDPP_Kernel<DPP><<<grid, block, 0, stream.getCUDAStream()>>>(params);
+        gpuErrchk(cudaGetLastError());
+    }
+};
 
 #endif // defined(__NVCC__) || CLANG_HOST_DEVICE
 

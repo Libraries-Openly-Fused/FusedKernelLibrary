@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <stdexcept>
 #include <vector>
 
 namespace fk {
@@ -97,7 +98,7 @@ Result runCase(const int width, const int height,
     using DPP = MorphQuadDPP<PA, unsigned char, EX, EY, KW, KH>;
     const MorphQuadDetails details{
         runtimeKW, runtimeKH, anchorX, anchorY};
-    executeMorphQuad<DPP>(stream, details, read, reduce, write);
+    executeOperations<DPP>(stream, details, read, reduce, write);
 #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     if constexpr (GPU) output.download(stream);
 #endif
@@ -183,12 +184,19 @@ bool verifyRejectedMultithread(const MorphologyKind kind) {
     constexpr int tooWide = DPP::MAX_RUNTIME_KERNEL_WIDTH + 2;
     const MorphQuadDetails rejected{tooWide, 3, 0, 1};
     Stream_<ParArch::CPU_MULTITHREAD> stream;
-    executeMorphQuad<DPP>(stream, rejected, read, reduce, write);
+    // the executor rejects the details (std::invalid_argument), enqueueing
+    // nothing
+    bool rejectedThrew = false;
+    try {
+        executeOperations<DPP>(stream, rejected, read, reduce, write);
+    } catch (const std::invalid_argument&) {
+        rejectedThrew = true;
+    }
     stream.enqueue([=](const cpu_multithread::Completion& done) {
         DPP::exec(done, rejected, read, reduce, write);
     });
     stream.sync();
-    bool untouched = !DPP::accepts(rejected);
+    bool untouched = rejectedThrew && !DPP::accepts(rejected);
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             untouched = output.at(Point{x, y, 0}) == 0xA5 && untouched;
@@ -199,7 +207,7 @@ bool verifyRejectedMultithread(const MorphologyKind kind) {
     stream.enqueue([=](const cpu_multithread::Completion& done) {
         DPP::exec(done, rejected, read, reduce, write);
     });
-    executeMorphQuad<DPP>(stream, accepted, read, reduce, write);
+    executeOperations<DPP>(stream, accepted, read, reduce, write);
     stream.sync();
     bool computed = true;
     for (int y = 0; y < height; ++y) {
