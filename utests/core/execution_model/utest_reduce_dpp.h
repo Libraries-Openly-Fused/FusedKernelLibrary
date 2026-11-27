@@ -45,6 +45,8 @@
 //   throw without it or with a small one, and one workspace used by executions of different reads and reductions;
 //   the workspace of a batch, of exactly workspaceBytes() bytes, after which nothing is written; its alignment;
 // - a read of 65535 planes, the most that the GPU versions reduce, and one of 65536, which they reject;
+// - the GPU versions with the launch configuration of the caller: any threads and blocks, the blocks that read the
+//   elements, its workspace, more than 48 KB of accumulated values per block, and the shapes that throw;
 // - the host backends: every plane is read before any is written, and the elements are accumulated in the order of
 //   the data (an accumulation that is not commutative); where the elements past 2^32 of a plane are;
 // - GPU_NVIDIA: the grid that every policy launches and the threads of its blocks (static_asserts), the blocks that
@@ -2277,6 +2279,252 @@ bool withoutWorkspace(const Device& device) {
     return report(ok, "executions without a workspace", backend.name);
 }
 
+// 38. The launch configuration of the caller, build_details(workspace, block, grid): blocks of block.x threads, and
+//     grid.x blocks for every plane, without clusters. Any threads from 1 to 1024 and any blocks reduce a matrix and
+//     every plane of a batch as the launch of the policy does (the sums of these cases are exact); the blocks that
+//     read the elements are the ones of the grid that have elements of the plane; a grid of more than one block per
+//     plane needs a workspace of workspaceBytes(readIOp, reductions, grid) bytes, also for a plane that the policy
+//     reduces in one cluster without a workspace, and one block per plane needs none; accumulated values of more
+//     than 48 KB per block are reduced where a block of the kernel can have that shared memory, and throw
+//     std::invalid_argument where it can not; and every other shape of the block or of the grid throws
+//     std::invalid_argument, which names it, and writes nothing.
+
+// The shared memory that a block of a kernel can have on the device of the run, at most, as the driver says
+size_t sharedMemoryOfABlock() {
+    int device = 0;
+    int optIn = 0;
+#if defined(FK_HIP_BACKEND)
+    gpuErrchk(hipGetDevice(&device));
+    gpuErrchk(hipDeviceGetAttribute(&optIn, hipDeviceAttributeSharedMemPerBlockOptin, device));
+#else
+    gpuErrchk(cudaGetDevice(&device));
+    gpuErrchk(cudaDeviceGetAttribute(&optIn, cudaDevAttrMaxSharedMemoryPerBlockOptin, device));
+#endif
+    return static_cast<size_t>(optIn);
+}
+
+// Whether an execution with a launch configuration threw because the kernel can not be launched in blocks of that
+// many threads, which depends on the build (GPU_NVIDIA asks the device before the launch)
+bool tooManyThreadsFor(const std::string& message, const uint threads) {
+    return threads > 256 && message.find("registers per thread") != std::string::npos;
+}
+
+// The sums, the maxima and the minima of a matrix, with blocks of `threads` threads and `blocks` blocks
+template <typename DPP>
+bool configuredMatrix(Backend<DPP>& backend, const uint threads, const uint blocks) {
+    constexpr int W = 333, H = 77;
+    auto image = makeImage<float, DPP>(W, H, 70);
+    auto output = makeOutput<float, DPP>(4);
+    backend.upload(image);
+    backend.upload(output);
+    const auto read = PerThreadRead<ND::_2D, float>::build(image);
+    const dim3 grid(blocks, 1, 1);
+    backend.needWorkspace(DPP::workspaceBytes(read, sumMaxMin<float>(), grid));
+    std::string message;
+    try {
+        executeOperations<DPP>(backend.stream, DPP::build_details(backend.workspace, dim3(threads, 1, 1), grid), read,
+                               sumMaxMin<float>(), PerThreadWrite<ND::_1D, float>::build(output));
+    } catch (const std::runtime_error& error) {
+        message = error.what();
+    }
+    backend.download(output);
+    backend.sync();
+    bool right = output.at(Point{3, 0, 0}) == static_cast<float>(SENTINEL);
+    if (message.empty()) {
+        right = right && isSumMaxMin(output.at(Point{0, 0, 0}), output.at(Point{1, 0, 0}),
+                                     output.at(Point{2, 0, 0}), expectedOf<float>(W, H, 70));
+    } else {
+        right = right && tooManyThreadsFor(message, threads);
+    }
+    if (!right) {
+        std::printf("ReduceDPP GPU, launch configuration: %d x %d floats in blocks of %u threads, %u blocks FAIL %s\n",
+                    W, H, threads, blocks, message.c_str());
+    }
+    return right;
+}
+
+// The first block that reads the elements of every plane of `planes` planes of `elements` elements, plus one, is the
+// number of blocks of the grid that have elements of a plane: the ones that split it in ranges of
+// groupsOf(elements, grid.x) elements
+template <typename DPP>
+bool configuredBlocksThatRead(Backend<DPP>& backend, const uint elements, const uint planes, const uint blocks,
+                              const uint threads) {
+    Tensor<uint2> output(1, 1, planes, 1, Backend<DPP>::MEMORY);
+    for (int z = 0; z < static_cast<int>(planes); ++z) {
+        output.at(Point{0, 0, z}) = make_<uint2>(0u, 0u);
+    }
+    backend.upload(output);
+    const auto read = BlockAndImageRead::build(ActiveThreads{elements, 1, planes});
+    const auto reductions = make_tuple(make_tuple(Cast<uint2, uint2>::build(),
+                                                  Max<uint2, uint2, uint2, UnaryType>::build(),
+                                                  Cast<uint2, uint2>::build()));
+    const dim3 grid(blocks, 1, planes);
+    backend.needWorkspace(DPP::workspaceBytes(read, reductions, grid));
+    executeOperations<DPP>(backend.stream, DPP::build_details(backend.workspace, dim3(threads, 1, 1), grid), read,
+                           reductions, TensorWrite<uint2>::build(output.ptr()));
+    backend.download(output);
+    backend.sync();
+    const uint expected = static_cast<uint>(
+        reduce_detail::groupsOf(elements, reduce_detail::groupsOf(elements, static_cast<ulonglong>(blocks))));
+    bool ok = true;
+    for (int z = 0; z < static_cast<int>(planes); ++z) {
+        ok = ok && output.at(Point{0, 0, z}).x + 1u == expected;
+    }
+    if (!ok) {
+        std::printf("ReduceDPP GPU, launch configuration: %u planes of %u elements in %u blocks were read by %u "
+                    "blocks, not by %u FAIL\n", planes, elements, blocks, output.at(Point{0, 0, 0}).x + 1u, expected);
+    }
+    return ok;
+}
+
+// More accumulated values than 48 KB in a block: reduced where a block of the kernel can have them, and
+// std::invalid_argument, which says the bytes, where it can not
+template <typename DPP>
+bool configuredSharedMemory(Backend<DPP>& backend, const uint threads) {
+    constexpr int W = 300, H = 200;
+    auto input = makeImage<float3, DPP>(W, H, 12);
+    auto output = makeOutput<float3, DPP>(MANY_ACCUMULATORS + 1);
+    backend.upload(input);
+    backend.upload(output);
+    const auto same = Cast<float3, float3>::build();
+    const auto sum = make_tuple(same, Add<float3, float3, float3, UnaryType>::build(), same);
+    const auto maximum = make_tuple(same, Max<float3, float3, float3, UnaryType>::build(), same);
+    const auto read = PerThreadRead<ND::_2D, float3>::build(input);
+    const auto write = PerThreadWrite<ND::_1D, float3>::build(output);
+#if defined(__OPTIMIZE__) || defined(_MSC_VER)
+    const auto reductions = make_tuple(sum, maximum, sum, maximum, sum, maximum, sum, maximum, sum, maximum, sum,
+                                       maximum, sum, maximum, sum, maximum, sum);
+#else
+    const auto reductions = make_tuple(sum, maximum, sum, maximum, sum, maximum, sum, maximum, sum, maximum, sum);
+#endif
+    using PartialType = reduce_detail::PartialOf<std::decay_t<decltype(reductions)>>;
+    const size_t bytes = reduce_detail::sharedBytes<PartialType>(threads);
+    const size_t available = sharedMemoryOfABlock();
+    const dim3 grid(5, 1, 1);
+    backend.needWorkspace(DPP::workspaceBytes(read, reductions, grid));
+    std::string invalid;
+    std::string failed;
+    try {
+        executeOperations<DPP>(backend.stream, DPP::build_details(backend.workspace, dim3(threads, 1, 1), grid), read,
+                               reductions, write);
+    } catch (const std::invalid_argument& error) {
+        invalid = error.what();
+    } catch (const std::runtime_error& error) {
+        failed = error.what();
+    }
+    backend.download(output);
+    backend.sync();
+    bool ok = sameBits(output.at(Point{MANY_ACCUMULATORS, 0, 0}), sentinel<float3>());
+    if (bytes > available) {
+        ok = ok && invalid.find(std::to_string(bytes) + " bytes of shared memory") != std::string::npos &&
+             sameBits(output.at(Point{0, 0, 0}), sentinel<float3>());
+    } else if (bytes + 1024 <= available && failed.empty()) {
+        const Expected expected = expectedOf<float3>(W, H, 12);
+        ok = ok && invalid.empty();
+        for (int i = 0; i < MANY_ACCUMULATORS; ++i) {
+            ok = ok && sameChannels(output.at(Point{i, 0, 0}), i % 2 == 0 ? expected.sum : expected.maximum);
+        }
+    } else {
+        // Between the two (the static shared memory of the kernel decides), or a kernel that can not be launched in
+        // blocks of that many threads: anything but a wrong value
+        ok = ok && (failed.empty() || tooManyThreadsFor(failed, threads));
+    }
+    if (!ok) {
+        std::printf("ReduceDPP GPU, launch configuration: %u threads with %zu bytes of accumulated values (a block "
+                    "can have %zu) FAIL %s%s\n", threads, bytes, available, invalid.c_str(), failed.c_str());
+    }
+    return ok;
+}
+
+bool configuredLaunches() {
+    using DPP = ReduceDPP<GPU_PA>;
+    Backend<DPP> backend("GPU");
+    bool ok = true;
+    // Any threads and any blocks: one block, a few, many, and more blocks than elements
+    for (const uint threads : {1u, 7u, 32u, 100u, 256u, 1024u}) {
+        for (const uint blocks : {1u, 3u, 64u, 30000u}) {
+            ok = configuredMatrix(backend, threads, blocks) && ok;
+        }
+    }
+    // The blocks that read the elements, of one plane and of every plane of a batch
+    ok = configuredBlocksThatRead(backend, 20000, 1, 7, 64) && ok;
+    ok = configuredBlocksThatRead(backend, 100, 1, 1000, 32) && ok;
+    ok = configuredBlocksThatRead(backend, 4096, 1, 1, 256) && ok;
+    ok = configuredBlocksThatRead(backend, 65536, 1, 300, 128) && ok;
+    ok = configuredBlocksThatRead(backend, 10000, 5, 9, 96) && ok;
+    ok = configuredBlocksThatRead(backend, 50176, 30, 35, 256) && ok;
+    // More than 48 KB of accumulated values in a block, and more than any block has
+    ok = configuredSharedMemory(backend, 256) && ok;
+    ok = configuredSharedMemory(backend, 512) && ok;
+
+    // The workspace: a grid of more than one block per plane needs workspaceBytes(read, reductions, grid) bytes, also
+    // where the policy reduces the plane in one cluster without a workspace (20000 elements); one block needs none
+    auto image = makeImage<float, DPP>(20000, 1, 71);
+    auto output = makeOutput<float, DPP>(4);
+    backend.upload(image);
+    backend.upload(output);
+    const auto read = PerThreadRead<ND::_2D, float>::build(image);
+    const auto write = PerThreadWrite<ND::_1D, float>::build(output);
+    const dim3 block(128, 1, 1);
+    const dim3 eight(8, 1, 1);
+    const size_t bytes = DPP::workspaceBytes(read, sumMaxMin<float>(), eight);
+    using SumMaxMinPartial = reduce_detail::PartialOf<std::decay_t<decltype(sumMaxMin<float>())>>;
+    ok = ok && bytes == reduce_detail::workspaceBytesOf<SumMaxMinPartial>(1, 8);
+    ok = ok && DPP::workspaceBytes(read, sumMaxMin<float>(), dim3(1, 1, 1)) == 0;
+    const std::string none = invalidArgumentOf(backend, DPP::build_details(RawPtr<ND::_1D, uchar>{}, block, eight),
+                                               read, sumMaxMin<float>(), write);
+    ok = ok && none.find(std::to_string(bytes) + " bytes") != std::string::npos;
+    Ptr1D<uchar> tooSmall(static_cast<uint>(bytes - 1), 0, MemType::Device);
+    ok = ok && !invalidArgumentOf(backend, DPP::build_details(tooSmall, block, eight), read, sumMaxMin<float>(), write)
+                    .empty();
+    // Every shape that is not the one of a reduction, of a read of one plane and of one of 3
+    const auto throwsNaming = [&backend](const auto& readIOp, const auto& writeIOp, const dim3 b, const dim3 g,
+                                         const char* const name) {
+        const std::string message = invalidArgumentOf(backend, DPP::build_details(backend.workspace, b, g), readIOp,
+                                                      sumMaxMin<float>(), writeIOp);
+        const bool right = message.find(name) != std::string::npos;
+        if (!right) {
+            std::printf("ReduceDPP GPU, launch configuration: block %s and grid %s must throw, naming %s FAIL: %s\n",
+                        reduce_detail::dimsOf(b).c_str(), reduce_detail::dimsOf(g).c_str(), name, message.c_str());
+        }
+        return right;
+    };
+    backend.needWorkspace(size_t{1} << 20);
+    ok = throwsNaming(read, write, dim3(0, 1, 1), dim3(4, 1, 1), "block.x") && ok;
+    ok = throwsNaming(read, write, dim3(1025, 1, 1), dim3(4, 1, 1), "block.x") && ok;
+    ok = throwsNaming(read, write, dim3(32, 2, 1), dim3(4, 1, 1), "block.y") && ok;
+    ok = throwsNaming(read, write, dim3(32, 1, 2), dim3(4, 1, 1), "block.z") && ok;
+    ok = throwsNaming(read, write, dim3(32, 1, 1), dim3(0, 1, 1), "grid.x") && ok;
+    ok = throwsNaming(read, write, dim3(32, 1, 1), dim3(4, 2, 1), "grid.y") && ok;
+    ok = throwsNaming(read, write, dim3(32, 1, 1), dim3(4, 1, 2), "grid.z") && ok;
+    ok = throwsNaming(read, write, dim3(32, 1, 1), dim3(4, 1, 0), "grid.z") && ok;
+    auto threeOutputs = makeTensor<float, DPP>(4, 3);
+    backend.upload(threeOutputs);
+    const auto threePlanes = ReadSet<float>::build(0.5f, ActiveThreads{1000, 1, 3});
+    ok = throwsNaming(threePlanes, TensorWrite<float>::build(threeOutputs.ptr()), dim3(32, 1, 1), dim3(4, 1, 1),
+                      "grid.z") && ok;
+    bool gridRejected = false;
+    try {
+        (void)DPP::workspaceBytes(read, sumMaxMin<float>(), dim3(4, 2, 1));
+    } catch (const std::invalid_argument&) {
+        gridRejected = true;
+    }
+    ok = ok && gridRejected;
+    backend.download(output);
+    backend.sync();
+    for (int i = 0; i < 4; ++i) {
+        ok = ok && output.at(Point{i, 0, 0}) == static_cast<float>(SENTINEL);
+    }
+    // One block for the plane, without a workspace
+    executeOperations<DPP>(backend.stream, DPP::build_details(RawPtr<ND::_1D, uchar>{}, block, dim3(1, 1, 1)), read,
+                           sumMaxMin<float>(), write);
+    backend.download(output);
+    backend.sync();
+    ok = ok && isSumMaxMin(output.at(Point{0, 0, 0}), output.at(Point{1, 0, 0}), output.at(Point{2, 0, 0}),
+                           expectedOf<float>(20000, 1, 71));
+    return report(ok, "launch configurations of the caller", backend.name);
+}
+
 #endif // defined(__NVCC__) || defined(FK_HIP_BACKEND)
 
 #if defined(__NVCC__)
@@ -2807,6 +3055,7 @@ int launch_impl() {
     ok = workspaceOfABatch<BlocksOf32>("BlocksOf32", 100000, 7) && ok;
     ok = manyPlanesNeedNoWorkspace() && ok;
     ok = workspaceAlignment() && ok;
+    ok = configuredLaunches() && ok;
 #endif
 #if defined(FK_HIP_BACKEND)
     // GPU_AMD has no clusters: ClustersOf3 launches plain blocks of 700 elements, which synchronize through the

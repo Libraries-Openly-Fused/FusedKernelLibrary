@@ -67,7 +67,8 @@
 // std::invalid_argument), and in x the blocks of the largest plane; block b of a plane reduces blockElements
 // consecutive elements of it. The accumulated values go up through as many of these levels as the size of the data
 // needs:
-//   1. thread: each thread reads one of every BLOCK_THREADS elements of its block and accumulates them in registers;
+//   1. thread: each thread reads one of every T elements of its block (T, the threads of a block: BLOCK_THREADS, or
+//      the ones of a launch configuration of the caller) and accumulates them in registers;
 //   2. block: the threads of the block accumulate their values in shared memory;
 //   3. cluster (GPU_NVIDIA, compute capability 9.0 and newer): the blocks of a thread block cluster read the shared
 //      memory of the other blocks of the cluster (distributed shared memory), so the first block of the cluster
@@ -109,6 +110,16 @@
 //   planes, and every execution leaves them at zero. After that, any execution of any read and reductions can use
 //   it, as long as two that use it never run at the same time: the executions of one stream can share one.
 // - An execution is asynchronous and allocates nothing, so it can be captured in a CUDA graph as any other.
+// - The caller can give the launch configuration instead of the policy: build_details(workspace, block, grid), with
+//   block = dim3(T, 1, 1), from 1 to 1024 threads, and grid = dim3(blocks of every plane, 1, planes of the read).
+//   The executor launches exactly that, without clusters: the blocks split the largest plane in ranges of
+//   consecutive elements, and the ones past the elements of a smaller plane return at once. A block is a row of
+//   threads and the blocks of a plane are the ones in x, so any other shape throws std::invalid_argument. A grid of
+//   more than one block per plane needs a workspace of workspaceBytes(readIOp, reductions, grid) bytes.
+// - The accumulated values of the threads of a block are in its dynamic shared memory, T times the bytes of the
+//   accumulators of the execution. Above 48 KB (only with a launch configuration: the policy uses 32 KB at most) the
+//   kernel is given the attribute that allows it, once per kernel, device and larger size; an execution that needs
+//   more than a block of the kernel can have on the device throws std::invalid_argument.
 //
 // The implementation for each compute capability is chosen at compile time, with a single ParArch::GPU_NVIDIA:
 // - the kernel is compiled once for each architecture of the build, and __CUDA_ARCH__ selects in each of those images
@@ -129,6 +140,7 @@
 
 #include <fused_kernel/core/execution_model/executors.h>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
@@ -572,15 +584,26 @@ namespace fk {
     };
 
     // GPU: the workspace of the execution, device memory of the caller (see the top of this header). Without one
-    // (data == nullptr), every plane has to fit in one block, or in one cluster.
+    // (data == nullptr), every plane has to fit in one block, or in one cluster. And the launch configuration that
+    // the caller gives, if any (ReduceDPP<...>::build_details(workspace, block, grid)): blocks of block.x threads,
+    // and grid.x blocks for every plane. With all its dimensions 0 (build_details(workspace)), the executor chooses
+    // it.
     template <>
     struct ReduceDPPDetails<ParArch::GPU_NVIDIA> {
         RawPtr<ND::_1D, uchar> workspace;
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
+        dim3 block{0, 0, 0};
+        dim3 grid{0, 0, 0};
+#endif
     };
 
     template <>
     struct ReduceDPPDetails<ParArch::GPU_AMD> {
         RawPtr<ND::_1D, uchar> workspace;
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
+        dim3 block{0, 0, 0};
+        dim3 grid{0, 0, 0};
+#endif
     };
 
     template <enum ParArch PA = defaultParArch, typename Policy = ReduceDPPDefaultPolicy_t<PA>>
@@ -962,6 +985,26 @@ namespace fk {
             __host__ __device__ SharedPartial() {}
         };
 
+        // The bytes of shared memory of a block of `threads` threads: its accumulated values, which the kernel has in
+        // its dynamic shared memory
+        template <typename PartialType>
+        FK_HOST_DEVICE_CNST size_t sharedBytes(const uint threads) {
+            return static_cast<size_t>(threads) * sizeof(SharedPartial<PartialType>);
+        }
+
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
+        // The accumulated values of the threads of a block, in the dynamic shared memory that the executor launches the
+        // kernel with (sharedBytes). An extern __shared__ array is the same memory in every kernel that declares one,
+        // whatever its type, so there is one: of bytes, with the alignment of every accumulator that can be reduced.
+        template <typename PartialType>
+        __device__ __forceinline__ SharedPartial<PartialType>* sharedPartials() {
+            static_assert(alignof(SharedPartial<PartialType>) <= 64,
+                          "ReduceDPP: the accumulators of the reductions are aligned to more than 64 bytes");
+            extern __shared__ __align__(64) unsigned char reduceDPPSharedMemory[];
+            return reinterpret_cast<SharedPartial<PartialType>*>(reduceDPPSharedMemory);
+        }
+#endif
+
         // The grid of one execution
         struct Launch {
             ulonglong blockElements; // elements of a block
@@ -1023,6 +1066,103 @@ namespace fk {
             return {blockElements, static_cast<uint>(planeBlocks), 1, static_cast<uint>(planeBlocks)};
         }
 
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
+        // The most threads of a block in a launch configuration of the caller: the most that a block has on any device
+        constexpr uint MAX_BLOCK_THREADS = 1024;
+
+        // Whether the details of an execution have a launch configuration of the caller: any dimension that is not 0
+        inline bool isConfigured(const dim3 block, const dim3 grid) {
+            return (block.x | block.y | block.z | grid.x | grid.y | grid.z) != 0u;
+        }
+
+        inline void requireLaunchConfiguration(const bool valid, const std::string& what) {
+            executor_detail::requireArguments(valid, "ReduceDPP", what.c_str());
+        }
+
+        inline std::string dimsOf(const dim3 dims) {
+            return "(" + std::to_string(dims.x) + ", " + std::to_string(dims.y) + ", " + std::to_string(dims.z) + ")";
+        }
+
+        // Throws std::invalid_argument when the block of a launch configuration of the caller is not the one of a
+        // reduction: a row of block.x threads, from 1 to 1024. The kernel only has threads in x.
+        inline void checkBlock(const dim3 block) {
+            requireLaunchConfiguration(block.x >= 1 && block.x <= MAX_BLOCK_THREADS,
+                                       "the block of the launch configuration, " + dimsOf(block) + ", has " +
+                                           std::to_string(block.x) + " threads in x: block.x must be from 1 to " +
+                                           std::to_string(MAX_BLOCK_THREADS));
+            requireLaunchConfiguration(block.y == 1u && block.z == 1u,
+                                       "the block of the launch configuration is " + dimsOf(block) +
+                                           ": the block of a reduction is a row of threads, so block.y and block.z "
+                                           "must be 1");
+        }
+
+        // Throws std::invalid_argument when the grid of a launch configuration of the caller is not the one of a
+        // reduction of `planes` planes: grid.x blocks for every plane, one at least, and one plane of the grid in z for
+        // every plane of the read. The kernel only has blocks in x and planes in z.
+        inline void checkGrid(const dim3 grid, const uint planes) {
+            requireLaunchConfiguration(grid.x >= 1u, "the grid of the launch configuration, " + dimsOf(grid) +
+                                                         ", has no blocks in x: grid.x, the blocks of every plane, "
+                                                         "must be 1 at least");
+            requireLaunchConfiguration(grid.y == 1u, "the grid of the launch configuration is " + dimsOf(grid) +
+                                                         ": the blocks of a plane are the ones in x, so grid.y must "
+                                                         "be 1");
+            requireLaunchConfiguration(grid.z == planes, "the grid of the launch configuration, " + dimsOf(grid) +
+                                                             ", has " + std::to_string(grid.z) +
+                                                             " planes in z, and the read has " +
+                                                             std::to_string(planes) +
+                                                             ": grid.z must be the planes of the read");
+        }
+
+        // The grid of an execution with the launch configuration of the caller, for `planes` planes of up to `elements`
+        // elements: grid.x blocks for every plane, which split the largest one in ranges of consecutive elements (the
+        // blocks past the elements of a plane have nothing to do), and no clusters. Throws std::invalid_argument for
+        // a grid that is not the one of a reduction.
+        inline Launch launchOfGrid(const ulonglong elements, const uint planes, const dim3 grid) {
+            checkGrid(grid, planes);
+            if (elements == 0) {
+                return {0, grid.x, 1, 1};
+            }
+            const ulonglong blockElements = groupsOf(elements, static_cast<ulonglong>(grid.x));
+            return {blockElements, grid.x, 1, static_cast<uint>(groupsOf(elements, blockElements))};
+        }
+
+        // The dynamic shared memory that a block of any kernel can have without asking for more: 48 KB, less 1 KB for
+        // the static shared memory of the kernel (a flag, and what its IOps may declare)
+        constexpr size_t DYNAMIC_SHARED_BYTES_WITHOUT_ATTRIBUTE = 47 * 1024;
+
+        // A value for every device, which the host code finds once per device and keeps (0 is no value): the devices
+        // with an ordinal below 64 keep it, and the others find it every time
+        template <typename T>
+        struct PerDevice {
+            static constexpr int DEVICES = 64;
+            std::atomic<T> values[DEVICES]{};
+
+            T get(const int device) const {
+                return device >= 0 && device < DEVICES ? values[device].load(std::memory_order_relaxed) : T{0};
+            }
+            // The value of the device becomes `value`, if that is larger
+            void raise(const int device, const T value) {
+                if (device >= 0 && device < DEVICES) {
+                    T known = values[device].load(std::memory_order_relaxed);
+                    while (known < value &&
+                           !values[device].compare_exchange_weak(known, value, std::memory_order_relaxed)) {
+                    }
+                }
+            }
+        };
+
+        // Throws std::invalid_argument when the accumulated values of a block do not fit in the shared memory that a
+        // block of the kernel can have on the device
+        inline void requireSharedMemory(const bool fits, const size_t bytes, const uint threads,
+                                        const size_t available) {
+            requireLaunchConfiguration(fits, "blocks of " + std::to_string(threads) + " threads need " +
+                                                 std::to_string(bytes) +
+                                                 " bytes of shared memory for the accumulated values of the "
+                                                 "reductions, and a block of this kernel can have " +
+                                                 std::to_string(available) + " on this device");
+        }
+#endif
+
         // The planes of a grid, at most
         constexpr uint MAX_PLANES = 65535;
 
@@ -1044,6 +1184,18 @@ namespace fk {
             return launch.clusters > 1 ? workspaceBytesOf<PartialOf<Reductions>>(planesOf(readIOp), launch.clusters)
                                        : size_t{0};
         }
+
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
+        // The bytes of the workspace that an execution of a read and some reductions needs with a grid of the caller
+        // (launchOfGrid): 0 when every plane has one block with elements. Throws std::invalid_argument for a grid that
+        // is not the one of a reduction of the read.
+        template <typename ReadIOp, typename Reductions>
+        inline size_t workspaceBytesOfGrid(const ReadIOp& readIOp, const Reductions&, const dim3 grid) {
+            const Launch launch = launchOfGrid(largestPlaneElements(readIOp), planesOf(readIOp), grid);
+            return launch.clusters > 1 ? workspaceBytesOf<PartialOf<Reductions>>(planesOf(readIOp), launch.clusters)
+                                       : size_t{0};
+        }
+#endif
 
         // The workspace of a caller, as the details of the GPU versions have it. A Ptr has to be device memory.
         FK_HOST_STATIC RawPtr<ND::_1D, uchar> workspaceOf(const Ptr<ND::_1D, uchar>& workspace) {
@@ -1114,11 +1266,20 @@ namespace fk {
                           "ReduceDPP: the details are not the ones of these reductions");
             [[maybe_unused]] constexpr bool reported = reduce_detail::reportIOps<ReadIOp, Reductions, WriteIOp>;
             constexpr reduce_detail::IndexesOf<Reductions> indexes{};
-            constexpr uint THREADS = reduce_detail::blockThreads<Policy, PartialType>();
 
+            // The threads of the block: the ones of the policy (reduce_detail::blockThreads), or the ones of the
+            // launch configuration of the caller
+            const uint threads = blockDim.x;
             // The accumulated values of the threads of the block and, in [0], the one of the block (and then the one
-            // of its cluster, and the one of its plane)
-            __shared__ reduce_detail::SharedPartial<PartialType> partials[THREADS];
+            // of its cluster, and the one of its plane), in the dynamic shared memory that the executor sizes for them
+            reduce_detail::SharedPartial<PartialType>* const partials = reduce_detail::sharedPartials<PartialType>();
+            // The first stride of the accumulation in shared memory: half the smallest power of two that is not less
+            // than the threads, so that any number of them is accumulated
+            uint firstStride = 1;
+            while (firstStride < threads) {
+                firstStride *= 2;
+            }
+            firstStride /= 2;
 
             const uint tid = threadIdx.x;
             const uint block = blockIdx.x;
@@ -1129,10 +1290,10 @@ namespace fk {
             const auto accumulate = [&reductions, &indexes](const PartialType& a, const PartialType& b) {
                 return reduce_detail::accumulate<Reductions>(a, b, reductions, indexes);
             };
-            // The first `entries` values of partials, accumulated in partials[0]. The same for every thread of the
-            // block, which all get here. (A lambda uses a __shared__ variable without capturing it.)
-            const auto accumulateShared = [&accumulate, tid](const uint entries) {
-                for (uint stride = THREADS / 2; stride > 0; stride /= 2) {
+            // The first `entries` values of partials (at most `threads`), accumulated in partials[0]. The same for
+            // every thread of the block, which all get here.
+            const auto accumulateShared = [&accumulate, partials, firstStride, tid](const uint entries) {
+                for (uint stride = firstStride; stride > 0; stride /= 2) {
                     if (tid < stride && tid + stride < entries) {
                         partials[tid].value = accumulate(partials[tid].value, partials[tid + stride].value);
                     }
@@ -1140,19 +1301,19 @@ namespace fk {
                 }
             };
             // The values value(0) ... value(count - 1) accumulated in partials[0]: each thread accumulates one of
-            // every THREADS of them, and then all do in shared memory. value(0) can be the partials[0] of this block
-            // (the cluster level): only thread 0 reads it, before it writes partials[0].
-            const auto accumulateValues = [&accumulate, &accumulateShared, tid](const ulonglong count,
-                                                                                const auto& value) {
+            // every `threads` of them, and then all do in shared memory. value(0) can be the partials[0] of this
+            // block (the cluster level): only thread 0 reads it, before it writes partials[0].
+            const auto accumulateValues = [&accumulate, &accumulateShared, partials, threads,
+                                           tid](const ulonglong count, const auto& value) {
                 if (tid < count) {
                     PartialType accumulated = value(static_cast<ulonglong>(tid));
-                    for (ulonglong i = static_cast<ulonglong>(tid) + THREADS; i < count; i += THREADS) {
+                    for (ulonglong i = static_cast<ulonglong>(tid) + threads; i < count; i += threads) {
                         accumulated = accumulate(accumulated, value(i));
                     }
                     partials[tid].value = accumulated;
                 }
                 __syncthreads();
-                accumulateShared(count < THREADS ? static_cast<uint>(count) : THREADS);
+                accumulateShared(count < threads ? static_cast<uint>(count) : threads);
             };
 
 #if defined(__NVCC__) && defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 900
@@ -1178,7 +1339,7 @@ namespace fk {
                 return;
             }
 
-            // 1. Thread: the elements first + tid, first + tid + THREADS... of the block, in registers. The blocks at
+            // 1. Thread: the elements first + tid, first + tid + threads... of the block, in registers. The blocks at
             // the end of the last cluster of a plane can have no elements.
             const ulonglong first = block * blockElements;
             const ulonglong count = block >= blocks ? 0ull
@@ -1188,13 +1349,13 @@ namespace fk {
                 const ulonglong element = first + tid;
                 uint y = static_cast<uint>(element / width);
                 uint x = static_cast<uint>(element - static_cast<ulonglong>(y) * width);
-                // The position of the element THREADS elements after (x, y): stepX columns and stepY rows further
-                const uint stepX = THREADS % width;
-                const uint stepY = THREADS / width;
+                // The position of the element `threads` elements after (x, y): stepX columns and stepY rows further
+                const uint stepX = threads % width;
+                const uint stepY = threads / width;
                 PartialType accumulated = reduce_detail::firstValues(
                     ReadIOp::Operation::exec(Point{static_cast<int>(x), static_cast<int>(y), z}, readIOp), reductions,
                     indexes);
-                for (ulonglong i = static_cast<ulonglong>(tid) + THREADS; i < count; i += THREADS) {
+                for (ulonglong i = static_cast<ulonglong>(tid) + threads; i < count; i += threads) {
                     y += stepY;
                     if (x >= width - stepX) {
                         x -= width - stepX;
@@ -1212,7 +1373,7 @@ namespace fk {
             }
             __syncthreads();
             // 2. Block: the values of its threads, in shared memory
-            accumulateShared(count < THREADS ? static_cast<uint>(count) : THREADS);
+            accumulateShared(count < threads ? static_cast<uint>(count) : threads);
 
 #if defined(__NVCC__) && defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 900
             // 3. Cluster: the values of its blocks, which its first block reads from their shared memory
@@ -1225,7 +1386,7 @@ namespace fk {
                     const ulonglong used = blocks - cluster * clusterBlocks < clusterBlocks
                                                ? blocks - cluster * clusterBlocks
                                                : static_cast<ulonglong>(clusterBlocks);
-                    accumulateValues(used, [&clusterGroup](const ulonglong rank) {
+                    accumulateValues(used, [&clusterGroup, partials](const ulonglong rank) {
                         return clusterGroup.map_shared_rank(&partials[0], static_cast<int>(rank))->value;
                     });
                 }
@@ -1302,12 +1463,31 @@ namespace fk {
         FK_HOST_STATIC Details build_details(const Ptr<ND::_1D, uchar>& workspace) {
             return Details{reduce_detail::workspaceOf(workspace)};
         }
+        // With the launch configuration of the caller instead of the one of the policy: blocks of block.x threads, and
+        // grid.x blocks for every plane, without clusters. block has to be (threads, 1, 1), with 1 to 1024 threads,
+        // and grid (blocks of every plane, 1, planes of the read): the executor throws std::invalid_argument
+        // otherwise. A grid of more than one block for a plane needs a workspace of workspaceBytes(readIOp,
+        // reductions, grid) bytes.
+        FK_HOST_FUSE Details build_details(const RawPtr<ND::_1D, uchar>& workspace, const dim3 block,
+                                           const dim3 grid) {
+            return Details{workspace, block, grid};
+        }
+        FK_HOST_STATIC Details build_details(const Ptr<ND::_1D, uchar>& workspace, const dim3 block,
+                                             const dim3 grid) {
+            return Details{reduce_detail::workspaceOf(workspace), block, grid};
+        }
 
         // The bytes of the workspace that the executions of a read and some reductions need on any device; 0 when
         // they need none
         template <typename ReadIOp, typename Reductions>
         FK_HOST_FUSE size_t workspaceBytes(const ReadIOp& readIOp, const Reductions& reductions) {
             return reduce_detail::workspaceBytes<Policy>(readIOp, reductions);
+        }
+        // With the grid of a launch configuration of the caller (build_details(workspace, block, grid)). Throws
+        // std::invalid_argument for a grid that is not the one of a reduction of the read.
+        template <typename ReadIOp, typename Reductions>
+        FK_HOST_STATIC size_t workspaceBytes(const ReadIOp& readIOp, const Reductions& reductions, const dim3 grid) {
+            return reduce_detail::workspaceBytesOfGrid(readIOp, reductions, grid);
         }
 
         // The code of every thread of the kernel
@@ -1343,11 +1523,25 @@ namespace fk {
         FK_HOST_STATIC Details build_details(const Ptr<ND::_1D, uchar>& workspace) {
             return Details{reduce_detail::workspaceOf(workspace)};
         }
+        // With the launch configuration of the caller, as in the GPU_NVIDIA version
+        FK_HOST_FUSE Details build_details(const RawPtr<ND::_1D, uchar>& workspace, const dim3 block,
+                                           const dim3 grid) {
+            return Details{workspace, block, grid};
+        }
+        FK_HOST_STATIC Details build_details(const Ptr<ND::_1D, uchar>& workspace, const dim3 block,
+                                             const dim3 grid) {
+            return Details{reduce_detail::workspaceOf(workspace), block, grid};
+        }
 
         // The bytes of the workspace that the executions of a read and some reductions need; 0 when they need none
         template <typename ReadIOp, typename Reductions>
         FK_HOST_FUSE size_t workspaceBytes(const ReadIOp& readIOp, const Reductions& reductions) {
             return reduce_detail::workspaceBytes<Policy>(readIOp, reductions);
+        }
+        // With the grid of a launch configuration of the caller, as in the GPU_NVIDIA version
+        template <typename ReadIOp, typename Reductions>
+        FK_HOST_STATIC size_t workspaceBytes(const ReadIOp& readIOp, const Reductions& reductions, const dim3 grid) {
+            return reduce_detail::workspaceBytesOfGrid(readIOp, reductions, grid);
         }
 
         // The code of every thread of the kernel
@@ -1479,7 +1673,8 @@ namespace fk {
         }
 
         // The blocks of the largest cluster that a kernel can be launched with on a stream, in blocks of `threads`
-        // threads: `wanted` at most, and 1 when it can not be launched with clusters. Only for builds that have
+        // threads with `sharedBytes` of dynamic shared memory: `wanted` at most, and 1 when it can not be launched
+        // with clusters. Only for builds that have
         // images with clusters (anyImageHasClusters()). The driver says:
         // - in a build with images of both kinds, which one it runs on the device of the stream: the architecture
         //   that the image of the kernel was compiled for, as major * 10 + minor. (It can not be deduced from the
@@ -1488,8 +1683,8 @@ namespace fk {
         // - the largest cluster that the stream accepts: 8 blocks is the largest portable size, and a context with
         //   few multiprocessors that are scheduled together accepts less.
         template <typename Kernel>
-        inline uint largestCluster(const Kernel kernel, const uint threads, const cudaStream_t stream,
-                                   const uint wanted) {
+        inline uint largestCluster(const Kernel kernel, const uint threads, const size_t sharedBytes,
+                                   const cudaStream_t stream, const uint wanted) {
             if constexpr (!everyImageHasClusters()) {
                 cudaFuncAttributes attributes{};
                 gpuErrchk(clearingLastError(cudaFuncGetAttributes(&attributes, kernel)));
@@ -1500,6 +1695,7 @@ namespace fk {
             cudaLaunchConfig_t config = {};
             config.gridDim = dim3(wanted, 1, 1);
             config.blockDim = dim3(threads, 1, 1);
+            config.dynamicSmemBytes = sharedBytes;
             config.stream = stream;
             int largest = 0;
             gpuErrchk(clearingLastError(cudaOccupancyMaxPotentialClusterSize(&largest, kernel, &config)));
@@ -1510,19 +1706,51 @@ namespace fk {
         }
 
         // Throws, with the reason, when the device can not launch the kernel in blocks of `threads` threads, which
-        // only depends on the policy and on the build. Asked before the launch by the policies with blocks of more
-        // than 256 threads, and by every policy for a launch that the device rejected for its resources.
+        // only depends on the threads and on the build. Asked before the launch for blocks of more than 256 threads
+        // (the ones of the policy, or the ones of a launch configuration of the caller: `source` says which), and for
+        // a launch that the device rejected for its resources.
         template <typename Kernel>
-        inline void throwIfTooManyThreads(const Kernel kernel, const uint threads) {
+        inline void throwIfTooManyThreads(const Kernel kernel, const uint threads, const char* const source) {
             cudaFuncAttributes attributes{};
             if (clearingLastError(cudaFuncGetAttributes(&attributes, kernel)) == cudaSuccess &&
                 attributes.maxThreadsPerBlock < static_cast<int>(threads)) {
                 throw std::runtime_error("ReduceDPP: this kernel needs " + std::to_string(attributes.numRegs) +
                                          " registers per thread, so the device launches it in blocks of " +
-                                         std::to_string(attributes.maxThreadsPerBlock) +
-                                         " threads at most, and Policy::BLOCK_THREADS gives blocks of " +
-                                         std::to_string(threads) + " (blocks of 256 threads can always be launched)");
+                                         std::to_string(attributes.maxThreadsPerBlock) + " threads at most, and " +
+                                         source + " gives blocks of " + std::to_string(threads) +
+                                         " (blocks of 256 threads can always be launched)");
             }
+        }
+
+        // Lets the kernel be launched on the current device with `bytes` of dynamic shared memory, the accumulated
+        // values of blocks of `threads` threads. Up to 47 KB nothing is asked: every block can have 48 KB, and the
+        // kernel has no other shared memory than a flag (unless its IOps declare some). Above that, the driver is
+        // asked what a block of this kernel can have on the device, and an execution that needs more throws
+        // std::invalid_argument; one that fits gives the kernel the attribute that allows it. `allowed` keeps, for
+        // every device, the most bytes already allowed for this kernel, so each larger size is asked once.
+        template <typename Kernel>
+        inline void allowSharedMemory(const Kernel kernel, const size_t bytes, const uint threads,
+                                      PerDevice<size_t>& allowed) {
+            if (bytes <= DYNAMIC_SHARED_BYTES_WITHOUT_ATTRIBUTE) {
+                return;
+            }
+            int device = 0;
+            gpuErrchk(clearingLastError(cudaGetDevice(&device)));
+            if (bytes <= allowed.get(device)) {
+                return;
+            }
+            cudaFuncAttributes attributes{};
+            gpuErrchk(clearingLastError(cudaFuncGetAttributes(&attributes, kernel)));
+            int optIn = 0;
+            gpuErrchk(clearingLastError(
+                cudaDeviceGetAttribute(&optIn, cudaDevAttrMaxSharedMemoryPerBlockOptin, device)));
+            const size_t available = static_cast<size_t>(optIn) > attributes.sharedSizeBytes
+                                         ? static_cast<size_t>(optIn) - attributes.sharedSizeBytes
+                                         : size_t{0};
+            requireSharedMemory(bytes <= available, bytes, threads, available);
+            gpuErrchk(clearingLastError(
+                cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(bytes))));
+            allowed.raise(device, bytes);
         }
 
         // For a launch that the device rejected for its memory: throws the reason when it is the stack of the kernel.
@@ -1567,37 +1795,51 @@ namespace fk {
             executor_detail::requireArguments(planes <= reduce_detail::MAX_PLANES, "ReduceDPP",
                                               "the read has more than 65535 planes, the most that a grid has");
             const cudaStream_t stream = stream_.getCUDAStream();
-            const uint threads = reduce_detail::blockThreads<Policy, PartialType>();
             const ulonglong elements = reduce_detail::largestPlaneElements(readIOp);
             // The kernel of every DPP, launched here with cudaLaunchKernelEx (the launch that takes the clusters),
             // which needs its address. The cast is a C style one, to the parameter types with their const, as in the
             // launch code that nvcc generates: g++ does not find the kernel through any other conversion.
             const auto kernel = (void (*)(const KernelDetails, const ReadIOp, const Reductions, const WriteIOp))
                 launchDPP_Kernel<DPP, KernelDetails, ReadIOp, Reductions, WriteIOp>;
-            // Blocks of more than 256 threads, which the kernel may not be launchable with, are checked before the
-            // launch: one that is being captured in a graph is not rejected (the instantiation of the graph is)
-            if constexpr (reduce_detail::blockThreads<Policy, PartialType>() > 256) {
-                reduce_detail::throwIfTooManyThreads(kernel, threads);
-            }
 
-            // The grid. A build without images with clusters has no code for them. In the others, a grid that has
-            // clusters asks the driver for the largest one that can really be launched here: the executions that
-            // launch no clusters ask nothing (with the default policy, the ones that have a workspace, and the ones
-            // of planes that one block reduces).
-            const bool withWorkspace = details.workspace.data != nullptr;
-            uint clusterBlocks = 1;
-            if constexpr (reduce_detail::anyImageHasClusters()) {
-                clusterBlocks = Policy::CLUSTERS != ReduceDPPClusters::NEVER ? Policy::CLUSTER_BLOCKS : 1u;
-            }
-            reduce_detail::Launch launch =
-                reduce_detail::launchOf<Policy>(elements, planes, clusterBlocks, withWorkspace);
-            if constexpr (reduce_detail::anyImageHasClusters()) {
-                if (launch.clusterBlocks > 1) {
-                    const uint largest = reduce_detail::largestCluster(kernel, threads, stream, clusterBlocks);
-                    if (largest < clusterBlocks) {
-                        launch = reduce_detail::launchOf<Policy>(elements, planes, largest, withWorkspace);
+            // The block and the grid: the ones of the launch configuration of the caller, without clusters, or the
+            // ones of the policy. Blocks of more than 256 threads, which the kernel may not be launchable with, are
+            // checked before the launch: one that is being captured in a graph is not rejected (the instantiation of
+            // the graph is). The ones of a launch configuration, after its arguments and its shared memory.
+            const bool configured = reduce_detail::isConfigured(details.block, details.grid);
+            const char* const source = configured ? "the launch configuration" : "Policy::BLOCK_THREADS";
+            uint threads = reduce_detail::blockThreads<Policy, PartialType>();
+            reduce_detail::Launch launch{};
+            size_t workspaceBytes = 0;
+            if (configured) {
+                reduce_detail::checkBlock(details.block);
+                launch = reduce_detail::launchOfGrid(elements, planes, details.grid);
+                threads = details.block.x;
+                workspaceBytes = reduce_detail::workspaceBytesOfGrid(readIOp, reductions, details.grid);
+            } else {
+                if constexpr (reduce_detail::blockThreads<Policy, PartialType>() > 256) {
+                    reduce_detail::throwIfTooManyThreads(kernel, threads, source);
+                }
+                // A build without images with clusters has no code for them. In the others, a grid that has clusters
+                // asks the driver for the largest one that can really be launched here: the executions that launch no
+                // clusters ask nothing (with the default policy, the ones that have a workspace, and the ones of
+                // planes that one block reduces).
+                const bool withWorkspace = details.workspace.data != nullptr;
+                uint clusterBlocks = 1;
+                if constexpr (reduce_detail::anyImageHasClusters()) {
+                    clusterBlocks = Policy::CLUSTERS != ReduceDPPClusters::NEVER ? Policy::CLUSTER_BLOCKS : 1u;
+                }
+                launch = reduce_detail::launchOf<Policy>(elements, planes, clusterBlocks, withWorkspace);
+                if constexpr (reduce_detail::anyImageHasClusters()) {
+                    if (launch.clusterBlocks > 1) {
+                        const uint largest = reduce_detail::largestCluster(
+                            kernel, threads, reduce_detail::sharedBytes<PartialType>(threads), stream, clusterBlocks);
+                        if (largest < clusterBlocks) {
+                            launch = reduce_detail::launchOf<Policy>(elements, planes, largest, withWorkspace);
+                        }
                     }
                 }
+                workspaceBytes = DPP::workspaceBytes(readIOp, reductions);
             }
 
             KernelDetails kernelDetails{};
@@ -1607,13 +1849,20 @@ namespace fk {
                 // The clusters of a plane synchronize through the workspace of the caller
                 kernelDetails.workspace =
                     reduce_detail::workspaceIOps<PartialType>(details.workspace, planes, launch.clusters,
-                                                              DPP::workspaceBytes(readIOp, reductions));
+                                                              workspaceBytes);
+            }
+            // The accumulated values of the threads of a block, in its dynamic shared memory
+            const size_t sharedBytes = reduce_detail::sharedBytes<PartialType>(threads);
+            static reduce_detail::PerDevice<size_t> allowedSharedBytes;
+            reduce_detail::allowSharedMemory(kernel, sharedBytes, threads, allowedSharedBytes);
+            if (configured && threads > 256) {
+                reduce_detail::throwIfTooManyThreads(kernel, threads, source);
             }
 
             cudaLaunchConfig_t config = {};
             config.gridDim = dim3(launch.blocks, 1, planes);
             config.blockDim = dim3(threads, 1, 1);
-            config.dynamicSmemBytes = 0;
+            config.dynamicSmemBytes = sharedBytes;
             config.stream = stream;
             cudaLaunchAttribute attribute[1];
             if (launch.clusterBlocks > 1) {
@@ -1627,7 +1876,7 @@ namespace fk {
             const cudaError_t code = reduce_detail::clearingLastError(
                 cudaLaunchKernelEx(&config, kernel, kernelDetails, readIOp, reductions, writeIOp));
             if (code == cudaErrorLaunchOutOfResources) {
-                reduce_detail::throwIfTooManyThreads(kernel, threads);
+                reduce_detail::throwIfTooManyThreads(kernel, threads, source);
             }
             if (code == cudaErrorMemoryAllocation) {
                 reduce_detail::throwIfNoMemoryForTheStack(kernel, sizeof(PartialType));
@@ -1659,6 +1908,38 @@ namespace fk {
         }
     };
 #elif defined(FK_HIP_BACKEND)
+    namespace reduce_detail {
+        // As in the GPU_NVIDIA version: lets the kernel be launched on the current device with `bytes` of dynamic
+        // shared memory, the accumulated values of blocks of `threads` threads. Up to 47 KB nothing is asked; above
+        // that, an execution that needs more than a block of this kernel can have on the device throws
+        // std::invalid_argument, and one that fits gives the kernel the attribute that allows it, once for each
+        // larger size and device.
+        template <typename Kernel>
+        inline void allowSharedMemory(const Kernel kernel, const size_t bytes, const uint threads,
+                                      PerDevice<size_t>& allowed) {
+            if (bytes <= DYNAMIC_SHARED_BYTES_WITHOUT_ATTRIBUTE) {
+                return;
+            }
+            int device = 0;
+            gpuErrchk(hipGetDevice(&device));
+            if (bytes <= allowed.get(device)) {
+                return;
+            }
+            const void* const function = reinterpret_cast<const void*>(kernel);
+            hipFuncAttributes attributes{};
+            gpuErrchk(hipFuncGetAttributes(&attributes, function));
+            int optIn = 0;
+            gpuErrchk(hipDeviceGetAttribute(&optIn, hipDeviceAttributeSharedMemPerBlockOptin, device));
+            const size_t available = static_cast<size_t>(optIn) > attributes.sharedSizeBytes
+                                         ? static_cast<size_t>(optIn) - attributes.sharedSizeBytes
+                                         : size_t{0};
+            requireSharedMemory(bytes <= available, bytes, threads, available);
+            gpuErrchk(hipFuncSetAttribute(function, hipFuncAttributeMaxDynamicSharedMemorySize,
+                                          static_cast<int>(bytes)));
+            allowed.raise(device, bytes);
+        }
+    } // namespace reduce_detail
+
     // Launches the kernel on the stream and returns
     template <typename Policy>
     struct Executor<ReduceDPP<ParArch::GPU_AMD, Policy>> {
@@ -1683,21 +1964,39 @@ namespace fk {
                 const uint planes = reduce_detail::planesOf(readIOp);
                 executor_detail::requireArguments(planes <= reduce_detail::MAX_PLANES, "ReduceDPP",
                                                   "the read has more than 65535 planes, the most that a grid has");
-                // No clusters: the blocks of a plane synchronize through the workspace of the caller
-                const reduce_detail::Launch launch =
-                    reduce_detail::launchOf<Policy>(reduce_detail::largestPlaneElements(readIOp), planes, 1, true);
+                // No clusters: the blocks of a plane synchronize through the workspace of the caller. The block and
+                // the grid are the ones of the launch configuration of the caller, or the ones of the policy.
+                const ulonglong elements = reduce_detail::largestPlaneElements(readIOp);
+                const bool configured = reduce_detail::isConfigured(details.block, details.grid);
+                uint threads = reduce_detail::blockThreads<Policy, PartialType>();
+                reduce_detail::Launch launch{};
+                size_t workspaceBytes = 0;
+                if (configured) {
+                    reduce_detail::checkBlock(details.block);
+                    launch = reduce_detail::launchOfGrid(elements, planes, details.grid);
+                    threads = details.block.x;
+                    workspaceBytes = reduce_detail::workspaceBytesOfGrid(readIOp, reductions, details.grid);
+                } else {
+                    launch = reduce_detail::launchOf<Policy>(elements, planes, 1, true);
+                    workspaceBytes = DPP::workspaceBytes(readIOp, reductions);
+                }
                 KernelDetails kernelDetails{};
                 kernelDetails.blockElements = launch.blockElements;
                 kernelDetails.clusterBlocks = launch.clusterBlocks;
                 if (launch.clusters > 1) {
                     kernelDetails.workspace =
                         reduce_detail::workspaceIOps<PartialType>(details.workspace, planes, launch.clusters,
-                                                                  DPP::workspaceBytes(readIOp, reductions));
+                                                                  workspaceBytes);
                 }
-                const dim3 block(reduce_detail::blockThreads<Policy, PartialType>(), 1, 1);
+                // The accumulated values of the threads of a block, in its dynamic shared memory
+                const auto kernel = launchDPP_Kernel<DPP, KernelDetails, ReadIOp, Reductions, WriteIOp>;
+                const size_t sharedBytes = reduce_detail::sharedBytes<PartialType>(threads);
+                static reduce_detail::PerDevice<size_t> allowedSharedBytes;
+                reduce_detail::allowSharedMemory(kernel, sharedBytes, threads, allowedSharedBytes);
+                const dim3 block(threads, 1, 1);
                 const dim3 grid(launch.blocks, 1, planes);
-                launchDPP_Kernel<DPP><<<grid, block, 0, stream.getHIPStream()>>>(kernelDetails, readIOp, reductions,
-                                                                                 writeIOp);
+                launchDPP_Kernel<DPP><<<grid, block, sharedBytes, stream.getHIPStream()>>>(kernelDetails, readIOp,
+                                                                                           reductions, writeIOp);
                 gpuErrchk(hipGetLastError());
             } else {
                 // Wrong IOps: the report names them, and nothing else is instantiated
