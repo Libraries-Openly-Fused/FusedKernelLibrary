@@ -85,7 +85,8 @@ executeOperations<TransformDPP<>>(stream,
 ### Color conversion + channel ops
 
 ```cpp
-ColorConversion<ColorConversionCodes::COLOR_RGB2GRAY, uchar3, uchar>::build()
+ColorConversion<ColorConversionCodes::COLOR_RGB2GRAY, uchar3, float>::build()   // the luminance, always float
+SaturateCast<float, uchar>::build()          // then round + clamp for an 8-bit grey
 VectorReorder<uchar3, 2, 1, 0>::build()      // compile-time channel shuffle
 VectorReorderRT<uchar3>::build({2, 1, 0})    // runtime shuffle (params)
 Discard<uchar4, uchar3>::build()             // drop alpha
