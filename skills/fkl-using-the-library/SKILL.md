@@ -161,7 +161,9 @@ executeOperations<ReduceDPP<>>(stream, ReduceDPP<>::build_details(workspace), re
   longer than as two executions on an RTX 4090, 2.4 on an RTX 5050).
   For expensive reads on a known GPU, tune `ReduceDPPPolicy::BLOCKS`
   (second template parameter; about 2 blocks per multiprocessor
-  measured within 2% of the best).
+  measured within 2% of the best). `ReduceDPP<ParArch::GPU_AMD>`
+  defaults to `ReduceDPPPolicyAMD` (blocks of 128 threads, measured on
+  an RX 9060); a policy derived from `ReduceDPPPolicy` keeps 256.
 - The output of a plane may be the memory that the same plane reads. It
   must not overlap what another plane reads.
 - Sums of floats depend on the order of the additions, which is not the

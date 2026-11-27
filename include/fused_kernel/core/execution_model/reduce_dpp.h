@@ -231,6 +231,32 @@ namespace fk {
         static constexpr uint CHUNK_ELEMENTS = 16384;
     };
 
+    // The default policy of ReduceDPP<ParArch::GPU_AMD>: ReduceDPPPolicy with blocks of 128 threads, everything else the same. Measured on
+    // one AMD device, an RX 9060 (gfx1200, 28 compute units, wave32, ROCm 10.1), with the kinds of data that chose ReduceDPPPolicy: a uchar
+    // matrix of 4K to 33M elements (its sum, maximum and minimum), batches of 30 planes of 65536 uchar and of 128 of 262144, and the resize
+    // of N crops of 280 x 280 to 224 x 224 with five statistics in float and in double (N = 1, 30, 150). The time of an execution (the launch
+    // and the synchronization of the stream) is within 4.5% of the best number of blocks and threads measured for each case with 128 threads,
+    // and within 10.6% with ReduceDPPPolicy's 256 (geometric means of the 13 cases). 128 threads took 16% to 17% less time for 16M and 33M
+    // elements and for 128 planes of 262144, 8% to 9% less for 1M elements and for 30 planes of 65536, 6% more (1.7 us) for a plane that
+    // one block reduces (4096 elements) and 2% more for the resize of 30 crops; for 30 and 150 crops every policy measured was within 1%.
+    // Another device may prefer other values. A policy derived from ReduceDPPPolicy keeps its 256 threads on GPU_AMD; with blocks of 128
+    // threads, accumulators of up to 256 bytes (32768 / 128) fit in the shared memory of a block without fewer threads.
+    struct ReduceDPPPolicyAMD : ReduceDPPPolicy {
+        static constexpr uint BLOCK_THREADS = 128;
+    };
+
+    // The default policy of each backend: ReduceDPPPolicy, and ReduceDPPPolicyAMD for ParArch::GPU_AMD
+    template <enum ParArch PA>
+    struct ReduceDPPDefaultPolicy {
+        using type = ReduceDPPPolicy;
+    };
+    template <>
+    struct ReduceDPPDefaultPolicy<ParArch::GPU_AMD> {
+        using type = ReduceDPPPolicyAMD;
+    };
+    template <enum ParArch PA>
+    using ReduceDPPDefaultPolicy_t = typename ReduceDPPDefaultPolicy<PA>::type;
+
     namespace reduce_detail {
         // The accumulated values of the reductions of one execution, one per reduction: what a thread, a block, a
         // cluster or a chunk has accumulated so far. A plain aggregate: it is stored in shared memory and in device
@@ -557,7 +583,7 @@ namespace fk {
         RawPtr<ND::_1D, uchar> workspace;
     };
 
-    template <enum ParArch PA = defaultParArch, typename Policy = ReduceDPPPolicy>
+    template <enum ParArch PA = defaultParArch, typename Policy = ReduceDPPDefaultPolicy_t<PA>>
     struct ReduceDPP;
 
     template <typename Policy>
