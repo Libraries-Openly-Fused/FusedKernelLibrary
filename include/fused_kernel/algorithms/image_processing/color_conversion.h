@@ -53,8 +53,12 @@ namespace fk {
         using Parent = UnaryOperation<I, O, RGB2Gray<I, O, GrayFormula::CCIR_601>>;
         DECLARE_UNARY_PARENT
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
-            // 0.299*R + 0.587*G + 0.114*B
-            if constexpr (std::is_unsigned_v<OutputType>) {
+            // 0.299*R + 0.587*G + 0.114*B. A floating point output is the luminance itself; an integer one, the luminance
+            // rounded to the nearest integer. The floating point test comes first: std::is_signed_v is true for float and
+            // double too, so after the signed test it would never be reached.
+            if constexpr (std::is_floating_point_v<OutputType>) {
+                return compute_luminance(input);
+            } else if constexpr (std::is_unsigned_v<OutputType>) {
 #if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
                 return __float2uint_rn(compute_luminance(input));
 #else
@@ -66,8 +70,6 @@ namespace fk {
 #else
                 return static_cast<OutputType>(std::nearbyint(compute_luminance(input)));
 #endif
-            } else if constexpr (std::is_floating_point_v<OutputType>) {
-                return compute_luminance(input);
             }
         }
     private:

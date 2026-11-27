@@ -57,6 +57,26 @@ void testRGB2GrayConversion() {
     TestCaseBuilder<fk::RGB2Gray<fk::uchar3, uchar>>::addTest(testCases, inputVals, expectedVals);
 }
 
+// RGB2Gray with floating point and other integer outputs. A floating point output is the luminance, with its fraction (it
+// was rounded to an integer, because std::is_signed_v is true for float and double); an integer output is rounded as the
+// uchar one is. Each pixel has one channel that is not zero, so the luminance is one product, the same in float however the
+// compiler contracts the sum (a product and additions of zero, or fused multiply-adds with zero).
+void testRGB2GrayOutputTypes() {
+    constexpr std::array<fk::uchar3, 4> inputVals{fk::uchar3{255, 0, 0}, fk::uchar3{0, 255, 0}, fk::uchar3{0, 0, 255},
+                                                 fk::uchar3{0, 0, 0}};
+    constexpr std::array<float, 4> expectedFloat{255.f * 0.299f, 255.f * 0.587f, 255.f * 0.114f, 0.f};
+    constexpr std::array<double, 4> expectedDouble{static_cast<double>(255.f * 0.299f), static_cast<double>(255.f * 0.587f),
+                                                   static_cast<double>(255.f * 0.114f), 0.0};
+    static_assert(expectedFloat[0] != 76.f && expectedFloat[1] != 150.f && expectedFloat[2] != 29.f,
+                  "the floating point luminances of the test have a fraction");
+    constexpr std::array<int, 4> expectedInt{76, 150, 29, 0};
+    constexpr std::array<uint, 4> expectedUint{76u, 150u, 29u, 0u};
+    TestCaseBuilder<fk::RGB2Gray<fk::uchar3, float>>::addTest(testCases, inputVals, expectedFloat);
+    TestCaseBuilder<fk::RGB2Gray<fk::uchar3, double>>::addTest(testCases, inputVals, expectedDouble);
+    TestCaseBuilder<fk::RGB2Gray<fk::uchar3, int>>::addTest(testCases, inputVals, expectedInt);
+    TestCaseBuilder<fk::RGB2Gray<fk::uchar3, uint>>::addTest(testCases, inputVals, expectedUint);
+}
+
 // Test AddOpaqueAlpha functionality
 void testAddOpaqueAlpha() {
     constexpr std::array<fk::uchar3, 2> inputVals{
@@ -375,6 +395,7 @@ testIsEvenFunction();
 
 // Test RGB2Gray conversion
 testRGB2GrayConversion();
+testRGB2GrayOutputTypes();
 
 // Test AddOpaqueAlpha
 testAddOpaqueAlpha();
