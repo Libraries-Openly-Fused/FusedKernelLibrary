@@ -156,14 +156,18 @@ executeOperations<ReduceDPP<>>(stream, ReduceDPP<>::build_details(workspace), re
 - Many planes: the blocks are shared among the planes of the read, as
   if all of them had the size of the largest one, so a batch is one
   launch sized for all of it. Reduce planes of very different sizes in
-  one execution per size: among many small planes a large one gets few
-  blocks (an image of 2048 x 1024 among 127 of 10 x 10 took 5.8 times
-  longer than as two executions on an RTX 4090, 2.4 on an RTX 5050).
-  For expensive reads on a known GPU, tune `ReduceDPPPolicy::BLOCKS`
-  (second template parameter; about 2 blocks per multiprocessor
-  measured within 2% of the best). `ReduceDPP<ParArch::GPU_AMD>`
-  defaults to `ReduceDPPPolicyAMD` (blocks of 128 threads, measured on
-  an RX 9060); a policy derived from `ReduceDPPPolicy` keeps 256.
+  one execution per size: among many small planes a large one gets
+  fewer blocks than alone, and every small one costs its blocks.
+- The blocks depend on the multiprocessors of the device (4 per
+  multiprocessor for the read, by default), and so does
+  `workspaceBytes`: size the workspace on the device that runs it. For
+  a known GPU, give the launch configuration instead:
+  `build_details(workspace, dim3(threads, 1, 1), dim3(blocks, 1,
+  planes))`, with `workspaceBytes(read, reductions, grid)` bytes of
+  workspace; any other shape throws. `ReduceDPP<ParArch::GPU_AMD>`
+  defaults to `ReduceDPPPolicyAMD` (blocks of 128 threads, and 12
+  blocks per multiprocessor, measured on an RX 9060); a policy derived
+  from `ReduceDPPPolicy` keeps 256 and 4.
 - The output of a plane may be the memory that the same plane reads. It
   must not overlap what another plane reads.
 - Sums of floats depend on the order of the additions, which is not the

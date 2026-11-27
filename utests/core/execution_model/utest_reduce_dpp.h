@@ -82,6 +82,7 @@
 #include <fused_kernel/core/execution_model/cpu_multithread.h>
 #endif
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cmath>
@@ -112,16 +113,17 @@ constexpr ParArch GPU_PA = ParArch::GPU_NVIDIA;
 constexpr ParArch GPU_PA = ParArch::GPU_AMD;
 #endif
 
-// The default policy of every backend: ReduceDPPPolicy, and on GPU_AMD ReduceDPPPolicyAMD (ReduceDPPPolicy with blocks of 128 threads)
+// The default policy of every backend: ReduceDPPPolicy, and on GPU_AMD ReduceDPPPolicyAMD (ReduceDPPPolicy with blocks
+// of 128 threads and 12 blocks per multiprocessor)
 static_assert(std::is_same_v<ReduceDPP<ParArch::CPU>, ReduceDPP<ParArch::CPU, ReduceDPPPolicy>>);
 static_assert(std::is_same_v<ReduceDPP<ParArch::GPU_NVIDIA>, ReduceDPP<ParArch::GPU_NVIDIA, ReduceDPPPolicy>>);
 static_assert(std::is_same_v<ReduceDPP<ParArch::GPU_AMD>, ReduceDPP<ParArch::GPU_AMD, ReduceDPPPolicyAMD>>);
 static_assert(std::is_same_v<ReduceDPP<>, ReduceDPP<defaultParArch, ReduceDPPDefaultPolicy_t<defaultParArch>>>);
-static_assert(ReduceDPPPolicyAMD::BLOCK_THREADS == 128 && ReduceDPPPolicyAMD::BLOCKS == ReduceDPPPolicy::BLOCKS &&
+static_assert(ReduceDPPPolicyAMD::BLOCK_THREADS == 128 &&
+              ReduceDPPPolicy::BLOCKS_PER_MULTIPROCESSOR == 4 && ReduceDPPPolicyAMD::BLOCKS_PER_MULTIPROCESSOR == 12 &&
               ReduceDPPPolicyAMD::SINGLE_BLOCK_ELEMENTS == ReduceDPPPolicy::SINGLE_BLOCK_ELEMENTS &&
               ReduceDPPPolicyAMD::BLOCK_ELEMENTS == ReduceDPPPolicy::BLOCK_ELEMENTS &&
               ReduceDPPPolicyAMD::LARGE_BLOCK_ELEMENTS == ReduceDPPPolicy::LARGE_BLOCK_ELEMENTS &&
-              ReduceDPPPolicyAMD::MAX_BLOCKS == ReduceDPPPolicy::MAX_BLOCKS &&
               ReduceDPPPolicyAMD::CHUNK_ELEMENTS == ReduceDPPPolicy::CHUNK_ELEMENTS);
 
 // A DPP (its ParArch and its policy), a stream for it, and what the cases do with both
@@ -191,31 +193,26 @@ struct SmallChunks : ReduceDPPPolicy {
 struct ChunksOf16384 : ReduceDPPPolicy {
     static constexpr uint CHUNK_ELEMENTS = 16384;
 };
-// (Blocks of BLOCK_ELEMENTS elements, up to BLOCKS = MAX_BLOCKS of them, which then grow.)
+// (Blocks of BLOCK_ELEMENTS elements: LARGE_BLOCK_ELEMENTS is the same, so the blocks of a plane do not depend on the
+// device.)
 struct NoClusters : ReduceDPPPolicy {
     static constexpr ReduceDPPClusters CLUSTERS = ReduceDPPClusters::NEVER;
     static constexpr uint SINGLE_BLOCK_ELEMENTS = 1024;
     static constexpr uint BLOCK_ELEMENTS = 1024;
-    static constexpr uint BLOCKS = 300;
     static constexpr uint LARGE_BLOCK_ELEMENTS = 1024;
-    static constexpr uint MAX_BLOCKS = 300;
 };
 struct ClustersOf3 : ReduceDPPPolicy {
     static constexpr ReduceDPPClusters CLUSTERS = ReduceDPPClusters::ALWAYS;
     static constexpr uint CLUSTER_BLOCKS = 3;
     static constexpr uint SINGLE_BLOCK_ELEMENTS = 700;
     static constexpr uint BLOCK_ELEMENTS = 700;
-    static constexpr uint BLOCKS = 200;
     static constexpr uint LARGE_BLOCK_ELEMENTS = 700;
-    static constexpr uint MAX_BLOCKS = 200;
 };
 struct BlocksOf32 : ReduceDPPPolicy {
     static constexpr uint BLOCK_THREADS = 32;
     static constexpr uint SINGLE_BLOCK_ELEMENTS = 50;
     static constexpr uint BLOCK_ELEMENTS = 50;
-    static constexpr uint BLOCKS = 5000;
     static constexpr uint LARGE_BLOCK_ELEMENTS = 50;
-    static constexpr uint MAX_BLOCKS = 5000;
 };
 
 // Channel c of the element (x, y) of the data `salt`. The floating point values are multiples of 1 / 8 from -7 / 8 to
@@ -1738,9 +1735,8 @@ struct LaunchAuto : ReduceDPPPolicy {
     static constexpr uint BLOCK_THREADS = 256;
     static constexpr uint SINGLE_BLOCK_ELEMENTS = 4096;
     static constexpr uint BLOCK_ELEMENTS = 512;
-    static constexpr uint BLOCKS = 128;
+    static constexpr uint BLOCKS_PER_MULTIPROCESSOR = 4;
     static constexpr uint LARGE_BLOCK_ELEMENTS = 16384;
-    static constexpr uint MAX_BLOCKS = 1024;
     static constexpr ReduceDPPClusters CLUSTERS = ReduceDPPClusters::AUTO;
     static constexpr uint CLUSTER_BLOCKS = 8;
 };
@@ -1758,55 +1754,75 @@ constexpr bool isLaunch(const reduce_detail::Launch& launch, const ulonglong blo
 }
 constexpr bool WITH_WORKSPACE = true;
 constexpr bool NO_WORKSPACE = false;
+// The launches below are the ones of a device of 32 multiprocessors: 4 x 32 = 128 blocks for the planes of a read
+constexpr uint SMS = 32;
 // One block, with and without a workspace
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(4096, 1, 8, NO_WORKSPACE), 4096, 1, 1, 1), "one block");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(4096, 1, 8, WITH_WORKSPACE), 4096, 1, 1, 1), "one block");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(4096, 1, SMS, 8, NO_WORKSPACE), 4096, 1, 1, 1), "one block");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(4096, 1, SMS, 8, WITH_WORKSPACE), 4096, 1, 1, 1),
+                       "one block");
 // AUTO without a workspace: one cluster, of blocks of up to SINGLE_BLOCK_ELEMENTS elements
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(4097, 1, 8, NO_WORKSPACE), 513, 8, 8, 1), "one cluster");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(20000, 1, 8, NO_WORKSPACE), 2500, 8, 8, 1), "one cluster");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(32768, 1, 8, NO_WORKSPACE), 4096, 8, 8, 1), "one cluster");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(12288, 1, 3, NO_WORKSPACE), 4096, 3, 3, 1),
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(4097, 1, SMS, 8, NO_WORKSPACE), 513, 8, 8, 1),
+                       "one cluster");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(20000, 1, SMS, 8, NO_WORKSPACE), 2500, 8, 8, 1),
+                       "one cluster");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(32768, 1, SMS, 8, NO_WORKSPACE), 4096, 8, 8, 1),
+                       "one cluster");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(12288, 1, SMS, 3, NO_WORKSPACE), 4096, 3, 3, 1),
               "one cluster of 3 blocks, the largest of the device");
 // AUTO without a workspace, and planes that one cluster can not reduce: blocks that need a workspace
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(32769, 1, 8, NO_WORKSPACE), 505, 65, 1, 65), "65 blocks");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(20000, 1, 3, NO_WORKSPACE), 500, 40, 1, 40), "40 blocks");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(20000, 1, 1, NO_WORKSPACE), 500, 40, 1, 40), "no clusters");
-// AUTO with a workspace: never a cluster. Blocks of BLOCK_ELEMENTS elements up to BLOCKS blocks, which then grow up to
-// LARGE_BLOCK_ELEMENTS elements; then more blocks of that size, up to MAX_BLOCKS, which grow again
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(4097, 1, 8, WITH_WORKSPACE), 456, 9, 1, 9), "9 blocks");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(20000, 1, 8, WITH_WORKSPACE), 500, 40, 1, 40), "40 blocks");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(65536, 1, 8, WITH_WORKSPACE), 512, 128, 1, 128), "BLOCKS");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(1000000, 1, 8, WITH_WORKSPACE), 7813, 128, 1, 128),
-              "BLOCKS blocks that grow");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(2097152, 1, 8, WITH_WORKSPACE), 16384, 128, 1, 128),
-              "BLOCKS blocks of LARGE_BLOCK_ELEMENTS");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(5000000, 1, 8, WITH_WORKSPACE), 16340, 306, 1, 306),
-              "more blocks of up to LARGE_BLOCK_ELEMENTS");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(33177600, 1, 8, WITH_WORKSPACE), 32400, 1024, 1, 1024),
-              "MAX_BLOCKS");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(32769, 1, SMS, 8, NO_WORKSPACE), 505, 65, 1, 65),
+                       "65 blocks");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(20000, 1, SMS, 3, NO_WORKSPACE), 500, 40, 1, 40),
+                       "40 blocks");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(20000, 1, SMS, 1, NO_WORKSPACE), 500, 40, 1, 40),
+                       "no clusters");
+// AUTO with a workspace: never a cluster. BLOCKS_PER_MULTIPROCESSOR blocks per multiprocessor, of BLOCK_ELEMENTS
+// elements at least and LARGE_BLOCK_ELEMENTS at most
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(4097, 1, SMS, 8, WITH_WORKSPACE), 456, 9, 1, 9), "9 blocks");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(20000, 1, SMS, 8, WITH_WORKSPACE), 500, 40, 1, 40),
+                       "40 blocks");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(65536, 1, SMS, 8, WITH_WORKSPACE), 512, 128, 1, 128),
+              "4 blocks per multiprocessor");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(1000000, 1, SMS, 8, WITH_WORKSPACE), 7813, 128, 1, 128),
+              "4 blocks per multiprocessor, larger");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(2097152, 1, SMS, 8, WITH_WORKSPACE), 16384, 128, 1, 128),
+              "4 blocks per multiprocessor of LARGE_BLOCK_ELEMENTS");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(5000000, 1, SMS, 8, WITH_WORKSPACE), 16340, 306, 1, 306),
+              "more blocks, of up to LARGE_BLOCK_ELEMENTS");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(33177600, 1, SMS, 8, WITH_WORKSPACE), 16384, 2025, 1,
+                       2025),
+              "as many blocks of LARGE_BLOCK_ELEMENTS as the plane needs");
+// The blocks depend on the multiprocessors of the device: 512 for a plane alone on 128 multiprocessors, and 4 per
+// plane, the ones of LARGE_BLOCK_ELEMENTS, for 30 planes of 65536 elements on 20
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(1000000, 1, 128, 8, WITH_WORKSPACE), 1954, 512, 1, 512),
+              "128 multiprocessors");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(65536, 30, 20, 8, WITH_WORKSPACE), 16384, 4, 1, 4),
+              "20 multiprocessors, 30 planes");
 // NEVER: never a cluster. ALWAYS: one cluster also with a workspace, and the blocks of larger planes in clusters
-static_assert(isLaunch(reduce_detail::launchOf<LaunchNever>(20000, 1, 8, NO_WORKSPACE), 500, 40, 1, 40), "NEVER");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAlways>(20000, 1, 8, WITH_WORKSPACE), 2500, 8, 8, 1), "ALWAYS");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAlways>(40000, 1, 8, WITH_WORKSPACE), 507, 80, 8, 10),
+static_assert(isLaunch(reduce_detail::launchOf<LaunchNever>(20000, 1, SMS, 8, NO_WORKSPACE), 500, 40, 1, 40), "NEVER");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAlways>(20000, 1, SMS, 8, WITH_WORKSPACE), 2500, 8, 8, 1),
+                       "ALWAYS");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAlways>(40000, 1, SMS, 8, WITH_WORKSPACE), 507, 80, 8, 10),
               "ALWAYS, ten clusters: 79 blocks with elements and one without");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAlways>(40000, 1, 1, WITH_WORKSPACE), 507, 79, 1, 79),
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAlways>(40000, 1, SMS, 1, WITH_WORKSPACE), 507, 79, 1, 79),
               "ALWAYS on a device without clusters");
 // The blocks are counted for all the planes of the read, and each plane has its part of them
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(65536, 30, 8, WITH_WORKSPACE), 13108, 5, 1, 5),
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(65536, 30, SMS, 8, WITH_WORKSPACE), 13108, 5, 1, 5),
               "30 planes: 128 blocks, 5 per plane");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(262144, 128, 8, WITH_WORKSPACE), 32768, 8, 1, 8),
-              "128 planes: MAX_BLOCKS blocks, 8 per plane");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(5000, 128, 8, NO_WORKSPACE), 5000, 1, 1, 1),
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(262144, 128, SMS, 8, WITH_WORKSPACE), 16384, 16, 1, 16),
+              "128 planes: one block per LARGE_BLOCK_ELEMENTS elements, 16 per plane");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(5000, 128, SMS, 8, NO_WORKSPACE), 5000, 1, 1, 1),
               "128 planes: one block per plane, which needs no workspace");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(5000, 4, 8, WITH_WORKSPACE), 500, 10, 1, 10),
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(5000, 4, SMS, 8, WITH_WORKSPACE), 500, 10, 1, 10),
               "4 planes of 5000 elements: 40 blocks of 512 elements, 10 per plane");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(20000, 30, 8, NO_WORKSPACE), 2500, 8, 8, 1),
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(20000, 30, SMS, 8, NO_WORKSPACE), 2500, 8, 8, 1),
               "30 planes without a workspace: one cluster per plane");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(~0ull, 2, 8, WITH_WORKSPACE), 36028797018963968ull, 512,
-                       1, 512),
-              "two planes with more elements than a 64 bit integer counts: MAX_BLOCKS blocks, half for each plane");
-static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(1ull << 63, 2, 8, WITH_WORKSPACE), 1ull << 54, 512, 1, 512),
-              "two planes of 2^63 elements, whose product is 0 in 64 bits: the same, and not one block per plane");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(~0ull, 2, SMS, 8, WITH_WORKSPACE), 1ull << 34, 1u << 30, 1,
+                       1u << 30),
+              "planes of 2^64 - 1 elements: the most blocks of a plane in a grid, 2^30");
+static_assert(isLaunch(reduce_detail::launchOf<LaunchAuto>(1ull << 63, 2, SMS, 8, WITH_WORKSPACE), 1ull << 33, 1u << 30,
+                       1, 1u << 30),
+              "two planes of 2^63 elements: the same, and not one block per plane");
 // The threads of a block are the ones of the policy while their accumulated values fit in the shared memory that the
 // kernel uses (32 KB), and the largest power of two that fits otherwise
 template <size_t BYTES>
@@ -1823,17 +1839,18 @@ static_assert(THREADS_FOR<LaunchAuto, 204> == 128, "seventeen float3 (manyAccumu
 static_assert(THREADS_FOR<LaunchAuto, 1100> == 16, "halved four times");
 static_assert(THREADS_FOR<LaunchAuto, 32768> == 1, "one thread");
 // The policies of the split cases launch the levels that their names say, for the largest plane of the batch cases
-static_assert(isLaunch(reduce_detail::launchOf<NoClusters>(701 * 487, 1, 8, WITH_WORKSPACE), 1138, 300, 1, 300),
+static_assert(isLaunch(reduce_detail::launchOf<NoClusters>(701 * 487, 1, SMS, 8, WITH_WORKSPACE), 1023, 334, 1, 334),
               "NoClusters");
-static_assert(isLaunch(reduce_detail::launchOf<NoClusters>(701 * 487, 6, 8, WITH_WORKSPACE), 6828, 50, 1, 50),
+static_assert(isLaunch(reduce_detail::launchOf<NoClusters>(701 * 487, 6, SMS, 8, WITH_WORKSPACE), 1023, 334, 1, 334),
               "NoClusters, the 6 planes of a batch");
-static_assert(isLaunch(reduce_detail::launchOf<ClustersOf3>(701 * 487, 1, 3, WITH_WORKSPACE), 1707, 201, 3, 67),
+static_assert(isLaunch(reduce_detail::launchOf<ClustersOf3>(701 * 487, 1, SMS, 3, WITH_WORKSPACE), 700, 489, 3, 163),
               "ClustersOf3");
-static_assert(isLaunch(reduce_detail::launchOf<ClustersOf3>(701 * 487, 6, 3, WITH_WORKSPACE), 10041, 36, 3, 12),
+static_assert(isLaunch(reduce_detail::launchOf<ClustersOf3>(701 * 487, 6, SMS, 3, WITH_WORKSPACE), 700, 489, 3, 163),
               "ClustersOf3, the 6 planes of a batch");
-static_assert(isLaunch(reduce_detail::launchOf<ClustersOf3>(2100, 1, 3, WITH_WORKSPACE), 700, 3, 3, 1),
+static_assert(isLaunch(reduce_detail::launchOf<ClustersOf3>(2100, 1, SMS, 3, WITH_WORKSPACE), 700, 3, 3, 1),
               "ClustersOf3, one cluster");
-static_assert(isLaunch(reduce_detail::launchOf<BlocksOf32>(1000, 1, 8, WITH_WORKSPACE), 50, 20, 1, 20), "BlocksOf32");
+static_assert(isLaunch(reduce_detail::launchOf<BlocksOf32>(1000, 1, SMS, 8, WITH_WORKSPACE), 50, 20, 1, 20),
+                       "BlocksOf32");
 // The workspace: 65536 arrival counters, and then one value per block (the grid without clusters) of every plane
 static_assert(reduce_detail::WORKSPACE_COUNTERS_BYTES == 262144, "the counters of the workspace");
 static_assert(reduce_detail::workspaceBytesOf<float3>(6, 300) == 262144 + 6 * 300 * 12, "the bytes of a workspace");
@@ -1845,9 +1862,7 @@ struct ManyBlocks : ReduceDPPPolicy {
     static constexpr ReduceDPPClusters CLUSTERS = ReduceDPPClusters::NEVER;
     static constexpr uint SINGLE_BLOCK_ELEMENTS = 1;
     static constexpr uint BLOCK_ELEMENTS = 1;
-    static constexpr uint BLOCKS = 1u << 24;
     static constexpr uint LARGE_BLOCK_ELEMENTS = 1;
-    static constexpr uint MAX_BLOCKS = 1u << 24;
 };
 bool workspaceOfMoreThan4GB() {
     using DPP = ReduceDPP<defaultParArch, ManyBlocks>;
@@ -1886,7 +1901,8 @@ bool workspaceOfABatch(const char* const policy, const uint elements, const uint
     const auto read = ReadSet<float>::build(0.5f, ActiveThreads{elements, 1, planes});
     const auto reductions = sumMaxMin<float>();
     using PartialType = reduce_detail::PartialOf<std::decay_t<decltype(reductions)>>;
-    const reduce_detail::Launch launch = reduce_detail::launchOf<Policy>(elements, planes, 1, true);
+    const reduce_detail::Launch launch =
+        reduce_detail::launchOf<Policy>(elements, planes, reduce_detail::multiprocessorsOfTheDevice(), 1, true);
     const size_t bytes = DPP::workspaceBytes(read, reductions);
     const bool rightBytes = launch.clusters > 1 &&
                             bytes == reduce_detail::WORKSPACE_COUNTERS_BYTES +
@@ -1934,25 +1950,28 @@ bool workspaceOfABatch(const char* const policy, const uint elements, const uint
 }
 
 // A read of so many planes that the policy gives one block to each needs no workspace, although one block does not
-// reduce a plane of that size alone
+// reduce a plane of that size alone: planes of up to LARGE_BLOCK_ELEMENTS elements, as many as the blocks of the read
+// on the device (BLOCKS_PER_MULTIPROCESSOR for each of its multiprocessors), and 128 at least
 bool manyPlanesNeedNoWorkspace() {
     using DPP = ReduceDPP<>;
     Backend<DPP> backend("GPU");
-    constexpr uint ELEMENTS = 5000, PLANES = 128;
-    const auto read = ReadSet<float>::build(0.5f, ActiveThreads{ELEMENTS, 1, PLANES});
-    auto output = makeTensor<float, DPP>(4, PLANES);
+    constexpr uint ELEMENTS = 5000;
+    const uint planes = std::max(128u, ReduceDPPDefaultPolicy_t<GPU_PA>::BLOCKS_PER_MULTIPROCESSOR *
+                                           reduce_detail::multiprocessorsOfTheDevice());
+    const auto read = ReadSet<float>::build(0.5f, ActiveThreads{ELEMENTS, 1, planes});
+    auto output = makeTensor<float, DPP>(4, static_cast<int>(planes));
     backend.upload(output);
     bool ok = DPP::workspaceBytes(read, sumMaxMin<float>()) == 0 &&
               DPP::workspaceBytes(ReadSet<float>::build(0.5f, ActiveThreads{ELEMENTS, 1, 1}), sumMaxMin<float>()) > 0;
     backend.reduceWithoutWorkspace(read, sumMaxMin<float>(), TensorWrite<float>::build(output.ptr()));
     backend.download(output);
     backend.sync();
-    for (int z = 0; z < static_cast<int>(PLANES); ++z) {
+    for (int z = 0; z < static_cast<int>(planes); ++z) {
         ok = ok && output.at(Point{0, 0, z}) == 0.5f * static_cast<float>(ELEMENTS) &&
              output.at(Point{1, 0, z}) == 0.5f && output.at(Point{2, 0, z}) == 1.f &&
              output.at(Point{3, 0, z}) == static_cast<float>(SENTINEL);
     }
-    return report(ok, "128 planes of 5000 elements, without a workspace", "GPU");
+    return report(ok, "a block per plane of 5000 elements, without a workspace", "GPU");
 }
 
 // The workspace has to be aligned for its counters (uint) and for the accumulated values: with accumulators of one
@@ -2107,24 +2126,26 @@ __global__ void clusterProbe_Kernel(const T) {}
 
 // What the device of the run launches: the architecture of the image of the kernels that the driver runs on it, as
 // the image itself says, and the blocks of the largest cluster that can be launched there, as the driver says for a
-// kernel that is not one of ReduceDPP (8 at most, and 1 when the image or the device have no clusters). (A plane of
-// one element is reduced by one block, without clusters and without a workspace.)
+// kernel that is not one of ReduceDPP (8 at most, and 1 when the image or the device have no clusters), and its
+// multiprocessors, which the blocks of a plane depend on. (A plane of one element is reduced by one block, without
+// clusters and without a workspace.)
 struct Device {
     uint architecture;
     uint clusterBlocks;
+    uint multiprocessors;
 
     // The grid that the executor has to launch on this device for one plane of `elements` elements, in an execution
     // with a workspace or without one
     template <typename Policy>
     constexpr reduce_detail::Launch launch(const ulonglong elements, const bool withWorkspace) const {
-        return reduce_detail::launchOf<Policy>(elements, 1, clusterBlocks, withWorkspace);
+        return reduce_detail::launchOf<Policy>(elements, 1, multiprocessors, clusterBlocks, withWorkspace);
     }
 };
 
 Device deviceOfTheRun() {
 #if defined(FK_HIP_BACKEND)
     // GPU_AMD has no clusters: every plane that needs more than one block has them synchronize through the workspace
-    return {blocksThatRead<LaunchAuto>(1, NO_WORKSPACE).y, 1u};
+    return {blocksThatRead<LaunchAuto>(1, NO_WORKSPACE).y, 1u, reduce_detail::multiprocessorsOfTheDevice()};
 #else
     Backend<ReduceDPP<>> backend("GPU");
     const uint architecture = blocksThatRead<LaunchAuto>(1, NO_WORKSPACE).y;
@@ -2141,7 +2162,7 @@ Device deviceOfTheRun() {
         }
         clusterBlocks = largest < 2 ? 1u : (largest > 8 ? 8u : static_cast<uint>(largest));
     }
-    return {architecture, clusterBlocks};
+    return {architecture, clusterBlocks, reduce_detail::multiprocessorsOfTheDevice()};
 #endif
 }
 
@@ -2180,7 +2201,8 @@ bool batchReadByBlocks(const char* const policy, const uint elements, const uint
                    TensorWrite<uint2>::build(output.ptr()));
     backend.download(output);
     backend.sync();
-    const reduce_detail::Launch launch = reduce_detail::launchOf<Policy>(elements, planes, device.clusterBlocks, true);
+    const reduce_detail::Launch launch =
+        reduce_detail::launchOf<Policy>(elements, planes, device.multiprocessors, device.clusterBlocks, true);
     const uint blocks = static_cast<uint>(reduce_detail::groupsOf(elements, launch.blockElements));
     bool ok = true;
     for (int z = 0; z < static_cast<int>(planes); ++z) {
@@ -2226,7 +2248,8 @@ bool levelsOfTheKernel(const Device& device) {
         ok = readByBlocks<LaunchAlways>("ALWAYS", 20000, withWorkspace, device) && ok;
         ok = readByBlocks<LaunchAlways>("ALWAYS", 40000, withWorkspace, device) && ok;
     }
-    // The blocks are counted for all the planes of a batch: 128 for 30 planes of 65536 elements, 5 for each plane
+    // The blocks are counted for all the planes of a batch, from the multiprocessors of the device: each plane has its
+    // part of them, and one per LARGE_BLOCK_ELEMENTS elements at least
     ok = batchReadByBlocks<LaunchAuto>("AUTO", 65536, 30, device) && ok;
     ok = batchReadByBlocks<LaunchAuto>("AUTO", 262144, 128, device) && ok;
     ok = batchReadByBlocks<LaunchNever>("NEVER", 20000, 7, device) && ok;

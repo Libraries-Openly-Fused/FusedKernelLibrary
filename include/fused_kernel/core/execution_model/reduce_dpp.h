@@ -80,19 +80,19 @@
 // of level 4 is the workspace of the execution, which the caller owns: the GPU executors allocate no memory. (The CPU
 // versions allocate the values of their chunks, in host memory, in every execution.)
 // Which levels an execution uses (ReduceDPPPolicy has the sizes, and what was measured to choose them):
-// - planes of up to SINGLE_BLOCK_ELEMENTS elements (4096): one block each, and no workspace. (Also the larger planes
-//   of a read of so many planes that the policy gives one block to each: workspaceBytes() is 0 for it.)
+// - planes of up to SINGLE_BLOCK_ELEMENTS elements (4096): one block each, and no workspace. (Also the planes of up to
+//   LARGE_BLOCK_ELEMENTS elements of a read of so many planes that the policy gives one block to each:
+//   workspaceBytes() is 0 for it.)
 // - larger planes, with a workspace: blocks that synchronize through it (levels 1, 2 and 4), on every device;
 // - larger planes, without a workspace: on a device with thread block clusters, planes of up to 8 blocks of
 //   SINGLE_BLOCK_ELEMENTS elements (32768) are reduced by one cluster each (levels 1, 2 and 3). Any other execution
 //   without a workspace throws.
 // The grid covers the largest plane of the read: every plane costs the launch of the blocks of the largest one, and
-// the ones that a smaller plane does not use return at once. The blocks of a plane are the ones of the read divided
-// by its planes, as if every plane had the elements of the largest one, so in a read of many planes of very
-// different sizes the large ones are reduced by few blocks: an image of 2048 x 1024 has 128 blocks alone, 32 among
-// 31 images of 10 x 10 and 8 among 127, and those reads took 2 and 5.8 times longer than two executions (the large
-// image, and the small ones) on an RTX 4090, and 1.1 and 2.4 times on an RTX 5050. Such planes are better reduced
-// in one execution per size.
+// the ones that a smaller plane does not use return at once. The blocks of a plane come from the multiprocessors of
+// the device and the planes of the read, as if every plane had the elements of the largest one (see
+// ReduceDPPPolicy::BLOCKS_PER_MULTIPROCESSOR), so in a read of many planes of very different sizes the large ones
+// are reduced by fewer blocks than alone (one per LARGE_BLOCK_ELEMENTS elements at least), and every small one costs
+// the blocks of the large one: such planes can be better reduced in one execution per size.
 //
 //     const size_t bytes = ReduceDPP<>::workspaceBytes(readIOp, reductions);
 //     Ptr1D<uchar> workspace(static_cast<uint>(bytes));
@@ -101,11 +101,13 @@
 //     }
 //     executeOperations<ReduceDPP<>>(stream, ReduceDPP<>::build_details(workspace), readIOp, reductions, writeIOp);
 //
-// - workspaceBytes(readIOp, reductions) is the device memory that the planes of that read need on any device, and 0
-//   when they need none: one block reduces every plane, or the DPP is one of the CPU versions (which do not use a
-//   workspace that they are given, so this code is the same for every backend). The call without details,
-//   executeOperations<ReduceDPP<>>(stream, readIOp, reductions, writeIOp), has no workspace. An execution that needs a
-//   workspace and has none, or a smaller one, throws std::invalid_argument, which says the bytes that it needs.
+// - workspaceBytes(readIOp, reductions) is the device memory that the planes of that read need on the current device
+//   (their blocks depend on its multiprocessors), and 0 when they need none: one block reduces every plane, or the DPP
+//   is one of the CPU versions (which do not use a workspace that they are given, so this code is the same for every
+//   backend). A workspace for one device can be too small for another, and the execution then throws. The call
+//   without details, executeOperations<ReduceDPP<>>(stream, readIOp, reductions, writeIOp), has no workspace. An
+//   execution that needs a workspace and has none, or a smaller one, throws std::invalid_argument, which says the
+//   bytes that it needs.
 // - The workspace must be zero when it is used for the first time: its first bytes are the arrival counters of the
 //   planes, and every execution leaves them at zero. After that, any execution of any read and reductions can use
 //   it, as long as two that use it never run at the same time: the executions of one stream can share one.
@@ -130,9 +132,10 @@
 //   executions that would launch clusters (with the default policy, the ones without a workspace of planes that one
 //   block does not reduce and one cluster does): whether the image of the kernel that it runs on the device has them
 //   (a build with architectures of both kinds), and the largest cluster that the stream accepts. With the default
-//   policy, an execution with a workspace asks the driver nothing, and launches the same grid on every device. (With
-//   ALWAYS, every execution of planes of more than one block asks, with or without a workspace; and with blocks of
-//   more than 256 threads every execution asks whether the kernel can be launched with them.)
+//   policy, an execution with a workspace only asks the multiprocessors of the device, once per device, which its
+//   grid depends on. (With ALWAYS, every execution of planes of more than one block asks about clusters, with or
+//   without a workspace; and with blocks of more than 256 threads every execution asks whether the kernel can be
+//   launched with them.)
 //
 // The headers that this one needs are the ones of the executors. executeOperations<DPP>(stream, ...) is declared in
 // fused_kernel.h, which the code that calls it includes too (before or after this header); without it, the same call
@@ -173,12 +176,8 @@ namespace fk {
     // so it can also differ when reductions are added to an execution; and where the device has clusters, an
     // execution without a workspace launches other blocks than one with it. The CPU versions split every plane by
     // its own size only.
-    // The values of the GPU are a compromise for two devices, an RTX 4090 (128 multiprocessors) and an RTX 5050 (20),
-    // measured with cheap elements (the sum and five statistics of a uchar matrix) and expensive ones (two sums of
-    // every pixel of a bilinear resize, in float and in double), for planes of 1K to 33M elements and batches of 4,
-    // 30 and 128 planes: the time of an execution (the launch and the synchronization of the stream) is within 2.4%
-    // and 4.2% of the best number of blocks measured for each case (geometric means; 24% and 20% in the worst case
-    // of each device).
+    // The values of the GPU were measured on two devices, an RTX 4090 (128 multiprocessors) and an RTX 5050 (20); see
+    // BLOCKS_PER_MULTIPROCESSOR for the blocks of a plane.
     struct ReduceDPPPolicy {
         // GPU: threads of a block, a power of two. A block has BLOCK_THREADS accumulated values in shared memory: with
         // accumulators that do not fit there, fewer threads are used (reduce_detail::blockThreads). Blocks of up to
@@ -201,29 +200,31 @@ namespace fk {
         // GPU: the largest plane that one block reduces alone. (Measured: one block is the fastest up to some 3000
         // elements on the RTX 5050 and some 5000 on the RTX 4090.)
         static constexpr uint SINGLE_BLOCK_ELEMENTS = 4096;
-        // GPU: the blocks of larger planes, which synchronize through the workspace. They are counted for all the
-        // planes of the read together, as if every plane had the elements of the largest one and all of them were
-        // one plane: blocks of BLOCK_ELEMENTS elements until there are BLOCKS of them; then the BLOCKS blocks grow,
-        // up to LARGE_BLOCK_ELEMENTS elements each; then there are more blocks of that size, up to MAX_BLOCKS, which
-        // grow again. With the defaults: blocks of 512 elements up to 64K elements, 128 blocks up to 2M, blocks of
-        // 16384 elements up to 16.7M, and 1024 blocks from there.
-        // Each plane has its part of those blocks, and one at least: a read of 30 planes of 65536 elements has 5
-        // blocks per plane (128 / 30). 128 planes of up to 16384 elements have one block each (the 128 blocks of up
-        // to 2M elements), and 128 planes of 65536 elements, which are 8.4M elements, have 4 (512 blocks of 16384
-        // elements); from MAX_BLOCKS planes on, every plane has one block, whatever its size. (See the top of this
-        // header for the reads whose planes have very different sizes.)
-        // The best number of blocks depends on the device more than on the elements: 64 or 128 on the RTX 4090 for
-        // 16K to 262K elements (256 took from 0% to 4% longer there) and 256 for 524K to 4M, and 16 to 64 on the RTX
-        // 5050 for 4K to 500K. So a policy for one device can do better than these values, and BLOCKS is the member
-        // to change: with 2 per multiprocessor (256 and 40), the times of each device were within 1.3% and 2.0% of
-        // the best ones (geometric means). Many small blocks are what an expensive element needs (the resize in
-        // double of a plane of 50K elements took 1.7 times longer in 13 blocks than in 128, on the RTX 4090), and
-        // too many blocks cost as much as too few (30 planes of 65536 elements: 1.8 times longer with 128 blocks per
-        // plane than with 8).
+        // GPU: the blocks of larger planes, which synchronize through the workspace. Every plane has the same blocks,
+        // counted from the multiprocessors of the device (the current one, which the host code asks once per device)
+        // and from the elements of the largest plane E, as if every plane had them:
+        //     min(max(ceil(BLOCKS_PER_MULTIPROCESSOR * multiprocessors / planes), ceil(E / LARGE_BLOCK_ELEMENTS)),
+        //         ceil(E / BLOCK_ELEMENTS))
+        // BLOCKS_PER_MULTIPROCESSOR blocks per multiprocessor for all the planes together, each plane its part; but a
+        // block reduces LARGE_BLOCK_ELEMENTS elements at most, and BLOCK_ELEMENTS at least. With the defaults, a plane
+        // alone has 512 blocks on the RTX 4090 and 80 on the RTX 5050 (one per 512 elements when that is fewer), and
+        // blocks of 16384 elements from 8.4M and 1.3M elements; a batch of 30 planes of 65536 elements has 18 and 4
+        // blocks per plane (512 / 30 and 80 / 30, with 4 at least: 65536 / 16384).
+        // Measured with E20's read on both devices (N crops of 280 x 280 resized to 224 x 224, five statistics in
+        // float and in double, N from 1 to 150), the resize of one plane of 200K and 1M elements, the five statistics
+        // of a uchar matrix of 4K to 33M elements and batches of 30 x 65536 and 128 x 262144 uchar: 31 cases, the
+        // kernel time of each against the best grid measured for it. 4 blocks per multiprocessor with the floor of
+        // LARGE_BLOCK_ELEMENTS were within 4.0% of it on the RTX 4090 and 3.8% on the RTX 5050 (geometric means; 39%
+        // and 32% in the worst case: one resized plane of 200K elements on the first, E20 with one crop on the
+        // second), against 12.2% and 5.1% for the previous rule, 128 blocks for all the planes of 512 to 16384
+        // elements and 1024 at most. Without the floor, the large memory-bound reads of the RTX 5050 had too few
+        // blocks (33M elements took 1.16 times longer than with it); 3 and 6 blocks per multiprocessor, without it,
+        // were within 7.5% and 6.9% on the RTX 4090, and 9.1% and 9.4% on the RTX 5050. Development measurements, of
+        // two devices: a policy for one device, or a launch configuration of the caller (build_details(workspace,
+        // block, grid)), can do better.
         static constexpr uint BLOCK_ELEMENTS = 512;
-        static constexpr uint BLOCKS = 128;
+        static constexpr uint BLOCKS_PER_MULTIPROCESSOR = 4;
         static constexpr uint LARGE_BLOCK_ELEMENTS = 16384;
-        static constexpr uint MAX_BLOCKS = 1024;
         // GPU_NVIDIA: use of thread block clusters, and blocks of a cluster at most: from 1 to 8, the largest
         // portable size. Where the stream accepts less (few multiprocessors that are scheduled together, as in a
         // small MIG instance), the largest cluster that it accepts is used. One cluster reduces planes of up to
@@ -243,18 +244,26 @@ namespace fk {
         static constexpr uint CHUNK_ELEMENTS = 16384;
     };
 
-    // The default policy of ReduceDPP<ParArch::GPU_AMD>: ReduceDPPPolicy with blocks of 128 threads, everything else the same. Measured on
-    // one AMD device, an RX 9060 (gfx1200, 28 compute units, wave32, ROCm 10.1), with the kinds of data that chose ReduceDPPPolicy: a uchar
-    // matrix of 4K to 33M elements (its sum, maximum and minimum), batches of 30 planes of 65536 uchar and of 128 of 262144, and the resize
-    // of N crops of 280 x 280 to 224 x 224 with five statistics in float and in double (N = 1, 30, 150). The time of an execution (the launch
-    // and the synchronization of the stream) is within 4.5% of the best number of blocks and threads measured for each case with 128 threads,
-    // and within 10.6% with ReduceDPPPolicy's 256 (geometric means of the 13 cases). 128 threads took 16% to 17% less time for 16M and 33M
-    // elements and for 128 planes of 262144, 8% to 9% less for 1M elements and for 30 planes of 65536, 6% more (1.7 us) for a plane that
-    // one block reduces (4096 elements) and 2% more for the resize of 30 crops; for 30 and 150 crops every policy measured was within 1%.
-    // Another device may prefer other values. A policy derived from ReduceDPPPolicy keeps its 256 threads on GPU_AMD; with blocks of 128
-    // threads, accumulators of up to 256 bytes (32768 / 128) fit in the shared memory of a block without fewer threads.
+    // The default policy of ReduceDPP<ParArch::GPU_AMD>: ReduceDPPPolicy with blocks of 128 threads and 12 blocks
+    // per multiprocessor, everything else the same. The threads were measured on one AMD device, an RX 9060
+    // (gfx1200, 28 compute units, wave32, ROCm 10.1), with the kinds of data that chose ReduceDPPPolicy: a uchar
+    // matrix of 4K to 33M elements (its sum, maximum and minimum), batches of 30 planes of 65536 uchar and of 128
+    // of 262144, and the resize of N crops of 280 x 280 to 224 x 224 with five statistics in float and in double (N
+    // = 1, 30, 150). The time of an execution (the launch and the synchronization of the stream) is within 4.5% of
+    // the best number of blocks and threads measured for each case with 128 threads, and within 10.6% with
+    // ReduceDPPPolicy's 256 (geometric means of the 13 cases). 128 threads took 16% to 17% less time for 16M and
+    // 33M elements and for 128 planes of 262144, 8% to 9% less for 1M elements and for 30 planes of 65536, 6% more
+    // (1.7 us) for a plane that one block reduces (4096 elements) and 2% more for the resize of 30 crops; for 30
+    // and 150 crops every policy measured was within 1%. Another device may prefer other values. A policy derived
+    // from ReduceDPPPolicy keeps its 256 threads on GPU_AMD; with blocks of 128 threads, accumulators of up to 256
+    // bytes (32768 / 128) fit in the shared memory of a block without fewer threads. The blocks per multiprocessor
+    // (the WGPs that HIP reports: 14 on the RX 9060), with the rule of ReduceDPPPolicy and its 31 cases on the same
+    // device: 12 with the floor of LARGE_BLOCK_ELEMENTS were within 2.8% of the best grid measured for each case
+    // (geometric mean; 31% in the worst case), against 6.6% with 4 and 4.8% for the previous rule (development
+    // measurements, fkl-amd-benchmarks, 2026-11-27).
     struct ReduceDPPPolicyAMD : ReduceDPPPolicy {
         static constexpr uint BLOCK_THREADS = 128;
+        static constexpr uint BLOCKS_PER_MULTIPROCESSOR = 12;
     };
 
     // The default policy of each backend: ReduceDPPPolicy, and ReduceDPPPolicyAMD for ParArch::GPU_AMD
@@ -1013,39 +1022,39 @@ namespace fk {
             uint clusters;           // clusters of a plane (its blocks, without clusters): more than 1 need a workspace
         };
 
-        // The grid for `planes` planes of up to `elements` elements. clusterBlocks is the largest cluster that can be
-        // launched, 1 when there are no clusters, and withWorkspace says whether the execution has a workspace.
+        // The most blocks of a plane in a grid: 2^30, which no read reaches (2^44 elements of a plane, in blocks of
+        // 16384), so that the blocks of a grid, also rounded up to whole clusters, always fit in its x dimension
+        constexpr ulonglong MAX_PLANE_BLOCKS = 1ull << 30;
+
+        // The grid for `planes` planes of up to `elements` elements on a device of `multiprocessors` multiprocessors.
+        // clusterBlocks is the largest cluster that can be launched, 1 when there are no clusters, and withWorkspace
+        // says whether the execution has a workspace.
         template <typename Policy>
-        FK_HOST_CNST Launch launchOf(const ulonglong elements, const uint planes, const uint clusterBlocks,
-                                     const bool withWorkspace) {
+        FK_HOST_CNST Launch launchOf(const ulonglong elements, const uint planes, const uint multiprocessors,
+                                     const uint clusterBlocks, const bool withWorkspace) {
             static_assert(Policy::BLOCK_ELEMENTS > 0 && Policy::LARGE_BLOCK_ELEMENTS >= Policy::BLOCK_ELEMENTS,
                           "ReduceDPP: Policy::BLOCK_ELEMENTS must be greater than 0, and Policy::LARGE_BLOCK_ELEMENTS "
                           "not less than it");
-            static_assert(Policy::BLOCKS > 0 && Policy::MAX_BLOCKS >= Policy::BLOCKS &&
-                          Policy::MAX_BLOCKS <= (1u << 24),
-                          "ReduceDPP: Policy::BLOCKS must be greater than 0, and Policy::MAX_BLOCKS between it and "
-                          "2^24");
+            static_assert(Policy::BLOCKS_PER_MULTIPROCESSOR > 0,
+                          "ReduceDPP: Policy::BLOCKS_PER_MULTIPROCESSOR must be greater than 0");
             if (elements <= Policy::SINGLE_BLOCK_ELEMENTS || planes == 0) {
                 return {elements, 1, 1, 1};
             }
-            // The blocks of all the planes together, as if `planes` planes of `elements` elements were one plane:
-            // blocks of BLOCK_ELEMENTS elements, BLOCKS at most; unless they would have more than
-            // LARGE_BLOCK_ELEMENTS elements: then, blocks of that size, MAX_BLOCKS at most
-            constexpr ulonglong MOST = ~0ull;
-            const ulonglong all = elements > MOST / planes ? MOST : elements * planes;
-            ulonglong blocks = groupsOf(all, Policy::BLOCK_ELEMENTS);
-            blocks = blocks < Policy::BLOCKS ? blocks : Policy::BLOCKS;
-            const ulonglong largeBlocks = groupsOf(all, Policy::LARGE_BLOCK_ELEMENTS);
-            blocks = blocks < largeBlocks ? largeBlocks : blocks;
-            blocks = blocks < Policy::MAX_BLOCKS ? blocks : Policy::MAX_BLOCKS;
-            // The part of each plane: one block at least, and no more blocks than its elements fill
-            ulonglong planeBlocks = groupsOf(blocks, planes);
+            // BLOCKS_PER_MULTIPROCESSOR blocks per multiprocessor for all the planes, each plane its part, as if every
+            // plane had `elements` elements; but at least one block per LARGE_BLOCK_ELEMENTS elements of the plane,
+            // and at most one per BLOCK_ELEMENTS
+            const ulonglong perDevice = static_cast<ulonglong>(Policy::BLOCKS_PER_MULTIPROCESSOR) *
+                                        (multiprocessors > 0 ? multiprocessors : 1u);
+            ulonglong planeBlocks = groupsOf(perDevice, planes);
+            const ulonglong largeBlocks = groupsOf(elements, Policy::LARGE_BLOCK_ELEMENTS);
+            planeBlocks = planeBlocks < largeBlocks ? largeBlocks : planeBlocks;
             const ulonglong fullBlocks = groupsOf(elements, Policy::BLOCK_ELEMENTS);
             planeBlocks = planeBlocks < fullBlocks ? planeBlocks : fullBlocks;
+            planeBlocks = planeBlocks < MAX_PLANE_BLOCKS ? planeBlocks : MAX_PLANE_BLOCKS;
             const ulonglong blockElements = groupsOf(elements, planeBlocks);
             planeBlocks = groupsOf(elements, blockElements);
             if (planeBlocks <= 1) {
-                // A read of so many planes that each one has one block
+                // A read of so many planes that each one has one block (no larger than LARGE_BLOCK_ELEMENTS)
                 return {elements, 1, 1, 1};
             }
             const bool always = Policy::CLUSTERS == ReduceDPPClusters::ALWAYS;
@@ -1151,6 +1160,31 @@ namespace fk {
             }
         };
 
+        // The multiprocessors of the current device (on GPU_AMD, the ones that HIP reports: the WGPs of RDNA), which
+        // the host code asks once per device
+        inline uint multiprocessorsOfTheDevice() {
+            static PerDevice<uint> known;
+            int device = 0;
+#if defined(__NVCC__)
+            gpuErrchk(cudaGetDevice(&device));
+#else
+            gpuErrchk(hipGetDevice(&device));
+#endif
+            const uint cached = known.get(device);
+            if (cached != 0u) {
+                return cached;
+            }
+            int count = 0;
+#if defined(__NVCC__)
+            gpuErrchk(cudaDeviceGetAttribute(&count, cudaDevAttrMultiProcessorCount, device));
+#else
+            gpuErrchk(hipDeviceGetAttribute(&count, hipDeviceAttributeMultiprocessorCount, device));
+#endif
+            const uint value = count > 0 ? static_cast<uint>(count) : 1u;
+            known.raise(device, value);
+            return value;
+        }
+
         // Throws std::invalid_argument when the accumulated values of a block do not fit in the shared memory that a
         // block of the kernel can have on the device
         inline void requireSharedMemory(const bool fits, const size_t bytes, const uint threads,
@@ -1176,11 +1210,13 @@ namespace fk {
             return WORKSPACE_COUNTERS_BYTES + static_cast<size_t>(planes) * clusters * sizeof(PartialType);
         }
 
-        // The bytes of the workspace that the executions of a read and some reductions need: what the grid without
-        // clusters needs, which is the one with most values to store. 0 when every plane is reduced by one block.
+        // The bytes of the workspace that the executions of a read and some reductions need on a device of
+        // `multiprocessors` multiprocessors: what the grid without clusters needs, which is the one with most values
+        // to store. 0 when every plane is reduced by one block.
         template <typename Policy, typename ReadIOp, typename Reductions>
-        FK_HOST_CNST size_t workspaceBytes(const ReadIOp& readIOp, const Reductions&) {
-            const Launch launch = launchOf<Policy>(largestPlaneElements(readIOp), planesOf(readIOp), 1, true);
+        FK_HOST_CNST size_t workspaceBytes(const ReadIOp& readIOp, const Reductions&, const uint multiprocessors) {
+            const Launch launch =
+                launchOf<Policy>(largestPlaneElements(readIOp), planesOf(readIOp), multiprocessors, 1, true);
             return launch.clusters > 1 ? workspaceBytesOf<PartialOf<Reductions>>(planesOf(readIOp), launch.clusters)
                                        : size_t{0};
         }
@@ -1477,11 +1513,12 @@ namespace fk {
             return Details{reduce_detail::workspaceOf(workspace), block, grid};
         }
 
-        // The bytes of the workspace that the executions of a read and some reductions need on any device; 0 when
-        // they need none
+        // The bytes of the workspace that the executions of a read and some reductions need on the current device
+        // (the blocks of a plane depend on its multiprocessors); 0 when they need none
         template <typename ReadIOp, typename Reductions>
-        FK_HOST_FUSE size_t workspaceBytes(const ReadIOp& readIOp, const Reductions& reductions) {
-            return reduce_detail::workspaceBytes<Policy>(readIOp, reductions);
+        FK_HOST_STATIC size_t workspaceBytes(const ReadIOp& readIOp, const Reductions& reductions) {
+            return reduce_detail::workspaceBytes<Policy>(readIOp, reductions,
+                                                         reduce_detail::multiprocessorsOfTheDevice());
         }
         // With the grid of a launch configuration of the caller (build_details(workspace, block, grid)). Throws
         // std::invalid_argument for a grid that is not the one of a reduction of the read.
@@ -1533,10 +1570,12 @@ namespace fk {
             return Details{reduce_detail::workspaceOf(workspace), block, grid};
         }
 
-        // The bytes of the workspace that the executions of a read and some reductions need; 0 when they need none
+        // The bytes of the workspace that the executions of a read and some reductions need on the current device;
+        // 0 when they need none
         template <typename ReadIOp, typename Reductions>
-        FK_HOST_FUSE size_t workspaceBytes(const ReadIOp& readIOp, const Reductions& reductions) {
-            return reduce_detail::workspaceBytes<Policy>(readIOp, reductions);
+        FK_HOST_STATIC size_t workspaceBytes(const ReadIOp& readIOp, const Reductions& reductions) {
+            return reduce_detail::workspaceBytes<Policy>(readIOp, reductions,
+                                                         reduce_detail::multiprocessorsOfTheDevice());
         }
         // With the grid of a launch configuration of the caller, as in the GPU_NVIDIA version
         template <typename ReadIOp, typename Reductions>
@@ -1829,17 +1868,21 @@ namespace fk {
                 if constexpr (reduce_detail::anyImageHasClusters()) {
                     clusterBlocks = Policy::CLUSTERS != ReduceDPPClusters::NEVER ? Policy::CLUSTER_BLOCKS : 1u;
                 }
-                launch = reduce_detail::launchOf<Policy>(elements, planes, clusterBlocks, withWorkspace);
+                // The blocks of a plane depend on the multiprocessors of the device, which it is asked once
+                const uint multiprocessors = reduce_detail::multiprocessorsOfTheDevice();
+                launch = reduce_detail::launchOf<Policy>(elements, planes, multiprocessors, clusterBlocks,
+                                                         withWorkspace);
                 if constexpr (reduce_detail::anyImageHasClusters()) {
                     if (launch.clusterBlocks > 1) {
                         const uint largest = reduce_detail::largestCluster(
                             kernel, threads, reduce_detail::sharedBytes<PartialType>(threads), stream, clusterBlocks);
                         if (largest < clusterBlocks) {
-                            launch = reduce_detail::launchOf<Policy>(elements, planes, largest, withWorkspace);
+                            launch = reduce_detail::launchOf<Policy>(elements, planes, multiprocessors, largest,
+                                                                     withWorkspace);
                         }
                     }
                 }
-                workspaceBytes = DPP::workspaceBytes(readIOp, reductions);
+                workspaceBytes = reduce_detail::workspaceBytes<Policy>(readIOp, reductions, multiprocessors);
             }
 
             KernelDetails kernelDetails{};
@@ -1977,8 +2020,9 @@ namespace fk {
                     threads = details.block.x;
                     workspaceBytes = reduce_detail::workspaceBytesOfGrid(readIOp, reductions, details.grid);
                 } else {
-                    launch = reduce_detail::launchOf<Policy>(elements, planes, 1, true);
-                    workspaceBytes = DPP::workspaceBytes(readIOp, reductions);
+                    const uint multiprocessors = reduce_detail::multiprocessorsOfTheDevice();
+                    launch = reduce_detail::launchOf<Policy>(elements, planes, multiprocessors, 1, true);
+                    workspaceBytes = reduce_detail::workspaceBytes<Policy>(readIOp, reductions, multiprocessors);
                 }
                 KernelDetails kernelDetails{};
                 kernelDetails.blockElements = launch.blockElements;
