@@ -110,6 +110,18 @@ constexpr ParArch GPU_PA = ParArch::GPU_NVIDIA;
 constexpr ParArch GPU_PA = ParArch::GPU_AMD;
 #endif
 
+// The default policy of every backend: ReduceDPPPolicy, and on GPU_AMD ReduceDPPPolicyAMD (ReduceDPPPolicy with blocks of 128 threads)
+static_assert(std::is_same_v<ReduceDPP<ParArch::CPU>, ReduceDPP<ParArch::CPU, ReduceDPPPolicy>>);
+static_assert(std::is_same_v<ReduceDPP<ParArch::GPU_NVIDIA>, ReduceDPP<ParArch::GPU_NVIDIA, ReduceDPPPolicy>>);
+static_assert(std::is_same_v<ReduceDPP<ParArch::GPU_AMD>, ReduceDPP<ParArch::GPU_AMD, ReduceDPPPolicyAMD>>);
+static_assert(std::is_same_v<ReduceDPP<>, ReduceDPP<defaultParArch, ReduceDPPDefaultPolicy_t<defaultParArch>>>);
+static_assert(ReduceDPPPolicyAMD::BLOCK_THREADS == 128 && ReduceDPPPolicyAMD::BLOCKS == ReduceDPPPolicy::BLOCKS &&
+              ReduceDPPPolicyAMD::SINGLE_BLOCK_ELEMENTS == ReduceDPPPolicy::SINGLE_BLOCK_ELEMENTS &&
+              ReduceDPPPolicyAMD::BLOCK_ELEMENTS == ReduceDPPPolicy::BLOCK_ELEMENTS &&
+              ReduceDPPPolicyAMD::LARGE_BLOCK_ELEMENTS == ReduceDPPPolicy::LARGE_BLOCK_ELEMENTS &&
+              ReduceDPPPolicyAMD::MAX_BLOCKS == ReduceDPPPolicy::MAX_BLOCKS &&
+              ReduceDPPPolicyAMD::CHUNK_ELEMENTS == ReduceDPPPolicy::CHUNK_ELEMENTS);
+
 // A DPP (its ParArch and its policy), a stream for it, and what the cases do with both
 template <typename DPP>
 struct Backend {
@@ -2235,7 +2247,7 @@ bool withoutWorkspace(const Device& device) {
         backend.upload(output);
         const auto read = PerThreadRead<ND::_2D, float>::build(input);
         const bool executes =
-            device.template launch<ReduceDPPPolicy>(static_cast<ulonglong>(elements), NO_WORKSPACE).clusters == 1;
+            device.template launch<ReduceDPPDefaultPolicy_t<GPU_PA>>(static_cast<ulonglong>(elements), NO_WORKSPACE).clusters == 1;
         std::string message;
         try {
             backend.reduceWithoutWorkspace(read, sumMaxMin<float>(), PerThreadWrite<ND::_1D, float>::build(output));
@@ -2787,9 +2799,9 @@ int launch_impl() {
 #if defined(__NVCC__) || defined(FK_HIP_BACKEND)
     ok = allCases<ReduceDPP<>>("GPU") && ok;
     ok = workspaceOfMoreThan4GB() && ok;
-    ok = workspaceOfABatch<ReduceDPPPolicy>("the default policy", 65536, 30) && ok;
-    ok = workspaceOfABatch<ReduceDPPPolicy>("the default policy", 5000, 64) && ok;
-    ok = workspaceOfABatch<ReduceDPPPolicy>("the default policy", 300000, 6) && ok;
+    ok = workspaceOfABatch<ReduceDPPDefaultPolicy_t<GPU_PA>>("the default policy", 65536, 30) && ok;
+    ok = workspaceOfABatch<ReduceDPPDefaultPolicy_t<GPU_PA>>("the default policy", 5000, 64) && ok;
+    ok = workspaceOfABatch<ReduceDPPDefaultPolicy_t<GPU_PA>>("the default policy", 300000, 6) && ok;
     ok = workspaceOfABatch<NoClusters>("NoClusters", 300000, 6) && ok;
     ok = workspaceOfABatch<ClustersOf3>("ClustersOf3", 300000, 6) && ok;
     ok = workspaceOfABatch<BlocksOf32>("BlocksOf32", 100000, 7) && ok;
