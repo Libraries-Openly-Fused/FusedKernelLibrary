@@ -33,6 +33,9 @@
 //   *_fast.h DPPs): their CPU_MULTITHREAD version, with its Executor (executeOperations on a
 //   Stream_<ParArch::CPU_MULTITHREAD>&), is in their own header. It runs the per row code of their ParArch::CPU version, so the results are the same in the same
 //   way. These headers are not included here.
+// - reduce_dpp.h: ReduceDPP<ParArch::CPU_MULTITHREAD>, with its Executor, runs the chunks of ReduceDPP<ParArch::CPU>
+//   and accumulates them in the same order, so both give the same results too. That header is not included here
+//   either.
 //
 // Memory: as with the host buffers of cudaMemcpyAsync, the buffers an execution reads or writes must stay valid until
 // it has finished (sync()). The executeOperations overloads that take Ptr or Tensor objects keep a reference to them in
