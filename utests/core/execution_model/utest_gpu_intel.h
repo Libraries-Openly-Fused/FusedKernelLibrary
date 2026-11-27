@@ -13,7 +13,7 @@
    limitations under the License. */
 
 // The SYCL backend (ParArch::GPU_INTEL): what is specific to it, which the tests every backend shares do not cover.
-// - Its devices, and the context of each one.
+// - Its devices, the Intel GPUs and nothing else, and the primary context of each one, which its streams share.
 // - Device memory: the rows of a 2D pointer allocated without a pitch are aligned, so the device and the pinned
 //   buffers of a pointer have different pitches, and the transfers between them copy row by row.
 // - The parameters of a kernel that do not fit in its arguments (FK_SYCL_MAX_KERNEL_ARGUMENTS_BYTES) go through device
@@ -51,17 +51,60 @@ float pattern(const int x, const int y, const int z) {
     return static_cast<float>((x * 7 + y * 13 + z * 29) % 251);
 }
 
+bool isIntelGPU(const sycl::device& device) {
+    return device.is_gpu() && device.get_info<sycl::info::device::vendor_id>() == 0x8086 &&
+           device.has(sycl::aspect::usm_device_allocations);
+}
+
+// The devices of the backend are the Intel GPUs of one platform, each one once, and nothing else (not the CPU, not the
+// GPUs of other vendors). Device 0 is the first Intel GPU the runtime offers through Level Zero, if it offers one
+// through it.
 bool testDevices() {
     const sycl::device& device = gpu_intel::device();
-    std::cout << "GPU_INTEL device 0: " << device.get_info<sycl::info::device::name>() << " ("
-              << device.get_platform().get_info<sycl::info::platform::name>() << ")" << std::endl;
-    bool correct = device.has(sycl::aspect::usm_device_allocations);
-    correct &= gpu_intel::device(0) == device && gpu_intel::context(0) == gpu_intel::context();
+    bool correct = gpu_intel::device(0) == device && gpu_intel::context(0) == gpu_intel::context();
+
+    bool levelZero = false;
+    for (const sycl::device& gpu : sycl::device::get_devices(sycl::info::device_type::gpu)) {
+        levelZero |= isIntelGPU(gpu) && gpu.get_backend() == sycl::backend::ext_oneapi_level_zero;
+    }
+    correct &= !levelZero || device.get_backend() == sycl::backend::ext_oneapi_level_zero;
+
+    std::vector<sycl::device> devices;
+    for (int deviceID = 0;; ++deviceID) {
+        try {
+            devices.push_back(gpu_intel::device(deviceID));
+        } catch (const std::out_of_range&) {
+            break;
+        }
+    }
+    std::size_t intelGPUs = 0;
+    for (const sycl::device& gpu : device.get_platform().get_devices(sycl::info::device_type::gpu)) {
+        intelGPUs += isIntelGPU(gpu) ? 1 : 0;
+    }
+    correct &= !devices.empty() && devices.size() == intelGPUs;
+    for (std::size_t deviceID = 0; deviceID < devices.size(); ++deviceID) {
+        const sycl::device& gpu = devices[deviceID];
+        std::cout << "GPU_INTEL device " << deviceID << ": " << gpu.get_info<sycl::info::device::name>() << " ("
+                  << gpu.get_platform().get_info<sycl::info::platform::name>() << ")" << std::endl;
+        correct &= isIntelGPU(gpu) && gpu.get_platform() == device.get_platform();
+        const std::vector<sycl::device> inContext = gpu_intel::context(static_cast<int>(deviceID)).get_devices();
+        correct &= inContext.size() == 1 && inContext[0] == gpu;
+        for (std::size_t other = 0; other < deviceID; ++other) {
+            correct &= devices[other] != gpu;
+        }
+    }
+
     bool noSuchDevice = false;
     try {
-        (void)gpu_intel::device(1000);
+        (void)gpu_intel::device(static_cast<int>(devices.size()));
     } catch (const std::out_of_range&) {
         noSuchDevice = true;
+    }
+    bool noNegativeDevice = false;
+    try {
+        (void)gpu_intel::context(-1);
+    } catch (const std::out_of_range&) {
+        noNegativeDevice = true;
     }
     bool noSuchPtrDevice = false;
     try {
@@ -69,7 +112,7 @@ bool testDevices() {
     } catch (const std::out_of_range&) {
         noSuchPtrDevice = true;
     }
-    return correct && noSuchDevice && noSuchPtrDevice;
+    return correct && noSuchDevice && noNegativeDevice && noSuchPtrDevice;
 }
 
 // The rows of a 2D device buffer allocated without a pitch are aligned, and the pinned buffer has no padding. The
@@ -79,11 +122,12 @@ bool testPitches(SYCLStream& stream) {
     constexpr uint ROW_BYTES = static_cast<uint>(W * sizeof(uchar3));
     Ptr2D<uchar3> input(W, H);
     Ptr2D<uchar3> output(W, H);
+    constexpr size_t ALIGNMENT = Ptr2D<uchar3>::SYCL_MEMORY_ALIGNMENT;
     const uint devicePitch = input.ptr().dims.pitch;
-    bool correct = devicePitch % gpu_intel::MEMORY_ALIGNMENT == 0 && devicePitch > ROW_BYTES &&
-                   devicePitch < ROW_BYTES + gpu_intel::MEMORY_ALIGNMENT && input.ptrPinned().dims.pitch == ROW_BYTES;
-    correct &= reinterpret_cast<std::uintptr_t>(input.ptr().data) % gpu_intel::MEMORY_ALIGNMENT == 0 &&
-               reinterpret_cast<std::uintptr_t>(input.ptrPinned().data) % gpu_intel::MEMORY_ALIGNMENT == 0;
+    bool correct = devicePitch % ALIGNMENT == 0 && devicePitch > ROW_BYTES && devicePitch < ROW_BYTES + ALIGNMENT &&
+                   input.ptrPinned().dims.pitch == ROW_BYTES;
+    correct &= reinterpret_cast<std::uintptr_t>(input.ptr().data) % ALIGNMENT == 0 &&
+               reinterpret_cast<std::uintptr_t>(input.ptrPinned().data) % ALIGNMENT == 0;
 
     // A pitch given by the caller is kept, and a row that is a multiple of the alignment has no padding
     const Ptr2D<uchar3> pitched(W, H, 128, MemType::Device);
@@ -217,6 +261,39 @@ bool testReleaseWithPendingWork(SYCLStream& stream) {
     return correct;
 }
 
+// The streams of a device share its primary context, as CUDA streams share the primary context of their device: the
+// memory of a Ptr is usable from all of them. Work is ordered within each stream, not between them (sync() here).
+bool testStreamsShareContext() {
+    constexpr int W = 64, H = 16;
+    SYCLStream first;
+    SYCLStream second;
+    bool correct = first.getSYCLQueue().get_context() == gpu_intel::context() &&
+                   second.getSYCLQueue().get_context() == gpu_intel::context() &&
+                   first.getSYCLQueue() != second.getSYCLQueue();
+    Ptr2D<float> input(W, H);
+    Ptr2D<float> middle(W, H);
+    Ptr2D<float> output(W, H);
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
+            input.at(Point{ x, y, 0 }) = pattern(x, y, 4);
+        }
+    }
+    input.upload(first);
+    executeOperations<TransformDPP<>>(first, PerThreadRead<ND::_2D, float>::build(input), Mul<float>::build(2.f),
+                                      PerThreadWrite<ND::_2D, float>::build(middle));
+    first.sync();
+    executeOperations<TransformDPP<>>(second, PerThreadRead<ND::_2D, float>::build(middle), Add<float>::build(1.f),
+                                      PerThreadWrite<ND::_2D, float>::build(output));
+    output.download(second);
+    second.sync();
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
+            correct &= output.at(Point{ x, y, 0 }) == pattern(x, y, 4) * 2.f + 1.f;
+        }
+    }
+    return correct;
+}
+
 // A stream on a queue the user made with FKL's context, which can use the memory of Ptr. The user also uses the
 // queue directly, and what they enqueue is ordered with what FKL enqueues.
 bool testUserQueue() {
@@ -255,6 +332,7 @@ int run() {
     correct &= report("transfers of host memory", testHostTransfers(stream));
     correct &= report("kernel parameters in device memory", testLargeKernelParameters(stream));
     correct &= report("memory released with pending work", testReleaseWithPendingWork(stream));
+    correct &= report("streams of a device share its context", testStreamsShareContext());
     correct &= report("stream on a queue of the user", testUserQueue());
     return correct ? 0 : -1;
 }

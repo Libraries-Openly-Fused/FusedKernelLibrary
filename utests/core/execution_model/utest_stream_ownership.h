@@ -211,7 +211,7 @@ int launch_impl() {
     correct &= noSuchDevice;
 
     // A queue given by the user is the queue of its wrappers, and the user can use it after they are destroyed
-    sycl::queue userQueue = gpu_intel::makeQueue();
+    sycl::queue userQueue(gpu_intel::context(), gpu_intel::device(), sycl::property::queue::in_order());
     {
         GPUStream wrapper(userQueue);
         GPUStream wrapperCopy = wrapper;
@@ -231,6 +231,17 @@ int launch_impl() {
         rejected = true;
     }
     correct &= rejected;
+
+    // Nor is a queue of another context: it could not use the memory of Ptr, which is in FKL's context of the device
+    bool otherContextRejected = false;
+    try {
+        sycl::queue otherContext(sycl::context(gpu_intel::device()), gpu_intel::device(),
+                                 sycl::property::queue::in_order());
+        GPUStream wrong(otherContext);
+    } catch (const std::invalid_argument&) {
+        otherContextRejected = true;
+    }
+    correct &= otherContextRejected;
 
     // Creating, copying, assigning and destroying many streams
     for (int i = 0; i < 200; ++i) {

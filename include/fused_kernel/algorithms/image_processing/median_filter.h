@@ -21,7 +21,6 @@
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 #include <fused_kernel/core/execution_model/stream.h>
-#include <fused_kernel/core/execution_model/sycl_kernels.h>
 #include <fused_kernel/core/utils/utils.h>
 
 #include <type_traits>
@@ -337,9 +336,9 @@ public:
             item, details.width, details.height,
             details.windowWidth, details.windowHeight,
             details.anchorX, details.anchorY, input, halo);
-        gpu_intel::syncThreads(item);
+        sycl::group_barrier(item.get_group());
 
-        const gpu_intel::ThreadPosition thread(item);
+        const ThreadPosition thread(item);
         const int tileX = thread.blockIdx.x * DPPDetails::TILE_WIDTH;
         const int tileY = thread.blockIdx.y * DPPDetails::TILE_HEIGHT;
         const int ox = tileX + thread.threadIdx.x;
@@ -460,21 +459,21 @@ struct Executor<MedianFilterDPP<ParArch::GPU_INTEL, DPPDetails>> {
   public:
     FK_STATIC_STRUCT(Executor, SelfType)
     FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_INTEL; }
-    // Enqueues the kernel in the queue of the stream, one block per tile, and returns. gpu_intel::launchWithLocalMemory
-    // is the launchDPP_Kernel of SYCL for a DPP that has shared memory: it allocates the halo (DPP::LOCAL_ELEMENTS) in
-    // the local memory of each block. As with the CUDA version, the output must not alias the input.
+    // Enqueues the kernel in the queue of the stream, one block per tile, and returns. launchDPP_KernelWithLocalMemory
+    // (executor_kernels.h) is the SYCL launchDPP_Kernel of a DPP that has shared memory: it allocates the halo
+    // (DPP::LOCAL_ELEMENTS) in the local memory of each block. As with the CUDA version, the output must not alias the
+    // input.
     template <typename ReadIOp, typename WriteIOp, typename SelectionIOp>
     FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_INTEL>& stream, const DPPDetails& details,
                                           const ReadIOp& input, const WriteIOp& output,
                                           const SelectionIOp& selection) {
         median_filter_detail::checkArguments(details);
-        const gpu_intel::Dim3 block{static_cast<std::size_t>(DPPDetails::TILE_WIDTH),
-                                    static_cast<std::size_t>(DPPDetails::TILE_HEIGHT), 1};
-        const gpu_intel::Dim3 grid{
-            static_cast<std::size_t>((details.width + DPPDetails::TILE_WIDTH - 1) / DPPDetails::TILE_WIDTH),
-            static_cast<std::size_t>((details.height + DPPDetails::TILE_HEIGHT - 1) / DPPDetails::TILE_HEIGHT), 1};
-        gpu_intel::launchWithLocalMemory<DPP, typename DPPDetails::ValueType>(
-            stream, gpu_intel::gridOf(grid, block), DPP::LOCAL_ELEMENTS, details, input, output, selection);
+        const CtxDim3 block{static_cast<uint>(DPPDetails::TILE_WIDTH), static_cast<uint>(DPPDetails::TILE_HEIGHT), 1};
+        const CtxDim3 grid{static_cast<uint>((details.width + DPPDetails::TILE_WIDTH - 1) / DPPDetails::TILE_WIDTH),
+                           static_cast<uint>((details.height + DPPDetails::TILE_HEIGHT - 1) / DPPDetails::TILE_HEIGHT),
+                           1};
+        launchDPP_KernelWithLocalMemory<DPP, typename DPPDetails::ValueType>(
+            stream, syclGrid(grid, block), DPP::LOCAL_ELEMENTS, details, input, output, selection);
     }
 };
 #endif // defined(FK_SYCL_ENABLED)

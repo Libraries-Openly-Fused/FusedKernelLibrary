@@ -71,7 +71,7 @@ OpenType, ClosedType`.
    version for Intel GPUs (`ParArch::GPU_INTEL`, under `#if defined(FK_SYCL_ENABLED)`)
    has the per thread code of the CUDA one: its `exec` gets a `sycl::nd_item<3>`
    first, and shared memory and barriers become work-group local memory and
-   `gpu_intel::syncThreads` (see `fkl-implementing-data-parallel-patterns`). The only
+   `sycl::group_barrier` (see `fkl-implementing-data-parallel-patterns`). The only
    exception are the attention DPPs (softmax, flash_attention,
    flash_attention_mma, flash_decode), which remain GPU-only by the repo
    owner's decision.

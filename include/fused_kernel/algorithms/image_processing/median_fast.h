@@ -18,7 +18,6 @@
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 #include <fused_kernel/core/execution_model/stream.h>
-#include <fused_kernel/core/execution_model/sycl_kernels.h>
 #include <fused_kernel/fused_kernel.h>
 #include <fused_kernel/core/utils/vector_utils.h>
 #include <fused_kernel/core/utils/vlimits.h>
@@ -605,16 +604,14 @@ struct Executor<MedianQuadDPP<ParArch::GPU_INTEL, T, EX, EY, KW, KH>> {
   public:
     FK_STATIC_STRUCT(Executor, SelfType)
     FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_INTEL; }
-    // Enqueues the kernel in the queue of the stream and returns: gpu_intel::launch is the launchDPP_Kernel of SYCL. As
-    // with the CUDA version, the output must not alias the input.
+    // Enqueues the kernel in the queue of the stream and returns: launchDPP_Kernel is the SYCL one
+    // (executor_kernels.h). As with the CUDA version, the output must not alias the input.
     template <typename... IOps>
     FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_INTEL>& stream, const MedianQuadDetails& details,
                                           const IOps&... iOps) {
         median_quad_detail::checkArguments<DPP>(details);
         const auto launch = DPP::launchConfig(details);
-        gpu_intel::launch<DPP>(stream,
-                               gpu_intel::gridOf(gpu_intel::Dim3{launch.blocks}, gpu_intel::Dim3{launch.threads}),
-                               details, iOps...);
+        launchDPP_Kernel<DPP>(stream, syclGrid(CtxDim3{launch.blocks}, CtxDim3{launch.threads}), details, iOps...);
     }
 };
 #endif // defined(FK_SYCL_ENABLED)

@@ -16,7 +16,7 @@
 #define FK_NEIGHBORHOOD_DPP_H
 
 #include <fused_kernel/core/data/point.h>
-#include <fused_kernel/core/execution_model/sycl_kernels.h>
+#include <fused_kernel/core/execution_model/data_parallel_patterns.h>
 #include <fused_kernel/core/utils/utils.h>
 
 namespace fk {
@@ -114,7 +114,7 @@ public:
                                          const int anchorY,
                                          const ReadIOp& input,
                                          T* halo) {
-        const gpu_intel::ThreadPosition thread(item);
+        const ThreadPosition thread(item);
         const int haloWidth = Policy::TILE_WIDTH + windowWidth - 1;
         const int haloHeight = Policy::TILE_HEIGHT + windowHeight - 1;
         const int tileX = thread.blockIdx.x * Policy::TILE_WIDTH;

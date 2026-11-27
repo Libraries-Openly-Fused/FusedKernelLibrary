@@ -27,10 +27,35 @@ namespace cg = cooperative_groups;
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 #include <fused_kernel/core/execution_model/active_threads.h>
 #include <fused_kernel/core/execution_model/cpu_thread_pool.h>
-#include <fused_kernel/core/execution_model/sycl_kernels.h>
 #include <cmath>
 
 namespace fk { // namespace FusedKernel
+#if defined(FK_SYCL_ENABLED)
+    // The position of a thread in the grid of its SYCL kernel (syclGrid and launchDPP_Kernel), with the names it has
+    // in CUDA: a SYCL DPP reads it from the sycl::nd_item<3> its exec gets, instead of threadIdx, blockIdx and
+    // blockDim. In SYCL the last dimension of a range is the innermost one: x is dimension 2, y is 1 and z is 0.
+    struct ThreadPosition {
+        Point threadIdx; // Position of the thread in its block
+        Point blockIdx;  // Position of the block in the grid
+        Point blockDim;  // Threads of a block
+
+        explicit ThreadPosition(const sycl::nd_item<3>& item)
+            : threadIdx{ static_cast<int>(item.get_local_id(2)), static_cast<int>(item.get_local_id(1)),
+                         static_cast<int>(item.get_local_id(0)) },
+              blockIdx{ static_cast<int>(item.get_group(2)), static_cast<int>(item.get_group(1)),
+                        static_cast<int>(item.get_group(0)) },
+              blockDim{ static_cast<int>(item.get_local_range(2)), static_cast<int>(item.get_local_range(1)),
+                        static_cast<int>(item.get_local_range(0)) } {}
+    };
+
+    // The thread of a grid whose blocks have one thread in z, as the ones of TransformDPP: its position in x and y, and
+    // the plane it belongs to in z (blockDim.x * blockIdx.x + threadIdx.x, ... and blockIdx.z in CUDA)
+    inline Point globalThread(const sycl::nd_item<3>& item) {
+        return Point{ static_cast<int>(item.get_global_id(2)), static_cast<int>(item.get_global_id(1)),
+                      static_cast<int>(item.get_global_id(0)) };
+    }
+#endif // defined(FK_SYCL_ENABLED)
+
     template <bool THREAD_FUSION, typename... IOps>
     struct BuildTFI {
         using ReadOp = typename FirstType_t<IOps...>::Operation;
@@ -253,8 +278,8 @@ namespace fk { // namespace FusedKernel
 #endif // defined(__NVCC__)
 
 #if defined(FK_SYCL_ENABLED)
-    // The SYCL version. Its kernel runs on a grid of blocks of threads, as the CUDA one (gpu_intel::gridOf), and every
-    // thread gets its position in the grid in the nd_item, instead of reading blockIdx and threadIdx.
+    // The SYCL version. Its kernel runs on a grid of blocks of threads, as the CUDA one (syclGrid), and every thread
+    // gets its position in the grid in the nd_item, instead of reading blockIdx and threadIdx.
     template <enum TF TFEN, typename DPPDetails, bool THREAD_DIVISIBLE>
     struct TransformDPP<ParArch::GPU_INTEL, TFEN, DPPDetails, THREAD_DIVISIBLE,
                         std::enable_if_t<!std::is_same_v<DPPDetails, void>, void>> {
@@ -284,7 +309,7 @@ namespace fk { // namespace FusedKernel
         template <typename... IOps>
         FK_DEVICE_STATIC void exec(const sycl::nd_item<3>& item, const Details& details, const IOps&... iOps) {
             // x and y are the position of the thread in its plane, and z is the plane: the blocks have one thread in z
-            const Point thread = gpu_intel::globalThread(item);
+            const Point thread = globalThread(item);
 
             exec_thread(thread, details, iOps...);
         }
@@ -491,7 +516,7 @@ namespace fk { // namespace FusedKernel
         template <typename... IOpSequenceTypes>
         FK_DEVICE_STATIC void exec(const sycl::nd_item<3>& item, const DPPDetails&,
                                    const IOpSequenceTypes&... iOpSequences) {
-            const Point thread = gpu_intel::globalThread(item);
+            const Point thread = globalThread(item);
 
             Parent::template divergent_operate<0>(thread, iOpSequences...);
         }

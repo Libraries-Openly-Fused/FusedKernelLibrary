@@ -24,15 +24,19 @@
 #include <type_traits>
 #endif
 #if defined(FK_SYCL_ENABLED)
-#include <fused_kernel/core/execution_model/sycl_devices.h>
+#include <fused_kernel/core/utils/utils.h>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <deque>
+#include <exception>
 #include <memory>
 #include <mutex>
 #include <new>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
+#include <vector>
 #endif
 #include <fused_kernel/core/execution_model/cpu_thread_pool.h>
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
@@ -173,21 +177,179 @@ namespace fk {
 #endif
 
 #if defined(FK_SYCL_ENABLED)
+    namespace gpu_intel {
+        // FKL's primary context of each Intel GPU: what the CUDA runtime has for each device. In CUDA, cudaMalloc and
+        // cudaStreamCreate use the primary context of the current device implicitly. SYCL has neither: its memory
+        // (USM) belongs to a sycl::context, and only the queues of that context can use it. So FKL keeps one context
+        // per device: every Ptr of the device allocates its memory in it, and every Stream_<ParArch::GPU_INTEL> of the
+        // device has its queue in it, so all the streams of a device can use the memory of all its Ptr, as in CUDA.
+        //
+        // The devices are the Intel GPUs the SYCL runtime offers, and nothing else: not the CPU (the OpenCL CPU
+        // device), not the GPUs of other vendors, as ParArch::GPU_NVIDIA only runs on NVIDIA GPUs. The runtime offers
+        // a GPU once per SYCL backend that drives it (Level Zero and OpenCL), so the devices are those of one platform:
+        // device 0 is the first Intel GPU the runtime offers through Level Zero (or, if none, the first one it
+        // offers), and the next ones are the other Intel GPUs of its platform, in the order of the runtime. The runtime
+        // only offers the devices that the environment variable ONEAPI_DEVICE_SELECTOR allows, if it is set.
+        //
+        // It also knows the queues of the streams that are alive, so that Ptr can release memory as cudaFree does:
+        // after the work enqueued in the streams of its context has finished (waitForStreams).
+        class PrimaryContexts {
+          public:
+            // The Intel GPUs are found, and their contexts created, the first time it is used (it throws
+            // std::runtime_error if the runtime offers no Intel GPU). A Ptr or a Stream_ uses it when it is created,
+            // so it is destroyed after every Ptr and Stream_, also the ones with static storage duration.
+            static PrimaryContexts& get() {
+                static PrimaryContexts instance;
+                return instance;
+            }
+
+            PrimaryContexts(const PrimaryContexts&) = delete;
+            PrimaryContexts& operator=(const PrimaryContexts&) = delete;
+
+            const sycl::device& device(const int deviceID) const {
+                return at(deviceID).device;
+            }
+            const sycl::context& context(const int deviceID) const {
+                return at(deviceID).context;
+            }
+            bool isPrimary(const sycl::context& context) const {
+                for (const DeviceAndContext& primary : devices) {
+                    if (primary.context == context) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            // A Stream_<ParArch::GPU_INTEL> registers its queue while it is alive
+            void registerQueue(const sycl::queue& queue) {
+                const std::lock_guard<std::mutex> lock(queuesMutex);
+                queues.push_back(queue);
+            }
+            void unregisterQueue(const sycl::queue& queue) noexcept {
+                const std::lock_guard<std::mutex> lock(queuesMutex);
+                for (auto registered = queues.begin(); registered != queues.end(); ++registered) {
+                    if (*registered == queue) {
+                        queues.erase(registered);
+                        return;
+                    }
+                }
+            }
+
+            // Waits for everything enqueued in the streams that are alive and use context. Their errors are not
+            // reported here: they are left for the sync() of each stream.
+            void waitForStreams(const sycl::context& context) noexcept {
+                try {
+                    std::vector<sycl::queue> waited;
+                    {
+                        const std::lock_guard<std::mutex> lock(queuesMutex);
+                        waited = queues;
+                    }
+                    for (sycl::queue& queue : waited) {
+                        if (queue.get_context() == context) {
+                            queue.wait();
+                        }
+                    }
+                } catch (...) {
+                    // Called when memory is released, also from destructors: nothing to report an error to
+                }
+            }
+
+          private:
+            // The PCI vendor ID of Intel, the vendor_id of its devices
+            static constexpr std::uint32_t INTEL_VENDOR_ID = 0x8086;
+
+            struct DeviceAndContext {
+                sycl::device device;
+                sycl::context context;
+            };
+
+            PrimaryContexts() : devices(findIntelGPUs()) {}
+
+            static bool isIntelGPU(const sycl::device& device) {
+                return device.is_gpu() && device.get_info<sycl::info::device::vendor_id>() == INTEL_VENDOR_ID &&
+                       device.has(sycl::aspect::usm_device_allocations);
+            }
+
+            static std::vector<DeviceAndContext> findIntelGPUs() {
+                const std::vector<sycl::device> gpus = sycl::device::get_devices(sycl::info::device_type::gpu);
+                const sycl::device* first = nullptr;
+                for (const sycl::device& device : gpus) {
+                    if (isIntelGPU(device) &&
+                        (first == nullptr || (first->get_backend() != sycl::backend::ext_oneapi_level_zero &&
+                                              device.get_backend() == sycl::backend::ext_oneapi_level_zero))) {
+                        first = &device;
+                    }
+                }
+                if (first == nullptr) {
+                    throw std::runtime_error("ParArch::GPU_INTEL: the SYCL runtime offers no Intel GPU (check the "
+                                             "Intel GPU driver, and ONEAPI_DEVICE_SELECTOR if it is set)");
+                }
+                std::vector<DeviceAndContext> found;
+                for (const sycl::device& device : first->get_platform().get_devices(sycl::info::device_type::gpu)) {
+                    if (isIntelGPU(device)) {
+                        found.push_back({ device, sycl::context(device) });
+                    }
+                }
+                return found;
+            }
+
+            const DeviceAndContext& at(const int deviceID) const {
+                if (deviceID < 0 || static_cast<std::size_t>(deviceID) >= devices.size()) {
+                    throw std::out_of_range("ParArch::GPU_INTEL: there is no device " + std::to_string(deviceID) +
+                                            " (the backend has " + std::to_string(devices.size()) + " device(s))");
+                }
+                return devices[static_cast<std::size_t>(deviceID)];
+            }
+
+            const std::vector<DeviceAndContext> devices;
+            std::mutex queuesMutex;
+            std::vector<sycl::queue> queues;
+        };
+
+        // Device deviceID of the backend, the deviceID of Ptr and Stream_<ParArch::GPU_INTEL>: an Intel GPU (see
+        // PrimaryContexts). Throws std::out_of_range if there is no such device.
+        inline const sycl::device& device(const int deviceID = 0) {
+            return PrimaryContexts::get().device(deviceID);
+        }
+
+        // FKL's primary context of device deviceID: where Ptr allocates, and where a queue has to be made to use that
+        // memory (sycl::queue q(gpu_intel::context(id), gpu_intel::device(id), sycl::property::queue::in_order())).
+        inline const sycl::context& context(const int deviceID = 0) {
+            return PrimaryContexts::get().context(deviceID);
+        }
+    } // namespace gpu_intel
+
     // A SYCL in-order queue, which behaves like a CUDA stream: the kernels and the copies enqueued in it run in the
     // order they were enqueued, and sync() waits for all of them and throws the first error they had. The copies of a
     // Stream_ share the queue, and the last copy to be destroyed waits for the work enqueued in it (errors nobody
     // synchronized with are lost).
     //
-    // A default constructed Stream_ has its own queue on device 0 (or on the device given, see gpu_intel::device), in
-    // FKL's context for that device, where the memory of every Ptr of the device is. A Stream_ can also use a queue of
-    // the user, which has to be in order (sycl::property::queue::in_order): the memory given to that Stream_ must
-    // belong to the context of the queue, so to use it with memory allocated by Ptr, make the queue with
-    // gpu_intel::context(deviceID).
+    // Its queue is in the primary context of its device (gpu_intel::PrimaryContexts), where the memory of every Ptr of
+    // the device is, so the streams of a device can use all of it, as CUDA streams can. A default constructed Stream_
+    // has its own queue on device 0 (or on the device given). A Stream_ can also use a queue of the user, which has to
+    // be in order (sycl::property::queue::in_order) and in a primary context: made with gpu_intel::context(deviceID).
     template <>
     class Stream_<ParArch::GPU_INTEL> final : public BaseStream {
-        // The parameters of a kernel that do not fit in its arguments (FK_SYCL_MAX_KERNEL_ARGUMENTS_BYTES) are in a
-        // block of device memory, which the queue copies from a block of host memory. Both are released when the
-        // kernel that uses them has finished.
+        // Alignment of the blocks of kernel parameters, in host and in device memory
+        static constexpr std::size_t PARAMS_ALIGNMENT = 64;
+
+        // Asynchronous errors of the queues of the streams: sync() (wait_and_throw) throws the first one
+        static void rethrowAsyncErrors(const sycl::exception_list errors) {
+            for (const std::exception_ptr& error : errors) {
+                std::rethrow_exception(error);
+            }
+        }
+
+        // An in-order queue on device deviceID, in its primary context
+        static sycl::queue makeQueue(const int deviceID) {
+            return sycl::queue(gpu_intel::context(deviceID), gpu_intel::device(deviceID), &rethrowAsyncErrors,
+                               sycl::property::queue::in_order());
+        }
+
+        // The parameters of a kernel that do not fit in its arguments (FK_SYCL_MAX_KERNEL_ARGUMENTS_BYTES, see
+        // launchDPP_Kernel) are in a block of device memory, which the queue copies from a block of host memory. Both
+        // are released when the kernel that uses them has finished.
         struct KernelParams {
             sycl::event lastUse; // The copy to the device, and then the kernel that uses the parameters
             void* device{ nullptr };
@@ -195,9 +357,10 @@ namespace fk {
         };
 
         struct State {
-            // While the stream is alive, releasing memory waits for the work enqueued in its queue (gpu_intel::free)
+            // While the stream is alive, releasing the memory of a Ptr waits for the work enqueued in its queue
+            // (PrimaryContexts::waitForStreams)
             explicit State(const sycl::queue& queue_) : queue(queue_) {
-                gpu_intel::detail::registerQueue(queue);
+                gpu_intel::PrimaryContexts::get().registerQueue(queue);
             }
             State(const State&) = delete;
             State& operator=(const State&) = delete;
@@ -213,7 +376,7 @@ namespace fk {
                 for (const KernelParams& params : pending) {
                     release(params);
                 }
-                gpu_intel::detail::unregisterQueue(queue);
+                gpu_intel::PrimaryContexts::get().unregisterQueue(queue);
             }
 
             void release(const KernelParams& params) noexcept {
@@ -224,7 +387,7 @@ namespace fk {
                 } catch (...) {
                     // Nothing to report an error to: this is also called from destructors
                 }
-                ::operator delete(params.host, std::align_val_t(gpu_intel::MEMORY_ALIGNMENT));
+                ::operator delete(params.host, std::align_val_t(PARAMS_ALIGNMENT));
             }
 
             // Called with the mutex held. The kernels of an in-order queue finish in order.
@@ -245,15 +408,21 @@ namespace fk {
         std::shared_ptr<State> m_state;
 
     public:
-        Stream_() : BaseStream(), m_state(std::make_shared<State>(gpu_intel::makeQueue(0))) {}
-        explicit Stream_(const int deviceID)
-            : BaseStream(), m_state(std::make_shared<State>(gpu_intel::makeQueue(deviceID))) {}
+        Stream_() : BaseStream(), m_state(std::make_shared<State>(makeQueue(0))) {}
+        explicit Stream_(const int deviceID) : BaseStream(), m_state(std::make_shared<State>(makeQueue(deviceID))) {}
         Stream_(const Stream_<ParArch::GPU_INTEL>& other) = default;
+        // The queue must be in order and in a primary context: a queue the user made with
+        // sycl::queue q(gpu_intel::context(id), gpu_intel::device(id), sycl::property::queue::in_order())
         explicit Stream_(const sycl::queue& queue) : BaseStream() {
             if (!queue.is_in_order()) {
                 throw std::invalid_argument("Stream_<ParArch::GPU_INTEL> needs an in-order queue "
                                             "(sycl::property::queue::in_order): what is enqueued in a stream runs in "
                                             "the order it was enqueued");
+            }
+            if (!gpu_intel::PrimaryContexts::get().isPrimary(queue.get_context())) {
+                throw std::invalid_argument("Stream_<ParArch::GPU_INTEL> needs a queue in FKL's context of its device "
+                                            "(gpu_intel::context(deviceID)): the memory of Ptr is in that context, and "
+                                            "a queue of another context can not use it");
             }
             m_state = std::make_shared<State>(queue);
         }
@@ -295,17 +464,17 @@ namespace fk {
         inline const Params* kernelParams(const Params& params) {
             static_assert(std::is_trivially_copyable_v<Params>,
                           "The parameters of a kernel must be trivially copyable: they are copied to the device");
-            static_assert(alignof(Params) <= gpu_intel::MEMORY_ALIGNMENT, "Unsupported alignment of kernel parameters");
+            static_assert(alignof(Params) <= PARAMS_ALIGNMENT, "Unsupported alignment of kernel parameters");
             State& state = *m_state;
             const std::lock_guard<std::mutex> lock(state.mutex);
             state.releaseFinished();
             KernelParams block;
-            block.host = ::operator new(sizeof(Params), std::align_val_t(gpu_intel::MEMORY_ALIGNMENT));
+            block.host = ::operator new(sizeof(Params), std::align_val_t(PARAMS_ALIGNMENT));
             std::memcpy(block.host, &params, sizeof(Params));
             // The block is in the list before its copy is enqueued: once enqueued, it must not be released early
             bool listed = false;
             try {
-                block.device = sycl::aligned_alloc_device(gpu_intel::MEMORY_ALIGNMENT, sizeof(Params), state.queue);
+                block.device = sycl::aligned_alloc_device(PARAMS_ALIGNMENT, sizeof(Params), state.queue);
                 if (block.device == nullptr) {
                     throw std::runtime_error("ParArch::GPU_INTEL: could not allocate device memory for the "
                                              "parameters of a kernel");

@@ -94,9 +94,10 @@ cmake -G "Ninja" -B ../build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=icp
   configure fails with `LNK1104: cannot open file 'kernel32.lib'`. And a `_sycl` executable started from another
   terminal exits with 0xC0000135: it does not find the SYCL runtime (`sycl9.dll` in oneAPI 2026.0), which is in the
   `PATH` of the environment.
-- `sycl-ls` lists the devices the SYCL runtime sees. The backend uses the best one (an Intel GPU through Level Zero if
-  there is one). `ONEAPI_DEVICE_SELECTOR` restricts them: `opencl:gpu` runs the tests through OpenCL, and `opencl:cpu`
-  on the CPU, without a GPU.
+- `sycl-ls` lists the devices the SYCL runtime sees. The backend only runs on Intel GPUs: the first one it offers
+  through Level Zero (through OpenCL if Level Zero offers none), never on the CPU or on a GPU of another vendor.
+  Without an Intel GPU the `_sycl` tests fail ("the SYCL runtime offers no Intel GPU"), as the `_cu` ones do without an
+  NVIDIA GPU. `ONEAPI_DEVICE_SELECTOR` restricts the devices: `opencl:gpu` runs the tests through OpenCL.
 - The device compiles each kernel the first time it runs, so the first run of a test is slower (`utest_saturate_sycl`
   has 720 kernels: about half a minute). The GPU driver caches the compiled kernels.
 - Options: `SYCL_DEVICE_CODE_SPLIT` (`per_kernel`: only the kernels that run are compiled by the device, and one that

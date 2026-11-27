@@ -28,11 +28,10 @@
 #include <string>
 #endif
 
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
 #include <fused_kernel/core/execution_model/executor_details/executor_kernels.h>
 #endif
 #if defined(FK_SYCL_ENABLED)
-#include <fused_kernel/core/execution_model/sycl_kernels.h>
 #include <climits>
 #endif
 
@@ -51,6 +50,19 @@ namespace fk {
         constexpr CtxDim3(const uint& x, const uint& y) : x(x), y(y), z(1) {}
         constexpr CtxDim3(const uint& x, const uint& y, const uint& z) : x(x), y(y), z(z) {}
     };
+#endif
+
+#if defined(FK_SYCL_ENABLED)
+    // The grid of a SYCL kernel (launchDPP_Kernel): grid.x * grid.y * grid.z blocks of block.x * block.y * block.z
+    // threads, as the grid and the block of a CUDA launch (<<<grid, block>>>). Work groups are the blocks, and work
+    // items the threads. In SYCL the last dimension of a range is the innermost one: x is dimension 2, y is dimension
+    // 1 and z is dimension 0.
+    inline sycl::nd_range<3> syclGrid(const CtxDim3& grid, const CtxDim3& block) {
+        return sycl::nd_range<3>(
+            sycl::range<3>(std::size_t{ grid.z } * block.z, std::size_t{ grid.y } * block.y,
+                           std::size_t{ grid.x } * block.x),
+            sycl::range<3>(block.z, block.y, block.x));
+    }
 #endif
 
 #if !defined(NVRTC_COMPILER)
@@ -625,7 +637,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
 
 #if defined(FK_SYCL_ENABLED)
     // The SYCL executors launch their DPP on the same grid of blocks of threads as the CUDA ones, as a kernel
-    // enqueued in the queue of the stream (gpu_intel::launch). There is no kernel function: the kernel calls
+    // enqueued in the queue of the stream (launchDPP_Kernel). There is no kernel function: the kernel calls
     // DPP::exec, with the details and the IOps as its parameters.
     template <enum TF TFEN>
     struct Executor<TransformDPP<ParArch::GPU_INTEL, TFEN, void>> {
@@ -638,9 +650,9 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         // The blocks getDefaultBlockSize chooses for the active threads of a plane, and one plane of blocks per z
         FK_HOST_STATIC sycl::nd_range<3> getDefaultGrid(const ActiveThreads& activeThreads) {
             const CtxDim3 block = getDefaultBlockSize(activeThreads.x, activeThreads.y);
-            const gpu_intel::Dim3 grid{ (activeThreads.x + block.x - 1) / block.x,
-                                        (activeThreads.y + block.y - 1) / block.y, activeThreads.z };
-            return gpu_intel::gridOf(grid, gpu_intel::Dim3{ block.x, block.y, 1 });
+            const CtxDim3 grid{ (activeThreads.x + block.x - 1) / block.x, (activeThreads.y + block.y - 1) / block.y,
+                                activeThreads.z };
+            return syclGrid(grid, CtxDim3{ block.x, block.y, 1 });
         }
 
         template <typename... IOps>
@@ -648,7 +660,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             const auto details = TransformDPP<ARCH, TF::DISABLED>::build_details(iOps...);
             using DPP = TransformDPP<ARCH, TF::DISABLED, std::decay_t<decltype(details)>, true>;
             const ActiveThreads activeThreads = get_arg<0>(iOps...).getActiveThreads();
-            gpu_intel::launch<DPP>(stream, getDefaultGrid(activeThreads), details, iOps...);
+            launchDPP_Kernel<DPP>(stream, getDefaultGrid(activeThreads), details, iOps...);
         }
 
         template <typename... IOps>
@@ -660,10 +672,10 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                     // The buffers are not aligned for the vector accesses of thread fusion: run without it
                     launchWithoutThreadFusion(stream, iOps...);
                 } else if (!tDetails.threadDivisible) {
-                    gpu_intel::launch<TransformDPP<ARCH, TFEN, TDPPDetails, false>>(
+                    launchDPP_Kernel<TransformDPP<ARCH, TFEN, TDPPDetails, false>>(
                         stream, getDefaultGrid(tDetails.activeThreads), tDetails, iOps...);
                 } else {
-                    gpu_intel::launch<TransformDPP<ARCH, TFEN, TDPPDetails, true>>(
+                    launchDPP_Kernel<TransformDPP<ARCH, TFEN, TDPPDetails, true>>(
                         stream, getDefaultGrid(tDetails.activeThreads), tDetails, iOps...);
                 }
             } else {
@@ -709,11 +721,11 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             const ActiveThreads activeThreads = getActiveThreads(iOpSequences...);
             const DPPDetails details{};
 
-            const gpu_intel::Dim3 block{ cxp::max::f(cxp::min::f(activeThreads.x, 32u), 1u),
-                                         cxp::max::f(cxp::min::f(activeThreads.y, 8u), 1u), 1 };
-            const gpu_intel::Dim3 grid{ (activeThreads.x + block.x - 1) / block.x,
-                                        (activeThreads.y + block.y - 1) / block.y, activeThreads.z };
-            gpu_intel::launch<DPPType>(stream, gpu_intel::gridOf(grid, block), details, iOpSequences...);
+            const CtxDim3 block{ cxp::max::f(cxp::min::f(activeThreads.x, 32u), 1u),
+                                 cxp::max::f(cxp::min::f(activeThreads.y, 8u), 1u), 1 };
+            const CtxDim3 grid{ (activeThreads.x + block.x - 1) / block.x, (activeThreads.y + block.y - 1) / block.y,
+                                activeThreads.z };
+            launchDPP_Kernel<DPPType>(stream, syclGrid(grid, block), details, iOpSequences...);
         }
 
     public:

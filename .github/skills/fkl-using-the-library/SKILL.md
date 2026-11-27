@@ -112,14 +112,19 @@ output.download(stream);
 stream.sync();                                  // waits, and throws the errors of the queue (sycl::exception)
 ```
 
-- Device 0 is the best device the SYCL runtime offers (an Intel GPU through Level Zero if there is one);
-  `Stream_<ParArch::GPU_INTEL> stream(deviceID)` and the `deviceID` of `Ptr` choose another one of its platform. The
-  environment variable `ONEAPI_DEVICE_SELECTOR` restricts the devices (`opencl:cpu` runs on the CPU).
-- Interop: `gpu_intel::device(deviceID)` and `gpu_intel::context(deviceID)` are the SYCL device and the context where
-  FKL allocates. To use your own queue as a stream, make it in order and with that context:
+- The backend runs on Intel GPUs only, never on the CPU or on a GPU of another vendor: without an Intel GPU, creating a
+  `Stream` or a `Ptr` throws `std::runtime_error`. Device 0 is the first Intel GPU the SYCL runtime offers (through
+  Level Zero if it can); `Stream_<ParArch::GPU_INTEL> stream(deviceID)` and the `deviceID` of `Ptr` choose another
+  Intel GPU of its platform. The environment variable `ONEAPI_DEVICE_SELECTOR` restricts the devices (`opencl:gpu` uses
+  OpenCL instead of Level Zero).
+- As in CUDA, all the streams of a device share its primary context: `Stream a, b;` are two independent in-order
+  queues, and both can use the memory of every `Ptr` of the device (work is ordered within a stream, not between them).
+- Interop: `gpu_intel::device(deviceID)` and `gpu_intel::context(deviceID)` are the SYCL device and its primary context,
+  where FKL allocates. To use your own queue as a stream, make it in order and with that context:
   `sycl::queue q(gpu_intel::context(), gpu_intel::device(), sycl::property::queue::in_order()); Stream s(q);`
-  (a queue that is not in order throws). `stream.getSYCLQueue()` gives the queue of a stream. USM pointers of that
-  context can be wrapped: `Ptr2D<float> p(usmPtr, w, h, pitchBytes, MemType::Device);`.
+  (a queue that is not in order, or of another context, throws `std::invalid_argument`). `stream.getSYCLQueue()` gives
+  the queue of a stream. USM pointers of that context can be wrapped:
+  `Ptr2D<float> p(usmPtr, w, h, pitchBytes, MemType::Device);`.
 - The first launch of each kernel is slow: the device compiles it then (the GPU driver caches it).
 - Link your SYCL program with `-fsycl-device-code-split=per_kernel` and
   `-Xsycl-target-backend "-cl-fp32-correctly-rounded-divide-sqrt"`, and compile with `/fp:precise`
