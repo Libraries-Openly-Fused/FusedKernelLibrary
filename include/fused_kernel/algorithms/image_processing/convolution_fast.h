@@ -19,6 +19,7 @@
 #include <fused_kernel/core/execution_model/parallel_architectures.h>
 #include <fused_kernel/core/execution_model/stream.h>
 #include <fused_kernel/core/execution_model/sycl_kernels.h>
+#include <fused_kernel/fused_kernel.h>
 
 #include <type_traits>
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
@@ -322,35 +323,6 @@ public:
     }
 };
 
-template <typename DPP, typename... IOps>
-__global__ void launchConvQuadDPP_Kernel(
-        const __grid_constant__ ConvQuadDetails details,
-        const __grid_constant__ IOps... iOps) {
-    DPP::exec(details, iOps...);
-}
-
-template <typename DPP, typename... IOps, ParArch PA>
-    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
-FK_HOST_FUSE void executeConvQuad(
-        Stream_<PA>& stream,
-        const ConvQuadDetails& details,
-        const IOps&... iOps) {
-    static_assert(DPP::PAR_ARCH == PA,
-                  "GPU stream requires the matching ConvQuadDPP specialization");
-    if (!DPP::accepts(details)) return;
-    const auto launch = DPP::launchConfig(details);
-#if defined(__HIPCC__)
-    launchConvQuadDPP_Kernel<DPP, IOps...>
-        <<<launch.blocks, launch.threads, 0, stream.getHIPStream()>>>(
-            details, iOps...);
-    gpuErrchk(hipGetLastError());
-#else
-    launchConvQuadDPP_Kernel<DPP, IOps...>
-        <<<launch.blocks, launch.threads, 0, stream.getCUDAStream()>>>(
-            details, iOps...);
-    gpuErrchk(cudaGetLastError());
-#endif
-}
 #endif // defined(__NVCC__) || defined(__HIPCC__)
 
 #if defined(FK_SYCL_ENABLED)
@@ -492,54 +464,109 @@ public:
         }
     }
 };
-
-// Enqueues the kernel in the queue of the stream and returns. As with the
-// CUDA version, the output must not alias the input.
-template <typename DPP, typename... IOps>
-FK_HOST_STATIC void executeConvQuad(
-        Stream_<ParArch::GPU_INTEL>& stream,
-        const ConvQuadDetails& details,
-        const IOps&... iOps) {
-    static_assert(DPP::PAR_ARCH == ParArch::GPU_INTEL,
-                  "GPU_INTEL stream requires the GPU_INTEL ConvQuadDPP specialization");
-    if (!DPP::accepts(details)) return;
-    const auto launch = DPP::launchConfig(details);
-    gpu_intel::launch<DPP>(
-        stream,
-        gpu_intel::gridOf(gpu_intel::Dim3{launch.blocks},
-                          gpu_intel::Dim3{launch.threads}),
-        details, iOps...);
-}
 #endif // defined(FK_SYCL_ENABLED)
 
-template <typename DPP, typename... IOps>
-FK_HOST_FUSE void executeConvQuad(
-        Stream_<ParArch::CPU>&,
-        const ConvQuadDetails& details,
-        const IOps&... iOps) {
-    static_assert(DPP::PAR_ARCH == ParArch::CPU,
-                  "CPU stream requires the CPU ConvQuadDPP specialization");
-    DPP::exec(details, iOps...);
+namespace conv_quad_detail {
+// The check of the executors: details the DPP accepts (DPP::accepts)
+template <typename DPP>
+FK_HOST_FUSE void checkArguments(const ConvQuadDetails& details) {
+    executor_detail::requireArguments(DPP::accepts(details), "ConvQuadDPP", "details it does not accept (DPP::accepts)");
 }
+} // namespace conv_quad_detail
+
+// The executors of ConvQuadDPP, one per back-end:
+//   executeOperations<ConvQuadDPP<PA, T, EX, EY, KW, KH>>(stream, details, input, ..., output)
+// Details the DPP does not accept throw std::invalid_argument before anything is launched or enqueued (Oscar's
+// decision, 2026-11-26).
+template <typename T, int EX, int EY, int KW, int KH>
+struct Executor<ConvQuadDPP<ParArch::CPU, T, EX, EY, KW, KH>> {
+  private:
+    using DPP = ConvQuadDPP<ParArch::CPU, T, EX, EY, KW, KH>;
+    using SelfType = Executor<DPP>;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::CPU; }
+    // Computes the filter before it returns
+    template <typename... IOps>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::CPU>&, const ConvQuadDetails& details, const IOps&... iOps) {
+        conv_quad_detail::checkArguments<DPP>(details);
+        DPP::exec(details, iOps...);
+    }
+};
 
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
-// Enqueues the execution on the stream and returns. details (with its
-// coefficients) is copied; the buffers the IOps use must stay valid until the
-// execution has finished (for instance, until stream.sync()), and the output
-// must not alias the input.
-template <typename DPP, typename... IOps>
-FK_HOST_STATIC void executeConvQuad(
-        Stream_<ParArch::CPU_MULTITHREAD>& stream,
-        const ConvQuadDetails& details,
-        const IOps&... iOps) {
-    static_assert(DPP::PAR_ARCH == ParArch::CPU_MULTITHREAD,
-                  "CPU_MULTITHREAD stream requires the CPU_MULTITHREAD ConvQuadDPP specialization");
-    if (!DPP::accepts(details)) return;
-    stream.enqueue([details, iOps...](const cpu_multithread::Completion& done) {
-        DPP::exec(done, details, iOps...);
-    });
-}
+template <typename T, int EX, int EY, int KW, int KH>
+struct Executor<ConvQuadDPP<ParArch::CPU_MULTITHREAD, T, EX, EY, KW, KH>> {
+  private:
+    using DPP = ConvQuadDPP<ParArch::CPU_MULTITHREAD, T, EX, EY, KW, KH>;
+    using SelfType = Executor<DPP>;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::CPU_MULTITHREAD; }
+    // Enqueues the execution on the stream and returns. The buffers the IOps use must stay valid until it has finished
+    // (for instance, until stream.sync()), and the output must not alias the input.
+    template <typename... IOps>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::CPU_MULTITHREAD>& stream, const ConvQuadDetails& details,
+                                          const IOps&... iOps) {
+        conv_quad_detail::checkArguments<DPP>(details);
+        stream.enqueue([details, iOps...](const cpu_multithread::Completion& done) {
+            DPP::exec(done, details, iOps...);
+        });
+    }
+};
 #endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+
+#if defined(__NVCC__) || defined(__HIPCC__)
+template <ParArch PA, typename T, int EX, int EY, int KW, int KH>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
+struct Executor<ConvQuadDPP<PA, T, EX, EY, KW, KH>> {
+  private:
+    using DPP = ConvQuadDPP<PA, T, EX, EY, KW, KH>;
+    using SelfType = Executor<DPP>;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return PA; }
+    template <typename... IOps>
+    FK_HOST_STATIC void executeOperations(Stream_<PA>& stream, const ConvQuadDetails& details, const IOps&... iOps) {
+        conv_quad_detail::checkArguments<DPP>(details);
+        const auto launch = DPP::launchConfig(details);
+#if defined(__HIPCC__)
+        launchDPP_Kernel<DPP><<<launch.blocks, launch.threads, 0, stream.getHIPStream()>>>(details, iOps...);
+        gpuErrchk(hipGetLastError());
+#else
+        launchDPP_Kernel<DPP><<<launch.blocks, launch.threads, 0, stream.getCUDAStream()>>>(details, iOps...);
+        gpuErrchk(cudaGetLastError());
+#endif
+    }
+};
+#endif // defined(__NVCC__) || defined(__HIPCC__)
+
+#if defined(FK_SYCL_ENABLED)
+template <typename T, int EX, int EY, int KW, int KH>
+struct Executor<ConvQuadDPP<ParArch::GPU_INTEL, T, EX, EY, KW, KH>> {
+  private:
+    using DPP = ConvQuadDPP<ParArch::GPU_INTEL, T, EX, EY, KW, KH>;
+    using SelfType = Executor<DPP>;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_INTEL; }
+    // Enqueues the kernel in the queue of the stream and returns: gpu_intel::launch is the launchDPP_Kernel of SYCL. As
+    // with the CUDA version, the output must not alias the input.
+    template <typename... IOps>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_INTEL>& stream, const ConvQuadDetails& details,
+                                          const IOps&... iOps) {
+        conv_quad_detail::checkArguments<DPP>(details);
+        const auto launch = DPP::launchConfig(details);
+        gpu_intel::launch<DPP>(stream,
+                               gpu_intel::gridOf(gpu_intel::Dim3{launch.blocks}, gpu_intel::Dim3{launch.threads}),
+                               details, iOps...);
+    }
+};
+#endif // defined(FK_SYCL_ENABLED)
 
 } // namespace fk
 

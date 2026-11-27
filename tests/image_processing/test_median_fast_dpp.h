@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <stdexcept>
 #include <vector>
 
 namespace fk {
@@ -97,7 +98,7 @@ Result runCase(const int width, const int height,
     using DPP = MedianQuadDPP<PA, unsigned char, EX, EY, KW, KH>;
     const MedianQuadDetails details{
         width, height, runtimeKW, runtimeKH, anchorX, anchorY};
-    executeMedianQuad<DPP>(stream, details, read, compare, write);
+    executeOperations<DPP>(stream, details, read, compare, write);
 #if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
     if constexpr (GPU) output.download(stream);
 #endif
@@ -182,12 +183,19 @@ bool verifyRejectedMultithread() {
     using DPP = MedianQuadDPP<ParArch::CPU_MULTITHREAD, unsigned char>;
     const MedianQuadDetails rejected{width, height, 9, 9, 4, 4};
     Stream_<ParArch::CPU_MULTITHREAD> stream;
-    executeMedianQuad<DPP>(stream, rejected, read, compare, write);
+    // the executor rejects the details (std::invalid_argument), enqueueing
+    // nothing
+    bool rejectedThrew = false;
+    try {
+        executeOperations<DPP>(stream, rejected, read, compare, write);
+    } catch (const std::invalid_argument&) {
+        rejectedThrew = true;
+    }
     stream.enqueue([=](const cpu_multithread::Completion& done) {
         DPP::exec(done, rejected, read, compare, write);
     });
     stream.sync();
-    bool untouched = !DPP::accepts(rejected);
+    bool untouched = rejectedThrew && !DPP::accepts(rejected);
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             untouched = output.at(Point{x, y, 0}) == 0xA5 && untouched;
@@ -198,7 +206,7 @@ bool verifyRejectedMultithread() {
     stream.enqueue([=](const cpu_multithread::Completion& done) {
         DPP::exec(done, rejected, read, compare, write);
     });
-    executeMedianQuad<DPP>(stream, accepted, read, compare, write);
+    executeOperations<DPP>(stream, accepted, read, compare, write);
     stream.sync();
     bool computed = true;
     for (int y = 0; y < height; ++y) {

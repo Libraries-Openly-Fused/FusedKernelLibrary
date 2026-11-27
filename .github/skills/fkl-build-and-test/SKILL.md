@@ -166,7 +166,8 @@ int launch() { RUN_ALL_TESTS }
 
 ## Testing ParArch::CPU_MULTITHREAD code
 - Extend the EXISTING test of the DPP family under `#ifdef FK_CPU_MULTITHREAD_ENABLED`: run every case also through
-  the `Stream_<ParArch::CPU_MULTITHREAD>&` entry point, `stream.sync()`, and require the output to match the
+  `executeOperations<DPP<ParArch::CPU_MULTITHREAD, ...>>` on a `Stream_<ParArch::CPU_MULTITHREAD>&`, `stream.sync()`,
+  and require the output to match the
   `ParArch::CPU` output, plus the existing oracle checks: exactly (`memcmp` or `==`) for integer outputs and float
   pipelines without multiply-add; within a tight tolerance (e.g. 1e-5 relative) for float pipelines that multiply and
   add, since g++ with FMA (`-march=native`, arm64) may contract `a * b + c` differently in the two versions.

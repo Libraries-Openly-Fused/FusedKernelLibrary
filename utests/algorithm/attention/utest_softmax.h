@@ -45,7 +45,8 @@ static void runCase(const char* name, const int width, const int height,
     Stream stream;
     const auto inIOp = PerThreadRead<ND::_2D, float>::build(input.ptr());
     const auto outIOp = PerThreadWrite<ND::_2D, float>::build(output.ptr());
-    executeSoftmax<256>(inIOp, outIOp, stream);
+    using DPP = SoftmaxDPP<ParArch::GPU_NVIDIA, SoftmaxDPPDetails<256>>;
+    executeOperations<DPP>(stream, SoftmaxDPPDetails<256>{}, inIOp, outIOp);
     stream.sync();
 
     std::vector<float> got((size_t)width * height);
@@ -99,7 +100,8 @@ static void runPrologueCase(const char* name, const int width, const int height,
                            .then(Mul<float>::build(2.f))
                            .then(Add<float>::build(1.f));
     const auto outIOp = PerThreadWrite<ND::_2D, float>::build(output.ptr());
-    executeSoftmax<256>(inIOp, outIOp, stream);
+    using DPP = SoftmaxDPP<ParArch::GPU_NVIDIA, SoftmaxDPPDetails<256>>;
+    executeOperations<DPP>(stream, SoftmaxDPPDetails<256>{}, inIOp, outIOp);
     stream.sync();
 
     std::vector<float> got((size_t)width * height);

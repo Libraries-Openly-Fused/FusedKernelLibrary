@@ -21,6 +21,7 @@
 #include <fused_kernel/core/execution_model/operation_model/operation_model.h>
 #include <fused_kernel/core/execution_model/stream.h>
 #include <fused_kernel/core/execution_model/sycl_kernels.h>
+#include <fused_kernel/fused_kernel.h>
 #include <fused_kernel/core/utils/utils.h>
 
 #include <type_traits>
@@ -86,7 +87,7 @@ struct MorphologyDPPDetails {
 // finalizer (a compute IOp from T to T, Unary or Binary) maps the reduced
 // value before it is staged for the next pass or written. An element of the
 // reducers tuple is a plain reducer or a MorphologyPass; a plain reducer
-// has no finalizer. The box blur (executeBoxBlur) is an Add reducer with a
+// has no finalizer. The box blur (boxBlurReducers) is an Add reducer with a
 // Mul by 1 / (maskW * maskH) as the finalizer of every pass.
 template <typename ReducerIOp, typename FinalizerIOp>
 struct MorphologyPass {
@@ -177,7 +178,12 @@ FK_HOST_FUSE int planesOf(const InputReadIOp& input) {
     return static_cast<int>(input.getActiveThreads().z);
 }
 
-// The passes of the box blur (executeBoxBlur): every pass sums its window
+} // namespace morphology_detail
+
+// The reducers of the box blur, for executeOperations<MorphologyDPP<PA, DPPDetails>>(stream, details,
+// input, output, boxBlurReducers<T, PASSES>(details)): PASSES (1 to 4) passes of the mean of the maskW x maskH window
+// at (anchorX, anchorY), each one replicating the border of the image it reads, as the other morphology operations.
+// T (details' ValueType) must be a floating point type or a vector of them. Every pass sums its window
 // (an Add reducer) and its finalizer multiplies the sum by 1 / (maskW *
 // maskH), so every pass, the staged ones included, is the mean of its
 // window. The factor is in the precision of T's elements (float or double).
@@ -209,8 +215,6 @@ FK_HOST_FUSE auto boxBlurReducers(const DPPDetails& details) {
         return make_tuple(pass, pass, pass, pass);
     }
 }
-
-} // namespace morphology_detail
 
 template <ParArch PA, typename DPPDetails>
 struct MorphologyDPP;
@@ -680,119 +684,6 @@ public:
     }
 };
 
-template <ParArch PA, typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp, typename Reducers>
-__global__ void morphologyDPPKernel(const DPPDetails details,
-                                    const InputReadIOp input,
-                                    const OutputWriteIOp output,
-                                    const Reducers reducers) {
-    MorphologyDPP<PA, DPPDetails>::exec(
-        details, input, output, reducers);
-}
-
-template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp, typename Reducers, ParArch PA>
-    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
-inline bool executeMorphology(const DPPDetails& details,
-                              const InputReadIOp& input,
-                              const OutputWriteIOp& output,
-                              const Reducers& reducers,
-                              Stream_<PA>& stream) {
-    if (!DPPDetails::valid(details)) return false;
-    static_assert(MorphologyDPP<PA, DPPDetails>::
-                      template validReducerCount<Reducers>,
-                  "MorphologyDPP requires 1 through 4 reducers");
-    const dim3 block(DPPDetails::TILE_WIDTH, DPPDetails::TILE_HEIGHT, 1);
-    const dim3 grid((details.width + DPPDetails::TILE_WIDTH - 1) /
-                        DPPDetails::TILE_WIDTH,
-                    (details.height + DPPDetails::TILE_HEIGHT - 1) /
-                        DPPDetails::TILE_HEIGHT,
-                    static_cast<unsigned int>(
-                        morphology_detail::planesOf(input)));
-#if defined(__HIPCC__)
-    morphologyDPPKernel<PA><<<grid, block, 0, stream.getHIPStream()>>>(
-        details, input, output, reducers);
-    gpuErrchk(hipGetLastError());
-#else
-    morphologyDPPKernel<PA><<<grid, block, 0, stream.getCUDAStream()>>>(
-        details, input, output, reducers);
-    gpuErrchk(cudaGetLastError());
-#endif
-    return true;
-}
-
-template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp, ParArch PA>
-    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
-inline bool executeErode(const DPPDetails& details,
-                         const InputReadIOp& input,
-                         const OutputWriteIOp& output,
-                         Stream_<PA>& stream) {
-    using T = typename DPPDetails::ValueType;
-    return executeMorphology(
-        details, input, output,
-        make_tuple(Min<T, T, T, UnaryType>::build()), stream);
-}
-
-template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp, ParArch PA>
-    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
-inline bool executeDilate(const DPPDetails& details,
-                          const InputReadIOp& input,
-                          const OutputWriteIOp& output,
-                          Stream_<PA>& stream) {
-    using T = typename DPPDetails::ValueType;
-    return executeMorphology(
-        details, input, output,
-        make_tuple(Max<T, T, T, UnaryType>::build()), stream);
-}
-
-template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp, ParArch PA>
-    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
-inline bool executeOpen(const DPPDetails& details,
-                        const InputReadIOp& input,
-                        const OutputWriteIOp& output,
-                        Stream_<PA>& stream) {
-    using T = typename DPPDetails::ValueType;
-    return executeMorphology(
-        details, input, output,
-        make_tuple(Min<T, T, T, UnaryType>::build(),
-                   Max<T, T, T, UnaryType>::build()), stream);
-}
-
-template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp, ParArch PA>
-    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
-inline bool executeClose(const DPPDetails& details,
-                         const InputReadIOp& input,
-                         const OutputWriteIOp& output,
-                         Stream_<PA>& stream) {
-    using T = typename DPPDetails::ValueType;
-    return executeMorphology(
-        details, input, output,
-        make_tuple(Max<T, T, T, UnaryType>::build(),
-                   Min<T, T, T, UnaryType>::build()), stream);
-}
-
-// Box blur: PASSES passes (1 to 4) of the mean of the maskW x maskH window at
-// (anchorX, anchorY), each one replicating the border of the image it reads,
-// as the other morphology operations. T (details' ValueType) must be a
-// floating point type or a vector of them. Every pass is a MorphologyPass:
-// it sums its window (Add) and multiplies the sum by 1 / (maskW * maskH)
-// (its finalizer), so every pass is the mean of the previous one.
-template <int PASSES = 1, typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp, ParArch PA>
-    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
-inline bool executeBoxBlur(const DPPDetails& details,
-                           const InputReadIOp& input,
-                           const OutputWriteIOp& output,
-                           Stream_<PA>& stream) {
-    using T = typename DPPDetails::ValueType;
-    return executeMorphology(
-        details, input, output,
-        morphology_detail::boxBlurReducers<T, PASSES>(details), stream);
-}
 #endif // defined(__NVCC__) || defined(__HIPCC__)
 
 #if defined(FK_SYCL_ENABLED)
@@ -801,7 +692,7 @@ inline bool executeBoxBlur(const DPPDetails& details,
 // (morphology_detail::planesOf). The two stages are in work-group local
 // memory (the shared memory of the block), sized for the number of passes
 // (DPPDetails::STAGE_ELEMENTS) and allocated when the kernel is enqueued
-// (executeMorphology), and the thread gets its position in the grid in the
+// (by its executor), and the thread gets its position in the grid in the
 // nd_item.
 template <typename DPPDetails>
 struct MorphologyDPP<ParArch::GPU_INTEL, DPPDetails> {
@@ -960,192 +851,131 @@ public:
         }
     }
 };
-
-// Enqueues MorphologyDPP<ParArch::GPU_INTEL> in the queue of the stream and
-// returns; returns false, enqueueing nothing, if the details are not valid.
-template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp, typename Reducers>
-inline bool executeMorphology(const DPPDetails& details,
-                              const InputReadIOp& input,
-                              const OutputWriteIOp& output,
-                              const Reducers& reducers,
-                              Stream_<ParArch::GPU_INTEL>& stream) {
-    using DPP = MorphologyDPP<ParArch::GPU_INTEL, DPPDetails>;
-    using T = typename DPPDetails::ValueType;
-    if (!DPPDetails::valid(details)) return false;
-    static_assert(DPP::template validReducerCount<Reducers>,
-                  "MorphologyDPP requires 1 through 4 reducers");
-    const gpu_intel::Dim3 block{
-        static_cast<std::size_t>(DPPDetails::TILE_WIDTH),
-        static_cast<std::size_t>(DPPDetails::TILE_HEIGHT), 1};
-    const gpu_intel::Dim3 grid{
-        static_cast<std::size_t>(
-            (details.width + DPPDetails::TILE_WIDTH - 1) /
-            DPPDetails::TILE_WIDTH),
-        static_cast<std::size_t>(
-            (details.height + DPPDetails::TILE_HEIGHT - 1) /
-            DPPDetails::TILE_HEIGHT),
-        static_cast<std::size_t>(morphology_detail::planesOf(input))};
-    gpu_intel::launchWithLocalMemory<DPP, T>(
-        stream, gpu_intel::gridOf(grid, block),
-        DPP::template LOCAL_ELEMENTS<Reducers>,
-        details, input, output, reducers);
-    return true;
-}
-
-template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp>
-inline bool executeErode(const DPPDetails& details,
-                         const InputReadIOp& input,
-                         const OutputWriteIOp& output,
-                         Stream_<ParArch::GPU_INTEL>& stream) {
-    using T = typename DPPDetails::ValueType;
-    return executeMorphology(
-        details, input, output,
-        make_tuple(Min<T, T, T, UnaryType>::build()), stream);
-}
-
-template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp>
-inline bool executeDilate(const DPPDetails& details,
-                          const InputReadIOp& input,
-                          const OutputWriteIOp& output,
-                          Stream_<ParArch::GPU_INTEL>& stream) {
-    using T = typename DPPDetails::ValueType;
-    return executeMorphology(
-        details, input, output,
-        make_tuple(Max<T, T, T, UnaryType>::build()), stream);
-}
-
-template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp>
-inline bool executeOpen(const DPPDetails& details,
-                        const InputReadIOp& input,
-                        const OutputWriteIOp& output,
-                        Stream_<ParArch::GPU_INTEL>& stream) {
-    using T = typename DPPDetails::ValueType;
-    return executeMorphology(
-        details, input, output,
-        make_tuple(Min<T, T, T, UnaryType>::build(),
-                   Max<T, T, T, UnaryType>::build()), stream);
-}
-
-template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp>
-inline bool executeClose(const DPPDetails& details,
-                         const InputReadIOp& input,
-                         const OutputWriteIOp& output,
-                         Stream_<ParArch::GPU_INTEL>& stream) {
-    using T = typename DPPDetails::ValueType;
-    return executeMorphology(
-        details, input, output,
-        make_tuple(Max<T, T, T, UnaryType>::build(),
-                   Min<T, T, T, UnaryType>::build()), stream);
-}
-
-// Box blur, as the CUDA executeBoxBlur
-template <int PASSES = 1, typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp>
-inline bool executeBoxBlur(const DPPDetails& details,
-                           const InputReadIOp& input,
-                           const OutputWriteIOp& output,
-                           Stream_<ParArch::GPU_INTEL>& stream) {
-    using T = typename DPPDetails::ValueType;
-    return executeMorphology(
-        details, input, output,
-        morphology_detail::boxBlurReducers<T, PASSES>(details), stream);
-}
 #endif // defined(FK_SYCL_ENABLED)
 
+namespace morphology_detail {
+// The checks of the executors: valid details (the output size comes from them) and 1 to 4 reducers
+template <typename DPP, typename DPPDetails, typename Reducers>
+FK_HOST_FUSE void checkArguments(const DPPDetails& details, const Reducers&) {
+    static_assert(DPP::template validReducerCount<Reducers>, "MorphologyDPP requires 1 through 4 reducers");
+    executor_detail::requireArguments(DPPDetails::valid(details), "MorphologyDPP",
+        "invalid details: a positive width and height, a mask of 1 to MAX_MASK_WIDTH x MAX_MASK_HEIGHT and the anchor "
+        "inside it");
+}
+} // namespace morphology_detail
+
+// The executors of MorphologyDPP, one per back-end:
+//   executeOperations<MorphologyDPP<PA, DPPDetails>>(stream, details, input, output, reducers)
+// reducers is a Tuple of 1 to 4 reducers, each a Unary IOp on Tuple<T, T> or a MorphologyPass: erosion
+// make_tuple(Min<T, T, T, UnaryType>::build()), dilation Max, opening (Min, Max), closing (Max, Min), the box blur
+// boxBlurReducers<T, PASSES>(details). Invalid details throw std::invalid_argument before anything is launched or
+// enqueued (Oscar's decision, 2026-11-26).
+template <typename DPPDetails>
+struct Executor<MorphologyDPP<ParArch::CPU, DPPDetails>> {
+  private:
+    using DPP = MorphologyDPP<ParArch::CPU, DPPDetails>;
+    using SelfType = Executor<DPP>;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::CPU; }
+    // Computes the morphology before it returns. The output may be the input
+    template <typename InputReadIOp, typename OutputWriteIOp, typename Reducers>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::CPU>&, const DPPDetails& details, const InputReadIOp& input,
+                                          const OutputWriteIOp& output, const Reducers& reducers) {
+        morphology_detail::checkArguments<DPP>(details, reducers);
+        DPP::exec(details, input, output, reducers);
+    }
+};
+
 #if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
-// Enqueues the morphology on the stream and returns; it runs
-// (MorphologyDPP<ParArch::CPU_MULTITHREAD>::exec) after the previous
-// executions of the stream. Invalid details are rejected here, returning
-// false without enqueueing anything. The buffers the IOps read and write
-// must stay valid until the execution has finished (sync()). The output may
-// be the input, as with ParArch::CPU.
-template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp, typename Reducers>
-inline bool executeMorphology(const DPPDetails& details,
-                              const InputReadIOp& input,
-                              const OutputWriteIOp& output,
-                              const Reducers& reducers,
-                              Stream_<ParArch::CPU_MULTITHREAD>& stream) {
+template <typename DPPDetails>
+struct Executor<MorphologyDPP<ParArch::CPU_MULTITHREAD, DPPDetails>> {
+  private:
     using DPP = MorphologyDPP<ParArch::CPU_MULTITHREAD, DPPDetails>;
-    if (!DPPDetails::valid(details)) return false;
-    static_assert(DPP::template validReducerCount<Reducers>,
-                  "MorphologyDPP requires 1 through 4 reducers");
-    // reducers = reducers: see MorphologyDPP<ParArch::CPU_MULTITHREAD>
-    stream.enqueue([details, input, output, reducers = reducers](
-                       const cpu_multithread::Completion& done) {
-        DPP::exec(done, details, input, output, reducers);
-    });
-    return true;
-}
+    using SelfType = Executor<DPP>;
 
-template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp>
-inline bool executeErode(const DPPDetails& details,
-                         const InputReadIOp& input,
-                         const OutputWriteIOp& output,
-                         Stream_<ParArch::CPU_MULTITHREAD>& stream) {
-    using T = typename DPPDetails::ValueType;
-    return executeMorphology(
-        details, input, output,
-        make_tuple(Min<T, T, T, UnaryType>::build()), stream);
-}
-
-template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp>
-inline bool executeDilate(const DPPDetails& details,
-                          const InputReadIOp& input,
-                          const OutputWriteIOp& output,
-                          Stream_<ParArch::CPU_MULTITHREAD>& stream) {
-    using T = typename DPPDetails::ValueType;
-    return executeMorphology(
-        details, input, output,
-        make_tuple(Max<T, T, T, UnaryType>::build()), stream);
-}
-
-template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp>
-inline bool executeOpen(const DPPDetails& details,
-                        const InputReadIOp& input,
-                        const OutputWriteIOp& output,
-                        Stream_<ParArch::CPU_MULTITHREAD>& stream) {
-    using T = typename DPPDetails::ValueType;
-    return executeMorphology(
-        details, input, output,
-        make_tuple(Min<T, T, T, UnaryType>::build(),
-                   Max<T, T, T, UnaryType>::build()), stream);
-}
-
-template <typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp>
-inline bool executeClose(const DPPDetails& details,
-                         const InputReadIOp& input,
-                         const OutputWriteIOp& output,
-                         Stream_<ParArch::CPU_MULTITHREAD>& stream) {
-    using T = typename DPPDetails::ValueType;
-    return executeMorphology(
-        details, input, output,
-        make_tuple(Max<T, T, T, UnaryType>::build(),
-                   Min<T, T, T, UnaryType>::build()), stream);
-}
-
-// Box blur, as the GPU executeBoxBlur
-template <int PASSES = 1, typename DPPDetails, typename InputReadIOp,
-          typename OutputWriteIOp>
-inline bool executeBoxBlur(const DPPDetails& details,
-                           const InputReadIOp& input,
-                           const OutputWriteIOp& output,
-                           Stream_<ParArch::CPU_MULTITHREAD>& stream) {
-    using T = typename DPPDetails::ValueType;
-    return executeMorphology(
-        details, input, output,
-        morphology_detail::boxBlurReducers<T, PASSES>(details), stream);
-}
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::CPU_MULTITHREAD; }
+    // Enqueues MorphologyDPP<ParArch::CPU_MULTITHREAD> on the stream and returns; it runs after the previous executions
+    // of the stream. The buffers the IOps read and write must stay valid until it has finished (sync()). The output may
+    // be the input, as with ParArch::CPU. reducers = reducers: see MorphologyDPP<ParArch::CPU_MULTITHREAD>.
+    template <typename InputReadIOp, typename OutputWriteIOp, typename Reducers>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::CPU_MULTITHREAD>& stream, const DPPDetails& details,
+                                          const InputReadIOp& input, const OutputWriteIOp& output,
+                                          const Reducers& reducers) {
+        morphology_detail::checkArguments<DPP>(details, reducers);
+        stream.enqueue([details, input, output, reducers = reducers](const cpu_multithread::Completion& done) {
+            DPP::exec(done, details, input, output, reducers);
+        });
+    }
+};
 #endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
+
+#if defined(__NVCC__) || defined(__HIPCC__)
+template <ParArch PA, typename DPPDetails>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
+struct Executor<MorphologyDPP<PA, DPPDetails>> {
+  private:
+    using DPP = MorphologyDPP<PA, DPPDetails>;
+    using SelfType = Executor<DPP>;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return PA; }
+    template <typename InputReadIOp, typename OutputWriteIOp, typename Reducers>
+    FK_HOST_STATIC void executeOperations(Stream_<PA>& stream, const DPPDetails& details, const InputReadIOp& input,
+                                          const OutputWriteIOp& output, const Reducers& reducers) {
+        morphology_detail::checkArguments<DPP>(details, reducers);
+        // one block per tile of a details.width x details.height plane, one grid z plane per plane of the input
+        const dim3 block(DPPDetails::TILE_WIDTH, DPPDetails::TILE_HEIGHT, 1);
+        const dim3 grid((details.width + DPPDetails::TILE_WIDTH - 1) / DPPDetails::TILE_WIDTH,
+                        (details.height + DPPDetails::TILE_HEIGHT - 1) / DPPDetails::TILE_HEIGHT,
+                        static_cast<unsigned int>(morphology_detail::planesOf(input)));
+#if defined(__HIPCC__)
+        launchDPP_Kernel<DPP><<<grid, block, 0, stream.getHIPStream()>>>(details, input, output, reducers);
+        gpuErrchk(hipGetLastError());
+#else
+        launchDPP_Kernel<DPP><<<grid, block, 0, stream.getCUDAStream()>>>(details, input, output, reducers);
+        gpuErrchk(cudaGetLastError());
+#endif
+    }
+};
+#endif // defined(__NVCC__) || defined(__HIPCC__)
+
+#if defined(FK_SYCL_ENABLED)
+template <typename DPPDetails>
+struct Executor<MorphologyDPP<ParArch::GPU_INTEL, DPPDetails>> {
+  private:
+    using DPP = MorphologyDPP<ParArch::GPU_INTEL, DPPDetails>;
+    using SelfType = Executor<DPP>;
+    using T = typename DPPDetails::ValueType;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_INTEL; }
+    // Enqueues the kernel in the queue of the stream and returns: gpu_intel::launchWithLocalMemory is the
+    // launchDPP_Kernel of SYCL, and it allocates the two stages of the DPP (DPP::LOCAL_ELEMENTS) in work-group local
+    // memory. The grid is the one of the CUDA version.
+    template <typename InputReadIOp, typename OutputWriteIOp, typename Reducers>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_INTEL>& stream, const DPPDetails& details,
+                                          const InputReadIOp& input, const OutputWriteIOp& output,
+                                          const Reducers& reducers) {
+        morphology_detail::checkArguments<DPP>(details, reducers);
+        // one block per tile of a details.width x details.height plane, one grid z plane per plane of the input
+        const gpu_intel::Dim3 block{static_cast<std::size_t>(DPPDetails::TILE_WIDTH),
+                                    static_cast<std::size_t>(DPPDetails::TILE_HEIGHT), 1};
+        const gpu_intel::Dim3 grid{
+            static_cast<std::size_t>((details.width + DPPDetails::TILE_WIDTH - 1) / DPPDetails::TILE_WIDTH),
+            static_cast<std::size_t>((details.height + DPPDetails::TILE_HEIGHT - 1) / DPPDetails::TILE_HEIGHT),
+            static_cast<std::size_t>(morphology_detail::planesOf(input))};
+        gpu_intel::launchWithLocalMemory<DPP, T>(stream, gpu_intel::gridOf(grid, block),
+                                                 DPP::template LOCAL_ELEMENTS<Reducers>, details, input, output,
+                                                 reducers);
+    }
+};
+#endif // defined(FK_SYCL_ENABLED)
 
 } // namespace fk
 

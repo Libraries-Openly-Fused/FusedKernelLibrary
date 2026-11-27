@@ -99,7 +99,7 @@ CaseResult runCase(const int width, const int height,
         .then(PerThreadWrite<ND::_2D, unsigned char>::build(output));
     const BoxFilterQuadDetails details{
         width, height, runtimeKW, runtimeKH, anchorX, anchorY};
-    executeBoxFilterQuad<DPP>(stream, details, read, compute, write);
+    executeOperations<DPP>(stream, details, read, compute, write);
 #if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
     if constexpr (GPU) output.download(stream);
 #endif

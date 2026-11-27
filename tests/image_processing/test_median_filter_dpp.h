@@ -22,6 +22,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <stdexcept>
 #include <vector>
 
 namespace fk {
@@ -95,12 +96,12 @@ bool sameAsCpu(std::vector<float>& output, const Launch& launch,
     const std::vector<float> cpuResult = output;
     std::fill(output.begin(), output.end(), -999.f);
     Stream_<ParArch::CPU_MULTITHREAD> stream;
-    const bool launched = launch(stream);
+    launch(stream);
     stream.sync();
     // The per row code is the CPU one; the results may differ in the last bits
     // only, where the compiler contracts a * b + c into a fused multiply-add
     // differently
-    bool same = launched;
+    bool same = true;
     for (std::size_t i = 0; i < output.size() && same; ++i) {
         const float scale = std::max(1.f, std::fabs(cpuResult[i]));
         same = std::fabs(output[i] - cpuResult[i]) <= 1e-5f * scale;
@@ -115,16 +116,18 @@ bool sameAsCpu(std::vector<float>& output, const Launch& launch,
 #endif
 
 // Runs the filter on ParArch::CPU, writing to output, and then the same IOps
-// through executeMedianFilter on a CPU_MULTITHREAD stream, if enabled
+// on a CPU_MULTITHREAD stream, if enabled
 template <typename Read, typename Write, typename Selection>
 bool runCpu(const Details& details, const Read& read, const Write& write,
             const Selection& selection, std::vector<float>& output,
             const char* label) {
-    MedianFilterDPP<ParArch::CPU, Details>::exec(
-        details, read, write, selection);
+    Stream_<ParArch::CPU> cpuStream;
+    executeOperations<MedianFilterDPP<ParArch::CPU, Details>>(
+        cpuStream, details, read, write, selection);
 #ifdef FK_CPU_MULTITHREAD_ENABLED
     return sameAsCpu(output, [&](Stream_<ParArch::CPU_MULTITHREAD>& stream) {
-        return executeMedianFilter(details, read, write, selection, stream);
+        executeOperations<MedianFilterDPP<ParArch::CPU_MULTITHREAD, Details>>(
+            stream, details, read, write, selection);
     }, label);
 #else
     (void)output;
@@ -177,18 +180,16 @@ bool runCase(const Details& details, const Selection& selection,
         PerThreadRead<ND::_2D, float>::build(gpuInput);
     const auto gpuWriteBase =
         PerThreadWrite<ND::_2D, float>::build(gpuOutput);
-    bool launched = false;
+    using GpuDPP = MedianFilterDPP<defaultParArch, Details>;
     if (fused) {
         const auto read = gpuReadBase.then(Mul<float>::build(2.f))
                                      .then(Add<float>::build(1.f));
         const auto write = Mul<float>::build(0.5f).then(gpuWriteBase);
-        launched = executeMedianFilter(
-            details, read, write, selection, stream);
+        executeOperations<GpuDPP>(stream, details, read, write, selection);
     } else {
-        launched = executeMedianFilter(
-            details, gpuReadBase, gpuWriteBase, selection, stream);
+        executeOperations<GpuDPP>(stream, details, gpuReadBase, gpuWriteBase,
+                                  selection);
     }
-    if (!launched) return false;
     gpuOutput.download(stream);
     stream.sync();
     std::vector<float> result(input.size());
@@ -219,10 +220,9 @@ int launch_impl() {
 
     const Details evenWindow{16, 16, 4, 3, 1, 1};
     if (Details::valid(evenWindow)) ok = false;
-#ifdef FK_CPU_MULTITHREAD_ENABLED
     {
-        // With invalid details the CPU_MULTITHREAD entry point enqueues
-        // nothing and returns false, and the DPP writes nothing
+        // Invalid details throw std::invalid_argument on every back-end
+        // before anything runs or is enqueued, so nothing is written
         std::vector<float> image(16 * 16, 1.f);
         std::vector<float> output(16 * 16, -999.f);
         const PtrDims<ND::_2D> dims(16, 16, 16 * sizeof(float));
@@ -230,23 +230,54 @@ int launch_impl() {
             RawPtr<ND::_2D, float>{image.data(), dims});
         const auto write = PerThreadWrite<ND::_2D, float>::build(
             RawPtr<ND::_2D, float>{output.data(), dims});
-        Stream_<ParArch::CPU_MULTITHREAD> stream;
-        if (executeMedianFilter(evenWindow, read, write, median, stream)) {
-            std::printf("CPU_MULTITHREAD accepted invalid details\n");
+        const auto rejects = [](const auto& run) {
+            try {
+                run();
+            } catch (const std::invalid_argument&) {
+                return true;
+            }
+            return false;
+        };
+        Stream_<ParArch::CPU> cpuStream;
+        if (!rejects([&] {
+                executeOperations<MedianFilterDPP<ParArch::CPU, Details>>(
+                    cpuStream, evenWindow, read, write, median); })) {
+            std::printf("CPU accepted invalid arguments\n");
             ok = false;
         }
+#ifdef FK_CPU_MULTITHREAD_ENABLED
+        Stream_<ParArch::CPU_MULTITHREAD> stream;
+        if (!rejects([&] {
+                executeOperations<MedianFilterDPP<ParArch::CPU_MULTITHREAD, Details>>(
+                    stream, evenWindow, read, write, median); })) {
+            std::printf("CPU_MULTITHREAD accepted invalid arguments\n");
+            ok = false;
+        }
+        // The DPP itself writes nothing with invalid details either
         stream.enqueue([=](const cpu_multithread::Completion& done) {
             MedianFilterDPP<ParArch::CPU_MULTITHREAD, Details>::exec(
                 done, evenWindow, read, write, median);
         });
         stream.sync();
+#endif
+#if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
+        // The GPU executor checks on the host, before the launch: the
+        // pointers are never dereferenced
+        Stream gpuStream;
+        if (!rejects([&] {
+                executeOperations<MedianFilterDPP<defaultParArch, Details>>(
+                    gpuStream, evenWindow, read, write, median); })) {
+            std::printf("GPU accepted invalid arguments\n");
+            ok = false;
+        }
+        gpuStream.sync();
+#endif
         if (std::any_of(output.begin(), output.end(),
                         [](const float value) { return value != -999.f; })) {
-            std::printf("CPU_MULTITHREAD wrote with invalid details\n");
+            std::printf("A filter wrote with invalid arguments\n");
             ok = false;
         }
     }
-#endif
     if (ok) std::printf("MedianFilterDPP contracts: PASS\n");
     return ok ? 0 : -1;
 }
