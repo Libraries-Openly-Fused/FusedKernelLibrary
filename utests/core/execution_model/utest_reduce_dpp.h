@@ -2855,8 +2855,8 @@ bool executionWhileAnotherThreadCaptures(const int width, const int height, cons
 #endif // defined(__NVCC__)
 
 // The sizes of the matrices: one element, rows, columns and the sizes around those of a block (256 threads, 4096
-// elements), of a cluster (8 blocks), of a chunk (16384 elements), and of the blocks of the default policy (128 blocks
-// of 512 elements from 65536 elements, and more than 128 blocks from 2097152)
+// elements), of a cluster (8 blocks), of a chunk (16384 elements), and planes of many blocks of the default policy
+// (of up to 8192 elements)
 struct MatrixSize {
     int width, height;
 };
