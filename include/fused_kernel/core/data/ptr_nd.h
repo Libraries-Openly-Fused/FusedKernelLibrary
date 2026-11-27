@@ -30,7 +30,7 @@
 
 namespace fk {
     enum class MemType { Device, Host, HostPinned, DeviceAndPinned };
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
     constexpr MemType defaultMemType = MemType::DeviceAndPinned;
 #else
     constexpr MemType defaultMemType = MemType::Host;
@@ -318,6 +318,11 @@ namespace fk {
         using Type = T;
         using At = PtrAccessor<D>;
         static constexpr ND nd = D;
+#if defined(FK_SYCL_ENABLED)
+        // Alignment, in bytes, of the device and pinned memory of the SYCL backend, and of the rows of a 2D device
+        // buffer allocated without a pitch (as cudaMallocPitch, its pitch is the size of a row rounded up to it)
+        static constexpr size_t SYCL_MEMORY_ALIGNMENT = 64;
+#endif
     protected:
         RefPtr* ref{ nullptr };
         RawPtr<D, T> ptr_a{};
@@ -350,10 +355,63 @@ namespace fk {
                 gpuErrchk(cudaSetDevice(currentDevice));
 #endif
             }
+            #elif defined(FK_SYCL_ENABLED)
+            syclInitDeviceDims(ptr_a.dims);
+            ptr_a.data = syclAllocDevice(PtrImpl<D, T>::sizeInBytes(ptr_a.dims));
             #else
             throw std::runtime_error("Device allocation not supported in non-GPU compilation.");
             #endif
         }
+
+#if defined(FK_SYCL_ENABLED)
+        // The strides of a device buffer of the SYCL backend. As with cudaMallocPitch, the rows of a 2D buffer
+        // allocated without a pitch are aligned (to SYCL_MEMORY_ALIGNMENT bytes), so its pitch can be larger than the
+        // one of a host buffer. The other buffers have the strides of a host buffer.
+        inline constexpr void syclInitDeviceDims(PtrDims<D>& dims) const {
+            if constexpr (D == ND::_2D) {
+                if (dims.pitch == 0) {
+                    const size_t rowBytes = sizeof(T) * dims.width;
+                    const size_t alignment = SYCL_MEMORY_ALIGNMENT;
+                    dims.pitch = static_cast<uint>(((rowBytes + alignment - 1) / alignment) * alignment);
+                }
+            }
+            PtrImpl<D, T>::h_malloc_init(dims);
+        }
+
+        // Device memory (MemType::Device) and pinned memory (MemType::HostPinned) of the SYCL backend: USM device
+        // memory and USM host memory (which the host uses as any other memory, and the device can access), in the
+        // primary context of the device (gpu_intel::PrimaryContexts), so that every stream of the device can use
+        // them, as in CUDA. An allocation of 0 bytes is a null pointer.
+        inline T* syclAllocDevice(const size_t bytes) const {
+            void* const data = sycl::aligned_alloc_device(SYCL_MEMORY_ALIGNMENT, bytes, gpu_intel::device(deviceID),
+                                                          gpu_intel::context(deviceID));
+            if (data == nullptr && bytes != 0) {
+                throw std::runtime_error("ParArch::GPU_INTEL: could not allocate " + std::to_string(bytes) +
+                                         " bytes of device memory");
+            }
+            return static_cast<T*>(data);
+        }
+        inline T* syclAllocHostPinned(const size_t bytes) const {
+            void* const data = sycl::aligned_alloc_host(SYCL_MEMORY_ALIGNMENT, bytes, gpu_intel::context(deviceID));
+            if (data == nullptr && bytes != 0) {
+                throw std::runtime_error("ParArch::GPU_INTEL: could not allocate " + std::to_string(bytes) +
+                                         " bytes of pinned (USM host) memory");
+            }
+            return static_cast<T*>(data);
+        }
+
+        // Releases memory of syclAllocDevice or syclAllocHostPinned. As cudaFree does, it first waits for the work
+        // enqueued in the streams, which may still use the memory: sycl::free does not wait for the kernels and the
+        // copies that use it. It waits for the streams that are alive (a stream waits for its own work when its last
+        // copy is destroyed), so a Ptr can be released at any time.
+        inline void syclFree(void* const data) const {
+            if (data != nullptr) {
+                const sycl::context& context = gpu_intel::context(deviceID);
+                gpu_intel::PrimaryContexts::get().waitForStreams(context);
+                sycl::free(data, context);
+            }
+        }
+#endif
 
         inline constexpr void allocHost() {
             PtrImpl<D, T>::h_malloc_init(ptr_a.dims);
@@ -383,6 +441,9 @@ namespace fk {
                 gpuErrchk(cudaSetDevice(currentDevice));
 #endif
             }
+            #elif defined(FK_SYCL_ENABLED)
+            PtrImpl<D, T>::h_malloc_init(ptr_a.dims);
+            ptr_a.data = syclAllocHostPinned(PtrImpl<D, T>::sizeInBytes(ptr_a.dims));
             #else
             throw std::runtime_error("Host pinned allocation not supported in non-GPU compilation.");
             #endif
@@ -412,6 +473,17 @@ namespace fk {
                 gpuErrchk(cudaSetDevice(currentDevice));
 #endif
             }
+            #elif defined(FK_SYCL_ENABLED)
+            syclInitDeviceDims(ptr_a.dims);
+            ptr_a.data = syclAllocDevice(PtrImpl<D, T>::sizeInBytes(ptr_a.dims));
+            PtrImpl<D, T>::h_malloc_init(ptr_pinned.dims);
+            try {
+                ptr_pinned.data = syclAllocHostPinned(PtrImpl<D, T>::sizeInBytes(ptr_pinned.dims));
+            } catch (...) {
+                syclFree(ptr_a.data);
+                ptr_a.data = nullptr;
+                throw;
+            }
             #else
             throw std::runtime_error("Host pinned and Device allocations not supported in non-GPU compilation.");
             #endif
@@ -431,6 +503,8 @@ namespace fk {
 #else
                         gpuErrchk(cudaFree(ref->ptr));
 #endif
+                        #elif defined(FK_SYCL_ENABLED)
+                        syclFree(ref->ptr);
                         #else
                         throw std::runtime_error("Device memory deallocation not supported in non-GPU compilation.");
                         #endif
@@ -449,6 +523,8 @@ namespace fk {
 #else
                         gpuErrchk(cudaFreeHost(ref->ptr));
 #endif
+                        #elif defined(FK_SYCL_ENABLED)
+                        syclFree(ref->ptr);
                         #else
                         throw std::runtime_error("Host pinned memory deallocation not supported in non-GPU compilation.");
                         #endif
@@ -464,6 +540,9 @@ namespace fk {
                     gpuErrchk(cudaFree(ref->ptr));
                     gpuErrchk(cudaFreeHost(ref->pinnedPtr));
 #endif
+#elif defined(FK_SYCL_ENABLED)
+                    syclFree(ref->ptr);
+                    syclFree(ref->pinnedPtr);
 #else
                     throw std::runtime_error("Device and Host pinned memory deallocation not supported in non-GPU compilation.");
 #endif
@@ -517,6 +596,42 @@ namespace fk {
             }
         }
 #endif
+#endif
+#if defined(FK_SYCL_ENABLED)
+        // Enqueues the copy of thisPtr to other in the queue. With wait, it returns when the copy has finished: for
+        // copies from or to memory that is not pinned (MemType::Host), which the caller may release right after.
+        inline void copy(const RawPtr<D, T>& thisPtr, RawPtr<D, T>& other, sycl::queue& queue,
+                         const bool wait = false) const {
+            sycl::event copied;
+            if ((other.dims.pitch == other.dims.width * sizeof(T)) && (thisPtr.dims.pitch == thisPtr.dims.width * sizeof(T))) {
+                if (sizeInBytes() != PtrImpl<D, T>::sizeInBytes(other.dims)) {
+                    throw std::runtime_error("Size mismatch in upload.");
+                }
+                copied = queue.memcpy(other.data, thisPtr.data, sizeInBytes());
+            } else {
+                if constexpr (D > ND::_2D || D == ND::_1D) {
+                    throw std::runtime_error("Padding only supported in 2D pointers");
+                } else {
+                    // Rows of different strides
+                    const size_t rowBytes = thisPtr.dims.width * sizeof(T);
+#if defined(SYCL_EXT_ONEAPI_MEMCPY2D)
+                    copied = queue.ext_oneapi_memcpy2d(other.data, other.dims.pitch, thisPtr.data, thisPtr.dims.pitch,
+                                                       rowBytes, thisPtr.dims.height);
+#else
+                    // One copy per row: the queue of a stream is in order, so the last one finishes last
+                    char* const destination = static_cast<char*>(static_cast<void*>(other.data));
+                    const char* const source = static_cast<const char*>(static_cast<const void*>(thisPtr.data));
+                    for (size_t y = 0; y < thisPtr.dims.height; ++y) {
+                        copied = queue.memcpy(destination + y * other.dims.pitch, source + y * thisPtr.dims.pitch,
+                                              rowBytes);
+                    }
+#endif
+                }
+            }
+            if (wait) {
+                copied.wait();
+            }
+        }
 #endif
     public:
 
@@ -846,6 +961,45 @@ namespace fk {
             if (type == MemType::DeviceAndPinned) {
                 constexpr hipMemcpyKind kind = hipMemcpyDeviceToHost;
                 copy(ptr_a, ptr_pinned, kind, stream);
+            }
+        }
+#elif defined(FK_SYCL_ENABLED)
+        // The copies are enqueued in the stream, as the CUDA ones. A copy from or to MemType::Host memory, which is
+        // not pinned, has finished when these return (the stream is synchronized up to it).
+        inline void uploadTo(Ptr<D, T>& other, Stream_<ParArch::GPU_INTEL>& stream) {
+            if (type == MemType::Host || type == MemType::HostPinned) {
+                if (other.getMemType() == MemType::Device || other.getMemType() == MemType::DeviceAndPinned) {
+                    auto dstRawPtr = other.ptr();
+                    copy(ptr_a, dstRawPtr, stream.getSYCLQueue(), type == MemType::Host);
+                } else {
+                    throw std::runtime_error("Upload can only copy to Device pointers");
+                }
+            } else {
+                throw std::runtime_error("Upload can only copy from Host or HostPinned pointers.");
+            }
+        }
+
+        inline void downloadTo(Ptr<D, T>& other, Stream_<ParArch::GPU_INTEL>& stream) {
+            if (type == MemType::Device || type == MemType::DeviceAndPinned) {
+                if (other.getMemType() == MemType::Host || other.getMemType() == MemType::HostPinned) {
+                    auto dstRawPtr = other.ptr();
+                    copy(ptr_a, dstRawPtr, stream.getSYCLQueue(), other.getMemType() == MemType::Host);
+                } else {
+                    throw std::runtime_error("Download can only copy to Host or HostPinned pointers.");
+                }
+            } else {
+                throw std::runtime_error("Download can only copy from Device pointers.");
+            }
+        }
+
+        inline void upload(Stream_<ParArch::GPU_INTEL>& stream) {
+            if (type == MemType::DeviceAndPinned) {
+                copy(ptr_pinned, ptr_a, stream.getSYCLQueue());
+            }
+        }
+        inline void download(Stream_<ParArch::GPU_INTEL>& stream) {
+            if (type == MemType::DeviceAndPinned) {
+                copy(ptr_a, ptr_pinned, stream.getSYCLQueue());
             }
         }
 #else

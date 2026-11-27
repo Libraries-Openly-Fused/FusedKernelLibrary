@@ -290,6 +290,78 @@ public:
 
 #endif // defined(__NVCC__) || defined(__HIPCC__)
 
+#if defined(FK_SYCL_ENABLED)
+// The SYCL version: the code of the CUDA one. The halo is in work-group local
+// memory (the shared memory of the block), which is allocated when the kernel
+// is enqueued (by its executor), and the thread gets its position in the
+// grid in the nd_item.
+template <typename DPPDetails>
+struct MedianFilterDPP<ParArch::GPU_INTEL, DPPDetails> {
+private:
+    using SelfType = MedianFilterDPP<ParArch::GPU_INTEL, DPPDetails>;
+    using T = typename DPPDetails::ValueType;
+    using Stage = NeighborhoodDPPStage<
+        typename DPPDetails::NeighborhoodPolicy>;
+    using Window = NeighborhoodWindow<T, DPPDetails::WINDOW_CAPACITY>;
+
+public:
+    FK_STATIC_STRUCT(MedianFilterDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_INTEL;
+    // Elements of the array of T exec needs in local memory: halo
+    static constexpr std::array<std::size_t, 1> LOCAL_ELEMENTS{
+        static_cast<std::size_t>(DPPDetails::MAX_HALO_WIDTH *
+                                 DPPDetails::MAX_HALO_HEIGHT)};
+
+    template <typename ReadIOp, typename WriteIOp, typename SelectionIOp>
+    FK_DEVICE_STATIC void exec(const sycl::nd_item<3>& item,
+                               T* const halo,
+                               const DPPDetails& details,
+                               const ReadIOp& input,
+                               const WriteIOp& output,
+                               const SelectionIOp& selection) {
+        static_assert(isAnyCompleteReadType<ReadIOp>,
+                      "MedianFilterDPP needs a complete Read IOp");
+        static_assert(isAnyWriteType<WriteIOp>,
+                      "MedianFilterDPP needs a Write IOp");
+        static_assert(SelectionIOp::template is<UnaryType>,
+                      "Selection must be a Unary IOp");
+        static_assert(std::is_same_v<typename SelectionIOp::Operation::InputType,
+                                     Window>,
+                      "Selection input must be this DPP's window type");
+        static_assert(std::is_same_v<typename SelectionIOp::Operation::OutputType,
+                                     T>,
+                      "Selection output must match the image value type");
+
+        Stage::stageReplicate(
+            item, details.width, details.height,
+            details.windowWidth, details.windowHeight,
+            details.anchorX, details.anchorY, input, halo);
+        sycl::group_barrier(item.get_group());
+
+        const ThreadPosition thread(item);
+        const int tileX = thread.blockIdx.x * DPPDetails::TILE_WIDTH;
+        const int tileY = thread.blockIdx.y * DPPDetails::TILE_HEIGHT;
+        const int ox = tileX + thread.threadIdx.x;
+        const int oy = tileY + thread.threadIdx.y;
+        const int haloWidth = DPPDetails::TILE_WIDTH +
+                              details.windowWidth - 1;
+        if (thread.threadIdx.x < DPPDetails::TILE_WIDTH &&
+            thread.threadIdx.y < DPPDetails::TILE_HEIGHT &&
+            ox < details.width && oy < details.height) {
+            Window window{};
+            for (int wy = 0; wy < details.windowHeight; ++wy)
+                for (int wx = 0; wx < details.windowWidth; ++wx)
+                    window.values[window.count++] = halo[
+                        (thread.threadIdx.y + wy) * haloWidth +
+                        thread.threadIdx.x + wx];
+            const T selected = window | selection;
+            WriteIOp::Operation::exec(
+                Point{ox, oy, 0}, selected, output);
+        }
+    }
+};
+#endif // defined(FK_SYCL_ENABLED)
+
 namespace median_filter_detail {
 // The check of the executors: valid details (a non empty image, an odd window of 1 to MAX_WINDOW_WIDTH x
 // MAX_WINDOW_HEIGHT, the anchor inside it)
@@ -376,6 +448,35 @@ struct Executor<MedianFilterDPP<PA, DPPDetails>> {
     }
 };
 #endif // defined(__NVCC__) || defined(__HIPCC__)
+
+#if defined(FK_SYCL_ENABLED)
+template <typename DPPDetails>
+struct Executor<MedianFilterDPP<ParArch::GPU_INTEL, DPPDetails>> {
+  private:
+    using DPP = MedianFilterDPP<ParArch::GPU_INTEL, DPPDetails>;
+    using SelfType = Executor<DPP>;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_INTEL; }
+    // Enqueues the kernel in the queue of the stream, one block per tile, and returns. launchDPP_KernelWithLocalMemory
+    // (executor_kernels.h) is the SYCL launchDPP_Kernel of a DPP that has shared memory: it allocates the halo
+    // (DPP::LOCAL_ELEMENTS) in the local memory of each block. As with the CUDA version, the output must not alias the
+    // input.
+    template <typename ReadIOp, typename WriteIOp, typename SelectionIOp>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_INTEL>& stream, const DPPDetails& details,
+                                          const ReadIOp& input, const WriteIOp& output,
+                                          const SelectionIOp& selection) {
+        median_filter_detail::checkArguments(details);
+        const CtxDim3 block{static_cast<uint>(DPPDetails::TILE_WIDTH), static_cast<uint>(DPPDetails::TILE_HEIGHT), 1};
+        const CtxDim3 grid{static_cast<uint>((details.width + DPPDetails::TILE_WIDTH - 1) / DPPDetails::TILE_WIDTH),
+                           static_cast<uint>((details.height + DPPDetails::TILE_HEIGHT - 1) / DPPDetails::TILE_HEIGHT),
+                           1};
+        launchDPP_KernelWithLocalMemory<DPP, typename DPPDetails::ValueType>(
+            stream, syclGrid(grid, block), DPP::LOCAL_ELEMENTS, details, input, output, selection);
+    }
+};
+#endif // defined(FK_SYCL_ENABLED)
 
 } // namespace fk
 

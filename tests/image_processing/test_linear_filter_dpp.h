@@ -247,7 +247,7 @@ bool runCase(const int width, const int height,
     }
 #endif
 
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
     Ptr2D<float> gpuInput(width, height);
     Ptr2D<float> gpuKernel(kernelWidth, kernelHeight);
     Ptr2D<float> gpuOutput(width, height);
@@ -368,7 +368,7 @@ int launch_impl() {
         });
         stream.sync();
 #endif
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
         // The GPU executor checks on the host, before the launch: the
         // pointers are never dereferenced
         Stream gpuStream;

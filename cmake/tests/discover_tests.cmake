@@ -39,6 +39,13 @@ function (discover_tests DIR)
                 add_hip_to_test("${TARGET_NAME}_hip")
             endif()
         endif()
+
+        if (ENABLE_SYCL)
+            if (${POS_ONLY_CPU} EQUAL -1 AND ${POS_ONLY_CU} EQUAL -1)
+                add_generated_test("${TARGET_NAME}"  "${TEST_SOURCE}" "sycl"  "${DIR_RELATIVE_PATH}")
+                add_sycl_to_test("${TARGET_NAME}_sycl")
+            endif()
+        endif()
     endforeach()   
 endfunction()
  

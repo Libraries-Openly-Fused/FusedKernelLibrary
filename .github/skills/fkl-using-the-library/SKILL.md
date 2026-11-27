@@ -90,8 +90,47 @@ SaturateCast<float3, uchar3>::build()        // clamp + convert
 - `Stream stream;` creates an owning CUDA stream; `stream.sync()` waits.
 - Wrap an external stream zero-cost: `Stream s(existingCudaStream);` (FKL will NOT destroy it). Use this to interop with torch/cupy streams.
 - All `executeOperations` overloads are async on the given stream.
-- `Stream` is the stream of the default backend (`ParArch::GPU_NVIDIA` under nvcc, `GPU_AMD` under hipcc, `CPU`
-  otherwise). The multithreaded CPU stream is always explicit: `Stream_<ParArch::CPU_MULTITHREAD>` (see below).
+- `Stream` is the stream of the default backend (`ParArch::GPU_NVIDIA` under nvcc, `GPU_AMD` under hipcc, `GPU_INTEL`
+  in a SYCL translation unit, `CPU` otherwise). The multithreaded CPU stream is always explicit:
+  `Stream_<ParArch::CPU_MULTITHREAD>` (see below).
+
+## Intel GPUs: the SYCL backend (ParArch::GPU_INTEL)
+
+The same pipelines run on Intel GPUs when the code is compiled as SYCL (DPC++: `icx`/`icpx` with `-fsycl`, which
+defines `FK_SYCL_ENABLED`): `defaultParArch` is then `ParArch::GPU_INTEL`, so `Stream`, `Ptr2D<T> img(w, h)` and
+`executeOperations<TransformDPP<>>` need no changes.
+
+```cpp
+Stream stream;                                  // an in-order sycl::queue on FKL's device 0
+Ptr2D<uchar3> input(width, height);             // DeviceAndPinned: USM device memory + USM host memory
+Ptr2D<float3> output(width, height);
+input.upload(stream);
+executeOperations<TransformDPP<>>(stream, PerThreadRead<ND::_2D, uchar3>::build(input),
+    Cast<uchar3, float3>::build(), Mul<float3>::build({2.f, 2.f, 2.f}),
+    PerThreadWrite<ND::_2D, float3>::build(output));
+output.download(stream);
+stream.sync();                                  // waits, and throws the errors of the queue (sycl::exception)
+```
+
+- The backend runs on Intel GPUs only, never on the CPU or on a GPU of another vendor: without an Intel GPU, creating a
+  `Stream` or a `Ptr` throws `std::runtime_error`. Device 0 is the first Intel GPU the SYCL runtime offers (through
+  Level Zero if it can); `Stream_<ParArch::GPU_INTEL> stream(deviceID)` and the `deviceID` of `Ptr` choose another
+  Intel GPU of its platform. The environment variable `ONEAPI_DEVICE_SELECTOR` restricts the devices (`opencl:gpu` uses
+  OpenCL instead of Level Zero).
+- As in CUDA, all the streams of a device share its primary context: `Stream a, b;` are two independent in-order
+  queues, and both can use the memory of every `Ptr` of the device (work is ordered within a stream, not between them).
+- Interop: `gpu_intel::device(deviceID)` and `gpu_intel::context(deviceID)` are the SYCL device and its primary context,
+  where FKL allocates. To use your own queue as a stream, make it in order and with that context:
+  `sycl::queue q(gpu_intel::context(), gpu_intel::device(), sycl::property::queue::in_order()); Stream s(q);`
+  (a queue that is not in order, or of another context, throws `std::invalid_argument`). `stream.getSYCLQueue()` gives
+  the queue of a stream. USM pointers of that context can be wrapped:
+  `Ptr2D<float> p(usmPtr, w, h, pitchBytes, MemType::Device);`.
+- The first launch of each kernel is slow: the device compiles it then (the GPU driver caches it).
+- Link your SYCL program with `-fsycl-device-code-split=per_kernel` and
+  `-Xsycl-target-backend "-cl-fp32-correctly-rounded-divide-sqrt"`, and compile with `/fp:precise`
+  (`-fp-model=precise`): otherwise the results of float pipelines are not the ones of the other backends. See the
+  fkl-build-and-test skill.
+- Kernels that use `double` need a device with `sycl::aspect::fp64`. The attention DPPs are CUDA only.
 
 ## Out-of-bounds reads
 

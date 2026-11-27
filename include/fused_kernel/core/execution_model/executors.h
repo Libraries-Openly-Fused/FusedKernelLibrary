@@ -28,23 +28,41 @@
 #include <string>
 #endif
 
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
 #include <fused_kernel/core/execution_model/executor_details/executor_kernels.h>
+#endif
+#if defined(FK_SYCL_ENABLED)
+#include <climits>
 #endif
 
 namespace fk {
 
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
     struct CtxDim3 {
         uint x;
         uint y;
         uint z;
+#if defined(__NVCC__) || defined(__HIPCC__)
         constexpr CtxDim3(const dim3& dims) : x(dims.x), y(dims.y), z(dims.z) {}
+#endif
         constexpr CtxDim3() : x(1), y(1), z(1) {}
         constexpr CtxDim3(const uint& x) : x(x), y(1), z(1) {}
         constexpr CtxDim3(const uint& x, const uint& y) : x(x), y(y), z(1) {}
         constexpr CtxDim3(const uint& x, const uint& y, const uint& z) : x(x), y(y), z(z) {}
     };
+#endif
+
+#if defined(FK_SYCL_ENABLED)
+    // The grid of a SYCL kernel (launchDPP_Kernel): grid.x * grid.y * grid.z blocks of block.x * block.y * block.z
+    // threads, as the grid and the block of a CUDA launch (<<<grid, block>>>). Work groups are the blocks, and work
+    // items the threads. In SYCL the last dimension of a range is the innermost one: x is dimension 2, y is dimension
+    // 1 and z is dimension 0.
+    inline sycl::nd_range<3> syclGrid(const CtxDim3& grid, const CtxDim3& block) {
+        return sycl::nd_range<3>(
+            sycl::range<3>(std::size_t{ grid.z } * block.z, std::size_t{ grid.y } * block.y,
+                           std::size_t{ grid.x } * block.x),
+            sycl::range<3>(block.z, block.y, block.x));
+    }
 #endif
 
 #if !defined(NVRTC_COMPILER)
@@ -176,10 +194,13 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         static_assert(DataParallelPattern::PAR_ARCH != ParArch::CPU_MULTITHREAD,
                       "ParArch::CPU_MULTITHREAD needs FK_CPU_MULTITHREAD_ENABLED (CMake option ENABLE_CPU_MULTITHREAD, "
                       "with the thread-pool submodule)");
+        static_assert(DataParallelPattern::PAR_ARCH != ParArch::GPU_INTEL,
+                      "ParArch::GPU_INTEL needs a translation unit compiled as SYCL (FK_SYCL_ENABLED: icx, icpx or "
+                      "clang++ with -fsycl)");
         static_assert(DataParallelPattern::PAR_ARCH == ParArch::GPU_NVIDIA ||
                       DataParallelPattern::PAR_ARCH == ParArch::GPU_AMD ||
                       DataParallelPattern::PAR_ARCH == ParArch::CPU,
-                      "Only GPU_NVIDIA, GPU_AMD, CPU and CPU_MULTITHREAD supported");
+                      "Only GPU_NVIDIA, GPU_AMD, GPU_INTEL, CPU and CPU_MULTITHREAD supported");
     };
 #endif
 
@@ -405,7 +426,7 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
     };
 #endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
 
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
     struct ComputeBestSolutionBase {
         FK_HOST_FUSE uint computeDiscardedThreads(const uint width, const uint height, const uint blockDimx, const uint blockDimy) {
             const uint modX = width % blockDimx;
@@ -473,7 +494,9 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
 
         return CtxDim3(blockDimX[bxS], blockDimY[byS][bxS]);
     }
+#endif // defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
 
+#if defined(__NVCC__) || defined(__HIPCC__)
     FK_HOST_CNST dim3 getDefaultGrid(const ActiveThreads& activeThreads, const dim3& block) {
         return dim3{ static_cast<uint>(ceil(activeThreads.x / static_cast<float>(block.x))),
                      static_cast<uint>(ceil(activeThreads.y / static_cast<float>(block.y))),
@@ -611,6 +634,111 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
     };
 
 #endif // __NVCC__ || __HIPCC__
+
+#if defined(FK_SYCL_ENABLED)
+    // The SYCL executors launch their DPP on the same grid of blocks of threads as the CUDA ones, as a kernel
+    // enqueued in the queue of the stream (launchDPP_Kernel). There is no kernel function: the kernel calls
+    // DPP::exec, with the details and the IOps as its parameters.
+    template <enum TF TFEN>
+    struct Executor<TransformDPP<ParArch::GPU_INTEL, TFEN, void>> {
+    private:
+        using Child = Executor<TransformDPP<ParArch::GPU_INTEL, TFEN>>;
+        using Parent = BaseExecutor<Child>;
+        using SYCLStream = Stream_<ParArch::GPU_INTEL>;
+        static constexpr ParArch ARCH = ParArch::GPU_INTEL;
+
+        // The blocks getDefaultBlockSize chooses for the active threads of a plane, and one plane of blocks per z
+        FK_HOST_STATIC sycl::nd_range<3> getDefaultGrid(const ActiveThreads& activeThreads) {
+            const CtxDim3 block = getDefaultBlockSize(activeThreads.x, activeThreads.y);
+            const CtxDim3 grid{ (activeThreads.x + block.x - 1) / block.x, (activeThreads.y + block.y - 1) / block.y,
+                                activeThreads.z };
+            return syclGrid(grid, CtxDim3{ block.x, block.y, 1 });
+        }
+
+        template <typename... IOps>
+        FK_HOST_STATIC void launchWithoutThreadFusion(SYCLStream& stream, const IOps&... iOps) {
+            const auto details = TransformDPP<ARCH, TF::DISABLED>::build_details(iOps...);
+            using DPP = TransformDPP<ARCH, TF::DISABLED, std::decay_t<decltype(details)>, true>;
+            const ActiveThreads activeThreads = get_arg<0>(iOps...).getActiveThreads();
+            launchDPP_Kernel<DPP>(stream, getDefaultGrid(activeThreads), details, iOps...);
+        }
+
+        template <typename... IOps>
+        FK_HOST_STATIC void executeOperations_helper(SYCLStream& stream, const IOps&... iOps) {
+            const auto tDetails = TransformDPP<ARCH, TFEN>::build_details(iOps...);
+            using TDPPDetails = std::decay_t<decltype(tDetails)>;
+            if constexpr (TDPPDetails::TFI::ENABLED) {
+                if (!tDetails.threadAligned) {
+                    // The buffers are not aligned for the vector accesses of thread fusion: run without it
+                    launchWithoutThreadFusion(stream, iOps...);
+                } else if (!tDetails.threadDivisible) {
+                    launchDPP_Kernel<TransformDPP<ARCH, TFEN, TDPPDetails, false>>(
+                        stream, getDefaultGrid(tDetails.activeThreads), tDetails, iOps...);
+                } else {
+                    launchDPP_Kernel<TransformDPP<ARCH, TFEN, TDPPDetails, true>>(
+                        stream, getDefaultGrid(tDetails.activeThreads), tDetails, iOps...);
+                }
+            } else {
+                launchWithoutThreadFusion(stream, iOps...);
+            }
+        }
+    public:
+        FK_STATIC_STRUCT(Executor, Child)
+        FK_HOST_FUSE ParArch parArch() {
+            return ParArch::GPU_INTEL;
+        }
+        DECLARE_EXECUTOR_PARENT_IMPL
+    };
+
+    template <typename SequenceSelector>
+    struct Executor<DivergentBatchTransformDPP<ParArch::GPU_INTEL, SequenceSelector>> {
+    private:
+        using DPPType = DivergentBatchTransformDPP<ParArch::GPU_INTEL, SequenceSelector>;
+        using DPPDetails = typename DPPType::DPPDetails;
+        using SelfType = Executor<DPPType>;
+        using SYCLStream = Stream_<ParArch::GPU_INTEL>;
+
+        template <typename... IOpSequenceTypes>
+        FK_HOST_FUSE ActiveThreads getActiveThreads(const IOpSequenceTypes&... iOpSequences) {
+            const uint x = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().x...);
+            const uint y = cxp::max::f(get<0>(iOpSequences.iOps).getActiveThreads().y...);
+            const uint z = cxp::sum::f(get<0>(iOpSequences.iOps).getActiveThreads().z...);
+            return ActiveThreads{ x, y, z };
+        }
+
+        template <typename... IOps>
+        FK_HOST_FUSE auto fuseBackSequence(const IOpSequence<IOps...>& iOpSeq) {
+            return buildOperationSequence_tup(
+                apply([](auto&&... args) {
+                    // Now fuse_back deduces the types naturally and preserves value categories via perfect forwarding
+                    return BackFuser::fuse_back(std::forward<decltype(args)>(args)...);
+                }, iOpSeq.iOps)
+            );
+        }
+
+        template <typename... IOpSequenceTypes>
+        FK_HOST_STATIC void executeOperationsFused(SYCLStream& stream, const IOpSequenceTypes&... iOpSequences) {
+            const ActiveThreads activeThreads = getActiveThreads(iOpSequences...);
+            const DPPDetails details{};
+
+            const CtxDim3 block{ cxp::max::f(cxp::min::f(activeThreads.x, 32u), 1u),
+                                 cxp::max::f(cxp::min::f(activeThreads.y, 8u), 1u), 1 };
+            const CtxDim3 grid{ (activeThreads.x + block.x - 1) / block.x, (activeThreads.y + block.y - 1) / block.y,
+                                activeThreads.z };
+            launchDPP_Kernel<DPPType>(stream, syclGrid(grid, block), details, iOpSequences...);
+        }
+
+    public:
+        FK_STATIC_STRUCT(Executor, SelfType)
+        FK_HOST_FUSE ParArch parArch() {
+            return ParArch::GPU_INTEL;
+        }
+        template <typename... IOpSequenceTypes>
+        FK_HOST_STATIC void executeOperations(SYCLStream& stream, const IOpSequenceTypes&... iOpSequences) {
+            executeOperationsFused(stream, fuseBackSequence(iOpSequences)...);
+        }
+    };
+#endif // defined(FK_SYCL_ENABLED)
 } // namespace fk
 
 #endif // FK_EXECUTORS_CUH

@@ -28,6 +28,7 @@ HOMEPAGE_URL "https://github.com/morousg/FusedKernelLibrary" )
 option(ENABLE_CPU "Enable CPU support" ON)
 option(ENABLE_CUDA "Enable CUDA support" ON)
 option(ENABLE_HIP "Enable HIP support" ON)
+option(ENABLE_SYCL "Enable SYCL support" ON)
 include(CheckLanguage)
 if (ENABLE_CUDA)
     include(cmake/libs/cuda/cuda_init.cmake)
@@ -35,6 +36,10 @@ if (ENABLE_CUDA)
 
 if (ENABLE_HIP)
     include(cmake/libs/hip/hip_init.cmake)
+endif()
+
+if (ENABLE_SYCL)
+    include(cmake/libs/sycl/sycl_init.cmake)
 endif()
 
 # Multithreaded CPU backend (ParArch::CPU_MULTITHREAD), which uses the thread pool of the thread-pool submodule

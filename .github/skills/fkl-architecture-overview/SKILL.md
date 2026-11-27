@@ -67,7 +67,11 @@ OpenType, ClosedType`.
    `ParArch::CPU` (with a public `exec_row`, or one row function per phase)
    and `ParArch::CPU_MULTITHREAD` (reusing it, under `#if defined(FK_CPU_MULTITHREAD_ENABLED) &&
    !defined(NVRTC_COMPILER)`) specialisations; keep `*Details` and the CPU and
-   CPU_MULTITHREAD specs outside any `#if defined(__NVCC__)` guard. The only
+   CPU_MULTITHREAD specs outside any `#if defined(__NVCC__)` guard. The SYCL
+   version for Intel GPUs (`ParArch::GPU_INTEL`, under `#if defined(FK_SYCL_ENABLED)`)
+   has the per thread code of the CUDA one: its `exec` gets a `sycl::nd_item<3>`
+   first, and shared memory and barriers become work-group local memory and
+   `sycl::group_barrier` (see `fkl-implementing-data-parallel-patterns`). The only
    exception are the attention DPPs (softmax, flash_attention,
    flash_attention_mma, flash_decode), which remain GPU-only by the repo
    owner's decision.

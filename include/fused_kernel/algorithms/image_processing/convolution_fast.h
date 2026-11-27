@@ -324,6 +324,147 @@ public:
 
 #endif // defined(__NVCC__) || defined(__HIPCC__)
 
+#if defined(FK_SYCL_ENABLED)
+// The SYCL version: the per thread code of the CUDA one, where each thread
+// computes a tile of EX x EY output pixels. The thread gets its position in
+// the grid in the nd_item. The details, with their coefficients, are a
+// parameter of the kernel.
+template <typename T, int EX, int EY, int KW, int KH>
+struct ConvQuadDPP<ParArch::GPU_INTEL, T, EX, EY, KW, KH> {
+private:
+    using SelfType = ConvQuadDPP<
+        ParArch::GPU_INTEL, T, EX, EY, KW, KH>;
+    static constexpr int MAX_KERNEL_WIDTH =
+        KW > 0 ? KW : FK_CONV_MAX_KERNEL_SIDE;
+    static constexpr int MAX_SPAN = EX + MAX_KERNEL_WIDTH - 1;
+
+public:
+    FK_STATIC_STRUCT(ConvQuadDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_INTEL;
+    static constexpr int BLOCK_THREADS = 256;
+
+    struct LaunchConfig {
+        unsigned int blocks;
+        unsigned int threads;
+    };
+
+    FK_HOST_DEVICE_FUSE bool accepts(const ConvQuadDetails& details) {
+        return details.template validFor<KW, KH>();
+    }
+
+    FK_HOST_FUSE LaunchConfig launchConfig(const ConvQuadDetails& details) {
+        const int columns = (details.width + EX - 1) / EX;
+        const int rows = (details.height + EY - 1) / EY;
+        const int workItems = columns * rows;
+        return {static_cast<unsigned int>(
+                    (workItems + BLOCK_THREADS - 1) / BLOCK_THREADS),
+                static_cast<unsigned int>(BLOCK_THREADS)};
+    }
+
+    template <typename InIOp, typename ComputeIOps, typename OutIOp>
+    FK_DEVICE_STATIC void exec(const sycl::nd_item<3>& item,
+                               const ConvQuadDetails& details,
+                               const InIOp& input,
+                               const ComputeIOps& compute,
+                               const OutIOp& output) {
+        static_assert(isAnyCompleteReadType<InIOp>,
+                      "ConvQuadDPP requires a complete Read IOp");
+        static_assert(isAnyWriteType<OutIOp>,
+                      "ConvQuadDPP requires a Write IOp");
+        static_assert(std::is_same_v<T, float>,
+                      "ConvQuadDPP currently supports float pixels");
+        static_assert(std::is_same_v<
+                          typename InIOp::Operation::OutputType, T>,
+                      "ConvQuadDPP Read IOp must produce T");
+        static_assert(std::is_same_v<
+                          typename OutIOp::Operation::InputType, T>,
+                      "ConvQuadDPP Write IOp must consume T");
+        static_assert(EX > 0 && EY > 0,
+                      "ConvQuadDPP output tile must be positive");
+        static_assert(KW >= 0 && KH >= 0,
+                      "ConvQuadDPP static kernel sizes cannot be negative");
+        static_assert((KW == 0) == (KH == 0),
+                      "ConvQuadDPP sizes are both static or both runtime");
+        if (!accepts(details)) return;
+        const int kernelWidth = KW > 0 ? KW : details.kernelWidth;
+        const int kernelHeight = KH > 0 ? KH : details.kernelHeight;
+        const auto& multiply = get<0>(compute);
+        const auto& combine = get<1>(compute);
+        const int columns = (details.width + EX - 1) / EX;
+        // blockIdx.x * blockDim.x + threadIdx.x in CUDA
+        const int workItem = static_cast<int>(item.get_global_id(2));
+        const int x0 = (workItem % columns) * EX;
+        const int y0 = (workItem / columns) * EY;
+        if (x0 >= details.width || y0 >= details.height) return;
+
+        const int span = EX + kernelWidth - 1;
+        if (span > MAX_SPAN) return;
+        const int rowsNeeded = EY + kernelHeight - 1;
+        const int firstColumn = x0 - details.anchorX;
+        auto clamp = [](const int value, const int upper) {
+            return value < 0 ? 0 : (value >= upper ? upper - 1 : value);
+        };
+        auto source = [&](const int x, const int y) {
+            return InIOp::Operation::exec(
+                Point{clamp(x, details.width),
+                      clamp(y, details.height), 0}, input);
+        };
+
+        float accumulated[EY][EX];
+        #pragma unroll
+        for (int localY = 0; localY < EY; ++localY) {
+            #pragma unroll
+            for (int localX = 0; localX < EX; ++localX) {
+                accumulated[localY][localX] = 0.f;
+            }
+        }
+
+        #pragma unroll
+        for (int row = 0; row < rowsNeeded; ++row) {
+            float sourceRow[MAX_SPAN];
+            #pragma unroll
+            for (int index = 0; index < span; ++index) {
+                sourceRow[index] = source(
+                    firstColumn + index,
+                    y0 - details.anchorY + row);
+            }
+            #pragma unroll
+            for (int localY = 0; localY < EY; ++localY) {
+                const int ky = row - localY;
+                if (ky < 0 || ky >= kernelHeight ||
+                    y0 + localY >= details.height) continue;
+                #pragma unroll
+                for (int kx = 0; kx < kernelWidth; ++kx) {
+                    const float coefficient =
+                        details.coefficients[ky * kernelWidth + kx];
+                    #pragma unroll
+                    for (int localX = 0; localX < EX; ++localX) {
+                        const float product = make_tuple(
+                            coefficient,
+                            sourceRow[localX + kx]) | multiply;
+                        accumulated[localY][localX] = make_tuple(
+                            accumulated[localY][localX], product) | combine;
+                    }
+                }
+            }
+        }
+
+        #pragma unroll
+        for (int localY = 0; localY < EY; ++localY) {
+            const int y = y0 + localY;
+            if (y >= details.height) break;
+            #pragma unroll
+            for (int localX = 0; localX < EX; ++localX) {
+                const int x = x0 + localX;
+                if (x >= details.width) break;
+                OutIOp::Operation::exec(
+                    Point{x, y, 0}, accumulated[localY][localX], output);
+            }
+        }
+    }
+};
+#endif // defined(FK_SYCL_ENABLED)
+
 namespace conv_quad_detail {
 // The check of the executors: details the DPP accepts (DPP::accepts)
 template <typename DPP>
@@ -401,6 +542,28 @@ struct Executor<ConvQuadDPP<PA, T, EX, EY, KW, KH>> {
     }
 };
 #endif // defined(__NVCC__) || defined(__HIPCC__)
+
+#if defined(FK_SYCL_ENABLED)
+template <typename T, int EX, int EY, int KW, int KH>
+struct Executor<ConvQuadDPP<ParArch::GPU_INTEL, T, EX, EY, KW, KH>> {
+  private:
+    using DPP = ConvQuadDPP<ParArch::GPU_INTEL, T, EX, EY, KW, KH>;
+    using SelfType = Executor<DPP>;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_INTEL; }
+    // Enqueues the kernel in the queue of the stream and returns: launchDPP_Kernel is the SYCL one
+    // (executor_kernels.h). As with the CUDA version, the output must not alias the input.
+    template <typename... IOps>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_INTEL>& stream, const ConvQuadDetails& details,
+                                          const IOps&... iOps) {
+        conv_quad_detail::checkArguments<DPP>(details);
+        const auto launch = DPP::launchConfig(details);
+        launchDPP_Kernel<DPP>(stream, syclGrid(CtxDim3{launch.blocks}, CtxDim3{launch.threads}), details, iOps...);
+    }
+};
+#endif // defined(FK_SYCL_ENABLED)
 
 } // namespace fk
 

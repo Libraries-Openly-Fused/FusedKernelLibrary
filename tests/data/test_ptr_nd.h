@@ -44,7 +44,7 @@ PtrToTest& test_return_by_reference(PtrToTest& somePtr) {
 }
 
 void test_uploadTo(Stream& stream) {
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_SYCL_ENABLED)
     // Device pointers
     Ptr1D<uchar3> test1D(1333, 0, MemType::Device);
     Ptr2D<uchar3> test2D(1333, 444, 0, MemType::Device);
@@ -79,7 +79,7 @@ void test_uploadTo(Stream& stream) {
 }
 
 void test_downloadTo(Stream& stream) {
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_SYCL_ENABLED)
     // Device pointers
     Ptr1D<uchar3> test1D(1333, 0, MemType::Device);
     Ptr2D<uchar3> test2D(1333, 444, 0, MemType::Device);
@@ -508,7 +508,7 @@ bool test_crop_throws() {
     return correct;
 }
 
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
 // DeviceAndPinned: the device buffer and the pinned buffer have different pitches (the device one comes from the
 // pitched allocation, the pinned one from the host alignment). The crop walks each buffer with its own pitch, so
 // downloading and uploading a crop moves exactly the pixels of the crop.
@@ -576,7 +576,7 @@ bool test_crop(Stream& stream) {
     correct &= cropReport("3D", test_crop_3D());
     correct &= cropReport("transposed 3D", test_crop_T3D());
     correct &= cropReport("throws", test_crop_throws());
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
     correct &= cropReport("Rect and Point (Device)", test_crop_rect_and_point<MemType::Device>());
     correct &= cropReport("Rect and Point (HostPinned)", test_crop_rect_and_point<MemType::HostPinned>());
     correct &= cropReport("Rect and Point (DeviceAndPinned)", test_crop_rect_and_point<MemType::DeviceAndPinned>());

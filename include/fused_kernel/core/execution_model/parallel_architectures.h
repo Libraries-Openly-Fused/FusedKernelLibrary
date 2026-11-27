@@ -30,6 +30,7 @@ namespace fk {
     PAR_ARCH_VALUE(MULTI_GPU_NVIDIA) \
     PAR_ARCH_VALUE(CLUSTER_GPU_NVIDIA) \
     PAR_ARCH_VALUE(CPU_MULTITHREAD) \
+    PAR_ARCH_VALUE(GPU_INTEL) \
     PAR_ARCH_VALUE(None)
 
     enum class ParArch {
@@ -52,6 +53,8 @@ namespace fk {
     constexpr ParArch defaultParArch = ParArch::GPU_NVIDIA;
 #elif defined(__HIPCC__)
     constexpr ParArch defaultParArch = ParArch::GPU_AMD;
+#elif defined(FK_SYCL_ENABLED)
+    constexpr ParArch defaultParArch = ParArch::GPU_INTEL;
 #else
     constexpr ParArch defaultParArch = ParArch::CPU;
 #endif

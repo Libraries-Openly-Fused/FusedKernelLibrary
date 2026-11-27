@@ -1,6 +1,6 @@
 ---
 name: fkl-implementing-data-parallel-patterns
-description: Implement a new Data Parallel Pattern (DPP) for the Fused Kernel Library. Covers the anatomy of a DPP struct, device-side invocation of IOps (the IOp-form table, reading inputs, fusing epilogues into the write), compile-time vs runtime types, vector types, the ParArch::CPU and ParArch::CPU_MULTITHREAD (thread pool) implementations, and testing. Use when adding an algorithm to FKL that requires thread coordination, or when debugging a DPP's internal device execution.
+description: Implement a new Data Parallel Pattern (DPP) for the Fused Kernel Library. Covers the anatomy of a DPP struct, device-side invocation of IOps (the IOp-form table, reading inputs, fusing epilogues into the write), compile-time vs runtime types, vector types, the ParArch::CPU and ParArch::CPU_MULTITHREAD (thread pool) implementations, the ParArch::GPU_INTEL (SYCL) implementation, and testing. Use when adding an algorithm to FKL that requires thread coordination, when porting a DPP to another backend, or when debugging a DPP's internal device execution.
 ---
 
 # Implementing FKL Data Parallel Patterns
@@ -15,7 +15,9 @@ A DPP is composed of three parts:
 - For GPU implementations, the kernel is always `launchDPP_Kernel<DPP, DPPDetails, IOps...>`
   (include/fused_kernel/core/execution_model/executor_details/executor_kernels.h): it only calls
   `DPP::exec(details, iOps...)`, every parameter `const __grid_constant__`. Do not write a kernel per DPP. For CPU the
-  executor calls `DPP::exec` directly; for CPU_MULTITHREAD it enqueues the DPP on the stream (see below).
+  executor calls `DPP::exec` directly; for CPU_MULTITHREAD it enqueues the DPP on the stream (see below); for the SYCL
+  backend (GPU_INTEL), where there are no kernel functions, it calls the SYCL `launchDPP_Kernel<DPP>(stream, grid, ...)`
+  of the same file, which enqueues the kernel that calls the DPP (see below).
 - The DPP implementation.
 
 The rule (repo owner's decision): each `executeOperations` call launches exactly ONE kernel, fixed by the template and
@@ -310,6 +312,101 @@ Rules:
   enqueueing, so the next execution enqueued from this thread keeps copies of them until it has finished; IOps only
   hold a `RawPtr`, so otherwise the buffers must stay valid until `sync()`.
 
+## The ParArch::GPU_INTEL implementation (SYCL)
+
+The SYCL backend exists in translation units compiled as SYCL (`FK_SYCL_ENABLED`, which `compiler_macros.h` defines
+when the compiler predefines `SYCL_LANGUAGE_VERSION`: DPC++ with `-fsycl`). Reference implementation:
+`TransformDPP<ParArch::GPU_INTEL>` in `core/execution_model/data_parallel_patterns.h`, its executor in
+`core/execution_model/executors.h`, and, for a DPP with shared memory, `LinearFilterDPP<ParArch::GPU_INTEL>` in
+`algorithms/image_processing/linear_filter.h`. As for CUDA, the SYCL helpers are where they are used: the launch in
+`executor_details/executor_kernels.h` (`launchDPP_Kernel`, `launchDPP_KernelWithLocalMemory`), the grid in `executors.h`
+(`syclGrid`, from two `CtxDim3`), and the thread position in `data_parallel_patterns.h` (`ThreadPosition`, `globalThread`).
+
+A SYCL DPP is the CUDA one with the same per thread code, written next to it. What changes:
+
+| CUDA | SYCL |
+|---|---|
+| `launchDPP_Kernel<DPP>`, the `__global__` kernel that calls `DPP::exec(details, iOps...)` | no kernel function: `launchDPP_Kernel<DPP>(stream, grid, details, iOps...)` enqueues a kernel that calls `DPP::exec(item, details, iOps...)` |
+| `launchDPP_Kernel<DPP><<<grid, block, 0, stream>>>(...)` | `syclGrid(CtxDim3{gx, gy, gz}, CtxDim3{bx, by, bz})`, a `sycl::nd_range<3>` (x is dimension 2 of the range) |
+| `threadIdx`, `blockIdx`, `blockDim` | `const ThreadPosition thread(item);` then `thread.threadIdx.x`, `thread.blockIdx.y`, `thread.blockDim.x`... |
+| `blockDim.x * blockIdx.x + threadIdx.x` | `item.get_global_id(2)` (`globalThread(item)` gives the `Point` of a grid with one thread in z per block) |
+| `__shared__ T halo[N];` inside `exec` | `launchDPP_KernelWithLocalMemory<DPP, T>(stream, grid, DPP::LOCAL_ELEMENTS, params...)`, and `exec(item, T* halo, params...)` |
+| `__syncthreads()` | `sycl::group_barrier(item.get_group())` |
+| `gpuErrchk(cudaGetLastError())` | nothing: errors are `sycl::exception`s, thrown when enqueueing or by `stream.sync()` |
+
+```cpp
+#if defined(FK_SYCL_ENABLED)   // next to the CUDA/HIP version, never inside its #if
+template <typename DPPDetails>
+struct MyDPP<ParArch::GPU_INTEL, DPPDetails> {
+private:
+    using SelfType = MyDPP<ParArch::GPU_INTEL, DPPDetails>;
+    using T = typename DPPDetails::ValueType;
+public:
+    FK_STATIC_STRUCT(MyDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_INTEL;
+    // Elements of each array of T in work-group local memory (the shared memory of the block)
+    static constexpr std::array<std::size_t, 1> LOCAL_ELEMENTS{ DPPDetails::TILE_WIDTH * DPPDetails::TILE_HEIGHT };
+
+    template <typename InputIOp, typename OutputIOp>
+    FK_DEVICE_STATIC void exec(const sycl::nd_item<3>& item, T* const shared, const DPPDetails& details,
+                               const InputIOp& input, const OutputIOp& output) {
+        const ThreadPosition thread(item);
+        const int tid = thread.threadIdx.y * thread.blockDim.x + thread.threadIdx.x;
+        const Point p{ thread.blockIdx.x * thread.blockDim.x + thread.threadIdx.x,
+                       thread.blockIdx.y * thread.blockDim.y + thread.threadIdx.y, thread.blockIdx.z };
+        shared[tid] = InputIOp::Operation::exec(p, input);     // (bounds checks omitted)
+        sycl::group_barrier(item.get_group());
+        OutputIOp::Operation::exec(p, shared[tid], output);
+    }
+};
+
+// Its Executor, next to the CPU and GPU ones (the same arguments and the same checks)
+template <typename DPPDetails>
+struct Executor<MyDPP<ParArch::GPU_INTEL, DPPDetails>> {
+private:
+    using DPP = MyDPP<ParArch::GPU_INTEL, DPPDetails>;
+    using SelfType = Executor<DPP>;
+public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_INTEL; }
+    template <typename InputIOp, typename OutputIOp>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_INTEL>& stream, const DPPDetails& details,
+                                          const InputIOp& input, const OutputIOp& output) {
+        executor_detail::requireArguments(DPPDetails::valid(details), "MyDPP", "invalid details");  // as the others
+        const CtxDim3 block{ DPPDetails::TILE_WIDTH, DPPDetails::TILE_HEIGHT, 1 };
+        const CtxDim3 grid{ static_cast<uint>((details.width + DPPDetails::TILE_WIDTH - 1) / DPPDetails::TILE_WIDTH),
+                            static_cast<uint>((details.height + DPPDetails::TILE_HEIGHT - 1) / DPPDetails::TILE_HEIGHT), 1 };
+        // The one kernel of the call, the SYCL launchDPP_Kernel of a DPP with shared memory
+        launchDPP_KernelWithLocalMemory<DPP, typename DPPDetails::ValueType>(
+            stream, syclGrid(grid, block), DPP::LOCAL_ELEMENTS, details, input, output);
+    }
+};
+#endif
+```
+
+A DPP without shared memory uses `launchDPP_Kernel<DPP>(stream, grid, details, iOps...)`, and its `exec` gets the
+`nd_item` and then the parameters. As on the other back-ends, the executor checks its arguments before it launches
+anything, and each `executeOperations` call launches one kernel.
+
+Rules:
+- `exec` is `FK_DEVICE_STATIC` (it reads the `nd_item`, so it can not be `constexpr`), and its first parameter is
+  `const sycl::nd_item<3>&`. Helpers that take a thread position computed by the caller can stay `FK_DEVICE_FUSE`
+  (`TransformDPP::exec_thread`).
+- SYCL compiles `exec` for the host and for the device from the same code: do not copy the
+  `#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)` guards of the CUDA version.
+- The code a kernel calls can not throw, recurse (template recursion is fine), call through function pointers or
+  virtual functions, nor use static variables: these are compile errors that name the kernel. A kernel that uses
+  `double` needs a device with `sycl::aspect::fp64`.
+- Everything given to `launchDPP_Kernel` (details and IOps) is copied to the device: it must be trivially copyable,
+  which FKL's IOps and `fk::Tuple` are. `launchDPP_Kernel` passes them as the arguments of the kernel while they are at most
+  `FK_SYCL_MAX_KERNEL_ARGUMENTS_BYTES` (1024, Intel GPUs reject more than 2048) and through device memory otherwise;
+  the DPP does not see the difference.
+- Local memory is requested when the kernel is enqueued, not declared in `exec`: up to 2 arrays of one type, with
+  their number of elements in a `static constexpr std::array<std::size_t, N>` of the DPP (a variable template if it
+  depends on the IOps, as `MorphologyDPP::LOCAL_ELEMENTS<Reducers>`).
+- Every thread of a block must reach `sycl::group_barrier` the same number of times, as with `__syncthreads()`.
+- The grid must be made of whole blocks (`syclGrid` does that): threads past the end of the data return, as in CUDA.
+
 ## Runtime values vs compile-time types (the golden rule)
 
 Anything users may change per call (factors, rects, matrices, sizes) goes
@@ -347,7 +444,9 @@ apply([](const auto&... iOps) { return BackFuser::fuse_back(iOps...); }, tup);
    oracle checks: exactly (`memcmp` or `==`) for integer outputs and float pipelines without multiply-add, within a
    tight tolerance (e.g. 1e-5 relative) when floats are multiplied and added (fused multiply-add contraction). The same header is compiled by nvcc for the `_cu` target, so
    that code must compile there too. A test that means "GPU" must check
-   `PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD`, not `PA != ParArch::CPU`.
+   `PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD || PA == ParArch::GPU_INTEL`, not `PA != ParArch::CPU`, and
+   the preprocessor guard of its GPU code is `#if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)`:
+   written with `Stream`, `defaultParArch` and the default `MemType`, the same GPU code tests the three backends.
 4. Build and run: see the fkl-build-and-test skill (also with the backend OFF, and under ThreadSanitizer).
 
 ## Checklist before opening a PR
@@ -364,6 +463,10 @@ apply([](const auto&... iOps) { return BackFuser::fuse_back(iOps...); }, tup);
       `launchDPP_Kernel<DPP>`; invalid arguments throw `std::invalid_argument` (`executor_detail::requireArguments`)
       before anything runs; no per-DPP entry function, no per-DPP kernel
 - [ ] the utest checks that invalid arguments throw on every back-end
+- [ ] for a ParArch::GPU_INTEL (SYCL) version: under `#if defined(FK_SYCL_ENABLED)`, outside the `__NVCC__`/`__HIPCC__`
+      block; `exec(const sycl::nd_item<3>&, ...)` is `FK_DEVICE_STATIC`; its `Executor<MyDPP<ParArch::GPU_INTEL, ...>>`
+      makes the same checks as the others and launches with `launchDPP_Kernel` or `launchDPP_KernelWithLocalMemory`;
+      its `_sycl` test passes
 - [ ] preconditions (aliasing, buffer lifetime until `sync()`) documented in a comment
 - [ ] utest instantiating every public alias/build path, with the CPU_MULTITHREAD path compared to ParArch::CPU
 - [ ] compiles warning-clean on nvcc AND clang (CUDA 12.x and 13.x)

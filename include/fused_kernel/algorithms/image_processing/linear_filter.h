@@ -284,6 +284,101 @@ public:
 
 #endif // defined(__NVCC__) || defined(__HIPCC__)
 
+#if defined(FK_SYCL_ENABLED)
+// The SYCL version: the code of the CUDA one. The halo and the coefficients
+// are in work-group local memory (the shared memory of the block), which is
+// allocated when the kernel is enqueued (by its executor), and the thread
+// gets its position in the grid in the nd_item.
+template <typename DPPDetails>
+struct LinearFilterDPP<ParArch::GPU_INTEL, DPPDetails> {
+private:
+    using SelfType = LinearFilterDPP<ParArch::GPU_INTEL, DPPDetails>;
+    using T = typename DPPDetails::ValueType;
+    using Stage = NeighborhoodDPPStage<
+        typename DPPDetails::NeighborhoodPolicy>;
+
+public:
+    FK_STATIC_STRUCT(LinearFilterDPP, SelfType)
+    static constexpr ParArch PAR_ARCH = ParArch::GPU_INTEL;
+    // Elements of the arrays of T exec needs in local memory: halo and
+    // coefficients
+    static constexpr std::array<std::size_t, 2> LOCAL_ELEMENTS{
+        static_cast<std::size_t>(DPPDetails::MAX_HALO_WIDTH *
+                                 DPPDetails::MAX_HALO_HEIGHT),
+        static_cast<std::size_t>(DPPDetails::MAX_KERNEL_WIDTH *
+                                 DPPDetails::MAX_KERNEL_HEIGHT)};
+
+    template <typename ReadIOps, typename MultiplyIOp,
+              typename AccumulateIOp, typename WriteIOp>
+    FK_DEVICE_STATIC void exec(const sycl::nd_item<3>& item,
+                               T* const halo,
+                               T* const coefficients,
+                               const DPPDetails& details,
+                               const ReadIOps& reads,
+                               const MultiplyIOp& multiply,
+                               const AccumulateIOp& accumulate,
+                               const WriteIOp& output) {
+        static_assert(isTuple_v<ReadIOps> &&
+                      std::decay_t<ReadIOps>::size == 2,
+                      "LinearFilterDPP needs image/coefficient Read IOps");
+        static_assert(MultiplyIOp::template is<UnaryType> &&
+                      AccumulateIOp::template is<UnaryType>,
+                      "Multiply and accumulation must be Unary IOps");
+        static_assert(isAnyWriteType<WriteIOp>,
+                      "LinearFilterDPP needs a Write IOp");
+
+        const ThreadPosition thread(item);
+        const auto& image = get<0>(reads);
+        const auto& coefficientRead = get<1>(reads);
+        const int tid = thread.threadIdx.y * thread.blockDim.x +
+                        thread.threadIdx.x;
+        const int threads = thread.blockDim.x * thread.blockDim.y;
+        const int haloWidth = DPPDetails::TILE_WIDTH +
+                              details.kernelWidth - 1;
+        const int tileX = thread.blockIdx.x * DPPDetails::TILE_WIDTH;
+        const int tileY = thread.blockIdx.y * DPPDetails::TILE_HEIGHT;
+
+        Stage::stageReplicate(
+            item, details.width, details.height,
+            details.kernelWidth, details.kernelHeight,
+            details.anchorX, details.anchorY, image, halo);
+        for (int index = tid;
+             index < details.kernelWidth * details.kernelHeight;
+             index += threads) {
+            coefficients[index] =
+                std::decay_t<decltype(coefficientRead)>::Operation::exec(
+                    Point{index % details.kernelWidth,
+                          index / details.kernelWidth, 0},
+                    coefficientRead);
+        }
+        sycl::group_barrier(item.get_group());
+
+        const int ox = tileX + thread.threadIdx.x;
+        const int oy = tileY + thread.threadIdx.y;
+        if (thread.threadIdx.x < DPPDetails::TILE_WIDTH &&
+            thread.threadIdx.y < DPPDetails::TILE_HEIGHT &&
+            ox < details.width && oy < details.height) {
+            T accumulator{};
+            for (int ky = 0; ky < details.kernelHeight; ++ky) {
+                for (int kx = 0; kx < details.kernelWidth; ++kx) {
+                    const T value = halo[
+                        (thread.threadIdx.y + ky) * haloWidth +
+                        thread.threadIdx.x + kx];
+                    const T coefficient = coefficients[
+                        ky * details.kernelWidth + kx];
+                    const T product =
+                        make_tuple(value, coefficient) | multiply;
+                    accumulator =
+                        make_tuple(accumulator, product) | accumulate;
+                }
+            }
+            WriteIOp::Operation::exec(Point{ox, oy, 0},
+                                      accumulator, output);
+        }
+    }
+};
+#endif // defined(FK_SYCL_ENABLED)
+
 namespace linear_filter_detail {
 // The check of the executors: valid details (a non empty image, a kernel of 1 to MAX_KERNEL_WIDTH x MAX_KERNEL_HEIGHT,
 // the anchor inside it)
@@ -374,6 +469,35 @@ struct Executor<LinearFilterDPP<PA, DPPDetails>> {
     }
 };
 #endif // defined(__NVCC__) || defined(__HIPCC__)
+
+#if defined(FK_SYCL_ENABLED)
+template <typename DPPDetails>
+struct Executor<LinearFilterDPP<ParArch::GPU_INTEL, DPPDetails>> {
+  private:
+    using DPP = LinearFilterDPP<ParArch::GPU_INTEL, DPPDetails>;
+    using SelfType = Executor<DPP>;
+
+  public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::GPU_INTEL; }
+    // Enqueues the kernel in the queue of the stream, one block per tile, and returns: launchDPP_KernelWithLocalMemory
+    // (executor_kernels.h) is the SYCL launchDPP_Kernel of a DPP with shared memory, and allocates the halo and the
+    // coefficients of the DPP (DPP::LOCAL_ELEMENTS) in work-group local memory, the shared memory of the block. As with
+    // the CUDA version, the output must not alias the image or the coefficients.
+    template <typename ReadIOps, typename MultiplyIOp, typename AccumulateIOp, typename WriteIOp>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::GPU_INTEL>& stream, const DPPDetails& details,
+                                          const ReadIOps& reads, const MultiplyIOp& multiply,
+                                          const AccumulateIOp& accumulate, const WriteIOp& output) {
+        linear_filter_detail::checkArguments(details);
+        const CtxDim3 block{static_cast<uint>(DPPDetails::TILE_WIDTH), static_cast<uint>(DPPDetails::TILE_HEIGHT), 1};
+        const CtxDim3 grid{static_cast<uint>((details.width + DPPDetails::TILE_WIDTH - 1) / DPPDetails::TILE_WIDTH),
+                           static_cast<uint>((details.height + DPPDetails::TILE_HEIGHT - 1) / DPPDetails::TILE_HEIGHT),
+                           1};
+        launchDPP_KernelWithLocalMemory<DPP, typename DPPDetails::ValueType>(
+            stream, syclGrid(grid, block), DPP::LOCAL_ELEMENTS, details, reads, multiply, accumulate, output);
+    }
+};
+#endif // defined(FK_SYCL_ENABLED)
 
 } // namespace fk
 

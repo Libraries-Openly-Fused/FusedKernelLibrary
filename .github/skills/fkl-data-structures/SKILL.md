@@ -43,6 +43,8 @@ TRAPS (verified the hard way):
 
 `Device`, `Host`, `HostPinned`, `DeviceAndPinned` (mirrored pair with `.upload(stream)` / `.download(stream)`). GPU pipelines require Device or DeviceAndPinned memory — CircularTensor enforces this at runtime.
 
+In the SYCL backend (`ParArch::GPU_INTEL`) the memory is USM, in FKL's SYCL context of the device (`gpu_intel::context(deviceID)`): `Device` is USM device memory and `HostPinned` USM host memory. As with `cudaMallocPitch`, a 2D device buffer allocated without a pitch has its rows aligned (to 64 bytes), so the device pitch of a `DeviceAndPinned` `Ptr2D` is usually larger than the pinned one: always read the pitch from `ptr().dims.pitch`. Releasing a `Ptr` waits for the kernels enqueued in the streams, which may still use its memory.
+
 ## Layout cheat-sheet for DNN interop
 
 | want | use | output shape |

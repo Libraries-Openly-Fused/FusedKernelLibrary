@@ -97,6 +97,21 @@ namespace fk {
         inline void download(Stream_<ParArch::GPU_AMD>& stream) {
             data.download(stream);
         }
+#elif defined(FK_SYCL_ENABLED)
+        inline void uploadTo(Image& other, Stream_<ParArch::GPU_INTEL>& stream) {
+            data.uploadTo(other.data, stream);
+        }
+
+        inline void downloadTo(Image& other, Stream_<ParArch::GPU_INTEL>& stream) {
+            data.downloadTo(other.data, stream);
+        }
+
+        inline void upload(Stream_<ParArch::GPU_INTEL>& stream) {
+            data.upload(stream);
+        }
+        inline void download(Stream_<ParArch::GPU_INTEL>& stream) {
+            data.download(stream);
+        }
 #else
         inline void upload(Stream& stream) {}
         inline void download(Stream& stream) {}

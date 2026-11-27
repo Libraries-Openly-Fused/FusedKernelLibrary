@@ -168,7 +168,7 @@ bool runCase(const Details& details, const Selection& selection,
     }
     if (!ran || !compare(cpuOutput, expected, label)) return false;
 
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
     Ptr2D<float> gpuInput(details.width, details.height);
     Ptr2D<float> gpuOutput(details.width, details.height);
     for (int y = 0; y < details.height; ++y)
@@ -260,7 +260,7 @@ int launch_impl() {
         });
         stream.sync();
 #endif
-#if defined(__NVCC__) || defined(__HIPCC__)
+#if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
         // The GPU executor checks on the host, before the launch: the
         // pointers are never dereferenced
         Stream gpuStream;

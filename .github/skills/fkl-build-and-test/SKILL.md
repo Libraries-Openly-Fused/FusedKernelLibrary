@@ -13,9 +13,9 @@ running or adding tests, or debugging a compile failure in the test tree on any 
 - **Only nvcc is supported as the CUDA compiler**; clang-as-CUDA-compiler is not supported despite the
   `CLANG_HOST_DEVICE` macro.
 - Options: `ENABLE_CUDA` (default ON if found), `ENABLE_CPU` (ON), `ENABLE_CPU_MULTITHREAD` (see below),
-  `ENABLE_BENCHMARK` (OFF).
+  `ENABLE_SYCL` (ON if the C++ compiler is a SYCL compiler, see below), `ENABLE_BENCHMARK` (OFF).
 - Binaries land in the out-of-source build folder at `../build` — one executable per test unit,
-  suffixed `_cu` (CUDA) / `_cpp` (CPU).
+  suffixed `_cu` (CUDA) / `_hip` (HIP) / `_sycl` (SYCL) / `_cpp` (CPU).
 
 ## The thread-pool submodule (ParArch::CPU_MULTITHREAD)
 - The multithreaded CPU backend, `ParArch::CPU_MULTITHREAD`, uses the `thread-pool` git submodule. ALWAYS clone
@@ -60,6 +60,60 @@ cmake -G "Ninja" -B ..\build -DCMAKE_BUILD_TYPE=Release -S .
 
 cmake --build ..\build --config Release
 ```
+
+## Build with the SYCL backend (ParArch::GPU_INTEL, Intel GPUs)
+
+CMake has no SYCL language, so the C++ compiler itself has to be a SYCL compiler: DPC++, that is `icx` (Windows) or
+`icpx` (Linux) of the Intel oneAPI DPC++/C++ compiler, or a `clang++` built with SYCL support. FKL enables the backend
+(`ENABLE_SYCL`, ON by default) when that compiler compiles and links a SYCL program with `-fsycl`; check the configure
+output for `SYCL backend (ENABLE_SYCL): ON`. With any other compiler the line says OFF and nothing else changes.
+
+Every test then also gets a `_sycl` target: the same header compiled and linked with `-fsycl`, where `defaultParArch`
+is `ParArch::GPU_INTEL`. The `_cpp` targets are built by the same compiler without `-fsycl`.
+
+```powershell
+# Windows. The oneAPI environment (icx, sycl-ls, the SYCL runtime DLLs) includes the Visual Studio one.
+# With the Build Tools instead of Visual Studio, tell setvars.bat where they are first (it warns otherwise):
+#   $env:VS2022INSTALLDIR = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools"
+cmd.exe "/K" '"C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64 vs2022 && powershell'
+cmake -G "Ninja" -B ..\build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=icx -DENABLE_CUDA=OFF -DENABLE_HIP=OFF -S .
+cmake --build ..\build --config Release
+cd ..\build; ctest -R '_sycl$'
+```
+
+```bash
+# Linux (not tested yet: the backend was developed on Windows)
+source /opt/intel/oneapi/setvars.sh
+cmake -G "Ninja" -B ../build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=icpx -S .
+```
+
+- CMake does not load the oneAPI environment: the shell that runs the configure, the build and the tests has to have
+  it, as with `Enter-VsDevShell` (the installers register nothing globally, so a new terminal has none of it).
+  Without it `icx` is not found; given by its full path it compiles, but does not link (`LNK1104: cannot open file
+  'libircmt.lib'`). With the oneAPI environment but not the Visual Studio one (the warning of `setvars.bat`), the
+  configure fails with `LNK1104: cannot open file 'kernel32.lib'`. And a `_sycl` executable started from another
+  terminal exits with 0xC0000135: it does not find the SYCL runtime (`sycl9.dll` in oneAPI 2026.0), which is in the
+  `PATH` of the environment.
+- `sycl-ls` lists the devices the SYCL runtime sees. The backend only runs on Intel GPUs: the first one it offers
+  through Level Zero (through OpenCL if Level Zero offers none), never on the CPU or on a GPU of another vendor.
+  Without an Intel GPU the `_sycl` tests fail ("the SYCL runtime offers no Intel GPU"), as the `_cu` ones do without an
+  NVIDIA GPU. `ONEAPI_DEVICE_SELECTOR` restricts the devices: `opencl:gpu` runs the tests through OpenCL.
+- The device compiles each kernel the first time it runs, so the first run of a test is slower (`utest_saturate_sycl`
+  has 720 kernels: about half a minute). The GPU driver caches the compiled kernels.
+- Options: `SYCL_DEVICE_CODE_SPLIT` (`per_kernel`: only the kernels that run are compiled by the device, and one that
+  it rejects does not break the others) and `SYCL_DEVICE_COMPILER_OPTIONS`
+  (`-cl-fp32-correctly-rounded-divide-sqrt`: without it the Intel GPU compiler divides with an error of up to 2.5 ulp,
+  and results differ from the other backends). They are link options of the `_sycl` targets
+  (`fkl_add_sycl_to_target` in `cmake/libs/sycl/sycl.cmake`): a project that uses FKL with SYCL needs the same ones.
+- The Intel compilers default to fast floating point math. The test targets built with them (also the `_cpp` ones)
+  get `/fp:precise` (`-fp-model=precise`); without it `utest_constexpr_expf_exact` and some filter tests fail.
+- SYCL errors come when the device compiles a kernel or runs it, as a `sycl::exception` thrown by the launch or by
+  `stream.sync()`: the message has the log of the device compiler. Compile time errors such as "SYCL kernel cannot
+  call a recursive function" or "cannot use exceptions" name code that a kernel reaches, and a failed
+  `is_trivially_copyable` assertion in `Stream_::kernelParams` names kernel parameters that can not be copied to the
+  device.
+- `utests/core/execution_model/utest_gpu_intel.h` tests what is specific to the backend (devices, pitches, kernel
+  parameters in device memory, releasing memory with pending work, a queue of the user).
 
 ## Running the suite (Cross-Platform)
 
@@ -120,7 +174,8 @@ int launch() { RUN_ALL_TESTS }
   add, since g++ with FMA (`-march=native`, arm64) may contract `a * b + c` differently in the two versions.
 - Use host memory (`MemType::Host`): the `_cu` target compiles the same header, and there `defaultMemType` is
   `DeviceAndPinned`. The CPU_MULTITHREAD code must compile under nvcc too.
-- A check that means "GPU" must be `PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD`, not `PA != ParArch::CPU`.
+- A check that means "GPU" must be `PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD || PA == ParArch::GPU_INTEL`,
+  not `PA != ParArch::CPU`; in the preprocessor, `defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)`.
 - The backend itself (stream order, sync, errors, buffer lifetime) is tested by
   `utests/core/execution_model/utest_cpu_multithread.h`, which is `_cpp` only.
 - Also check that the code compiles with the backend OFF (`-DENABLE_CPU_MULTITHREAD=OFF`), and run the affected
@@ -133,6 +188,7 @@ GitHub workflows build on `linux-amd64`, `linux-arm64` and `windows-amd64` using
 - Every workflow checks out submodules, so `ParArch::CPU_MULTITHREAD` is built and tested in CI.
 - Linux builds against `g++-13` and `clang++-23`.
 - Windows builds against MSVC (`cl` versions 14.44 and 14.51) and `clang-cl`.
+- The SYCL backend is not built by CI yet: run its `_sycl` tests locally (see above) when a change touches it.
 - Keep changes warning-clean on BOTH compilers: clang is a first-class compiler for FKL (single-step host+device compiles matter for downstream packaging).
 
 ## How to debug compile failures

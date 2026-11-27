@@ -36,8 +36,8 @@ namespace fk {
 #endif // defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)
         {
             RawPtr<D, T> output = outputPtr.ptr();
-#if defined(__NVCC__) || defined(__HIPCC__)
-            if constexpr (PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD) {
+#if defined(__NVCC__) || defined(__HIPCC__) || defined(FK_SYCL_ENABLED)
+            if constexpr (PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD || PA == ParArch::GPU_INTEL) {
                 if (outputPtr.getMemType() == MemType::Device || outputPtr.getMemType() == MemType::DeviceAndPinned) {
                     Executor<TransformDPP<PA>>::executeOperations(stream, ReadSet<T>::build(value, outputPtr.dims()), PerThreadWrite<D, T>::build(output));
                     if (outputPtr.getMemType() == MemType::DeviceAndPinned) {

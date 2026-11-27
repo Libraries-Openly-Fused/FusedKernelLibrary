@@ -20,11 +20,19 @@ function(add_hip_to_benchmark TARGET_NAME)
     set_target_hip_arch_flags(${TARGET_NAME})
 endfunction()
 
+function(add_sycl_to_benchmark TARGET_NAME)
+    fkl_add_sycl_to_target(${TARGET_NAME})
+endfunction()
+
 function (add_generated_benchmark TARGET_NAME TEST_SOURCE EXTENSION DIR)
                        
         set(TEST_GENERATED_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}_${EXTENSION}/launcher.${EXTENSION}") #use the same name as the target	)			
        
         configure_file(${CMAKE_SOURCE_DIR}/benchmarks/launcher.in ${TEST_GENERATED_SOURCE} @ONLY) #replace variables in the test source file                 
+        if (${EXTENSION} STREQUAL "sycl")
+            # SYCL is C++ compiled with -fsycl (add_sycl_to_benchmark): there is no SYCL language in CMake
+            set_source_files_properties("${TEST_GENERATED_SOURCE}" PROPERTIES LANGUAGE CXX)
+        endif()
         set (TARGET_NAME_EXT "${TARGET_NAME}_${EXTENSION}")
         #message(STATUS "Adding test: ${TARGET_NAME_EXT} from ${TEST_GENERATED_SOURCE} and ${TEST_SOURCE}")
         add_executable(${TARGET_NAME_EXT} "${TEST_GENERATED_SOURCE};${TEST_SOURCE};${LAUNCH_SOURCES}" )
@@ -77,6 +85,10 @@ function (discover_benchmark DIR)
         if (CMAKE_HIP_COMPILER AND ENABLE_HIP)
             add_generated_benchmark("${TARGET_NAME}"  "${benchmark_source}" "hip"  "${DIR_NAME}")
             add_hip_to_benchmark("${TARGET_NAME}_hip")
+        endif()
+        if (ENABLE_SYCL)
+            add_generated_benchmark("${TARGET_NAME}"  "${benchmark_source}" "sycl"  "${DIR_NAME}")
+            add_sycl_to_benchmark("${TARGET_NAME}_sycl")
         endif()
     endforeach()
 endfunction()
