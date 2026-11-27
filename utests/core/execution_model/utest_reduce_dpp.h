@@ -113,17 +113,17 @@ constexpr ParArch GPU_PA = ParArch::GPU_NVIDIA;
 constexpr ParArch GPU_PA = ParArch::GPU_AMD;
 #endif
 
-// The default policy of every backend: ReduceDPPPolicy, and on GPU_AMD ReduceDPPPolicyAMD (ReduceDPPPolicy with blocks
-// of 128 threads and 12 blocks per multiprocessor)
+// The default policy of every backend: ReduceDPPPolicy, and on GPU_AMD ReduceDPPPolicyAMD (ReduceDPPPolicy with 12
+// blocks per multiprocessor and blocks of up to 8192 elements)
 static_assert(std::is_same_v<ReduceDPP<ParArch::CPU>, ReduceDPP<ParArch::CPU, ReduceDPPPolicy>>);
 static_assert(std::is_same_v<ReduceDPP<ParArch::GPU_NVIDIA>, ReduceDPP<ParArch::GPU_NVIDIA, ReduceDPPPolicy>>);
 static_assert(std::is_same_v<ReduceDPP<ParArch::GPU_AMD>, ReduceDPP<ParArch::GPU_AMD, ReduceDPPPolicyAMD>>);
 static_assert(std::is_same_v<ReduceDPP<>, ReduceDPP<defaultParArch, ReduceDPPDefaultPolicy_t<defaultParArch>>>);
-static_assert(ReduceDPPPolicyAMD::BLOCK_THREADS == 128 &&
+static_assert(ReduceDPPPolicy::BLOCK_THREADS == 128 && ReduceDPPPolicyAMD::BLOCK_THREADS == 128 &&
               ReduceDPPPolicy::BLOCKS_PER_MULTIPROCESSOR == 4 && ReduceDPPPolicyAMD::BLOCKS_PER_MULTIPROCESSOR == 12 &&
+              ReduceDPPPolicy::LARGE_BLOCK_ELEMENTS == 4096 && ReduceDPPPolicyAMD::LARGE_BLOCK_ELEMENTS == 8192 &&
               ReduceDPPPolicyAMD::SINGLE_BLOCK_ELEMENTS == ReduceDPPPolicy::SINGLE_BLOCK_ELEMENTS &&
               ReduceDPPPolicyAMD::BLOCK_ELEMENTS == ReduceDPPPolicy::BLOCK_ELEMENTS &&
-              ReduceDPPPolicyAMD::LARGE_BLOCK_ELEMENTS == ReduceDPPPolicy::LARGE_BLOCK_ELEMENTS &&
               ReduceDPPPolicyAMD::CHUNK_ELEMENTS == ReduceDPPPolicy::CHUNK_ELEMENTS);
 
 // A DPP (its ParArch and its policy), a stream for it, and what the cases do with both
@@ -1161,9 +1161,10 @@ bool iopThrows(Backend<DPP>& backend, const bool inFinalIOp) {
 }
 
 // 16. Seventeen reductions that accumulate in float3: 204 bytes of accumulated values per thread, which do not fit in
-//     the shared memory of a block of 256 threads, so the GPU versions use blocks of fewer threads
-//     (reduce_detail::blockThreads). In a build without optimization they are eleven (132 bytes, which do not fit
-//     either): such a build keeps every accumulated value in the stack of the thread, and a device reserves the stack
+//     the shared memory of a block of 256 threads, so the GPU versions use blocks of fewer threads with a policy of
+//     256 (Threads256, below; reduce_detail::blockThreads), and fit in one of the 128 of the default policies. In a
+//     build without optimization they are eleven (132 bytes, which do not fit in 256 threads either): such a build
+//     keeps every accumulated value in the stack of the thread, and a device reserves the stack
 //     of a kernel for every thread that it can run. Measured with device debug information (-O0 -g -G), in the image
 //     for sm_89: 78448 bytes per thread with seventeen reductions, which are 15 GB on an RTX 4090, and 26752 with
 //     eleven, 5 GB (an optimized build needs no stack for either).
@@ -1951,13 +1952,18 @@ bool workspaceOfABatch(const char* const policy, const uint elements, const uint
 
 // A read of so many planes that the policy gives one block to each needs no workspace, although one block does not
 // reduce a plane of that size alone: planes of up to LARGE_BLOCK_ELEMENTS elements, as many as the blocks of the read
-// on the device (BLOCKS_PER_MULTIPROCESSOR for each of its multiprocessors), and 128 at least
+// on the device (BLOCKS_PER_MULTIPROCESSOR for each of its multiprocessors), and 128 at least. The default policy of
+// a backend with a floor of 8192 elements (on GPU_NVIDIA the floor is 4096, SINGLE_BLOCK_ELEMENTS: every larger plane
+// has two blocks at least)
+struct Floor8192 : ReduceDPPDefaultPolicy_t<GPU_PA> {
+    static constexpr uint LARGE_BLOCK_ELEMENTS = 8192;
+};
 bool manyPlanesNeedNoWorkspace() {
-    using DPP = ReduceDPP<>;
+    using DPP = ReduceDPP<GPU_PA, Floor8192>;
     Backend<DPP> backend("GPU");
     constexpr uint ELEMENTS = 5000;
-    const uint planes = std::max(128u, ReduceDPPDefaultPolicy_t<GPU_PA>::BLOCKS_PER_MULTIPROCESSOR *
-                                           reduce_detail::multiprocessorsOfTheDevice());
+    const uint planes =
+        std::max(128u, Floor8192::BLOCKS_PER_MULTIPROCESSOR * reduce_detail::multiprocessorsOfTheDevice());
     const auto read = ReadSet<float>::build(0.5f, ActiveThreads{ELEMENTS, 1, planes});
     auto output = makeTensor<float, DPP>(4, static_cast<int>(planes));
     backend.upload(output);
@@ -1971,7 +1977,24 @@ bool manyPlanesNeedNoWorkspace() {
              output.at(Point{1, 0, z}) == 0.5f && output.at(Point{2, 0, z}) == 1.f &&
              output.at(Point{3, 0, z}) == static_cast<float>(SENTINEL);
     }
-    return report(ok, "a block per plane of 5000 elements, without a workspace", "GPU");
+    return report(ok, "a block per plane of 5000 elements, without a workspace", "GPU, a floor of 8192 elements");
+}
+
+// Case 16 with blocks of 256 threads, where its accumulators do not fit in the shared memory of a block and the
+// execution uses fewer threads
+struct Threads256 : ReduceDPPDefaultPolicy_t<GPU_PA> {
+    static constexpr uint BLOCK_THREADS = 256;
+};
+static_assert(reduce_detail::blockThreads<Threads256, reduce_detail::Partial<BytesOf<MANY_ACCUMULATORS * 12>>>() == 128,
+              "the accumulators of case 16 do not fit in the shared memory of a block of 256 threads");
+bool threads256Cases() {
+    Backend<ReduceDPP<GPU_PA, Threads256>> backend("GPU, blocks of 256 threads");
+    bool ok = true;
+    constexpr int SIZES[3][2] = {{1, 1}, {200, 1}, {640, 480}};
+    for (const auto& size : SIZES) {
+        ok = manyAccumulators(backend, size[0], size[1]) && ok;
+    }
+    return ok;
 }
 
 // The workspace has to be aligned for its counters (uint) and for the accumulated values: with accumulators of one
@@ -3077,6 +3100,7 @@ int launch_impl() {
     ok = workspaceOfABatch<ClustersOf3>("ClustersOf3", 300000, 6) && ok;
     ok = workspaceOfABatch<BlocksOf32>("BlocksOf32", 100000, 7) && ok;
     ok = manyPlanesNeedNoWorkspace() && ok;
+    ok = threads256Cases() && ok;
     ok = workspaceAlignment() && ok;
     ok = configuredLaunches() && ok;
 #endif

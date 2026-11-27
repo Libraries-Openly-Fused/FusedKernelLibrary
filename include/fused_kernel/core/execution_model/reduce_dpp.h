@@ -196,7 +196,9 @@ namespace fk {
         // information (-O0 -g -G) keeps every accumulated value in the stack, and needs 3144 bytes per thread for one
         // float3 reduction, 11224 for five and 78448 for seventeen in the image for sm_89 (1280, 3904 and 23344 in
         // the one for sm_120), which the RTX 4090 turns into 0.4 GiB, 1.9 GiB and 14 GiB of device memory.
-        static constexpr uint BLOCK_THREADS = 256;
+        // 128 for the time of E20 against N, with LARGE_BLOCK_ELEMENTS (see there). With blocks of 128 threads,
+        // accumulators of up to 256 bytes (32768 / 128) fit in the shared memory of a block without fewer threads.
+        static constexpr uint BLOCK_THREADS = 128;
         // GPU: the largest plane that one block reduces alone. (Measured: one block is the fastest up to some 3000
         // elements on the RTX 5050 and some 5000 on the RTX 4090.)
         static constexpr uint SINGLE_BLOCK_ELEMENTS = 4096;
@@ -208,41 +210,35 @@ namespace fk {
         // BLOCKS_PER_MULTIPROCESSOR blocks per multiprocessor for all the planes together, each plane its part; but a
         // block reduces LARGE_BLOCK_ELEMENTS elements at most, and BLOCK_ELEMENTS at least. With the defaults, a plane
         // alone has 512 blocks on the RTX 4090 and 80 on the RTX 5050 (one per 512 elements when that is fewer), and
-        // blocks of 8192 elements from 4.2M and 655K elements; a batch of 30 planes of 65536 elements has 18 and 8
-        // blocks per plane (512 / 30, and 80 / 30 with 8 at least: 65536 / 8192).
+        // blocks of 4096 elements from 2.1M and 328K elements; a batch of 30 planes of 65536 elements has 18 and 16
+        // blocks per plane (512 / 30, and 80 / 30 with 16 at least: 65536 / 4096).
         // Measured with E20's read on both devices (N crops of 280 x 280 resized to 224 x 224, five statistics in
         // float and in double, N from 1 to 150), the resize of one plane of 200K and 1M elements, the five statistics
         // of a uchar matrix of 4K to 33M elements and batches of 30 x 65536 and 128 x 262144 uchar: 31 cases, the
-        // kernel time of each against the best grid measured for it. 4 blocks per multiprocessor with a floor of
-        // 16384 elements per block were within 4.0% of it on the RTX 4090 and 3.8% on the RTX 5050 (geometric means;
-        // 39% and 32% in the worst case: one resized plane of 200K elements on the first, E20 with one crop on the
-        // second), against 12.2% and 5.1% for the previous rule, 128 blocks for all the planes of 512 to 16384
-        // elements and 1024 at most. Without the floor, the large memory-bound reads of the RTX 5050 had too few
-        // blocks (33M elements took 1.16 times longer than with it); 3 and 6 blocks per multiprocessor, without it,
-        // were within 7.5% and 6.9% on the RTX 4090, and 9.1% and 9.4% on the RTX 5050.
-        // The floor is 8192 for the time of E20 against N. Once the floor sets the blocks of a crop (from N = 74 on
-        // the RTX 4090 and N = 12 on the RTX 5050, with 8192), the time grows in steps of the work of one block on
-        // the busiest multiprocessor (E20's read is bound by its double precision arithmetic there), and smaller
-        // blocks make the steps smaller: at every N from 1 to 150, the largest step between neighbouring N was 13.0
-        // us on the RTX 4090 and 14.3 us on the RTX 5050 with 8192, against 22.5 and 22.6 us with 16384, and the RMS
-        // distance of the curve from a straight line 3.18 and 2.93 us, against 3.80 and 5.45 us; E20 took 0.925 and
-        // 1.003 times the time of the previous rule (geometric means over N), and 0.941 and 1.002 with 16384. The
-        // cost is in the large reads: the uchar matrices of 8.3M and 33M elements and the batch of 128 x 262144 took
-        // 6% to 13% longer than with 16384 on the RTX 4090, and the matrices of 1M to 33M elements, that batch and
-        // the resize of 1M elements 5% to 27% longer on the RTX 5050; within 4.8% and 4.0% of the best of 11 grid
-        // rules for each of the 31 cases (geometric means), against 4.7% and 1.7% with 16384. A floor of 4096 made
-        // E20 smoother still (steps of 7.3 and 8.2 us) and the large uchar reads 15% to 32% slower than 16384.
-        // A known cost: a large plane with large accumulators, which the rule gives more blocks than the previous
-        // one. 17 float3 sums (204 bytes of accumulators per thread, so blocks of 128 threads) of one plane of 4.2M,
-        // 8.3M and 33M float3 took 25%, 11% and 32% longer than with the previous rule on the RTX 4090, with 512,
-        // 1013 and 4050 blocks against 256, 507 and 1024, and 1%, 5% and 11% longer on the RTX 5050 (with a floor
-        // of 16384: 25% longer for 4.2M and 33M on the RTX 4090, and within 2% on the RTX 5050). For such a read, a
-        // launch configuration (build_details(workspace, block, grid)) chooses fewer, larger blocks.
+        // kernel time of each against the best grid measured for it. 4 blocks per multiprocessor (of 256 threads)
+        // with a floor of 16384 elements per block were within 4.0% of it on the RTX 4090 and 3.8% on the RTX 5050
+        // (geometric means; 39% and 32% in the worst case: one resized plane of 200K elements on the first, E20 with
+        // one crop on the second), against 12.2% and 5.1% for the previous rule, 128 blocks for all the planes of 512
+        // to 16384 elements and 1024 at most. Without the floor, the large memory-bound reads of the RTX 5050 had too
+        // few blocks (33M elements took 1.16 times longer than with it); 3 and 6 blocks per multiprocessor, without
+        // it, were within 7.5% and 6.9% on the RTX 4090, and 9.1% and 9.4% on the RTX 5050.
+        // The threads of a block (BLOCK_THREADS) and the floor are 128 and 4096 for the time of E20 against N. Once
+        // the floor sets the blocks of a crop, the time grows in steps of the work of one block on the busiest
+        // multiprocessor (E20's read is bound by its double precision arithmetic on these devices), and smaller
+        // blocks make the steps smaller. Measured at every N from 1 to 150 with blocks of 128, 256 and 512 threads,
+        // 2, 3, 4, 6 and 8 blocks per multiprocessor and floors of 4096, 8192 and 16384: with 128 threads, 4 blocks
+        // per multiprocessor and 4096, the largest step between neighbouring N was 7.9 us on the RTX 4090 and 10.2 us
+        // on the RTX 5050, against 13.1 and 14.2 us with 256 threads and 8192 (and 22.5 and 22.6 us with 256 and
+        // 16384), and the RMS distance of the curve from a straight line 2.01 and 1.26 us, against 3.20 and 2.95 us;
+        // E20 took 0.967 and 0.999 times the time of 256 threads and 8192 (geometric means over N; 8.5% and 9.6%
+        // longer at the worst N, 109 and 10). Blocks of 512 threads were 2% to 13% slower. The cost is in the large
+        // memory-bound reads: with a floor of 4096 (and blocks of 256 threads), the uchar matrices of 4.2M to 33M
+        // elements and the batch of 128 x 262144 took 9% to 22% longer than with 8192 on both devices.
         // Development measurements, of two devices: a policy for one device, or a launch configuration of the caller
         // (build_details(workspace, block, grid)), can do better.
         static constexpr uint BLOCK_ELEMENTS = 512;
         static constexpr uint BLOCKS_PER_MULTIPROCESSOR = 4;
-        static constexpr uint LARGE_BLOCK_ELEMENTS = 8192;
+        static constexpr uint LARGE_BLOCK_ELEMENTS = 4096;
         // GPU_NVIDIA: use of thread block clusters, and blocks of a cluster at most: from 1 to 8, the largest
         // portable size. Where the stream accepts less (few multiprocessors that are scheduled together, as in a
         // small MIG instance), the largest cluster that it accepts is used. One cluster reduces planes of up to
@@ -262,27 +258,29 @@ namespace fk {
         static constexpr uint CHUNK_ELEMENTS = 16384;
     };
 
-    // The default policy of ReduceDPP<ParArch::GPU_AMD>: ReduceDPPPolicy with blocks of 128 threads and 12 blocks
-    // per multiprocessor, everything else the same. The threads were measured on one AMD device, an RX 9060
+    // The default policy of ReduceDPP<ParArch::GPU_AMD>: ReduceDPPPolicy with 12 blocks per multiprocessor and blocks
+    // of up to 8192 elements, everything else the same (blocks of 128 threads, which this policy had before
+    // ReduceDPPPolicy). The threads were measured on one AMD device, an RX 9060
     // (gfx1200, 28 compute units, wave32, ROCm 10.1), with the kinds of data that chose ReduceDPPPolicy: a uchar
     // matrix of 4K to 33M elements (its sum, maximum and minimum), batches of 30 planes of 65536 uchar and of 128
     // of 262144, and the resize of N crops of 280 x 280 to 224 x 224 with five statistics in float and in double (N
     // = 1, 30, 150). The time of an execution (the launch and the synchronization of the stream) is within 4.5% of
-    // the best number of blocks and threads measured for each case with 128 threads, and within 10.6% with
-    // ReduceDPPPolicy's 256 (geometric means of the 13 cases). 128 threads took 16% to 17% less time for 16M and
+    // the best number of blocks and threads measured for each case with 128 threads, and within 10.6% with 256
+    // (geometric means of the 13 cases). 128 threads took 16% to 17% less time for 16M and
     // 33M elements and for 128 planes of 262144, 8% to 9% less for 1M elements and for 30 planes of 65536, 6% more
     // (1.7 us) for a plane that one block reduces (4096 elements) and 2% more for the resize of 30 crops; for 30
     // and 150 crops every policy measured was within 1%. Another device may prefer other values. A policy derived
-    // from ReduceDPPPolicy keeps its 256 threads on GPU_AMD; with blocks of 128 threads, accumulators of up to 256
-    // bytes (32768 / 128) fit in the shared memory of a block without fewer threads. The blocks per multiprocessor
-    // (the WGPs that HIP reports: 14 on the RX 9060), with the rule of ReduceDPPPolicy and its 31 cases on the same
-    // device: 12 with a floor of 16384 elements per block were within 2.8% of the best grid measured for each case
-    // (geometric mean; 31% in the worst case), against 6.6% with 4 and 4.8% for the previous rule (development
-    // measurements, fkl-amd-benchmarks, 2026-11-27). The floor of 8192 of ReduceDPPPolicy was chosen with E20's
-    // time against N on the three devices.
+    // from ReduceDPPPolicy has its values on GPU_AMD (4 blocks per multiprocessor and blocks of up to 4096
+    // elements). The blocks per multiprocessor (the WGPs that HIP reports: 14 on the RX 9060), with the rule of
+    // ReduceDPPPolicy and its 31 cases on the same device: 12 with a floor of 16384 elements per block were within
+    // 2.8% of the best grid measured for each case (geometric mean; 31% in the worst case), against 6.6% with 4 and
+    // 4.8% for the previous rule (development measurements, fkl-amd-benchmarks, 2026-11-27). The floor, 8192, was
+    // chosen with E20's time against N there: with 12 blocks per multiprocessor, 4096 made the curve smoother but
+    // E20 5.3% slower than the previous rule, and 8192 0.4% (fkl-amd-benchmarks).
     struct ReduceDPPPolicyAMD : ReduceDPPPolicy {
         static constexpr uint BLOCK_THREADS = 128;
         static constexpr uint BLOCKS_PER_MULTIPROCESSOR = 12;
+        static constexpr uint LARGE_BLOCK_ELEMENTS = 8192;
     };
 
     // The default policy of each backend: ReduceDPPPolicy, and ReduceDPPPolicyAMD for ParArch::GPU_AMD
@@ -1041,8 +1039,8 @@ namespace fk {
             uint clusters;           // clusters of a plane (its blocks, without clusters): more than 1 need a workspace
         };
 
-        // The most blocks of a plane in a grid: 2^30, which no read reaches (2^43 elements of a plane, in blocks of
-        // 8192), so that the blocks of a grid, also rounded up to whole clusters, always fit in its x dimension
+        // The most blocks of a plane in a grid: 2^30, which no read reaches (2^42 elements of a plane, in blocks of
+        // 4096), so that the blocks of a grid, also rounded up to whole clusters, always fit in its x dimension
         constexpr ulonglong MAX_PLANE_BLOCKS = 1ull << 30;
 
         // The grid for `planes` planes of up to `elements` elements on a device of `multiprocessors` multiprocessors.
