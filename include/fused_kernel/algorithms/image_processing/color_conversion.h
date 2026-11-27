@@ -41,7 +41,9 @@ namespace fk {
 
     enum class GrayFormula { CCIR_601 };
 
-    template <typename I, typename O = VBase<I>, GrayFormula GF = GrayFormula::CCIR_601>
+    // The luminance of an RGB pixel, always as a float: to round it or cast it to another type, add operations after it,
+    // for instance SaturateCast<float, uchar> (rounded to the nearest integer, ties to even, and clamped to [0, 255]).
+    template <typename I, typename O = float, GrayFormula GF = GrayFormula::CCIR_601>
     struct RGB2Gray {};
 
     template <typename I, typename O>
@@ -52,23 +54,13 @@ namespace fk {
         FK_STATIC_STRUCT(RGB2Gray, SelfType)
         using Parent = UnaryOperation<I, O, RGB2Gray<I, O, GrayFormula::CCIR_601>>;
         DECLARE_UNARY_PARENT
+        static_assert(std::is_same_v<O, float>,
+                      "RGB2Gray (and ColorConversion of COLOR_RGB2GRAY, COLOR_RGBA2GRAY, COLOR_BGR2GRAY and COLOR_BGRA2GRAY) gives "
+                      "the luminance as a float: O must be float. To round it or cast it, add operations after it, for "
+                      "instance SaturateCast<float, uchar> (rounded to the nearest integer and clamped) or Cast<float, T>");
         FK_HOST_DEVICE_FUSE OutputType exec(const InputType input) {
-            // 0.299*R + 0.587*G + 0.114*B
-            if constexpr (std::is_unsigned_v<OutputType>) {
-#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
-                return __float2uint_rn(compute_luminance(input));
-#else
-                return static_cast<OutputType>(std::nearbyint(compute_luminance(input)));
-#endif
-            } else if constexpr (std::is_signed_v<OutputType>) {
-#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
-                return __float2int_rn(compute_luminance(input));
-#else
-                return static_cast<OutputType>(std::nearbyint(compute_luminance(input)));
-#endif
-            } else if constexpr (std::is_floating_point_v<OutputType>) {
-                return compute_luminance(input);
-            }
+            // 0.299*R + 0.587*G + 0.114*B, as a float, not rounded
+            return compute_luminance(input);
         }
     private:
         FK_HOST_DEVICE_FUSE float compute_luminance(const InputType input) {

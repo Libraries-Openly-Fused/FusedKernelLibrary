@@ -14,6 +14,7 @@
    limitations under the License. */
 
 #include <fused_kernel/algorithms/image_processing/color_conversion.h>
+#include <fused_kernel/algorithms/image_processing/saturate.h>
 #include <fused_kernel/algorithms/basic_ops/logical.h>
 #include <fused_kernel/core/utils/vector_utils.h>
 #include <fused_kernel/core/utils/type_to_string.h>
@@ -54,7 +55,32 @@ void testRGB2GrayConversion() {
         29     // 0.114*255 ≈ 29.07 -> 29
     };
 
-    TestCaseBuilder<fk::RGB2Gray<fk::uchar3, uchar>>::addTest(testCases, inputVals, expectedVals);
+    // RGB2Gray gives a float: the 8-bit grey is RGB2Gray then SaturateCast<float, uchar>
+    TestCaseBuilder<fk::FusedOperation<fk::Unary<fk::RGB2Gray<fk::uchar3>>, fk::Unary<fk::SaturateCast<float, uchar>>>>::addTest(
+        testCases, inputVals, expectedVals);
+}
+
+// RGB2Gray gives the luminance as a float, with its fraction (it was rounded to an integer, because std::is_signed_v is
+// true for float and double), with O = float and with the default O; an integer grey is RGB2Gray followed by
+// SaturateCast<float, int> or <float, uint>, rounded as the 8-bit one. Each pixel has one channel that is not zero, so the
+// luminance is one product, the same in float however the compiler contracts the sum (a product and additions of zero,
+// or fused multiply-adds with zero).
+void testRGB2GrayOutputTypes() {
+    constexpr std::array<fk::uchar3, 4> inputVals{fk::uchar3{255, 0, 0}, fk::uchar3{0, 255, 0}, fk::uchar3{0, 0, 255},
+                                                 fk::uchar3{0, 0, 0}};
+    constexpr std::array<float, 4> expectedFloat{255.f * 0.299f, 255.f * 0.587f, 255.f * 0.114f, 0.f};
+    static_assert(expectedFloat[0] != 76.f && expectedFloat[1] != 150.f && expectedFloat[2] != 29.f,
+                  "the floating point luminances of the test have a fraction");
+    constexpr std::array<int, 4> expectedInt{76, 150, 29, 0};
+    constexpr std::array<uint, 4> expectedUint{76u, 150u, 29u, 0u};
+    static_assert(std::is_same_v<fk::RGB2Gray<fk::uchar3>::OutputType, float>, "RGB2Gray gives a float by default");
+    TestCaseBuilder<fk::RGB2Gray<fk::uchar3, float>>::addTest(testCases, inputVals, expectedFloat);
+    static_assert(std::is_same_v<fk::ColorConversion<fk::ColorConversionCodes::COLOR_RGB2GRAY, fk::uchar3, float>, fk::RGB2Gray<fk::uchar3>>,
+                  "ColorConversion of COLOR_RGB2GRAY is RGB2Gray (tested above: a test of the same type would replace it)");
+    TestCaseBuilder<fk::FusedOperation<fk::Unary<fk::RGB2Gray<fk::uchar3>>, fk::Unary<fk::SaturateCast<float, int>>>>::addTest(
+        testCases, inputVals, expectedInt);
+    TestCaseBuilder<fk::FusedOperation<fk::Unary<fk::RGB2Gray<fk::uchar3>>, fk::Unary<fk::SaturateCast<float, uint>>>>::addTest(
+        testCases, inputVals, expectedUint);
 }
 
 // Test AddOpaqueAlpha functionality
@@ -121,7 +147,9 @@ void testStaticAddAlpha() {
 void testBGR2Gray() {
     // Test BGR2Gray with CCIR_601 formula  
     // Formula uses input.x * 0.299 + input.y * 0.587 + input.z * 0.114
-    using BGR2GrayTest = fk::RGB2Gray<fk::uchar3, uchar, fk::GrayFormula::CCIR_601>;
+    // The 8-bit grey: RGB2Gray (a float) then SaturateCast<float, uchar>
+    using BGR2GrayTest = fk::FusedOperation<fk::Unary<fk::RGB2Gray<fk::uchar3, float, fk::GrayFormula::CCIR_601>>,
+                                            fk::Unary<fk::SaturateCast<float, uchar>>>;
 
     std::array<fk::uchar3, 2> inputVals = {
         fk::uchar3{50, 100, 150},   // x=50, y=100, z=150
@@ -151,16 +179,17 @@ void testFusedColorConversionAliases() {
         static_cast<uchar>(std::nearbyint(150 * 0.299f + 100 * 0.587f + 50 * 0.114f)),
         static_cast<uchar>(std::nearbyint(200 * 0.299f + 125 * 0.587f + 75 * 0.114f))
     };
-    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2GRAY, fk::uchar3, uchar>>::
-        addTest(testCases, inBGR, expGray);
+    // The alias gives a float; the 8-bit grey is the alias then SaturateCast<float, uchar>
+    TestCaseBuilder<fk::FusedOperation<fk::Unary<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGR2GRAY, fk::uchar3, float>>,
+                                       fk::Unary<fk::SaturateCast<float, uchar>>>>::addTest(testCases, inBGR, expGray);
 
     // COLOR_BGRA2GRAY: reorder(2,1,0,3) then RGB2Gray (alpha discarded by formula)
     std::array<fk::uchar4, 2> inBGRA = {
         fk::uchar4{50, 100, 150, 255},
         fk::uchar4{75, 125, 200, 128}
     };
-    TestCaseBuilder<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGRA2GRAY, fk::uchar4, uchar>>::
-        addTest(testCases, inBGRA, expGray);
+    TestCaseBuilder<fk::FusedOperation<fk::Unary<fk::ColorConversion<fk::ColorConversionCodes::COLOR_BGRA2GRAY, fk::uchar4, float>>,
+                                       fk::Unary<fk::SaturateCast<float, uchar>>>>::addTest(testCases, inBGRA, expGray);
 
     // COLOR_BGR2RGBA: reorder(2,1,0) then AddOpaqueAlpha
     std::array<fk::uchar4, 2> expRGBA = {
@@ -375,6 +404,7 @@ testIsEvenFunction();
 
 // Test RGB2Gray conversion
 testRGB2GrayConversion();
+testRGB2GrayOutputTypes();
 
 // Test AddOpaqueAlpha
 testAddOpaqueAlpha();
