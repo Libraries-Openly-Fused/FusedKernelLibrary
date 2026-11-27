@@ -360,9 +360,10 @@ public:
 // the output may be the input. The buffers the IOps use must stay valid
 // until done is called.
 // The lambdas capture reducers as `reducers = reducers`, a copy that is not
-// const: the pool and the stream move them, and moving a const fk::Tuple of
-// one element selects Tuple's forwarding constructor instead of its copy
-// constructor, which does not compile.
+// const, which the pool and the stream move. (It was needed while moving a
+// const fk::Tuple of one element selected Tuple's forwarding constructor
+// instead of its copy constructor, which did not compile: that constructor
+// is constrained now, see tuple.h, and a plain capture compiles too.)
 template <typename DPPDetails>
 struct MorphologyDPP<ParArch::CPU_MULTITHREAD, DPPDetails> {
 private:

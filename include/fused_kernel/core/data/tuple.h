@@ -69,8 +69,12 @@ namespace fk {
         // 1. Tuple<int>(10)         -> moves 10
         // 2. Tuple<int&>(x)         -> references x
         // 3. Tuple<int&&>(std::move(x)) -> moves x
+        // Not a Tuple of one element built from another one of its own type: that is a copy or a move, which this
+        // constructor would otherwise take from the copy constructor for the arguments that it matches better (an
+        // lvalue Tuple that is not const, or a const Tuple that is moved), and then fail to compile.
         template <typename... Us,
-            typename = std::enable_if_t<sizeof...(Us) == sizeof...(Ts)>>
+            typename = std::enable_if_t<sizeof...(Us) == sizeof...(Ts) &&
+                                        !(sizeof...(Us) == 1 && (std::is_same_v<std::decay_t<Us>, Tuple> && ...))>>
             FK_HOST_DEVICE_CNST Tuple(Us&&... args)
             : Base(std::forward<Us>(args)...) {}
     };
