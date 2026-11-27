@@ -103,6 +103,13 @@ namespace {
 template <ParArch PA>
 constexpr bool IS_GPU = PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD;
 
+#if defined(__NVCC__)
+// The ParArch of the GPU of the build
+constexpr ParArch GPU_PA = ParArch::GPU_NVIDIA;
+#elif defined(FK_HIP_BACKEND)
+constexpr ParArch GPU_PA = ParArch::GPU_AMD;
+#endif
+
 // A DPP (its ParArch and its policy), a stream for it, and what the cases do with both
 template <typename DPP>
 struct Backend {
@@ -2001,9 +2008,10 @@ bool workspaceAlignment() {
 }
 #endif // defined(__NVCC__) || defined(FK_HIP_BACKEND)
 
-#if defined(__NVCC__)
+#if defined(__NVCC__) || defined(FK_HIP_BACKEND)
 // A read without memory that gives, on the device, the index in x of the block that executes it, and the architecture
-// that the image of the kernel that executes it was compiled for (__CUDA_ARCH__: 890 for compute capability 8.9)
+// that the image of the kernel that executes it was compiled for (__CUDA_ARCH__: 890 for compute capability 8.9; 0 on
+// GPU_AMD, whose kernels have no clusters)
 struct BlockAndImageRead {
 private:
     using SelfType = BlockAndImageRead;
@@ -2020,6 +2028,8 @@ public:
     FK_HOST_DEVICE_STATIC OutputType exec(const Point, const ParamsType&) {
 #if defined(__CUDA_ARCH__)
         return make_<uint2>(blockIdx.x, static_cast<uint>(__CUDA_ARCH__));
+#elif defined(__HIP_DEVICE_COMPILE__)
+        return make_<uint2>(blockIdx.x, 0u);
 #else
         return make_<uint2>(0u, 0u);
 #endif
@@ -2049,7 +2059,7 @@ public:
 // execution that throws std::invalid_argument.
 template <typename Policy>
 uint2 blocksThatRead(const uint elements, const bool withWorkspace) {
-    using DPP = ReduceDPP<ParArch::GPU_NVIDIA, Policy>;
+    using DPP = ReduceDPP<GPU_PA, Policy>;
     Backend<DPP> backend("GPU");
     auto output = makeOutput<uint2, DPP>(1);
     backend.upload(output);
@@ -2074,10 +2084,12 @@ uint2 blocksThatRead(const uint elements, const bool withWorkspace) {
     return make_<uint2>(seen.x + 1u, seen.y);
 }
 
+#if defined(__NVCC__)
 // A kernel that does nothing: what the driver says about the clusters of the device does not depend on the kernels of
 // ReduceDPP
 template <typename T>
 __global__ void clusterProbe_Kernel(const T) {}
+#endif
 
 // What the device of the run launches: the architecture of the image of the kernels that the driver runs on it, as
 // the image itself says, and the blocks of the largest cluster that can be launched there, as the driver says for a
@@ -2096,6 +2108,10 @@ struct Device {
 };
 
 Device deviceOfTheRun() {
+#if defined(FK_HIP_BACKEND)
+    // GPU_AMD has no clusters: every plane that needs more than one block has them synchronize through the workspace
+    return {blocksThatRead<LaunchAuto>(1, NO_WORKSPACE).y, 1u};
+#else
     Backend<ReduceDPP<>> backend("GPU");
     const uint architecture = blocksThatRead<LaunchAuto>(1, NO_WORKSPACE).y;
     uint clusterBlocks = 1;
@@ -2112,6 +2128,7 @@ Device deviceOfTheRun() {
         clusterBlocks = largest < 2 ? 1u : (largest > 8 ? 8u : static_cast<uint>(largest));
     }
     return {architecture, clusterBlocks};
+#endif
 }
 
 // Whether the blocks that read `elements` elements with a policy, in an execution with a workspace or without one,
@@ -2136,7 +2153,7 @@ bool readByBlocks(const char* const policy, const uint elements, const bool with
 // of the blocks counted for all of them
 template <typename Policy>
 bool batchReadByBlocks(const char* const policy, const uint elements, const uint planes, const Device& device) {
-    using DPP = ReduceDPP<ParArch::GPU_NVIDIA, Policy>;
+    using DPP = ReduceDPP<GPU_PA, Policy>;
     Backend<DPP> backend("GPU");
     Tensor<uint2> output(1, 1, planes, 1, Backend<DPP>::MEMORY);
     for (int z = 0; z < static_cast<int>(planes); ++z) {
@@ -2170,6 +2187,9 @@ bool batchReadByBlocks(const char* const policy, const uint elements, const uint
 //     the policy gives it: without a workspace, a plane of 20000 elements is read by the 8 blocks of one cluster
 //     where there are clusters of 8, and the execution throws where there are none; with a workspace, by 40 blocks.
 bool levelsOfTheKernel(const Device& device) {
+#if defined(FK_HIP_BACKEND)
+    std::printf("ReduceDPP GPU: GPU_AMD, without thread block clusters: the cluster level is not run\n");
+#else
     if (device.clusterBlocks > 1) {
         std::printf("ReduceDPP GPU: this device runs the kernels compiled for the architecture %u, with thread block "
                     "clusters of up to %u blocks\n", device.architecture, device.clusterBlocks);
@@ -2177,6 +2197,7 @@ bool levelsOfTheKernel(const Device& device) {
         std::printf("ReduceDPP GPU: this device runs the kernels compiled for the architecture %u, WITHOUT thread "
                     "block clusters: the cluster level is not run\n", device.architecture);
     }
+#endif
     bool ok = true;
     for (const bool withWorkspace : {NO_WORKSPACE, WITH_WORKSPACE}) {
         // AUTO: one block; without a workspace, one cluster where the device has them and the plane fits, and an
@@ -2244,6 +2265,9 @@ bool withoutWorkspace(const Device& device) {
     return report(ok, "executions without a workspace", backend.name);
 }
 
+#endif // defined(__NVCC__) || defined(FK_HIP_BACKEND)
+
+#if defined(__NVCC__)
 // A FirstIOp that needs many registers: a chain of values, each one computed from the previous one, that are all
 // used at the end in the opposite order
 struct ManyRegisters {
@@ -2771,6 +2795,16 @@ int launch_impl() {
     ok = workspaceOfABatch<BlocksOf32>("BlocksOf32", 100000, 7) && ok;
     ok = manyPlanesNeedNoWorkspace() && ok;
     ok = workspaceAlignment() && ok;
+#endif
+#if defined(FK_HIP_BACKEND)
+    // GPU_AMD has no clusters: ClustersOf3 launches plain blocks of 700 elements, which synchronize through the
+    // workspace
+    const Device device = deviceOfTheRun();
+    ok = splitCases<ReduceDPP<ParArch::GPU_AMD, NoClusters>>("GPU, without clusters") && ok;
+    ok = splitCases<ReduceDPP<ParArch::GPU_AMD, ClustersOf3>>("GPU, the policy of clusters of 3 blocks") && ok;
+    ok = splitCases<ReduceDPP<ParArch::GPU_AMD, BlocksOf32>>("GPU, blocks of 32 threads") && ok;
+    ok = levelsOfTheKernel(device) && ok;
+    ok = withoutWorkspace(device) && ok;
 #endif
 #if defined(__NVCC__)
     ok = splitCases<ReduceDPP<ParArch::GPU_NVIDIA, NoClusters>>("GPU, without clusters") && ok;
