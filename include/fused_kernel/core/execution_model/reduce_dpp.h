@@ -1231,6 +1231,10 @@ namespace fk {
                 lastToArrive = reduce_detail::Arrival::exec(Point{z, 0, 0}, details.workspace.arrival) ==
                                static_cast<uint>(clusters - 1);
                 if (lastToArrive) {
+                    // The arrival is a relaxed atomic: the fence after it, which pairs with the fence of every other
+                    // cluster before its arrival, makes the values that they stored visible to this block, whose
+                    // threads read them after the __syncthreads below
+                    __threadfence();
                     // Every cluster of the plane has counted itself: the counter is zero again for the next execution
                     PerThreadWrite<ND::_1D, uint>::exec(Point{z, 0, 0}, 0u, details.workspace.reset);
                 }
