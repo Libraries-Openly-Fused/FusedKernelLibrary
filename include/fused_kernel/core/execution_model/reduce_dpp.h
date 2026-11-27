@@ -232,6 +232,12 @@ namespace fk {
         // the resize of 1M elements 5% to 27% longer on the RTX 5050; within 4.8% and 4.0% of the best of 11 grid
         // rules for each of the 31 cases (geometric means), against 4.7% and 1.7% with 16384. A floor of 4096 made
         // E20 smoother still (steps of 7.3 and 8.2 us) and the large uchar reads 15% to 32% slower than 16384.
+        // A known cost: a large plane with large accumulators, which the rule gives more blocks than the previous
+        // one. 17 float3 sums (204 bytes of accumulators per thread, so blocks of 128 threads) of one plane of 4.2M,
+        // 8.3M and 33M float3 took 25%, 11% and 32% longer than with the previous rule on the RTX 4090, with 512,
+        // 1013 and 4050 blocks against 256, 507 and 1024, and 1%, 5% and 11% longer on the RTX 5050 (with a floor
+        // of 16384: 25% longer for 4.2M and 33M on the RTX 4090, and within 2% on the RTX 5050). For such a read, a
+        // launch configuration (build_details(workspace, block, grid)) chooses fewer, larger blocks.
         // Development measurements, of two devices: a policy for one device, or a launch configuration of the caller
         // (build_details(workspace, block, grid)), can do better.
         static constexpr uint BLOCK_ELEMENTS = 512;
