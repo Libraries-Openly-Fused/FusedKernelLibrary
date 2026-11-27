@@ -154,6 +154,69 @@ This novel type of Horizontal Fusion, allows to Horizontally Fuse kernels that a
 
 This has been tested before, by creating special compilers that generate the assembly code, and the performance benefits have been already reported. The novelty in our approach is that we do not require a different compiler. We do this by leveraging the C++17 capabilities found in nvcc.
 
+## Reductions: ReduceDPP
+
+`TransformDPP` gives every thread one element to transform. `ReduceDPP` (`fused_kernel/core/execution_model/reduce_dpp.h`, which the code that uses it includes) is the DPP for the opposite case: from 1 to N reductions of the same data, reading every element once.
+
+```C++
+#include <fused_kernel/fused_kernel.h>
+#include <fused_kernel/core/execution_model/reduce_dpp.h>
+#include <fused_kernel/core/data/ptr_utils.h>
+#include <fused_kernel/algorithms/basic_ops/arithmetic.h>
+#include <fused_kernel/algorithms/basic_ops/cast.h>
+#include <fused_kernel/algorithms/basic_ops/logical.h>
+
+using namespace fk;
+
+Stream stream;
+const Ptr2D<fk::uchar3> image = getGPUSourceImage(stream);
+Ptr1D<fk::float3> results(3); // one element per reduction
+
+// The mean, the maximum and the minimum of every channel of the image, in one kernel
+const float pixels = static_cast<float>(image.dims().width * image.dims().height);
+const auto read = PerThreadRead<ND::_2D, fk::uchar3>::build(image);
+const auto reductions = make_tuple(
+    make_tuple(Cast<fk::uchar3, fk::float3>::build(),                           // FirstIOp
+               Add<fk::float3, fk::float3, fk::float3, UnaryType>::build(),     // AccumulationIOp
+               Div<fk::float3>::build(make_set<fk::float3>(pixels))),           // FinalIOp
+    make_tuple(Cast<fk::uchar3, fk::uchar3>::build(),
+               Max<fk::uchar3, fk::uchar3, fk::uchar3, UnaryType>::build(),
+               Cast<fk::uchar3, fk::float3>::build()),
+    make_tuple(Cast<fk::uchar3, fk::uchar3>::build(),
+               Min<fk::uchar3, fk::uchar3, fk::uchar3, UnaryType>::build(),
+               Cast<fk::uchar3, fk::float3>::build()));
+const auto write = PerThreadWrite<ND::_1D, fk::float3>::build(results);
+
+// Once: the workspace, device memory where the thread blocks of a plane leave their values. It starts at zero.
+const size_t bytes = ReduceDPP<>::workspaceBytes(read, reductions); // 0 when no workspace is needed
+Ptr1D<uchar> workspace(static_cast<uint>(bytes));
+if (bytes > 0) {
+    setTo(uchar{0}, workspace, stream);
+}
+
+// Every time
+executeOperations<ReduceDPP<>>(stream, ReduceDPP<>::build_details(workspace), read, reductions, write);
+
+stream.sync();
+```
+
+- The read is any complete read: a Read, a ReadBack (`read.then(Crop<>::build(rect))`), a batch of them, or a read with operations fused after it. A 1D source is a plane of height 1.
+- Each reduction is a `Tuple<FirstIOp, AccumulationIOp, FinalIOp>` of compute IOps. `FirstIOp` is applied to every element read and gives a value of the accumulator type, which is the `OutputType` of the `AccumulationIOp`. `AccumulationIOp` takes a `Tuple` of two accumulated values and gives one (`Add<A, A, A, UnaryType>`, `Max<A, A, A, UnaryType>`...): it must be associative and commutative, because the elements are not accumulated in the order of the data, and it needs no neutral element. `FinalIOp` is applied once, to the accumulated value. The accumulators of the reductions can have different types; `Cast<T, T>` is the operation that does nothing, for a scalar or a vector `T`.
+- The write receives the value of reduction `i` at `Point{i, 0, z}`: a `float3` matrix with three reductions becomes three `float3` values. Every plane `z` of the read (the images of a batch, the planes of a 3D read) is reduced on its own, at its own size, so a batch of `B` images with `N` reductions writes `B` planes of `N` values (`TensorWrite` on a `Tensor<T>(N, 1, B)`, or a batch of writes). A write without `N` elements in x, without rows or with other planes than the read, and a read without elements, throw `std::invalid_argument`; a plane without elements, among planes that have them, is not written. The values of a plane are written when all its elements have been read, so the output of a plane can be the memory that the same plane reads; it must not overlap what another plane reads.
+- The DPP does not operate on the values, it only passes them from one IOp to the next, so the elements and the accumulators can be scalars, vectors or any other trivially copyable type (a `Tuple<float, uint>` of a sum and a count, for instance, with the operations that know how to add and divide it: `Cast`, and the reads and writes of memory of the library, only work with scalars and vectors). An accumulator also has to be default constructible, copy constructible and copy assignable, which the executors check, and it is meant to be small: on a GPU, one with arrays of some KB (a histogram) makes the device reserve GBs of memory for the stacks of its threads (`ReduceDPPPolicy::BLOCK_THREADS` has the numbers). `FirstIOp` has to give exactly the accumulator type: a conversion is a `Cast` in the `FirstIOp`.
+
+On a GPU it is one kernel: each thread accumulates elements in registers, the threads of a block accumulate in shared memory, and when a plane has more than one block, the blocks store their values in device memory and the last one to arrive accumulates them. That device memory is the workspace of the example, which the caller owns: the GPU executors allocate no memory, and an execution is one kernel launch, asynchronous, that can be captured in a CUDA graph as any other (the workspace has to live as long as the graph).
+
+- `workspaceBytes` is 0 when one block reduces every plane (planes of up to 4096 elements with the default policy), and on the CPU backends, which need no workspace: the code of the example is the same for every backend. A read that needs none can also be executed without details, `executeOperations<ReduceDPP<>>(stream, read, reductions, write)`. An execution that needs a workspace and has none, or a smaller one, throws `std::invalid_argument`, which says the bytes that it needs.
+- The workspace has to be zero the first time it is used: its first bytes are counters, which every execution leaves at zero again. After that any execution of `ReduceDPP`, of any read and reductions that it is large enough for, can use it, as long as two that use it do not run at the same time: the executions of one stream can share one.
+- A read has 65535 planes at most on a GPU (the planes are the z of the grid), and the grid covers the largest plane. Each plane has its part of the blocks of the read, counted as if every plane had the elements of the largest one, so in a read of many planes of very different sizes the large ones are reduced by few blocks, and such planes are better reduced in one execution per size: an image of 2048 x 1024 has 128 blocks alone, 32 among 31 images of 10 x 10 and 8 among 127, and those reads took 2 and 5.8 times longer than two executions (the large image, and the small ones) on an RTX 4090, and 1.1 and 2.4 times on an RTX 5050.
+
+On the NVIDIA GPUs with thread block clusters (compute capability 9.0 and newer) the blocks of a cluster read each other's shared memory, so a cluster reduces a plane without device memory: an execution without a workspace reduces there planes of up to 8 blocks of 4096 elements (32768), each with one cluster. With a workspace no cluster is launched, on any GPU, because clusters measured no faster on an RTX 5050: one cluster of 8 blocks took the same time as the same 8 blocks synchronized through the workspace (10.3 us both, for 16K elements, in a build for that architecture alone; 4% to 5% longer in a build that also has an architecture without clusters, where the launch of a cluster asks the driver which image runs), a plane reduced alone gets more blocks than 8 with the workspace, which are faster (the cluster took 4% to 15% longer in that build, for 8K to 32K elements of a uchar matrix and of a resize in float and in double), and the blocks of larger planes in clusters of 8 took from 1.3 to 3.4 times longer than out of clusters (49K to 33M elements), because the device runs few clusters at a time. `ReduceDPPPolicy::CLUSTERS` is that choice (`ReduceDPPClusters::AUTO`; `ALWAYS` uses clusters for every plane of more than one block, with or without a workspace, and `NEVER` for none).
+
+Both versions are in the same kernel under the same `ParArch::GPU_NVIDIA`, and the one of each compute capability is chosen at compile time: `__CUDA_ARCH__` selects the code of each architecture of the build when its image of the kernel is compiled, and `__CUDA_ARCH_LIST__` tells the host code which architectures those are, so a build without architectures with clusters has no host code for them. Which of the images of a build a device runs is only known at run time: in a build with architectures of both kinds, the executions that would launch clusters ask the driver for it, and in every build with architectures with clusters they ask it for the largest cluster that the device accepts. With the default policy, an execution with a workspace asks the driver nothing, and launches the same grid on every device.
+
+`ParArch::CPU` and `ParArch::CPU_MULTITHREAD` split every plane in chunks of consecutive elements, the same ones in both, and give the same results: bit for bit with integers and with plain additions of floats, and up to the last bits where a multiplication of the `FirstIOp` feeds the accumulation, because the compiler can contract `a * b + c` differently in each of them. `ParArch::GPU_AMD` is the GPU version without clusters. The second template parameter of `ReduceDPP` (`ReduceDPPPolicy` by default) has the sizes of the blocks, of the clusters and of the chunks, and what was measured to choose them: the blocks are counted for all the planes of a read together (128 for 64K to 2M elements, with the defaults), a compromise between an RTX 4090 and an RTX 5050 that a policy for one device can improve. A reduction whose accumulation is not exact, like a sum of floats, gives results that depend on that split, and so on the backend. On a GPU the blocks of a plane also depend on the other planes of the read (how many they are, and the largest one), so such a result can differ in its last bits between an image reduced alone and the same image in a batch; the threads of a block depend on the bytes of all the accumulators of the execution (fewer than `BLOCK_THREADS` when they are more than 128 bytes), so it can also differ when reductions are added to an execution, and, where there are clusters, between an execution with a workspace and one without; the CPU backends split every plane by its own size only.
+
 ## Backends and building
 
 Each test and utest is built once per enabled backend: `_cpp` (CPU, `ParArch::CPU`), `_cu` (CUDA with nvcc, `ParArch::GPU_NVIDIA`) and `_hip` (HIP with amdclang++, `ParArch::GPU_AMD`), except for the test and utest sources marked `__ONLY_CU__`, `__ONLY_CPU__` or `__ONLY_GPU__` (CUDA and HIP). CUDA and HIP are optional: `ENABLE_CUDA` and `ENABLE_HIP` are ON by default and are disabled when nvcc or amdclang++ is not found. Every backend compiles as C++17.

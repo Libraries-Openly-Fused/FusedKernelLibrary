@@ -92,6 +92,86 @@ Discard<uchar4, uchar3>::build()             // drop alpha
 SaturateCast<float3, uchar3>::build()        // clamp + convert
 ```
 
+### Reductions of the same data in one kernel (ReduceDPP)
+
+```cpp
+#include <fused_kernel/core/execution_model/reduce_dpp.h>   // not included by fused_kernel.h
+#include <fused_kernel/core/data/ptr_utils.h>               // setTo
+#include <fused_kernel/algorithms/basic_ops/arithmetic.h>   // Add, Div
+#include <fused_kernel/algorithms/basic_ops/cast.h>         // Cast
+#include <fused_kernel/algorithms/basic_ops/logical.h>      // Max, Min
+
+// (fk:: on the vector types: under HIP, uchar3 and float3 are also names of hip_runtime.h)
+Ptr1D<fk::float3> results(3);                              // one element per reduction
+const float pixels = static_cast<float>(image.dims().width * image.dims().height);
+const auto read = PerThreadRead<ND::_2D, fk::uchar3>::build(image);   // any complete read
+const auto reductions = make_tuple(                        // Tuple<FirstIOp, AccumulationIOp, FinalIOp>...
+    make_tuple(Cast<fk::uchar3, fk::float3>::build(),
+               Add<fk::float3, fk::float3, fk::float3, UnaryType>::build(),
+               Div<fk::float3>::build(make_set<fk::float3>(pixels))),         // mean
+    make_tuple(Cast<fk::uchar3, fk::uchar3>::build(),
+               Max<fk::uchar3, fk::uchar3, fk::uchar3, UnaryType>::build(),
+               Cast<fk::uchar3, fk::float3>::build()),                         // maximum
+    make_tuple(Cast<fk::uchar3, fk::uchar3>::build(),
+               Min<fk::uchar3, fk::uchar3, fk::uchar3, UnaryType>::build(),
+               Cast<fk::uchar3, fk::float3>::build()));                        // minimum
+const auto write = PerThreadWrite<ND::_1D, fk::float3>::build(results);   // reduction i at Point{i, 0, z}
+
+const size_t bytes = ReduceDPP<>::workspaceBytes(read, reductions);   // once; 0: no workspace needed
+Ptr1D<uchar> workspace(static_cast<uint>(bytes));
+if (bytes > 0) setTo(uchar{0}, workspace, stream);                    // it must start at zero
+executeOperations<ReduceDPP<>>(stream, ReduceDPP<>::build_details(workspace), read, reductions, write);
+```
+
+- The image is read ONCE for the N reductions. FirstIOp runs on every
+  element and gives exactly the accumulator type (the OutputType of the
+  AccumulationIOp: put the `Cast` in FirstIOp), AccumulationIOp is a
+  compute IOp on `Tuple<A, A>` (associative and commutative, no neutral
+  element needed), FinalIOp runs once on the accumulated value.
+  `Cast<T, T>` does nothing (T a scalar or a vector).
+- Accumulators: scalars, vectors, or any small trivially copyable type
+  that is default constructible, copy constructible and copy assignable
+  (a `Tuple<float, uint>`, a struct), with user IOps that operate on
+  it. Keep them small: on a GPU, accumulators with arrays of KBs
+  (histograms) reserve GBs of device memory for thread stacks.
+- Every plane of the read (batch, 3D) is reduced on its own, at its own
+  size: B images and N reductions write B planes of N values
+  (`TensorWrite` on `Tensor<T>(N, 1, B)`).
+- A write too small for the reductions, without rows, or with other
+  planes than the read, and an empty read, throw `std::invalid_argument`.
+- The workspace is device memory that the caller owns: allocate and
+  zero it ONCE and reuse it. One per stream is enough (executions that
+  share it must not run at the same time). A GPU read with planes of
+  more than one block (4096 elements by default) throws
+  `std::invalid_argument` without it, saying the bytes it needs (on
+  NVIDIA GPUs with compute capability 9.0 or newer, in a build for
+  such an architecture, planes of up to 32768 elements still run
+  without it, in one thread block cluster).
+  `workspaceBytes` is 0 for smaller reads and on the CPU backends, and
+  then `executeOperations<ReduceDPP<>>(stream, read, reductions, write)`
+  is enough.
+- An execution is one asynchronous kernel launch that allocates
+  nothing: it can be captured in a CUDA graph (keep the workspace alive
+  as long as the graph). A GPU read has 65535 planes at most.
+- Many planes: the blocks are shared among the planes of the read, as
+  if all of them had the size of the largest one, so a batch is one
+  launch sized for all of it. Reduce planes of very different sizes in
+  one execution per size: among many small planes a large one gets few
+  blocks (an image of 2048 x 1024 among 127 of 10 x 10 took 5.8 times
+  longer than as two executions on an RTX 4090, 2.4 on an RTX 5050).
+  For expensive reads on a known GPU, tune `ReduceDPPPolicy::BLOCKS`
+  (second template parameter; about 2 blocks per multiprocessor
+  measured within 2% of the best).
+- The output of a plane may be the memory that the same plane reads. It
+  must not overlap what another plane reads.
+- Sums of floats depend on the order of the additions, which is not the
+  same on every backend, nor, on a GPU, for an image alone and for the
+  same image in a batch: accumulate in an integer type when the result
+  has to be identical everywhere, and in `double` (FirstIOp
+  `Cast<float, double>`) when it only has to be more accurate.
+- Same call on every backend: `ReduceDPP<ParArch::CPU>` with
+  `Stream_<ParArch::CPU>`, `ReduceDPP<ParArch::CPU_MULTITHREAD>`...
+
 ## Streams
 
 - `Stream stream;` creates an owning CUDA stream; `stream.sync()` waits.
