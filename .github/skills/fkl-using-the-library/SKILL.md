@@ -115,7 +115,7 @@ The same pipelines run on CPU: `executeOperations<TransformDPP<ParArch::CPU>>` w
 
 ### Multithreaded CPU: ParArch::CPU_MULTITHREAD
 
-Available when `FK_CPU_MULTITHREAD_ENABLED` is defined (CMake option `ENABLE_CPU_MULTITHREAD`, ON when the `thread-pool` submodule is checked out: clone with `--recursive`). The work runs on `fk::cpuThreadPool()`, shared by all streams (one worker per hardware thread), with the same results as `ParArch::CPU`. Every DPP has it except the GPU-only attention DPPs; the filter entry points (`executeLinearFilter`, `executeMorphology`, `executeBoxFilterQuad`, ...) have `Stream_<ParArch::CPU_MULTITHREAD>&` overloads.
+Available when `FK_CPU_MULTITHREAD_ENABLED` is defined (CMake option `ENABLE_CPU_MULTITHREAD`, ON when the `thread-pool` submodule is checked out: clone with `--recursive`). The work runs on `fk::cpuThreadPool()`, shared by all streams (one worker per hardware thread), with the same results as `ParArch::CPU`. Every DPP has it except the GPU-only attention DPPs: the image-processing DPPs run with `executeOperations<LinearFilterDPP<ParArch::CPU_MULTITHREAD, Details>>(stream, details, ...)`, `MorphologyDPP`, `BoxFilterQuadDPP` and the others likewise, on a `Stream_<ParArch::CPU_MULTITHREAD>&`. Every DPP runs through `executeOperations<DPP>(stream, details, iOps...)`, with one kernel per call on a GPU; invalid details throw `std::invalid_argument` before anything runs or is enqueued.
 
 ```cpp
 #ifdef FK_CPU_MULTITHREAD_ENABLED
@@ -129,7 +129,7 @@ stream.sync();   // waits, and rethrows the first exception the work threw
 ```
 
 Stream rules (as with a CUDA stream):
-- Entry points enqueue and return. The executions of a stream run in order; different streams run concurrently.
+- `executeOperations` enqueues and returns. The executions of a stream run in order; different streams run concurrently.
 - `sync()` waits for the executions enqueued before it, and rethrows the first exception their work threw since the previous `sync()`. Called on a pool worker (e.g. inside `cpuThreadPool().submit(...)`), it runs queued work instead of blocking.
 - A stream holds at most 1024 pending executions; past that, enqueueing waits.
 - Copies of a stream share its queue; the last copy to be destroyed waits for the executions (errors nobody synced are lost).

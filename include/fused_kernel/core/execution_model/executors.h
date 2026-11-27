@@ -23,6 +23,11 @@
 #include <fused_kernel/algorithms/basic_ops/set.h>
 #include <fused_kernel/core/execution_model/stream.h>
 
+#if !defined(NVRTC_COMPILER)
+#include <stdexcept>
+#include <string>
+#endif
+
 #if defined(__NVCC__) || defined(__HIPCC__)
 #include <fused_kernel/core/execution_model/executor_details/executor_kernels.h>
 #endif
@@ -40,6 +45,19 @@ namespace fk {
         constexpr CtxDim3(const uint& x, const uint& y) : x(x), y(y), z(1) {}
         constexpr CtxDim3(const uint& x, const uint& y, const uint& z) : x(x), y(y), z(z) {}
     };
+#endif
+
+#if !defined(NVRTC_COMPILER)
+    namespace executor_detail {
+        // The executors of the DPPs that take details check them, and their IOps, on the host before anything is
+        // launched or enqueued: an invalid argument throws std::invalid_argument, naming the DPP and what is wrong
+        // (Oscar's decision, 2026-11-26)
+        inline void requireArguments(const bool valid, const char* dpp, const char* what) {
+            if (!valid) {
+                throw std::invalid_argument(std::string(dpp) + ": " + what);
+            }
+        }
+    } // namespace executor_detail
 #endif
 
     template <typename Child>
@@ -480,7 +498,8 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             const hipStream_t stream = stream_.getHIPStream();
 #endif
             const auto tDetails = TransformDPP<ARCH, TFEN>::build_details(iOps...);
-            if constexpr (decltype(tDetails)::TFI::ENABLED) {
+            using TDPPDetails = std::decay_t<decltype(tDetails)>;
+            if constexpr (TDPPDetails::TFI::ENABLED) {
                 if (!tDetails.threadAligned) {
                     // The buffers are not aligned for the vector accesses of thread fusion: run without it
                     launchWithoutThreadFusion(stream, iOps...);
@@ -493,9 +512,9 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
                 const dim3 block{ ctx_block.x, ctx_block.y, 1 };
                 const dim3 grid = getDefaultGrid(activeThreads, block);
                 if (!tDetails.threadDivisible) {
-                    launchTransformDPP_Kernel<ARCH, TFEN, false><<<grid, block, 0, stream>>>(tDetails, iOps...);
+                    launchDPP_Kernel<TransformDPP<ARCH, TFEN, TDPPDetails, false>><<<grid, block, 0, stream>>>(tDetails, iOps...);
                 } else {
-                    launchTransformDPP_Kernel<ARCH, TFEN, true><<<grid, block, 0, stream>>>(tDetails, iOps...);
+                    launchDPP_Kernel<TransformDPP<ARCH, TFEN, TDPPDetails, true>><<<grid, block, 0, stream>>>(tDetails, iOps...);
                 }
             } else {
                 launchWithoutThreadFusion(stream, iOps...);
@@ -511,13 +530,14 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
         template <typename StreamType, typename... IOps>
         FK_HOST_FUSE void launchWithoutThreadFusion(const StreamType stream, const IOps&... iOps) {
             const auto details = TransformDPP<ARCH, TF::DISABLED>::build_details(iOps...);
+            using TDPPDetails = std::decay_t<decltype(details)>;
             const ActiveThreads activeThreads = get_arg<0>(iOps...).getActiveThreads();
 
             const CtxDim3 ctx_block = getDefaultBlockSize(activeThreads.x, activeThreads.y);
 
             const dim3 block{ ctx_block.x, ctx_block.y, 1 };
             const dim3 grid = getDefaultGrid(activeThreads, block);
-            launchTransformDPP_Kernel<ARCH, TF::DISABLED, true><<<grid, block, 0, stream>>>(details, iOps...);
+            launchDPP_Kernel<TransformDPP<ARCH, TF::DISABLED, TDPPDetails, true>><<<grid, block, 0, stream>>>(details, iOps...);
 #if defined(__NVCC__)
             gpuErrchk(cudaGetLastError());
 #else
@@ -571,12 +591,10 @@ FK_HOST_FUSE void executeOperations(const std::array<Ptr2D<I>, Batch>& input, co
             const dim3 grid(ceil(activeThreads.x / static_cast<float>(block.x)),
                             ceil(activeThreads.y / static_cast<float>(block.y)), activeThreads.z);
 #if defined(__NVCC__)
-            launchDivergentBatchTransformDPP_Kernel<PA, SequenceSelector>
-                <<<grid, block, 0, stream.getCUDAStream()>>>(details, iOpSequences...);
+            launchDPP_Kernel<DPPType><<<grid, block, 0, stream.getCUDAStream()>>>(details, iOpSequences...);
             gpuErrchk(cudaGetLastError());
 #else
-            launchDivergentBatchTransformDPP_Kernel<PA, SequenceSelector>
-                <<<grid, block, 0, stream.getHIPStream()>>>(details, iOpSequences...);
+            launchDPP_Kernel<DPPType><<<grid, block, 0, stream.getHIPStream()>>>(details, iOpSequences...);
             gpuErrchk(hipGetLastError());
 #endif
         }

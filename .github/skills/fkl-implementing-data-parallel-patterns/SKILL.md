@@ -9,10 +9,65 @@ description: Implement a new Data Parallel Pattern (DPP) for the Fused Kernel Li
 
 A DPP is composed of three parts:
 
-- Executor implementation: as in include/fused_kernel/core/execution_model/executors.h
-- For GPU implementations, a kernel function that gets the DPP parameters and internally calls the DPP (for CPU, nothing;
-  for CPU_MULTITHREAD, the executor/entry function enqueues the DPP on the stream, see below).
+- Executor implementation: one `Executor<MyDPP<PA, ...>>` per back-end, as in
+  include/fused_kernel/core/execution_model/executors.h and the image-processing DPPs. Users call
+  `executeOperations<MyDPP<PA, DPPDetails>>(stream, details, iOps...)`; there are no per-DPP entry functions.
+- For GPU implementations, the kernel is always `launchDPP_Kernel<DPP, DPPDetails, IOps...>`
+  (include/fused_kernel/core/execution_model/executor_details/executor_kernels.h): it only calls
+  `DPP::exec(details, iOps...)`, every parameter `const __grid_constant__`. Do not write a kernel per DPP. For CPU the
+  executor calls `DPP::exec` directly; for CPU_MULTITHREAD it enqueues the DPP on the stream (see below).
 - The DPP implementation.
+
+The rule (repo owner's decision): each `executeOperations` call launches exactly ONE kernel, fixed by the template and
+parameter types (only TransformDPP chooses among its thread fusion variants at run time). The details come first
+after the stream. The executor checks them, and anything else it can check on the host, before it launches or enqueues
+anything: invalid arguments throw `std::invalid_argument` through
+`executor_detail::requireArguments(valid, "MyDPP", "what is wrong")`; executors return `void`, never a status.
+
+```cpp
+template <typename DPPDetails>
+struct Executor<MyDPP<ParArch::CPU, DPPDetails>> {
+private:
+    using DPP = MyDPP<ParArch::CPU, DPPDetails>;
+    using SelfType = Executor<DPP>;
+public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::CPU; }
+    template <typename InputIOp, typename OutputIOp>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::CPU>&, const DPPDetails& details,
+                                          const InputIOp& input, const OutputIOp& output) {
+        executor_detail::requireArguments(DPPDetails::valid(details), "MyDPP", "invalid details");
+        DPP::exec(details, input, output);
+    }
+};
+
+#if defined(__NVCC__) || defined(__HIPCC__)
+// One GPU executor for both GPUs, constrained as the GPU DPP is
+template <ParArch PA, typename DPPDetails>
+    requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)
+struct Executor<MyDPP<PA, DPPDetails>> {
+private:
+    using DPP = MyDPP<PA, DPPDetails>;
+    using SelfType = Executor<DPP>;
+public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return PA; }
+    template <typename InputIOp, typename OutputIOp>
+    FK_HOST_STATIC void executeOperations(Stream_<PA>& stream, const DPPDetails& details,
+                                          const InputIOp& input, const OutputIOp& output) {
+        executor_detail::requireArguments(DPPDetails::valid(details), "MyDPP", "invalid details");
+        const dim3 block(/* ... */), grid(/* ... */);
+#if defined(__HIPCC__)
+        launchDPP_Kernel<DPP><<<grid, block, 0, stream.getHIPStream()>>>(details, input, output);
+        gpuErrchk(hipGetLastError());
+#else
+        launchDPP_Kernel<DPP><<<grid, block, 0, stream.getCUDAStream()>>>(details, input, output);
+        gpuErrchk(cudaGetLastError());
+#endif
+    }
+};
+#endif
+```
 
 Every DPP must always have a single thread CPU implementation using the ParArch::CPU, and a ParArch::CPU_MULTITHREAD
 implementation that reuses it (see "The ParArch::CPU_MULTITHREAD implementation" below), and then it can have
@@ -156,8 +211,8 @@ The layering rule (mandatory, decided by the repo owner), the same as with a GPU
   enqueues them with `cpu_multithread::enqueueChunks(numChunks, chunkFunction, onComplete)`, returns, and calls the
   `Completion` exactly once when all its work has finished (passing `done` as `onComplete` does that, forwarding the
   first exception a chunk threw).
-- **Only executors and entry functions use the stream**: they validate synchronously, then
-  `stream.enqueue(...)` a lambda that calls `DPP::exec(done, ...)`.
+- **Only executors use the stream**: they validate synchronously (throwing `std::invalid_argument`, before anything
+  is enqueued), then `stream.enqueue(...)` a lambda that calls `DPP::exec(done, ...)`.
 - **The CPU version exposes `exec_row`**: the body of its outer row loop, as a public static function used by both
   its own `exec()` and the CPU_MULTITHREAD `exec()` (a multi-phase DPP exposes one per phase instead, like
   MorphologyDPP's `load_row`/`reduce_row`/`reduce_write_row`). Both run the same per-row code, so their results match:
@@ -203,16 +258,24 @@ public:
     }
 };
 
-// Entry function overload, next to the GPU/CPU ones (same name and argument order)
-template <typename DPPDetails, typename InputIOp, typename OutputIOp>
-inline bool executeMyDPP(const DPPDetails& details, const InputIOp& input, const OutputIOp& output,
-                         Stream_<ParArch::CPU_MULTITHREAD>& stream) {
-    if (!DPPDetails::valid(details)) return false;  // same validity behaviour as the other overloads
-    stream.enqueue([=](const cpu_multithread::Completion& done) {
-        MyDPP<ParArch::CPU_MULTITHREAD, DPPDetails>::exec(done, details, input, output);
-    });
-    return true;
-}
+// Its Executor, next to the CPU and GPU ones (the same arguments)
+template <typename DPPDetails>
+struct Executor<MyDPP<ParArch::CPU_MULTITHREAD, DPPDetails>> {
+private:
+    using DPP = MyDPP<ParArch::CPU_MULTITHREAD, DPPDetails>;
+    using SelfType = Executor<DPP>;
+public:
+    FK_STATIC_STRUCT(Executor, SelfType)
+    FK_HOST_FUSE ParArch parArch() { return ParArch::CPU_MULTITHREAD; }
+    template <typename InputIOp, typename OutputIOp>
+    FK_HOST_STATIC void executeOperations(Stream_<ParArch::CPU_MULTITHREAD>& stream, const DPPDetails& details,
+                                          const InputIOp& input, const OutputIOp& output) {
+        executor_detail::requireArguments(DPPDetails::valid(details), "MyDPP", "invalid details");  // as the others
+        stream.enqueue([=](const cpu_multithread::Completion& done) {
+            DPP::exec(done, details, input, output);
+        });
+    }
+};
 #endif
 ```
 
@@ -243,7 +306,7 @@ Rules:
 - Capture an `fk::Tuple` parameter of one element with an init-capture (`t = t`): a plain copy of a `const Tuple&`
   is a const member, and moving it (the pool and the stream move the callables) selects Tuple's forwarding
   constructor, which does not compile.
-- Entry points that take owning objects (`Ptr`, `Tensor`) may call `cpu_multithread::keepAlive(objects...)` before
+- Executors that take owning objects (`Ptr`, `Tensor`) may call `cpu_multithread::keepAlive(objects...)` before
   enqueueing, so the next execution enqueued from this thread keeps copies of them until it has finished; IOps only
   hold a `RawPtr`, so otherwise the buffers must stay valid until `sync()`.
 
@@ -278,8 +341,9 @@ apply([](const auto&... iOps) { return BackFuser::fuse_back(iOps...); }, tup);
 
 1. Add a utest header under `utests/<area>/`.
 2. Register it in the test list before `STOP_ADDING_TESTS`.
-3. Under `#ifdef FK_CPU_MULTITHREAD_ENABLED`, run every case also through the `Stream_<ParArch::CPU_MULTITHREAD>&`
-   entry point (host memory, then `stream.sync()`) and require the output to match the `ParArch::CPU` output, plus the
+3. Under `#ifdef FK_CPU_MULTITHREAD_ENABLED`, run every case also through
+   `executeOperations<MyDPP<ParArch::CPU_MULTITHREAD, ...>>` on a `Stream_<ParArch::CPU_MULTITHREAD>&` (host memory,
+   then `stream.sync()`) and require the output to match the `ParArch::CPU` output, plus the
    oracle checks: exactly (`memcmp` or `==`) for integer outputs and float pipelines without multiply-add, within a
    tight tolerance (e.g. 1e-5 relative) when floats are multiplied and added (fused multiply-add contraction). The same header is compiled by nvcc for the `_cu` target, so
    that code must compile there too. A test that means "GPU" must check
@@ -295,7 +359,11 @@ apply([](const auto&... iOps) { return BackFuser::fuse_back(iOps...); }, tup);
       only the attention DPPs are exempt
 - [ ] CPU_MULTITHREAD code under `#if defined(FK_CPU_MULTITHREAD_ENABLED) && !defined(NVRTC_COMPILER)`, outside any
       `__NVCC__`/`__HIPCC__` block; builds with the backend OFF
-- [ ] entry function overload taking `Stream_<ParArch::CPU_MULTITHREAD>&`, not ambiguous with the GPU `requires` ones
+- [ ] one `Executor<MyDPP<PA, ...>>` per back-end (CPU, CPU_MULTITHREAD, and a GPU one constrained with
+      `requires(PA == ParArch::GPU_NVIDIA || PA == ParArch::GPU_AMD)`), each running one kernel,
+      `launchDPP_Kernel<DPP>`; invalid arguments throw `std::invalid_argument` (`executor_detail::requireArguments`)
+      before anything runs; no per-DPP entry function, no per-DPP kernel
+- [ ] the utest checks that invalid arguments throw on every back-end
 - [ ] preconditions (aliasing, buffer lifetime until `sync()`) documented in a comment
 - [ ] utest instantiating every public alias/build path, with the CPU_MULTITHREAD path compared to ParArch::CPU
 - [ ] compiles warning-clean on nvcc AND clang (CUDA 12.x and 13.x)
